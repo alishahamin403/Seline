@@ -8,7 +8,7 @@ struct FilePickerButton: View {
     var body: some View {
         Button(action: { isPresentingFilePicker = true }) {
             Image(systemName: "paperclip")
-                .font(.system(size: 16, weight: .semibold))
+                .font(FontManager.geist(size: 16, weight: .semibold))
         }
         .fileImporter(
             isPresented: $isPresentingFilePicker,

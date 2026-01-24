@@ -38,11 +38,11 @@ struct FloatingAIBar: View {
             }) {
                 HStack(spacing: 12) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(FontManager.geist(size: 16, weight: .medium))
                         .foregroundColor(accentColor)
                     
                     Text(greetingText)
-                        .font(.system(size: 15, weight: .regular))
+                        .font(FontManager.geist(size: 15, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.85) : Color.black.opacity(0.7))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -103,10 +103,10 @@ struct FloatingAIBar: View {
                             case .failure(_), .empty:
                                 // Fallback to initials or default icon
                                 Image(systemName: "person.circle.fill")
-                                    .font(.system(size: 36, weight: .medium))
+                                    .font(FontManager.geist(size: 36, weight: .medium))
                             @unknown default:
                                 Image(systemName: "person.circle.fill")
-                                    .font(.system(size: 36, weight: .medium))
+                                    .font(FontManager.geist(size: 36, weight: .medium))
                             }
                         }
                         .frame(width: 36, height: 36)
@@ -121,12 +121,12 @@ struct FloatingAIBar: View {
                                 .frame(width: 36, height: 36)
                                 .overlay(
                                     Text(String(firstChar).uppercased())
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
                                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.85) : Color.black.opacity(0.7))
                                 )
                         } else {
                             Image(systemName: "person.circle.fill")
-                                .font(.system(size: 36, weight: .medium))
+                                .font(FontManager.geist(size: 36, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.85) : Color.black.opacity(0.7))
                         }
                     }

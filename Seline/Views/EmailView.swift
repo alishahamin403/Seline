@@ -2,6 +2,9 @@ import SwiftUI
 
 struct EmailView: View, Searchable {
     @StateObject private var emailService = EmailService.shared
+    @StateObject private var taskManager = TaskManager.shared
+    @StateObject private var tagManager = TagManager.shared
+    @StateObject private var locationsManager = LocationsManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedTab: EmailTab = .inbox
     @State private var selectedCategory: EmailCategory? = nil // nil means show all emails
@@ -11,6 +14,29 @@ struct EmailView: View, Searchable {
     @State private var searchText: String = ""
     @State private var selectedSearchEmail: Email? = nil
     @State private var isSearchActive: Bool = false
+
+    // Events tab state
+    @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+    @State private var selectedTagId: String? = nil
+    @State private var showPhotoImportDialog = false
+    @State private var showCameraActionSheet = false
+    @State private var cameraSourceType: UIImagePickerController.SourceType = .camera
+    @State private var selectedImage: UIImage?
+    @State private var showImagePicker = false
+    @State private var showAddEventPopup = false
+    @State private var addEventDate: Date = Date()
+    @State private var selectedTaskForViewing: TaskItem?
+    @State private var selectedTaskForEditing: TaskItem?
+    @State private var activeSheet: ActiveSheet?
+
+    enum ActiveSheet: Identifiable {
+        case viewTask
+        case editTask
+
+        var id: Int {
+            hashValue
+        }
+    }
 
     var currentEmails: [Email] {
         return emailService.getEmails(for: selectedTab.folder)
@@ -76,6 +102,106 @@ struct EmailView: View, Searchable {
             EmailDetailView(email: email)
                 .presentationBg()
         }
+        .confirmationDialog("Import Schedule", isPresented: $showPhotoImportDialog) {
+            Button("Take Photo") {
+                cameraSourceType = .camera
+                showImagePicker = true
+            }
+            Button("Choose from Library") {
+                cameraSourceType = .photoLibrary
+                showImagePicker = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Select a source to import your schedule")
+        }
+        .sheet(isPresented: $showImagePicker) {
+            CameraAndLibraryPicker(image: $selectedImage, sourceType: cameraSourceType)
+                .onDisappear {
+                    if selectedImage != nil {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showCameraActionSheet = true
+                        }
+                    }
+                }
+        }
+        .sheet(isPresented: $showCameraActionSheet) {
+            CameraActionSheetProcessing(
+                selectedImage: $selectedImage,
+                isPresented: $showCameraActionSheet
+            )
+            .presentationBg()
+        }
+        .sheet(item: $activeSheet) { sheet in
+            Group {
+                switch sheet {
+                case .viewTask:
+                    if let task = selectedTaskForViewing {
+                        NavigationView {
+                            ViewEventView(
+                                task: task,
+                                onEdit: {
+                                    selectedTaskForEditing = task
+                                    activeSheet = nil
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                        activeSheet = .editTask
+                                    }
+                                },
+                                onDelete: { taskToDelete in
+                                    taskManager.deleteTask(taskToDelete)
+                                    selectedTaskForViewing = nil
+                                    activeSheet = nil
+                                },
+                                onDeleteRecurringSeries: { taskToDelete in
+                                    taskManager.deleteRecurringTask(taskToDelete)
+                                    selectedTaskForViewing = nil
+                                    activeSheet = nil
+                                }
+                            )
+                        }
+                    }
+                case .editTask:
+                    if let task = selectedTaskForEditing {
+                        NavigationView {
+                            EditTaskView(
+                                task: task,
+                                onSave: { updatedTask in
+                                    taskManager.editTask(updatedTask)
+                                    selectedTaskForEditing = nil
+                                    activeSheet = nil
+                                },
+                                onCancel: {
+                                    selectedTaskForEditing = nil
+                                    activeSheet = nil
+                                },
+                                onDelete: { taskToDelete in
+                                    taskManager.deleteTask(taskToDelete)
+                                    selectedTaskForEditing = nil
+                                    activeSheet = nil
+                                },
+                                onDeleteRecurringSeries: { taskToDelete in
+                                    taskManager.deleteRecurringTask(taskToDelete)
+                                    selectedTaskForEditing = nil
+                                    activeSheet = nil
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            .presentationBg()
+        }
+        .sheet(isPresented: $showAddEventPopup) {
+            AddEventPopupView(
+                isPresented: $showAddEventPopup,
+                onSave: { title, description, date, time, endTime, reminder, recurring, frequency, customDays, tagId, location in
+                    addEventToCalendar(title: title, description: description, date: date, time: time, endTime: endTime, reminder: reminder, recurring: recurring, frequency: frequency, tagId: tagId, location: location)
+                },
+                initialDate: addEventDate,
+                initialTime: nil
+            )
+            .presentationBg()
+        }
     }
     
     @ViewBuilder
@@ -89,11 +215,13 @@ struct EmailView: View, Searchable {
                 searchBarSection(topPadding: 0)
             }
 
-            // Category filter slider
-            EmailCategoryFilterView(selectedCategory: $selectedCategory)
-                .onChange(of: selectedCategory) { _ in
-                    // Category change doesn't require reloading data, just filtering
-                }
+            // Category filter slider - hide in events tab
+            if selectedTab != .events {
+                EmailCategoryFilterView(selectedCategory: $selectedCategory)
+                    .onChange(of: selectedCategory) { _ in
+                        // Category change doesn't require reloading data, just filtering
+                    }
+            }
         }
         .background(
             (colorScheme == .dark ? Color.black : Color.white)
@@ -210,7 +338,9 @@ struct EmailView: View, Searchable {
     
     @ViewBuilder
     private var contentSection: some View {
-        if isSearchActive && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if selectedTab == .events {
+            eventsTabContent
+        } else if isSearchActive && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             searchResultsView
         } else {
             emailListView
@@ -268,21 +398,55 @@ struct EmailView: View, Searchable {
             Spacer()
             HStack {
                 Spacer()
-                Button(action: {
-                    openGmailCompose()
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 56, height: 56)
-                        .background(
-                            Circle()
-                                .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
-                        )
-                        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+
+                if selectedTab == .events {
+                    // Events tab: Camera and + buttons stacked vertically
+                    VStack(spacing: 12) {
+                        Button(action: {
+                            showPhotoImportDialog = true
+                        }) {
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                                .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
+                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Button(action: {
+                            addEventDate = selectedDate
+                            showAddEventPopup = true
+                        }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                                .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
+                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 30)
+                } else {
+                    // Email tabs: Compose button
+                    Button(action: {
+                        openGmailCompose()
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 56, height: 56)
+                            .background(
+                                Circle()
+                                    .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
+                            )
+                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                    }
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 30)
                 }
-                .padding(.trailing, 20)
-                .padding(.bottom, 30)
             }
         }
     }
@@ -324,6 +488,196 @@ struct EmailView: View, Searchable {
     private func refreshCurrentFolder() async {
         lastRefreshTime = Date()
         await emailService.loadEmailsForFolder(selectedTab.folder, forceRefresh: true)
+    }
+
+    // MARK: - Events Tab Content
+
+    private var eventsTabContent: some View {
+        VStack(spacing: 0) {
+            // Tag filter buttons
+            tagFilterButtons
+
+            // Month view content
+            monthViewContent
+        }
+        .background(
+            colorScheme == .dark ? Color.black : Color.white
+        )
+    }
+
+    private var tagFilterButtons: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // "All" button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTagId = nil
+                    }
+                }) {
+                    let isSelected = selectedTagId == nil
+                    let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme)
+
+                    Text("All")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Personal button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTagId = ""
+                    }
+                }) {
+                    let isSelected = selectedTagId == ""
+                    let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme)
+
+                    Text("Personal")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Sync button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTagId = "cal_sync"
+                    }
+                }) {
+                    let isSelected = selectedTagId == "cal_sync"
+                    let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme)
+
+                    Text("Sync")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // User-created tags
+                ForEach(tagManager.tags, id: \.id) { tag in
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedTagId = tag.id
+                        }
+                    }) {
+                        let isSelected = selectedTagId == tag.id
+                        let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex)
+
+                        Text(tag.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+    }
+
+    private func filterButtonTextColor(isSelected: Bool, accentColor: Color) -> Color {
+        if isSelected {
+            return Color.white
+        } else {
+            return Color.shadcnForeground(colorScheme)
+        }
+    }
+
+    private func filterButtonBackground(isSelected: Bool, accentColor: Color) -> some View {
+        Capsule()
+            .fill(isSelected ?
+                accentColor :
+                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+    }
+
+    private var monthViewContent: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 0) {
+                    // Calendar month grid
+                    CalendarMonthView(
+                        selectedDate: $selectedDate,
+                        selectedTagId: selectedTagId,
+                        onTapEvent: { task in
+                            selectedTaskForViewing = task
+                            activeSheet = .viewTask
+                        },
+                        onAddEvent: { date in
+                            addEventDate = date
+                            showAddEventPopup = true
+                        }
+                    )
+
+                    // Agenda view for selected date
+                    CalendarAgendaView(
+                        selectedDate: selectedDate,
+                        selectedTagId: selectedTagId,
+                        onTapEvent: { task in
+                            selectedTaskForViewing = task
+                            activeSheet = .viewTask
+                        },
+                        onToggleCompletion: { task in
+                            taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                        },
+                        onAddEvent: { date in
+                            addEventDate = date
+                            showAddEventPopup = true
+                        }
+                    )
+                    .id("agendaView")
+                }
+            }
+            .onChange(of: selectedDate) { _ in
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    proxy.scrollTo("agendaView", anchor: .top)
+                }
+            }
+        }
+    }
+
+    private func addEventToCalendar(title: String, description: String?, date: Date, time: Date?, endTime: Date?, reminder: ReminderTime?, recurring: Bool, frequency: RecurrenceFrequency?, tagId: String?, location: String?) {
+        let calendar = Calendar.current
+        let weekdayIndex = calendar.component(.weekday, from: date)
+        let weekday: WeekDay
+        switch weekdayIndex {
+        case 1: weekday = .sunday
+        case 2: weekday = .monday
+        case 3: weekday = .tuesday
+        case 4: weekday = .wednesday
+        case 5: weekday = .thursday
+        case 6: weekday = .friday
+        case 7: weekday = .saturday
+        default: weekday = .monday
+        }
+
+        taskManager.addTask(
+            title: title,
+            to: weekday,
+            description: description,
+            scheduledTime: time,
+            endTime: endTime,
+            targetDate: date,
+            reminderTime: reminder,
+            location: location,
+            isRecurring: recurring,
+            recurrenceFrequency: frequency,
+            tagId: tagId
+        )
     }
 
     private func openGmailCompose() {

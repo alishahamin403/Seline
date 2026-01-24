@@ -41,7 +41,7 @@ struct CameraActionSheetProcessing: View {
 
                         VStack(spacing: 16) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 50))
+                                .font(FontManager.geist(size: 50, weight: .regular))
                                 .foregroundColor(.orange)
 
                             VStack(spacing: 8) {

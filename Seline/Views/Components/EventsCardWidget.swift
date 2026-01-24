@@ -132,7 +132,7 @@ struct EventsCardWidget: View {
     private func tagColorIndicatorRow(_ type: TimelineEventColorManager.FilterType, colorIndex: Int?) -> some View {
         let color = filterAccentColor(type, colorIndex)
         return Text(filterDisplayNameForType(type))
-            .font(.system(size: 9, weight: .medium))
+            .font(FontManager.geist(size: 9, weight: .medium))
             .foregroundColor(.white) // Always white text in both dark and light mode
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -152,7 +152,7 @@ struct EventsCardWidget: View {
         return HStack(spacing: 10) {
             // Completion status icon - tappable
             Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 15, weight: .medium))
+                .font(FontManager.geist(size: 15, weight: .medium))
                 .foregroundColor(isTaskCompleted ? circleColor : circleColor.opacity(0.4))
                 .onTapGesture {
                     HapticManager.shared.selection()
@@ -161,35 +161,18 @@ struct EventsCardWidget: View {
 
             // Event title
             Text(task.title)
-                .font(.system(size: 13, weight: .regular))
+                .font(FontManager.geist(size: 13, weight: .regular))
                 .foregroundColor(isTaskCompleted ? (colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)) : (colorScheme == .dark ? Color.white : Color.black))
                 .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                 .lineLimit(1)
                 .truncationMode(.tail)
-
-            // Location Badge
-            if let location = task.location, !location.isEmpty {
-                 HStack(spacing: 2) {
-                     Image(systemName: "mappin.circle.fill")
-                         .font(.system(size: 10))
-                     Text(location)
-                         .font(.system(size: 10, weight: .medium))
-                 }
-                 .foregroundColor(colorScheme == .dark ? .white : .black)
-                 .padding(.horizontal, 6)
-                 .padding(.vertical, 2)
-                 .background(
-                     RoundedRectangle(cornerRadius: 4)
-                         .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
-                 )
-            }
 
             Spacer()
 
             // Event time
             if let scheduledTime = task.scheduledTime {
                 Text(formatTime(scheduledTime))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(isTaskCompleted ? (colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45)) : (colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65)))
                     .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
             }
@@ -252,8 +235,8 @@ struct EventsCardWidget: View {
             // Must have a scheduled time (not all day)
             guard let scheduledTime = task.scheduledTime, let targetDate = task.targetDate else { return false }
             
-            // Filter out completed, deleted, and dismissed tasks
-            if task.isCompleted || task.isDeleted || dismissed.contains(task.id) {
+            // Filter out completed, deleted, dismissed, and synced tasks
+            if task.isCompleted || task.isDeleted || dismissed.contains(task.id) || task.id.hasPrefix("cal_") {
                 return false
             }
             
@@ -279,13 +262,15 @@ struct EventsCardWidget: View {
             // Header with "Todos"
             HStack(spacing: 12) {
                 Text("Todos")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
 
                 Spacer()
 
                 Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 32, height: 32)
                     .background(
@@ -300,50 +285,105 @@ struct EventsCardWidget: View {
             
             // Overdue Tasks Alert
             if !overdueEvents.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(.red)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
                         Text("Overdue")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.red)
+                            .font(FontManager.geist(size: 13, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                        
+                        Text("\(overdueEvents.count)")
+                            .font(FontManager.geist(size: 10, weight: .bold))
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(colorScheme == .dark ? Color.white : Color.black))
+                            
                         Spacer()
                     }
+                    .padding(.bottom, 2)
                     
-                    ForEach(overdueEvents.prefix(3)) { task in
-                        HStack(spacing: 8) {
-                            Text(task.title)
-                                .font(.system(size: 12))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .lineLimit(1)
-                            
-                            Spacer()
-                            
-                            if let targetDate = task.targetDate {
-                                Text(formatDateShort(targetDate))
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.red.opacity(0.8))
-                            }
-                            
-                            Button(action: {
-                                withAnimation {
-                                    dismissTask(task.id)
+                    VStack(spacing: 2) {
+                        ForEach(overdueEvents.prefix(3)) { task in
+                            HStack(spacing: 10) {
+                                // Checkbox - Matched size to standard row
+                                Button(action: {
+                                    HapticManager.shared.selection()
+                                    // Complete the overdue task as of today
+                                    taskManager.toggleTaskCompletion(task, forDate: Date())
+                                }) {
+                                    Image(systemName: "circle")
+                                        .font(FontManager.geist(size: 15, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                 }
-                            }) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.gray)
-                                    .padding(4)
+                                .buttonStyle(PlainButtonStyle())
+
+                                // Task Info - Matched font to standard row
+                                Text(task.title)
+                                    .font(FontManager.geist(size: 13, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .lineLimit(1)
+                                
+                                Spacer()
+                                
+                                if let targetDate = task.targetDate {
+                                    Text(formatDateShort(targetDate))
+                                        .font(FontManager.geist(size: 12, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.65) : .black.opacity(0.65))
+                                }
+                                
+                                // Dismiss button
+                                Button(action: {
+                                    HapticManager.shared.selection()
+                                    dismissTask(task.id)
+                                }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(FontManager.geist(size: 16, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
-                            .buttonStyle(PlainButtonStyle())
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                HapticManager.shared.cardTap()
+                                selectedTask = task
+                                showingEditTask = true // Directly open edit mode
+                            }
+                            .contextMenu {
+                                Button {
+                                    HapticManager.shared.selection()
+                                    taskManager.toggleTaskCompletion(task, forDate: Date())
+                                } label: {
+                                    Label("Mark Complete", systemImage: "checkmark.circle")
+                                }
+                                
+                                Button {
+                                    HapticManager.shared.selection()
+                                    selectedTask = task
+                                    showingEditTask = true
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                
+                                Divider()
+                                
+                                Button {
+                                    HapticManager.shared.selection()
+                                    dismissTask(task.id)
+                                } label: {
+                                    Label("Dismiss", systemImage: "xmark.circle")
+                                }
+                                
+                                Divider()
+                                
+                                Button(role: .destructive) {
+                                    HapticManager.shared.warning()
+                                    taskManager.deleteTask(task)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.red.opacity(0.1))
-                        )
                     }
                 }
                 .padding(.bottom, 6)
@@ -366,11 +406,11 @@ struct EventsCardWidget: View {
                 if sortedEvents.isEmpty {
                     Text("No events")
 
-                        .font(.system(size: 14, weight: .regular))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
                         .padding(.vertical, 8)
                 } else {
-                    ForEach(Array(sortedEvents.prefix(8)), id: \.id) { task in
+                    ForEach(sortedEvents, id: \.id) { task in
                         eventRow(task)
                     }
                 }

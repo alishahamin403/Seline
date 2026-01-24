@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Foundation
 
 struct ViewEventView: View {
     let task: TaskItem
@@ -153,7 +154,7 @@ struct ViewEventView: View {
                         showingShareSheet = true
                     }) {
                         Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 16))
+                            .font(FontManager.geist(size: 16, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
 
@@ -162,7 +163,7 @@ struct ViewEventView: View {
                         onEdit()
                     }) {
                         Image(systemName: "pencil")
-                            .font(.system(size: 16))
+                            .font(FontManager.geist(size: 16, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                     
@@ -176,7 +177,7 @@ struct ViewEventView: View {
                         }
                     }) {
                         Image(systemName: "trash")
-                            .font(.system(size: 16))
+                            .font(FontManager.geist(size: 16, weight: .regular))
                             .foregroundColor(.red)
                     }
                 }
@@ -210,11 +211,11 @@ struct ViewEventView: View {
             // Event Type Badge
             HStack(spacing: 6) {
                 Image(systemName: eventTypeIcon)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(eventTypeColor)
                 
                 Text(eventTypeName)
-                    .font(.system(size: 12, weight: .regular))
+                    .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(eventTypeColor)
             }
             .padding(.horizontal, 10)
@@ -226,7 +227,7 @@ struct ViewEventView: View {
             
             // Title
             Text(task.title)
-                .font(.system(size: 24, weight: .regular))
+                .font(FontManager.geist(size: 24, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .lineLimit(3)
         }
@@ -238,7 +239,7 @@ struct ViewEventView: View {
     private var dateTimeCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Date & Time")
-                .font(.system(size: 12, weight: .regular))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                 .textCase(.uppercase)
                 .tracking(0.5)
@@ -247,12 +248,12 @@ struct ViewEventView: View {
                 // Date
                 HStack(spacing: 12) {
                     Image(systemName: "calendar")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(FontManager.geist(size: 16, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                         .frame(width: 20)
                     
                     Text(formattedDate)
-                        .font(.system(size: 15, weight: .regular))
+                        .font(FontManager.geist(size: 15, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                     
                     Spacer()
@@ -262,12 +263,12 @@ struct ViewEventView: View {
                 if task.scheduledTime != nil || task.endTime != nil {
                     HStack(spacing: 12) {
                         Image(systemName: "clock")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(FontManager.geist(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                             .frame(width: 20)
                         
                         Text(task.formattedTimeRange)
-                            .font(.system(size: 15, weight: .regular))
+                            .font(FontManager.geist(size: 15, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         
                         Spacer()
@@ -283,7 +284,7 @@ struct ViewEventView: View {
     private var recurrenceReminderCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Settings")
-                .font(.system(size: 12, weight: .regular))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                 .textCase(.uppercase)
                 .tracking(0.5)
@@ -293,12 +294,12 @@ struct ViewEventView: View {
                 if task.isRecurring, let frequency = task.recurrenceFrequency {
                     HStack(spacing: 12) {
                         Image(systemName: "repeat")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(FontManager.geist(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                             .frame(width: 20)
                         
                         Text(frequency.rawValue.capitalized)
-                            .font(.system(size: 15, weight: .regular))
+                            .font(FontManager.geist(size: 15, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         
                         Spacer()
@@ -309,12 +310,12 @@ struct ViewEventView: View {
                 if let reminderTime = task.reminderTime, reminderTime != .none {
                     HStack(spacing: 12) {
                         Image(systemName: reminderTime.icon)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(FontManager.geist(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                             .frame(width: 20)
                         
                         Text(reminderTime.displayName)
-                            .font(.system(size: 15, weight: .regular))
+                            .font(FontManager.geist(size: 15, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         
                         Spacer()
@@ -330,13 +331,14 @@ struct ViewEventView: View {
     private func descriptionCard(_ description: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Description")
-                .font(.system(size: 12, weight: .regular))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                 .textCase(.uppercase)
                 .tracking(0.5)
             
-            Text(description)
-                .font(.system(size: 15, weight: .regular))
+            // Make URLs clickable in description
+            makeClickableDescriptionText(description)
+                .font(FontManager.geist(size: 15, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -345,37 +347,237 @@ struct ViewEventView: View {
         .shadcnTileStyle(colorScheme: colorScheme)
     }
     
+    // Helper to make URLs clickable in description text
+    private func makeClickableDescriptionText(_ text: String) -> some View {
+        // Extract URLs from text using regex
+        let urlPattern = #"https?://[^\s<>"{}|\\^`\[\]]+"#
+        let regex = try? NSRegularExpression(pattern: urlPattern, options: [])
+        let nsString = text as NSString
+        let matches = regex?.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length)) ?? []
+        
+        // If no URLs found, return plain text
+        if matches.isEmpty {
+            return AnyView(Text(text))
+        }
+        
+        // Build attributed string with clickable links
+        var attributedString = AttributedString(text)
+        for match in matches.reversed() {
+            let urlString = nsString.substring(with: match.range)
+            if let url = URL(string: urlString),
+               let range = Range(match.range, in: attributedString) {
+                attributedString[range].link = url
+                attributedString[range].foregroundColor = colorScheme == .dark ? Color.blue : Color.blue
+                attributedString[range].underlineStyle = .single
+            }
+        }
+        
+        return AnyView(Text(attributedString))
+    }
+    
     private func locationCard(_ location: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let locationType = detectLocationType(location)
+        
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Location")
-                .font(.system(size: 12, weight: .regular))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                 .textCase(.uppercase)
                 .tracking(0.5)
             
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "mappin.and.ellipse")
-                    .font(.system(size: 16, weight: .medium))
+                Image(systemName: locationType.icon)
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     .frame(width: 20)
 
                 Text(location)
-                    .font(.system(size: 15, weight: .regular))
+                    .font(FontManager.geist(size: 15, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .fixedSize(horizontal: false, vertical: true)
                 
                 Spacer()
             }
+            
+            // Dynamic button based on location type
+            Button(action: {
+                openLocation(location: location, type: locationType)
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: locationType.buttonIcon)
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                    Text(locationType.buttonText)
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                }
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1), lineWidth: 1)
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .shadcnTileStyle(colorScheme: colorScheme)
     }
     
+    // Detect location type: Teams, Zoom, or Map
+    private enum LocationType {
+        case teams
+        case zoom
+        case map
+        
+        var icon: String {
+            switch self {
+            case .teams: return "video.fill"
+            case .zoom: return "video.fill"
+            case .map: return "mappin.and.ellipse"
+            }
+        }
+        
+        var buttonIcon: String {
+            switch self {
+            case .teams: return "video.fill"
+            case .zoom: return "video.fill"
+            case .map: return "map.fill"
+            }
+        }
+        
+        var buttonText: String {
+            switch self {
+            case .teams: return "Open Teams"
+            case .zoom: return "Open Zoom"
+            case .map: return "Open in Maps"
+            }
+        }
+    }
+    
+    private func detectLocationType(_ location: String) -> LocationType {
+        let lowercased = location.lowercased()
+        
+        // Check for Teams link (check both text and URLs)
+        if lowercased.contains("teams.microsoft.com") ||
+           lowercased.contains("microsoft teams") ||
+           lowercased.contains("msteams://") ||
+           lowercased.contains("https://teams.microsoft.com/") ||
+           lowercased.contains("https://aka.ms/jointeamsmeeting") ||
+           lowercased.contains("msteams:") {
+            return .teams
+        }
+        
+        // Check for Zoom link (check both text and URLs)
+        if lowercased.contains("zoom.us") ||
+           lowercased.contains("zoom.com") ||
+           lowercased.contains("zoom meeting") ||
+           lowercased.contains("https://zoom.us/") ||
+           lowercased.contains("https://us0") ||
+           lowercased.contains("https://us02") ||
+           lowercased.contains("https://us04") ||
+           lowercased.contains("zoommtg://") ||
+           lowercased.contains("zoom:") {
+            return .zoom
+        }
+        
+        // Default to map location
+        return .map
+    }
+    
+    private func openLocation(location: String, type: LocationType) {
+        switch type {
+        case .teams:
+            // Extract Teams URL from location string first, then description
+            var teamsURL: URL? = extractURL(from: location, patterns: [
+                "https://teams.microsoft.com/[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                "https://aka.ms/[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                "msteams://[^\\s<>\"{}|\\\\^`\\[\\]]+"
+            ])
+            
+            // If not found in location, search in description
+            if teamsURL == nil, let description = task.description {
+                teamsURL = extractURL(from: description, patterns: [
+                    "https://teams.microsoft.com/[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                    "https://aka.ms/[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                    "msteams://[^\\s<>\"{}|\\\\^`\\[\\]]+"
+                ])
+            }
+            
+            if let url = teamsURL {
+                UIApplication.shared.open(url)
+            } else {
+                print("⚠️ No Teams URL found in location or description")
+            }
+            
+        case .zoom:
+            // Extract Zoom URL from location string first, then description
+            var zoomURL: URL? = extractURL(from: location, patterns: [
+                "https://zoom.us/[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                "https://us0[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                "https://us02[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                "https://us04[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                "zoommtg://[^\\s<>\"{}|\\\\^`\\[\\]]+"
+            ])
+            
+            // If not found in location, search in description
+            if zoomURL == nil, let description = task.description {
+                zoomURL = extractURL(from: description, patterns: [
+                    "https://zoom.us/[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                    "https://us0[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                    "https://us02[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                    "https://us04[^\\s<>\"{}|\\\\^`\\[\\]]+",
+                    "zoommtg://[^\\s<>\"{}|\\\\^`\\[\\]]+"
+                ])
+            }
+            
+            if let url = zoomURL {
+                UIApplication.shared.open(url)
+            } else {
+                print("⚠️ No Zoom URL found in location or description")
+            }
+            
+        case .map:
+            // Open in Maps
+            let encodedLocation = location.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            if let url = URL(string: "http://maps.apple.com/?q=\(encodedLocation)") {
+                UIApplication.shared.open(url)
+            }
+        }
+    }
+    
+    private func extractURL(from text: String, patterns: [String]) -> URL? {
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+               let match = regex.firstMatch(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count)),
+               let range = Range(match.range, in: text) {
+                var urlString = String(text[range])
+                
+                // Clean up URL: remove trailing punctuation/whitespace
+                urlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+                urlString = urlString.trimmingCharacters(in: CharacterSet(charactersIn: "<>\"{}|\\^`[]"))
+                
+                // Try to create URL
+                if let url = URL(string: urlString) {
+                    // Validate it's not an empty scheme-only URL like "msteams://"
+                    if !urlString.hasSuffix("://") {
+                        return url
+                    }
+                }
+            }
+        }
+        return nil
+    }
+    
     private var emailAttachmentCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Attached Email")
-                .font(.system(size: 12, weight: .regular))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                 .textCase(.uppercase)
                 .tracking(0.5)

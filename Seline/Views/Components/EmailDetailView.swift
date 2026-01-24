@@ -1,188 +1,1107 @@
 import SwiftUI
+import WebKit
+import QuickLook
 
 struct EmailDetailView: View {
     let email: Email
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.presentationMode) private var presentationMode // Backup dismissal for fullScreenCover
     @StateObject private var emailService = EmailService.shared
     @StateObject private var openAIService = DeepSeekService.shared
-    @State private var isOriginalEmailExpanded: Bool = false
+    @State private var isOriginalEmailExpanded: Bool = true // Expand by default like Gmail
     @State private var fullEmail: Email? = nil
     @State private var isLoadingFullBody: Bool = false
     @State private var showAddEventSheet: Bool = false
     @State private var showSaveFolderSheet: Bool = false
+    @State private var showForwardSheet: Bool = false
+    @State private var isSenderInfoExpanded: Bool = false
+    
+    // Inline reply states
+    @State private var showReplySection: Bool = false
+    @State private var isForwardMode: Bool = false
+    @State private var showCcBcc: Bool = false
+    @State private var toRecipients: String = ""
+    @State private var ccRecipients: String = ""
+    @State private var bccRecipients: String = ""
+    @State private var replyBody: String = ""
+    @State private var isSending: Bool = false
+    @State private var sendError: String? = nil
+    @State private var showSentSuccess: Bool = false
+    @State private var isCleaningUpText: Bool = false
+    @FocusState private var focusedField: Field?
+    
+    // Smart reply states
+    @State private var showSmartReplyOptions: Bool = false
+    @State private var isGeneratingSmartReply: Bool = false
+    @State private var smartReplyPrompt: String = ""
+    @State private var loadingChipLabel: String? = nil
+
+    // Profile picture
+    @State private var profilePictureUrl: String?
+
+    // HTML content height for proper scrolling
+    @State private var htmlContentHeight: CGFloat = 300
+
+    // Unsubscribe states
+    @State private var showUnsubscribeConfirmation: Bool = false
+    @State private var isUnsubscribing: Bool = false
+    @State private var unsubscribeError: String? = nil
+    @State private var showUnsubscribeSuccess: Bool = false
+
+    enum Field: Hashable {
+        case to, cc, bcc, body, smartPrompt
+    }
 
     var body: some View {
-        NavigationView {
-            GeometryReader { geometry in
+        ZStack(alignment: .bottom) {
+            // Main scrollable content
+            ScrollView {
                 VStack(spacing: 0) {
-                    // Main content
-                    ScrollView {
-                        VStack(spacing: 20) {
-                            // Email Header
-                            headerSection
-                                .padding(.horizontal, 20)
+                    // Subject with Inbox label (Gmail style)
+                    gmailSubjectSection
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
 
-                            // Sender/Recipient Information
-                            CompactSenderView(email: email)
-                                .padding(.horizontal, 20)
+                    // Sender/Recipient Information (Gmail style)
+                    // Remove padding here - padding is handled inside gmailSenderSection
+                    gmailSenderSection
+                        .padding(.top, 16)
 
-                            // AI Summary Section - always show
-                            AISummaryCard(
-                                email: email,
-                                onGenerateSummary: { email, forceRegenerate in
-                                    await generateAISummary(for: email, forceRegenerate: forceRegenerate)
-                                }
-                            )
-                            .padding(.horizontal, 20)
-
-                            // Original Email Content Section (Full Width)
-                            originalEmailSection
-
-                            // Attachments Section
-                            if !(fullEmail ?? email).attachments.isEmpty {
-                                attachmentsSection
-                                    .padding(.horizontal, 20)
-                            }
-
-                            // Bottom spacing to account for fixed buttons
-                            Spacer()
-                                .frame(height: 40)
-                        }
-                        .padding(.top, 24)
-                    }
-
-                    // Fixed action buttons at bottom
-                    VStack(spacing: 0) {
-                        EmailActionButtons(
+                    // AI Summary Section - Collapse when replying
+                    if !showReplySection {
+                        AISummaryCard(
                             email: email,
-                            onReply: {
-                                emailService.replyToEmail(email)
-                            },
-                            onForward: {
-                                emailService.forwardEmail(email)
-                            },
-                            onDelete: {
-                                Task {
-                                    do {
-                                        try await emailService.deleteEmail(email)
-                                        dismiss()
-                                    } catch {
-                                        print("Failed to delete email: \(error.localizedDescription)")
-                                        // You could show an alert here if needed
-                                    }
-                                }
-                            },
-                            onMarkAsUnread: {
-                                emailService.markAsUnread(email)
-                                dismiss()
-                            },
-                            onAddEvent: !isLoadingFullBody ? {
-                                showAddEventSheet = true
-                            } : nil,
-                            onSave: {
-                                showSaveFolderSheet = true
+                            onGenerateSummary: { email, forceRegenerate in
+                                await generateAISummary(for: email, forceRegenerate: forceRegenerate)
                             }
                         )
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 4)
-                        .padding(.top, 4)
-                        .background(
-                            colorScheme == .dark ?
-                                Color.gmailDarkBackground :
-                                Color.white
-                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 20) // More space between sender box and AI summary
                     }
+
+                    // Reply Section - ABOVE original email when shown
+                    if showReplySection {
+                        gmailReplySection
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
+                    }
+
+                    // Original Email Content - Expanded by default
+                    gmailEmailBodySection
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+
+                    // Bottom spacing for fixed bottom elements
+                    Spacer()
+                        .frame(height: hasAttachments ? 160 : 100)
                 }
-                .background(
-                    colorScheme == .dark ?
-                        Color.gmailDarkBackground :
-                        Color.white
-                )
+                .padding(.top, 8)
+            }
+
+            // Fixed bottom section with attachments + action bar
+            VStack(spacing: 0) {
+                // Modern floating attachments section
+                if hasAttachments {
+                    modernAttachmentsSection
+                }
+
+                // Reply/Forward bar
+                gmailBottomActionBar
             }
         }
-        .navigationViewStyle(StackNavigationViewStyle())
+        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color(UIColor.systemBackground))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Left: Back button - larger tap area, immediate dismiss
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    // Dismiss keyboard first
+                    focusedField = nil
+                    // Use both dismissal methods for reliability (fullScreenCover + NavigationLink)
+                    dismiss()
+                    presentationMode.wrappedValue.dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            
+            // Right: Action buttons (Gmail style) - Trash at the end, colored red
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                // Save to Event
+                Button(action: { showAddEventSheet = true }) {
+                    Image(systemName: "calendar.badge.plus")
+                        .font(FontManager.geist(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                
+                // Save to Folder
+                Button(action: { showSaveFolderSheet = true }) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(FontManager.geist(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                
+                // Mark as Unread
+                Button(action: {
+                    emailService.markAsUnread(email)
+                    dismiss()
+                }) {
+                    Image(systemName: "envelope")
+                        .font(FontManager.geist(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                
+                // Delete - RED and at rightmost position
+                Button(action: {
+                    Task {
+                        do {
+                            try await emailService.deleteEmail(email)
+                            dismiss()
+                        } catch {
+                            print("Failed to delete: \(error)")
+                        }
+                    }
+                }) {
+                    Image(systemName: "trash")
+                        .font(FontManager.geist(size: 16, weight: .medium))
+                        .foregroundColor(.red)
+                }
+            }
+        }
         .sheet(isPresented: $showAddEventSheet) {
             AddEventFromEmailView(email: fullEmail ?? email)
         }
-    .presentationBg()
+        .presentationBg()
         .sheet(isPresented: $showSaveFolderSheet) {
             SaveFolderSelectionSheet(email: email, isPresented: $showSaveFolderSheet)
         }
-    .presentationBg()
+        .presentationBg()
+        .fullScreenCover(isPresented: $showForwardSheet) {
+            EmailComposeView(
+                email: fullEmail ?? email,
+                mode: .forward,
+                onDismiss: { showForwardSheet = false }
+            )
+        }
         .onAppear {
-            // Mark email as read when view appears
+            // Reset content height for new email
+            htmlContentHeight = 300
+
             if !email.isRead {
                 emailService.markAsRead(email)
             }
-
-            // Fetch full email body if not already loaded
+            toRecipients = email.sender.email
             Task {
                 await fetchFullEmailBodyIfNeeded()
+                await fetchProfilePicture()
             }
         }
     }
+    
+    // MARK: - Gmail Style Subject Section
+    
+    private var gmailSubjectSection: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(email.subject)
+                .font(FontManager.geist(size: 20, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .multilineTextAlignment(.leading)
+            
+            Spacer()
+        }
+    }
+    
+    // MARK: - Gmail Style Sender Section
+    
+    private var gmailSenderSection: some View {
+        VStack(spacing: 0) {
+            // Main row - always visible (no box)
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSenderInfoExpanded.toggle()
+                }
+            }) {
+                HStack(spacing: 12) {
+                    // Avatar
+                    gmailAvatarView
+                    
+                    // Sender info
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 8) {
+                            Text(email.sender.shortDisplayName)
+                                .font(FontManager.geist(size: 14, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                            
+                            Text(email.formattedTime)
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                        }
+                        
+                        HStack(spacing: 4) {
+                            Text("to me")
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
+                            
+                            Image(systemName: isSenderInfoExpanded ? "chevron.up" : "chevron.down")
+                                .font(FontManager.geist(size: 10, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
+                        }
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(PlainButtonStyle())
+            
+            // Expanded details - IN A BOX (matches AI Summary margins - end to end)
+            if isSenderInfoExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    gmailDetailRow(label: "From", name: email.sender.displayName, email: email.sender.email)
+                    gmailDetailRow(label: "To", name: email.recipients.first?.displayName ?? "Me", email: email.recipients.first?.email ?? "")
+                    gmailDetailRow(label: "Date", name: formatFullDate(email.timestamp), email: "")
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
+                )
+                .padding(.horizontal, -16) // Negative padding to extend background edge-to-edge
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+    
+    private func gmailDetailRow(label: String, name: String, email: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(FontManager.geist(size: 11, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
+                .frame(width: 50, alignment: .leading)
+            
+            VStack(alignment: .leading, spacing: 1) {
+                if !name.isEmpty {
+                    Text(name)
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                if !email.isEmpty {
+                    Text(email)
+                        .font(FontManager.geist(size: 11, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
+                }
+            }
+        }
+    }
+    
+    private func formatFullDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy 'at' h:mm a"
+        return formatter.string(from: date)
+    }
+    
+    @ViewBuilder
+    private var gmailAvatarView: some View {
+        if let pictureUrl = profilePictureUrl, !pictureUrl.isEmpty {
+            AsyncImage(url: URL(string: pictureUrl)) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 40, height: 40)
+                        .clipShape(Circle())
+                default:
+                    fallbackAvatar
+                }
+            }
+        } else {
+            fallbackAvatar
+        }
+    }
+    
+    private var fallbackAvatar: some View {
+        // Use same Google brand colors as EmailRow for consistency
+        let colors: [Color] = [
+            Color(red: 0.2588, green: 0.5216, blue: 0.9569),  // Google Blue #4285F4
+            Color(red: 0.9176, green: 0.2627, blue: 0.2078),  // Google Red #EA4335
+            Color(red: 0.9843, green: 0.7373, blue: 0.0157),  // Google Yellow #FBBC04
+            Color(red: 0.2039, green: 0.6588, blue: 0.3255),  // Google Green #34A853
+        ]
+        // Use deterministic hash for consistent color across app restarts
+        let hash = HashUtils.deterministicHash(email.sender.email)
+        let color = colors[abs(hash) % colors.count]
+        
+        return Circle()
+            .fill(color)
+            .frame(width: 40, height: 40)
+            .overlay(
+                Text(email.sender.shortDisplayName.prefix(1).uppercased())
+                    .font(FontManager.geist(size: 18, weight: .medium))
+                    .foregroundColor(.white)
+            )
+    }
+    
+    // MARK: - Gmail Style Email Body Section
 
+    private var gmailEmailBodySection: some View {
+        VStack(spacing: 0) {
+            if isLoadingFullBody {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Loading email...")
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                }
+                .frame(height: 150)
+                .frame(maxWidth: .infinity)
+            } else {
+                let bodyContent = (fullEmail ?? email).body ?? email.snippet
+                let hasHTML = bodyContent.contains("<") && bodyContent.contains(">")
 
-    // MARK: - Full Email Body Fetching
+                if hasHTML {
+                    // Use ZoomableHTMLView - expands to content height, no internal scroll
+                    // Parent ScrollView handles all scrolling
+                    ZoomableHTMLView(htmlContent: bodyContent, contentHeight: $htmlContentHeight)
+                        .frame(height: max(300, htmlContentHeight))
+                        .frame(maxWidth: .infinity)
+                } else {
+                    // Plain text - show full content with proper text selection
+                    Text(bodyContent)
+                        .font(FontManager.geist(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.85))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true) // Allow full height
+                        .padding(.vertical, 12)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Gmail Style Bottom Action Bar
 
-    private func fetchFullEmailBodyIfNeeded() async {
-        // Only fetch if we don't have a body or if body is empty/snippet only
-        guard let messageId = email.gmailMessageId else { return }
-        guard email.body == nil || email.body?.isEmpty == true else {
-            fullEmail = email
+    private var gmailBottomActionBar: some View {
+        VStack(spacing: 8) {
+            // Unsubscribe banner (if available)
+            if let unsubInfo = (fullEmail ?? email).unsubscribeInfo, unsubInfo.hasUnsubscribeOption {
+                unsubscribeBanner(unsubInfo: unsubInfo)
+            }
+
+            HStack(spacing: 16) {
+                // Reply button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showReplySection = true
+                        isForwardMode = false
+                    }
+                    // Focus the reply text field after a short delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        focusedField = .body
+                    }
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrowshape.turn.up.left")
+                            .font(FontManager.geist(size: 14, weight: .medium))
+                        Text("Reply")
+                            .font(FontManager.geist(size: 14, weight: .medium))
+                    }
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.15), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Forward button
+                Button(action: {
+                    // Use in-app forward - Gmail URL scheme doesn't support forwarding with content
+                    showForwardSheet = true
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrowshape.turn.up.right")
+                            .font(FontManager.geist(size: 14, weight: .medium))
+                        Text("Forward")
+                            .font(FontManager.geist(size: 14, weight: .medium))
+                    }
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.15), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(colorScheme == .dark ? Color.black : Color.white)
+    }
+
+    // MARK: - Unsubscribe Banner
+
+    private func unsubscribeBanner(unsubInfo: UnsubscribeInfo) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "bell.slash")
+                .font(FontManager.geist(size: 14, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
+
+            Text("Unsubscribe from this sender")
+                .font(FontManager.geist(size: 12, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
+
+            Spacer()
+
+            Button(action: {
+                showUnsubscribeConfirmation = true
+            }) {
+                if isUnsubscribing {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 70, height: 28)
+                } else {
+                    Text("Unsubscribe")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(Color.red.opacity(0.8))
+                        )
+                }
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(isUnsubscribing)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .confirmationDialog(
+            "Unsubscribe from \(email.sender.shortDisplayName)?",
+            isPresented: $showUnsubscribeConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Unsubscribe", role: .destructive) {
+                Task {
+                    await handleUnsubscribe(unsubInfo: unsubInfo)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You will stop receiving emails from this sender. This action cannot be undone from within the app.")
+        }
+        .alert("Unsubscribed", isPresented: $showUnsubscribeSuccess) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You have been unsubscribed from \(email.sender.shortDisplayName). It may take a few days for the change to take effect.")
+        }
+        .alert("Unsubscribe Failed", isPresented: Binding(
+            get: { unsubscribeError != nil },
+            set: { if !$0 { unsubscribeError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(unsubscribeError ?? "An error occurred while trying to unsubscribe.")
+        }
+    }
+
+    // MARK: - Handle Unsubscribe
+
+    private func handleUnsubscribe(unsubInfo: UnsubscribeInfo) async {
+        isUnsubscribing = true
+        unsubscribeError = nil
+
+        // Prefer URL method over email
+        if let urlString = unsubInfo.url, let url = URL(string: urlString) {
+            await MainActor.run {
+                // Open the unsubscribe URL in Safari
+                UIApplication.shared.open(url) { success in
+                    if success {
+                        self.isUnsubscribing = false
+                        self.showUnsubscribeSuccess = true
+                        HapticManager.shared.success()
+                    } else {
+                        self.isUnsubscribing = false
+                        self.unsubscribeError = "Could not open unsubscribe link."
+                        HapticManager.shared.error()
+                    }
+                }
+            }
+        } else if let emailAddress = unsubInfo.email {
+            // Create mailto URL for unsubscribe
+            let subject = "Unsubscribe"
+            let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
+            let mailtoString = "mailto:\(emailAddress)?subject=\(encodedSubject)"
+
+            await MainActor.run {
+                if let mailtoURL = URL(string: mailtoString) {
+                    UIApplication.shared.open(mailtoURL) { success in
+                        if success {
+                            self.isUnsubscribing = false
+                            self.showUnsubscribeSuccess = true
+                            HapticManager.shared.success()
+                        } else {
+                            self.isUnsubscribing = false
+                            self.unsubscribeError = "Could not open mail app."
+                            HapticManager.shared.error()
+                        }
+                    }
+                } else {
+                    self.isUnsubscribing = false
+                    self.unsubscribeError = "Invalid unsubscribe email address."
+                    HapticManager.shared.error()
+                }
+            }
+        } else {
+            await MainActor.run {
+                self.isUnsubscribing = false
+                self.unsubscribeError = "No unsubscribe option available."
+                HapticManager.shared.error()
+            }
+        }
+    }
+    
+    // MARK: - Gmail Style Reply Section
+    
+    private var gmailReplySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack {
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
+                
+                Text("To: \(toRecipients)")
+                    .font(FontManager.geist(size: 12, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
+                    .lineLimit(1)
+                
+                Spacer()
+                
+                Button(action: { showCcBcc.toggle() }) {
+                    Text("Cc/Bcc")
+                        .font(FontManager.geist(size: 11, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Button(action: {
+                    withAnimation { showReplySection = false }
+                }) {
+                    Image(systemName: "xmark")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            // Cc/Bcc fields
+            if showCcBcc {
+                VStack(spacing: 6) {
+                    HStack {
+                        Text("Cc:")
+                            .font(FontManager.geist(size: 11, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
+                            .frame(width: 30, alignment: .leading)
+                        TextField("", text: $ccRecipients)
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .focused($focusedField, equals: .cc)
+                    }
+                    HStack {
+                        Text("Bcc:")
+                            .font(FontManager.geist(size: 11, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
+                            .frame(width: 30, alignment: .leading)
+                        TextField("", text: $bccRecipients)
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .focused($focusedField, equals: .bcc)
+                    }
+                }
+            }
+            
+            // Text editor
+            ZStack(alignment: .topLeading) {
+                if replyBody.isEmpty {
+                    Text("Write your reply...")
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                        .padding(8)
+                }
+                
+                TextEditor(text: $replyBody)
+                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .frame(minHeight: 80, maxHeight: 150)
+                    .focused($focusedField, equals: .body)
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+            )
+            
+            // Quick reply suggestions
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(getContextAwareSuggestions(), id: \.label) { suggestion in
+                        Button(action: {
+                            loadingChipLabel = suggestion.label
+                            smartReplyPrompt = suggestion.prompt
+                            Task {
+                                await generateSmartReply()
+                                loadingChipLabel = nil
+                            }
+                        }) {
+                            Text(suggestion.label)
+                                .font(FontManager.geist(size: 11, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule()
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+            }
+            
+            // Action row
+            HStack {
+                // AI button
+                Button(action: { showSmartReplyOptions.toggle() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkles")
+                            .font(FontManager.geist(size: 10, weight: .medium))
+                        Text("AI")
+                            .font(FontManager.geist(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Spacer()
+                
+                // Send button
+                Button(action: { Task { await sendMessage() } }) {
+                    HStack(spacing: 4) {
+                        if isSending {
+                            ProgressView()
+                                .scaleEffect(0.5)
+                                .frame(width: 10, height: 10)
+                        } else {
+                            Image(systemName: "paperplane.fill")
+                                .font(FontManager.geist(size: 10, weight: .medium))
+                        }
+                        Text("Send")
+                            .font(FontManager.geist(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(colorScheme == .dark ? .black : .white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(canSend ? (colorScheme == .dark ? .white : .black) : Color.gray.opacity(0.5))
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!canSend || isSending)
+            }
+            
+            // Error/Success messages
+            if let error = sendError {
+                Text(error)
+                    .font(FontManager.geist(size: 11, weight: .regular))
+                    .foregroundColor(.red)
+            }
+            
+            if showSentSuccess {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(.green)
+                    Text("Sent!")
+                        .font(FontManager.geist(size: 11, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        showSentSuccess = false
+                        replyBody = ""
+                        showReplySection = false
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08), lineWidth: 1)
+        )
+    }
+    
+    // MARK: - Wrap HTML for Gmail-style display
+    
+    private func wrapHTMLForGmailStyle(_ html: String) -> String {
+        """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=yes">
+            <style>
+                * { 
+                    box-sizing: border-box;
+                    max-width: 100% !important;
+                }
+                html, body {
+                    margin: 0;
+                    padding: 0;
+                    width: 100%;
+                    overflow-x: hidden;
+                }
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                    font-size: 14px;
+                    line-height: 1.5;
+                    color: \(colorScheme == .dark ? "#ffffff" : "#202124");
+                    background-color: \(colorScheme == .dark ? "#000000" : "#ffffff");
+                    padding: 8px;
+                    -webkit-text-size-adjust: 100%;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                }
+                img { 
+                    max-width: 100% !important; 
+                    height: auto !important;
+                    display: block;
+                }
+                table {
+                    max-width: 100% !important;
+                    width: auto !important;
+                    table-layout: fixed !important;
+                    word-wrap: break-word;
+                }
+                td, th {
+                    max-width: 100% !important;
+                    word-wrap: break-word !important;
+                    overflow-wrap: break-word !important;
+                }
+                div, p, span {
+                    max-width: 100% !important;
+                }
+                pre, code {
+                    white-space: pre-wrap;
+                    word-wrap: break-word;
+                    max-width: 100%;
+                }
+                a { color: #1a73e8; text-decoration: none; }
+                blockquote {
+                    margin: 8px 0;
+                    padding-left: 10px;
+                    border-left: 2px solid \(colorScheme == .dark ? "#444" : "#ccc");
+                    color: \(colorScheme == .dark ? "#999" : "#666");
+                }
+                /* Force wide elements to shrink */
+                [width], [style*="width"] {
+                    max-width: 100% !important;
+                    width: auto !important;
+                }
+            </style>
+        </head>
+        <body>
+            \(html)
+        </body>
+        </html>
+        """
+    }
+    
+    // MARK: - Helper Properties
+    
+    private var canSend: Bool {
+        !replyBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !toRecipients.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    
+    // MARK: - Context-Aware Suggestions
+    
+    private func getContextAwareSuggestions() -> [(label: String, prompt: String)] {
+        let summary = (email.aiSummary ?? email.snippet).lowercased()
+        let subject = email.subject.lowercased()
+        let combined = summary + " " + subject
+        
+        var suggestions: [(label: String, prompt: String)] = []
+        
+        if combined.contains("meeting") || combined.contains("schedule") || combined.contains("call") {
+            suggestions.append(("Confirm", "Confirm the meeting"))
+            suggestions.append(("Reschedule", "Suggest a different time"))
+        }
+        
+        if combined.contains("payment") || combined.contains("transfer") || combined.contains("$") {
+            suggestions.append(("Acknowledge received", "Acknowledge receipt with thanks"))
+            suggestions.append(("Request details", "Ask for more details"))
+        }
+        
+        if combined.contains("?") {
+            suggestions.append(("Yes", "Respond positively"))
+            suggestions.append(("No", "Politely decline"))
+        }
+        
+        if suggestions.isEmpty {
+            suggestions = [
+                ("Sounds good", "Agree politely"),
+                ("Need more info", "Ask for clarification"),
+                ("Thanks", "Express gratitude")
+            ]
+        }
+        
+        return Array(suggestions.prefix(3))
+    }
+    
+    // MARK: - Attachments Helper
+    private var hasAttachments: Bool {
+        !(fullEmail ?? email).attachments.isEmpty
+    }
+
+    // MARK: - Modern Floating Attachments Section
+    private var modernAttachmentsSection: some View {
+        VStack(spacing: 0) {
+            // Subtle top border/shadow
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.clear,
+                            colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(height: 8)
+
+            // Attachments content
+            VStack(alignment: .leading, spacing: 10) {
+                // Header with count
+                HStack {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
+
+                    Text("\((fullEmail ?? email).attachments.count) Attachment\((fullEmail ?? email).attachments.count > 1 ? "s" : "")")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
+
+                    Spacer()
+                }
+
+                // Horizontal scrolling attachment chips
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach((fullEmail ?? email).attachments) { attachment in
+                            ModernAttachmentChip(
+                                attachment: attachment,
+                                emailMessageId: (fullEmail ?? email).gmailMessageId
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(colorScheme == .dark ? Color.black : Color.white)
+        }
+    }
+    
+    // MARK: - Profile Picture Fetch
+    
+    private func fetchProfilePicture() async {
+        // Check CacheManager first for instant display
+        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
+        if let cachedUrl: String = CacheManager.shared.get(forKey: cacheKey), !cachedUrl.isEmpty {
+            await MainActor.run {
+                self.profilePictureUrl = cachedUrl
+            }
             return
         }
+        
+        do {
+            if let picUrl = try await GmailAPIClient.shared.fetchProfilePicture(for: email.sender.email) {
+                await MainActor.run {
+                    self.profilePictureUrl = picUrl
+                }
+            }
+        } catch {
+            // Silently fail
+        }
+    }
+
+    // MARK: - Full Email Body Fetching
+    private func fetchFullEmailBodyIfNeeded() async {
+        guard fullEmail == nil else { return }
+        guard let messageId = email.gmailMessageId else { return }
 
         isLoadingFullBody = true
 
         do {
-            let fetchedEmail = try await GmailAPIClient.shared.fetchFullEmailBody(messageId: messageId)
-            fullEmail = fetchedEmail
-            print("✅ Fetched full email body for: \(email.subject)")
+            if let fetchedEmail = try await GmailAPIClient.shared.fetchFullEmailBody(messageId: messageId) {
+                await MainActor.run {
+                    self.fullEmail = fetchedEmail
+                    self.isLoadingFullBody = false
+                }
+            } else {
+                await MainActor.run {
+                    self.isLoadingFullBody = false
+                }
+            }
         } catch {
-            print("❌ Failed to fetch full email body: \(error.localizedDescription)")
-            fullEmail = email // Fallback to original email
+            print("Failed to fetch full email body: \(error)")
+            await MainActor.run {
+                self.isLoadingFullBody = false
+            }
         }
-
-        isLoadingFullBody = false
     }
 
-    // MARK: - AI Summary Generation
+    // MARK: - Send Message
+    private func sendMessage() async {
+        guard canSend else { return }
 
-    private func generateAISummary(for email: Email, forceRegenerate: Bool = false) async -> Result<String, Error> {
-        // Check if email already has a summary (unless force regeneration is requested)
+        isSending = true
+        sendError = nil
+
+        do {
+            let toEmails = toRecipients.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            let ccEmails = ccRecipients.isEmpty ? [] : ccRecipients.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            let bccEmails = bccRecipients.isEmpty ? [] : bccRecipients.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+
+            _ = try await GmailAPIClient.shared.replyToEmail(
+                originalEmail: fullEmail ?? email,
+                body: replyBody,
+                htmlBody: nil,
+                replyAll: false
+            )
+
+            await MainActor.run {
+                isSending = false
+                showSentSuccess = true
+                HapticManager.shared.success()
+            }
+        } catch {
+            await MainActor.run {
+                isSending = false
+                sendError = "Failed to send: \(error.localizedDescription)"
+                HapticManager.shared.error()
+            }
+        }
+    }
+
+    // MARK: - Smart Reply Generation
+    private func generateSmartReply() async {
+        guard !smartReplyPrompt.isEmpty else { return }
+
+        isGeneratingSmartReply = true
+
+        do {
+            let prompt = """
+            Generate a professional email reply based on the user's intent.
+            
+            ORIGINAL EMAIL:
+            From: \(email.sender.displayName) <\(email.sender.email)>
+            Subject: \(email.subject)
+            Content: \(email.body ?? email.snippet)
+            
+            USER'S INTENT FOR REPLY: \(smartReplyPrompt)
+            
+            INSTRUCTIONS:
+            - Write a natural, professional email reply
+            - Keep it concise but friendly
+            - Don't include subject line or email headers
+            - Don't include placeholder text like [Your Name]
+            - Just write the email body text
+            - Match the tone of the original email
+            """
+
+            let response = try await openAIService.answerQuestion(
+                query: prompt,
+                conversationHistory: [],
+                operationType: "smart_reply"
+            )
+
+            await MainActor.run {
+                replyBody = response.trimmingCharacters(in: .whitespacesAndNewlines)
+                isGeneratingSmartReply = false
+                smartReplyPrompt = ""
+                showSmartReplyOptions = false
+                HapticManager.shared.success()
+            }
+        } catch {
+            await MainActor.run {
+                isGeneratingSmartReply = false
+                HapticManager.shared.error()
+            }
+        }
+    }
+
+    // MARK: - Generate AI Summary
+    private func generateAISummary(for email: Email, forceRegenerate: Bool) async -> Result<String, Error> {
         if !forceRegenerate, let existingSummary = email.aiSummary {
             return .success(existingSummary)
         }
 
         do {
-            // CRITICAL: When regenerating, always fetch the latest full email body
-            // This ensures we use the improved extraction logic
-            if forceRegenerate || fullEmail == nil {
-                await fetchFullEmailBodyIfNeeded()
+            guard let messageId = email.gmailMessageId else {
+                throw NSError(domain: "EmailError", code: 1, userInfo: [NSLocalizedDescriptionKey: "No message ID available"])
             }
 
-            // Use full email body if available, otherwise use snippet
-            let emailToSummarize = fullEmail ?? email
-            let emailBody = emailToSummarize.body ?? emailToSummarize.snippet
-
-            // Check if we have any meaningful content to summarize
-            // Remove HTML tags and check actual text content length
-            let plainTextContent = stripHTMLTags(from: emailBody)
-            if plainTextContent.trimmingCharacters(in: .whitespacesAndNewlines).count < 20 {
-                return .success("No content available")
-            }
+            let bodyForAI = try await GmailAPIClient.shared.fetchBodyForAI(messageId: messageId)
+            let body = bodyForAI ?? email.snippet
 
             let summary = try await openAIService.summarizeEmail(
                 subject: email.subject,
-                body: emailBody
+                body: body
             )
 
-            // If the summary is empty, show "No content available"
             let finalSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No content available" : summary
 
-            // Cache the summary in the email service
             await emailService.updateEmailWithAISummary(email, summary: finalSummary)
 
             return .success(finalSummary)
@@ -191,82 +1110,449 @@ struct EmailDetailView: View {
             return .failure(error)
         }
     }
+}
 
-    // MARK: - Header Section
-    private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Subject
-            Text(email.subject)
-                .font(FontManager.geist(size: .title1, weight: .bold))
-                .foregroundColor(Color.shadcnForeground(colorScheme))
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+// MARK: - Modern Attachment Chip
+
+struct ModernAttachmentChip: View {
+    let attachment: EmailAttachment
+    let emailMessageId: String?
+    @Environment(\.colorScheme) var colorScheme
+    @State private var isDownloading = false
+    @State private var showPreview = false
+    @State private var downloadedURL: URL?
+
+    private var fileIcon: String {
+        switch attachment.fileExtension {
+        case "pdf": return "doc.fill"
+        case "doc", "docx": return "doc.text.fill"
+        case "xls", "xlsx": return "tablecells.fill"
+        case "ppt", "pptx": return "rectangle.split.3x3.fill"
+        case "jpg", "jpeg", "png", "gif", "webp", "heic": return "photo.fill"
+        case "mp4", "mov", "avi": return "video.fill"
+        case "mp3", "wav", "m4a": return "music.note"
+        case "zip", "rar", "7z": return "archivebox.fill"
+        default: return "doc.fill"
         }
     }
 
-
-
-    // MARK: - Original Email Section
-    private var originalEmailSection: some View {
-        ReusableEmailBodyView(
-            htmlContent: fullEmail?.body ?? email.body,
-            plainTextContent: fullEmail?.snippet ?? email.snippet,
-            isExpanded: isOriginalEmailExpanded,
-            onToggleExpand: {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isOriginalEmailExpanded.toggle()
-                }
-            },
-            isLoading: isLoadingFullBody
-        )
+    private var fileColor: Color {
+        switch attachment.fileExtension {
+        case "pdf": return .red
+        case "doc", "docx": return .blue
+        case "xls", "xlsx": return .green
+        case "ppt", "pptx": return .orange
+        case "jpg", "jpeg", "png", "gif", "webp", "heic": return .purple
+        case "mp4", "mov", "avi": return .pink
+        case "mp3", "wav", "m4a": return .cyan
+        default: return colorScheme == .dark ? .white : .black
+        }
     }
 
-    // MARK: - Attachments Section
-    private var attachmentsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Attachments")
-                .font(FontManager.geist(size: .title3, weight: .semibold))
-                .foregroundColor(Color.shadcnForeground(colorScheme))
+    var body: some View {
+        Button(action: downloadAttachment) {
+            HStack(spacing: 10) {
+                // File type icon with colored background
+                fileIconView
 
-            LazyVStack(spacing: 8) {
-                ForEach((fullEmail ?? email).attachments) { attachment in
-                    AttachmentRow(
-                        attachment: attachment,
-                        emailMessageId: (fullEmail ?? email).gmailMessageId
-                    )
-                }
+                // File info
+                fileInfoView
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .sheet(isPresented: $showPreview) {
+            if let url = downloadedURL {
+                QuickLookPreview(url: url)
             }
         }
     }
 
-    // MARK: - Helper Methods
-    private func stripHTMLTags(from html: String) -> String {
-        var text = html
+    private var fileIconView: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(fileColor.opacity(0.15))
+                .frame(width: 36, height: 36)
 
-        // Remove script and style tags with their content
-        text = text.replacingOccurrences(
-            of: "<(script|style)[^>]*>[\\s\\S]*?</\\1>",
-            with: "",
-            options: .regularExpression
-        )
+            if isDownloading {
+                ProgressView()
+                    .scaleEffect(0.7)
+            } else {
+                Image(systemName: fileIcon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(fileColor)
+            }
+        }
+    }
 
-        // Remove all HTML tags
-        text = text.replacingOccurrences(
-            of: "<[^>]+>",
-            with: "",
-            options: .regularExpression
-        )
+    private var fileInfoView: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(attachment.name)
+                .font(FontManager.geist(size: 12, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .lineLimit(1)
 
-        // Decode common HTML entities
-        let entities = [
-            "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
-            "&quot;": "\"", "&apos;": "'"
-        ]
-        for (entity, replacement) in entities {
-            text = text.replacingOccurrences(of: entity, with: replacement)
+            Text(attachment.formattedSize)
+                .font(FontManager.geist(size: 10, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
+        }
+    }
+
+    private func downloadAttachment() {
+        guard let messageId = emailMessageId else { return }
+        isDownloading = true
+
+        Task {
+            do {
+                if let data = try await GmailAPIClient.shared.downloadAttachment(
+                    messageId: messageId,
+                    attachmentId: attachment.id
+                ) {
+                    let tempDir = FileManager.default.temporaryDirectory
+                    let fileURL = tempDir.appendingPathComponent(attachment.name)
+                    try data.write(to: fileURL)
+
+                    await MainActor.run {
+                        downloadedURL = fileURL
+                        isDownloading = false
+                        showPreview = true
+                        HapticManager.shared.success()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isDownloading = false
+                    HapticManager.shared.error()
+                }
+            }
+        }
+    }
+}
+
+// MARK: - QuickLook Preview
+
+struct QuickLookPreview: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(url: url)
+    }
+
+    class Coordinator: NSObject, QLPreviewControllerDataSource {
+        let url: URL
+
+        init(url: URL) {
+            self.url = url
         }
 
-        return text
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            url as QLPreviewItem
+        }
+    }
+}
+
+// MARK: - Zoomable HTML View (expands to content height, no internal scroll)
+
+struct ZoomableHTMLView: UIViewRepresentable {
+    let htmlContent: String
+    @Binding var contentHeight: CGFloat
+    @Environment(\.colorScheme) var colorScheme
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        let preferences = WKWebpagePreferences()
+        preferences.allowsContentJavaScript = true
+        configuration.defaultWebpagePreferences = preferences
+
+        // Enable inline media playback for images and videos
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+
+        // Allow data detection (links, addresses, etc.)
+        let webPrefs = WKPreferences()
+        webPrefs.javaScriptCanOpenWindowsAutomatically = false
+        configuration.preferences = webPrefs
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
+        context.coordinator.parent = self
+
+        // DISABLE internal scrolling - parent ScrollView handles all scrolling
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
+        webView.scrollView.showsVerticalScrollIndicator = false
+        webView.scrollView.showsHorizontalScrollIndicator = false
+
+        // Disable back/forward navigation gestures that can interfere with toolbar
+        webView.allowsBackForwardNavigationGestures = false
+
+        // Disable link preview gestures that can delay tap recognition
+        webView.allowsLinkPreview = false
+
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+
+        // Allow loading remote content
+        webView.configuration.websiteDataStore = .default()
+
+        // Reduce gesture recognizer delays
+        for gestureRecognizer in webView.scrollView.gestureRecognizers ?? [] {
+            gestureRecognizer.cancelsTouchesInView = false
+            gestureRecognizer.delaysTouchesBegan = false
+            gestureRecognizer.delaysTouchesEnded = false
+        }
+
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        guard !htmlContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            webView.loadHTMLString("<html><body></body></html>", baseURL: nil)
+            return
+        }
+
+        // Wrap HTML with proper viewport and scaling meta tags
+        let wrappedHTML = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes, shrink-to-fit=yes">
+            <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * data: blob: https: http:;">
+            <style>
+                * {
+                    box-sizing: border-box !important;
+                }
+                html, body {
+                    margin: 0;
+                    padding: 8px;
+                    width: 100%;
+                    max-width: 100%;
+                    overflow-x: hidden;
+                    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                    font-size: 14px;
+                    line-height: 1.5;
+                    color: \(colorScheme == .dark ? "#ffffff" : "#202124");
+                    background-color: transparent;
+                    -webkit-text-size-adjust: 100%;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                }
+
+                /* CRITICAL: Force ALL images to fit within viewport and ensure loading */
+                img {
+                    max-width: 100% !important;
+                    width: auto !important;
+                    height: auto !important;
+                    display: inline-block !important;
+                    object-fit: contain !important;
+                }
+
+                /* Override inline width/height attributes on images */
+                img[width], img[height], img[style] {
+                    max-width: 100% !important;
+                    width: auto !important;
+                    height: auto !important;
+                }
+
+                /* Handle broken images with placeholder */
+                img::before {
+                    content: '';
+                    display: block;
+                }
+
+                /* Handle tables - common in email templates */
+                table {
+                    max-width: 100% !important;
+                    width: auto !important;
+                    table-layout: auto !important;
+                    border-collapse: collapse;
+                }
+
+                /* Table cells need to shrink */
+                td, th {
+                    max-width: 100% !important;
+                    word-wrap: break-word !important;
+                    overflow-wrap: break-word !important;
+                }
+
+                /* Images inside tables */
+                td img, th img {
+                    max-width: 100% !important;
+                    height: auto !important;
+                }
+
+                /* Override any inline width/height styles on any element */
+                [width]:not(input):not(textarea), [style*="width"]:not(input):not(textarea) {
+                    max-width: 100% !important;
+                }
+
+                div, p, span, section, article {
+                    max-width: 100% !important;
+                    overflow-wrap: break-word;
+                    word-wrap: break-word;
+                }
+
+                a {
+                    color: #1a73e8;
+                    word-break: break-all;
+                }
+
+                blockquote {
+                    margin: 8px 0;
+                    padding-left: 10px;
+                    border-left: 2px solid \(colorScheme == .dark ? "#444" : "#ccc");
+                }
+
+                pre, code {
+                    white-space: pre-wrap;
+                    word-wrap: break-word;
+                    max-width: 100%;
+                    overflow-x: auto;
+                }
+
+                /* Hide problematic tracking pixels but keep other images visible */
+                img[width="1"][height="1"],
+                img[width="0"][height="0"] {
+                    display: none !important;
+                }
+            </style>
+            <script>
+                // Force resize any oversized images after load and handle image loading
+                document.addEventListener('DOMContentLoaded', function() {
+                    var images = document.querySelectorAll('img');
+                    images.forEach(function(img) {
+                        // Remove fixed dimensions
+                        img.removeAttribute('width');
+                        img.removeAttribute('height');
+                        img.style.maxWidth = '100%';
+                        img.style.height = 'auto';
+
+                        // Handle image load errors
+                        img.onerror = function() {
+                            // Try loading without referrer for privacy-blocked images
+                            if (!this.dataset.retried && this.src) {
+                                this.dataset.retried = 'true';
+                                var originalSrc = this.src;
+                                this.referrerPolicy = 'no-referrer';
+                                this.crossOrigin = 'anonymous';
+                                this.src = originalSrc;
+                            }
+                        };
+
+                        // Ensure images load by triggering a reload if needed
+                        if (img.complete && img.naturalHeight === 0 && img.src) {
+                            img.referrerPolicy = 'no-referrer';
+                            var src = img.src;
+                            img.src = '';
+                            img.src = src;
+                        }
+                    });
+                });
+
+                // Also handle images that load after DOMContentLoaded
+                window.addEventListener('load', function() {
+                    var images = document.querySelectorAll('img');
+                    images.forEach(function(img) {
+                        img.style.maxWidth = '100%';
+                        img.style.height = 'auto';
+                    });
+                });
+            </script>
+        </head>
+        <body>
+            \(htmlContent)
+        </body>
+        </html>
+        """
+
+        // Use a base URL to help resolve relative image paths
+        let baseURL = URL(string: "https://mail.google.com/")
+        webView.loadHTMLString(wrappedHTML, baseURL: baseURL)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    class Coordinator: NSObject, WKNavigationDelegate {
+        var parent: ZoomableHTMLView?
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if navigationAction.navigationType == .linkActivated {
+                if let url = navigationAction.request.url {
+                    UIApplication.shared.open(url)
+                }
+                decisionHandler(.cancel)
+            } else {
+                decisionHandler(.allow)
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // Strip inline width/height from images and get content height
+            let jsFixAndMeasure = """
+            (function() {
+                var images = document.querySelectorAll('img');
+                images.forEach(function(img) {
+                    img.removeAttribute('width');
+                    img.removeAttribute('height');
+                    img.style.maxWidth = '100%';
+                    img.style.height = 'auto';
+                    img.style.width = 'auto';
+                });
+
+                var tables = document.querySelectorAll('table');
+                tables.forEach(function(table) {
+                    table.removeAttribute('width');
+                    table.style.maxWidth = '100%';
+                    table.style.width = 'auto';
+                });
+
+                // Return the document height
+                return document.body.scrollHeight;
+            })();
+            """
+
+            webView.evaluateJavaScript(jsFixAndMeasure) { [weak self] height, _ in
+                if let contentHeight = height as? CGFloat, contentHeight > 0 {
+                    DispatchQueue.main.async {
+                        self?.parent?.contentHeight = contentHeight
+                    }
+                }
+            }
+
+            // Also observe for dynamic content changes (images loading, etc.)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                webView.evaluateJavaScript("document.body.scrollHeight") { [weak self] height, _ in
+                    if let contentHeight = height as? CGFloat, contentHeight > 0 {
+                        DispatchQueue.main.async {
+                            self?.parent?.contentHeight = contentHeight
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

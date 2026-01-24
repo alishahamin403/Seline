@@ -104,15 +104,15 @@ struct LocationEditView: View {
                 // Header
                 VStack(spacing: 8) {
                     Image(systemName: icon)
-                        .font(.system(size: 48))
+                        .font(FontManager.geist(size: 48, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .gray : .gray.opacity(0.8))
 
                     Text("Set \(title) Location")
-                        .font(.system(size: 24, weight: .bold))
+                        .font(FontManager.geist(size: 24, weight: .bold))
 
                     if let currentAddress = currentAddress {
                         Text("Current: \(currentAddress)")
-                            .font(.system(size: 13))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 32)
@@ -124,7 +124,7 @@ struct LocationEditView: View {
                 // Location Type Picker
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Location Type")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 20)
 
@@ -148,17 +148,17 @@ struct LocationEditView: View {
                 // Search Section
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Search for address")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                         .padding(.horizontal, 20)
 
                     VStack(spacing: 0) {
                         HStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(FontManager.geist(size: 14, weight: .medium))
                                 .foregroundColor(.gray)
 
                             TextField("Enter \(title.lowercased()) address", text: $searchQuery)
-                                .font(.system(size: 14, weight: .regular))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .onChange(of: searchQuery) { newValue in
                                     // Debounce search
@@ -195,15 +195,15 @@ struct LocationEditView: View {
                                         }) {
                                             HStack(alignment: .top, spacing: 12) {
                                                 Image(systemName: "mappin.circle.fill")
-                                                    .font(.system(size: 16))
+                                                    .font(FontManager.geist(size: 16, weight: .regular))
                                                     .foregroundColor(.gray)
 
                                                 VStack(alignment: .leading, spacing: 2) {
                                                     Text(result.name)
-                                                        .font(.system(size: 13, weight: .medium))
+                                                        .font(FontManager.geist(size: 13, weight: .medium))
                                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                                     Text(result.address)
-                                                        .font(.system(size: 11))
+                                                        .font(FontManager.geist(size: 11, weight: .regular))
                                                         .foregroundColor(.secondary)
                                                         .lineLimit(2)
                                                 }
@@ -232,15 +232,15 @@ struct LocationEditView: View {
                     if let selected = selectedLocation {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Selected Location")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(FontManager.geist(size: 14, weight: .semibold))
                                 .foregroundColor(.secondary)
 
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(selected.name)
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(FontManager.geist(size: 14, weight: .medium))
                                     Text(selected.address)
-                                        .font(.system(size: 12))
+                                        .font(FontManager.geist(size: 12, weight: .regular))
                                         .foregroundColor(.secondary)
                                         .lineLimit(2)
                                 }
@@ -252,7 +252,7 @@ struct LocationEditView: View {
                                     searchQuery = ""
                                 }) {
                                     Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 20))
+                                        .font(FontManager.geist(size: 20, weight: .regular))
                                         .foregroundColor(.gray)
                                 }
                             }
@@ -271,7 +271,7 @@ struct LocationEditView: View {
                 VStack(spacing: 12) {
                     Button(action: saveLocation) {
                         Text("Save Location")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
                             .background(selectedLocation != nil ? Color.gray : Color.gray.opacity(0.3))
@@ -283,7 +283,7 @@ struct LocationEditView: View {
                     if currentAddress != nil {
                         Button(action: removeLocation) {
                             Text("Remove Location")
-                                .font(.system(size: 14))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(.red)
                         }
                     }
@@ -300,7 +300,7 @@ struct LocationEditView: View {
                 }
                 ToolbarItem(placement: .principal) {
                     Text(title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                 }
             }
         }
@@ -408,10 +408,10 @@ struct LocationTypeChip: View {
         Button(action: onSelect) {
             HStack(spacing: 6) {
                 Image(systemName: type.icon)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(FontManager.geist(size: 12, weight: .medium))
 
                 Text(type.rawValue)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(FontManager.geist(size: 13, weight: .medium))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)

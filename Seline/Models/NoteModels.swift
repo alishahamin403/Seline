@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import PostgREST
+import WidgetKit
 
 // MARK: - Note Models
 
@@ -16,6 +17,10 @@ struct Note: Identifiable, Codable, Hashable {
     var imageUrls: [String] // Store image URLs from Supabase Storage
     var attachmentId: UUID? // Single file attachment per note (for documents like bank statements, invoices)
     var blocksData: String? // JSON string of blocks for block-based editor
+    
+    // Note Reminder fields
+    var reminderDate: Date? // When to remind the user
+    var reminderNote: String? // Short note about what needs to be done
 
     // Temporary compatibility - will be removed after migration
     var imageAttachments: [Data] {
@@ -33,6 +38,20 @@ struct Note: Identifiable, Codable, Hashable {
         self.folderId = folderId
         self.isLocked = false
         self.imageUrls = []
+        self.reminderDate = nil
+        self.reminderNote = nil
+    }
+    
+    /// Check if the note has an active reminder
+    var hasActiveReminder: Bool {
+        guard let reminderDate = reminderDate else { return false }
+        return reminderDate > Date()
+    }
+    
+    /// Check if the reminder is due (past or today)
+    var isReminderDue: Bool {
+        guard let reminderDate = reminderDate else { return false }
+        return reminderDate <= Date()
     }
 
     var formattedDateModified: String {
@@ -258,6 +277,9 @@ class NotesManager: ObservableObject {
         notes.append(note)
         saveNotes()
 
+        // Notify observers of change
+        objectWillChange.send()
+
         // Invalidate receipt cache if this is a receipt note
         invalidateReceiptCache()
 
@@ -275,6 +297,9 @@ class NotesManager: ObservableObject {
         if !notes.contains(where: { $0.id == note.id }) {
             notes.append(note)
             saveNotes()
+
+            // Notify observers of change
+            objectWillChange.send()
 
             // Invalidate receipt cache if this is a receipt note
             invalidateReceiptCache()
@@ -333,6 +358,9 @@ class NotesManager: ObservableObject {
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
             "attachment_id": note.attachmentId != nil ? .string(note.attachmentId!.uuidString) : .null,
             "image_attachments": .array(imageUrlsArray)
+            // NOTE: reminder_date and reminder_note columns must be added to Supabase before enabling:
+            // "reminder_date": note.reminderDate != nil ? .string(formatter.string(from: note.reminderDate!)) : .null,
+            // "reminder_note": note.reminderNote != nil ? .string(note.reminderNote!) : .null
         ]
 
         do {
@@ -392,8 +420,17 @@ class NotesManager: ObservableObject {
             notes[index] = updatedNote
             saveNotes()
 
+            // Notify observers of change
+            objectWillChange.send()
+
             // Invalidate receipt cache if this is a receipt note
             invalidateReceiptCache()
+            
+            // Update widgets to reflect changes
+            WidgetCenter.shared.reloadAllTimelines()
+            
+            // Invalidate reminder cache just in case
+            CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.upcomingNoteReminders)
 
             // Sync with Supabase with retry logic (fire-and-forget for UI responsiveness)
             Task {
@@ -410,6 +447,9 @@ class NotesManager: ObservableObject {
             updatedNote.dateModified = Date()
             notes[index] = updatedNote
             saveNotes()
+
+            // Notify observers of change
+            objectWillChange.send()
 
             // Invalidate receipt cache if this is a receipt note
             invalidateReceiptCache()
@@ -460,6 +500,9 @@ class NotesManager: ObservableObject {
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
             "attachment_id": note.attachmentId != nil ? .string(note.attachmentId!.uuidString) : .null,
             "image_attachments": .array(imageUrlsArray)
+            // NOTE: reminder_date and reminder_note columns must be added to Supabase before enabling:
+            // "reminder_date": note.reminderDate != nil ? .string(formatter.string(from: note.reminderDate!)) : .null,
+            // "reminder_note": note.reminderNote != nil ? .string(note.reminderNote!) : .null
         ]
 
         do {
@@ -495,8 +538,14 @@ class NotesManager: ObservableObject {
         notes.removeAll { $0.id == note.id }
         saveNotes()
 
+        // Notify observers of change
+        objectWillChange.send()
+
         // Invalidate receipt cache if this is a receipt note
         invalidateReceiptCache()
+
+        // Immediately update widgets to reflect deletion
+        WidgetCenter.shared.reloadAllTimelines()
 
         // Sync with Supabase
         Task {
@@ -603,6 +652,9 @@ class NotesManager: ObservableObject {
         notes.append(note)
         deletedNotes.removeAll { $0.id == deletedNote.id }
         saveNotes()
+
+        // Notify observers of change
+        objectWillChange.send()
 
         Task {
             await restoreNoteFromTrash(note)
@@ -1255,20 +1307,7 @@ class NotesManager: ObservableObject {
     // MARK: - Sample Data
 
     private func addSampleDataIfNeeded() {
-        if notes.isEmpty {
-            let sampleNote1 = Note(
-                title: "Waqar is a psycho",
-                content: "This is a sample note to demonstrate the notes functionality."
-            )
-
-            let sampleNote2 = Note(
-                title: "Test",
-                content: "Another test note with some content to show in the preview."
-            )
-
-            notes = [sampleNote1, sampleNote2]
-            saveNotes()
-        }
+        // Sample data disabled per user request
     }
 
     // MARK: - Public Receipt Organization Method
@@ -1687,6 +1726,18 @@ class NotesManager: ObservableObject {
         }
         // Store image URLs directly - no download!
         note.imageUrls = data.image_attachments ?? []
+        
+        // Parse reminder details
+        if let reminderDateString = data.reminder_date {
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: reminderDateString) {
+                note.reminderDate = date
+            } else {
+                formatter.formatOptions = [.withInternetDateTime]
+                note.reminderDate = formatter.date(from: reminderDateString)
+            }
+        }
+        note.reminderNote = data.reminder_note
 
         // ✨ DECRYPT after loading
         let decryptedNote: Note
@@ -2197,6 +2248,12 @@ class NotesManager: ObservableObject {
 
         // OPTIMIZATION: Also invalidate search cache since notes are searchable
         cacheManager.invalidate(keysWithPrefix: "cache.search")
+        
+        // Refresh widget spending data after cache invalidation
+        // Use a slight delay to ensure fresh data is calculated
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            SpendingAndETAWidget.refreshWidgetSpendingData()
+        }
     }
 
     /// Public method to force clear all receipt caches (useful for debugging or fixing bad cached state)
@@ -2274,9 +2331,11 @@ struct NoteSupabaseData: Codable {
     let folder_id: String?
     let attachment_id: String? // Single file attachment
     let image_attachments: [String]? // Array of image URLs from JSONB
+    let reminder_date: String?
+    let reminder_note: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, attachment_id, image_attachments
+        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, attachment_id, image_attachments, reminder_date, reminder_note
     }
 
     init(from decoder: Decoder) throws {
@@ -2302,6 +2361,9 @@ struct NoteSupabaseData: Codable {
         } else {
             image_attachments = nil
         }
+        
+        reminder_date = try container.decodeIfPresent(String.self, forKey: .reminder_date)
+        reminder_note = try container.decodeIfPresent(String.self, forKey: .reminder_note)
     }
 }
 

@@ -43,7 +43,7 @@ struct EmailRow: View {
                                 .frame(width: 32, height: 32)
                                 .overlay(
                                     Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(FontManager.geist(size: 13, weight: .semibold))
                                         .foregroundColor(.white)
                                 )
                         }
@@ -55,7 +55,7 @@ struct EmailRow: View {
                         .frame(width: 32, height: 32)
                         .overlay(
                             Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(FontManager.geist(size: 13, weight: .semibold))
                                 .foregroundColor(.white)
                         )
                 }
@@ -67,13 +67,13 @@ struct EmailRow: View {
                         VStack(alignment: .leading, spacing: 2) {
                             // Sender name
                             Text(email.sender.shortDisplayName)
-                                .font(.system(size: 13, weight: email.isRead ? .medium : .semibold))
+                                .font(FontManager.geist(size: 13, systemWeight: email.isRead ? .medium : .semibold))
                                 .foregroundColor(Color.shadcnForeground(colorScheme))
                                 .lineLimit(1)
 
                             // Subject
                             Text(email.subject)
-                                .font(.system(size: 12, weight: email.isRead ? .regular : .medium))
+                                .font(FontManager.geist(size: 12, systemWeight: email.isRead ? .regular : .medium))
                                 .foregroundColor(
                                     email.isRead ?
                                     (colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)) :
@@ -87,19 +87,19 @@ struct EmailRow: View {
                         // Time and indicators
                         VStack(alignment: .trailing, spacing: 3) {
                             Text(email.formattedTime)
-                                .font(.system(size: 10, weight: .regular))
+                                .font(FontManager.geist(size: 10, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                             HStack(spacing: 3) {
                                 if email.isImportant {
                                     Image(systemName: "exclamationmark")
-                                        .font(.system(size: 8, weight: .bold))
+                                        .font(FontManager.geist(size: 8, weight: .bold))
                                         .foregroundColor(.orange)
                                 }
 
                                 if email.hasAttachments {
                                     Image(systemName: "paperclip")
-                                        .font(.system(size: 8, weight: .medium))
+                                        .font(FontManager.geist(size: 8, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                                 }
 
@@ -147,6 +147,15 @@ struct EmailRow: View {
 
     private func fetchProfilePicture() async {
         guard !isLoadingProfilePicture else { return }
+        
+        // Check CacheManager first for instant display
+        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
+        if let cachedUrl: String = CacheManager.shared.get(forKey: cacheKey), !cachedUrl.isEmpty {
+            await MainActor.run {
+                self.profilePictureUrl = cachedUrl
+            }
+            return
+        }
 
         isLoadingProfilePicture = true
 
@@ -158,7 +167,6 @@ struct EmailRow: View {
             }
         } catch {
             // Silently fail - will show colored avatar fallback
-            print("Failed to fetch profile picture for \(email.sender.email): \(error)")
         }
 
         isLoadingProfilePicture = false

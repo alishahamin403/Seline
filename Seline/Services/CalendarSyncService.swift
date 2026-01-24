@@ -17,7 +17,7 @@ class CalendarSyncService {
     private let syncedEventIDsKey = "syncedCalendarEventIDs"
     private let monthsToSkipKey = "calendarSyncMonthsToSkip"
     private let syncWindowVersionKey = "calendarSyncWindowVersion"
-    private let currentSyncWindowVersion = 2 // Increment when fetch window changes
+    private let currentSyncWindowVersion = 3 // Increment when fetch window changes
 
     // Months to skip during sync: (year, month) tuples
     // Example: [(2026, 2)] skips February 2026
@@ -38,6 +38,16 @@ class CalendarSyncService {
         if savedVersion != currentSyncWindowVersion {
             print("🔄 Calendar sync window changed - clearing old sync tracking")
             clearSyncTracking()
+            
+            // Also widen the historical fetch window on migration.
+            // If the original sync date is too recent, move it back so we can fetch last weeks/months.
+            let calendar = Calendar.current
+            let now = Date()
+            let widenedStart = calendar.date(byAdding: .month, value: -3, to: now).map { calendar.startOfDay(for: $0) }
+            if let widenedStart, let existingOriginalDate = getOriginalSyncDate(), existingOriginalDate > widenedStart {
+                userDefaults.set(widenedStart, forKey: originalSyncDateKey)
+                print("🔄 [CalendarSync] Updated original sync date back to: \(widenedStart)")
+            }
             userDefaults.set(currentSyncWindowVersion, forKey: syncWindowVersionKey)
         }
     }
@@ -139,8 +149,10 @@ class CalendarSyncService {
     /// Fetch calendar events from the original sync date onwards for the next 3 months
     /// This is a READ-ONLY operation - no modifications to the calendar
     /// Retains historical events from the original sync date (first time user syncs)
-    /// - Returns: Array of calendar events from original sync date to next 3 months
-    func fetchCalendarEventsFromCurrentMonthOnwards() async -> [EKEvent] {
+    /// Filters events to only include those associated with the logged-in user's email
+    /// - Parameter userEmail: Optional user email to filter events. If nil, returns all events (for backward compatibility)
+    /// - Returns: Array of calendar events from original sync date to next 3 months, filtered by user email
+    func fetchCalendarEventsFromCurrentMonthOnwards(userEmail: String? = nil) async -> [EKEvent] {
         // Get authorization first
         let hasAccess = await requestCalendarAccess()
         guard hasAccess else {
@@ -152,13 +164,13 @@ class CalendarSyncService {
         let now = Date()
 
         // Get or set the original sync date (first time user synced)
-        // If not set, use today as the original sync date and save it
+        // If not set, default to a backfill window so "last week" works immediately.
         let originalSyncDate: Date
         if let existingOriginalDate = getOriginalSyncDate() {
             originalSyncDate = existingOriginalDate
         } else {
-            // First time syncing - set today as the original sync date
-            originalSyncDate = calendar.startOfDay(for: now)
+            // First time syncing - backfill 3 months for better history coverage
+            originalSyncDate = calendar.date(byAdding: .month, value: -3, to: now).map { calendar.startOfDay(for: $0) } ?? calendar.startOfDay(for: now)
             setOriginalSyncDate(originalSyncDate)
             print("📅 [CalendarSync] First sync - setting original sync date to: \(originalSyncDate)")
         }
@@ -175,11 +187,64 @@ class CalendarSyncService {
         // ⚠️ READ-ONLY: eventStore.events(matching:) only reads, does not modify
         let allEvents = eventStore.events(matching: predicate)
 
-        // Filter out all-day events and events that don't have a time component
-        let timedEvents = allEvents.filter { !$0.isAllDay }
-
-        print("📅 [CalendarSync] Fetched \(timedEvents.count) events from \(startDate) to \(endDate)")
-        return timedEvents
+        // Filter events by user email if provided
+        let filteredEvents: [EKEvent]
+        if let userEmail = userEmail?.lowercased(), !userEmail.isEmpty {
+            filteredEvents = allEvents.filter { event in
+                isEventAssociatedWithEmail(event: event, email: userEmail)
+            }
+            print("📅 [CalendarSync] Fetched \(allEvents.count) events, filtered to \(filteredEvents.count) events associated with \(userEmail)")
+        } else {
+            filteredEvents = allEvents
+            print("📅 [CalendarSync] Fetched \(allEvents.count) events from \(startDate) to \(endDate) (no email filter)")
+        }
+        
+        return filteredEvents
+    }
+    
+    /// Check if a calendar event is associated with the given email address
+    /// Checks organizer, attendees, and calendar source
+    private func isEventAssociatedWithEmail(event: EKEvent, email: String) -> Bool {
+        let lowerEmail = email.lowercased()
+        
+        // Check if user is the organizer
+        if let organizer = event.organizer {
+            let organizerURLString = organizer.url.absoluteString.replacingOccurrences(of: "mailto:", with: "").lowercased()
+            if organizerURLString == lowerEmail {
+                return true
+            }
+        }
+        
+        // Check if user is in attendees list
+        if let attendees = event.attendees {
+            for attendee in attendees {
+                let attendeeURLString = attendee.url.absoluteString.replacingOccurrences(of: "mailto:", with: "").lowercased()
+                if attendeeURLString == lowerEmail {
+                    return true
+                }
+            }
+        }
+        
+        // Check if the calendar source/title contains the email domain
+        // This catches calendars like "user@gmail.com" or calendars synced from that email
+        if let eventCalendar = event.calendar {
+            let calendarTitle = eventCalendar.title.lowercased()
+            if calendarTitle.contains(lowerEmail) {
+                return true
+            }
+            
+            // Check calendar source identifier (often contains email)
+            if let source = eventCalendar.source {
+                let sourceTitle = source.title.lowercased()
+                if sourceTitle.contains(lowerEmail) {
+                    return true
+                }
+            }
+        }
+        
+        // If event has no organizer/attendees and calendar doesn't match, exclude it
+        // This prevents syncing events from other people's calendars
+        return false
     }
     
     // MARK: - Original Sync Date Management
@@ -201,8 +266,9 @@ class CalendarSyncService {
     }
 
     /// Fetch only new events (not previously synced)
-    func fetchNewCalendarEvents() async -> [EKEvent] {
-        let allEvents = await fetchCalendarEventsFromCurrentMonthOnwards()
+    /// - Parameter userEmail: Optional user email to filter events
+    func fetchNewCalendarEvents(userEmail: String? = nil) async -> [EKEvent] {
+        let allEvents = await fetchCalendarEventsFromCurrentMonthOnwards(userEmail: userEmail)
         let syncedEventIDs = getSyncedEventIDs()
 
         // Filter out events we've already synced AND events from skipped months
@@ -246,7 +312,9 @@ class CalendarSyncService {
             title: title,
             weekday: weekday,
             description: description,
-            scheduledTime: startDate,
+            // For all-day events, avoid showing as "12:00 AM". Represent as all-day by
+            // leaving scheduledTime nil and using targetDate for the day.
+            scheduledTime: event.isAllDay ? nil : startDate,
             endTime: endDate,
             targetDate: startDate,
             reminderTime: .none, // Let user set their own reminders
@@ -261,8 +329,11 @@ class CalendarSyncService {
         // Mark as calendar event (read-only, not saved to Supabase)
         taskItem.isFromCalendar = true
 
-        // Store the original event ID for sync tracking
-        taskItem.id = "cal_\(event.eventIdentifier)"
+        // Store a unique ID for this occurrence
+        // For recurring events, EventKit returns multiple instances with the SAME eventIdentifier
+        // We need to make each occurrence unique by including the start date
+        let occurrenceTimestamp = Int(startDate.timeIntervalSince1970)
+        taskItem.id = "cal_\(event.eventIdentifier)_\(occurrenceTimestamp)"
 
         return taskItem
     }
@@ -337,6 +408,16 @@ class CalendarSyncService {
         // Reset authorization status by clearing the event store
         // Note: This doesn't actually revoke permission, user must do that in Settings
         print("⚠️ To fully reset: Go to Settings > Seline > Calendars and toggle OFF, then ON")
+    }
+    
+    /// Manual resync: Clear all synced event IDs and force a fresh sync
+    /// This will re-sync all events (filtered by user email if provided)
+    /// - Parameter userEmail: Optional user email to filter events during resync
+    func manualResync(userEmail: String? = nil) {
+        print("🔄 [CalendarSync] Manual resync triggered (userEmail: \(userEmail ?? "none"))")
+        clearSyncTracking()
+        // Note: The actual sync will happen when syncCalendarEvents() is called next
+        // This just clears the tracking so all events are treated as new
     }
 }
 

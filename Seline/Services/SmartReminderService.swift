@@ -36,8 +36,9 @@ class SmartReminderService: ObservableObject {
     func processUpcomingEvents() async {
         guard isEnabled else { return }
 
-        // Get all upcoming events
-        let events = await calendarService.fetchCalendarEventsFromCurrentMonthOnwards()
+        // Get all upcoming events (filtered by user email)
+        let userEmail = AuthenticationManager.shared.currentUser?.profile?.email
+        let events = await calendarService.fetchCalendarEventsFromCurrentMonthOnwards(userEmail: userEmail)
         let calendar = Calendar.current
         let now = Date()
 

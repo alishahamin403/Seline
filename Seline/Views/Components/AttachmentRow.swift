@@ -17,7 +17,7 @@ struct AttachmentRow: View {
             HStack(spacing: 12) {
                 // File icon
                 Image(systemName: attachment.systemIcon)
-                    .font(.system(size: 20, weight: .medium))
+                    .font(FontManager.geist(size: 20, weight: .medium))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
                     .frame(width: 24, height: 24)
 
@@ -42,7 +42,7 @@ struct AttachmentRow: View {
                         .scaleEffect(0.8)
                 } else {
                     Image(systemName: "eye")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(FontManager.geist(size: 16, weight: .medium))
                         .foregroundColor(Color.gray.opacity(0.6))
                 }
             }

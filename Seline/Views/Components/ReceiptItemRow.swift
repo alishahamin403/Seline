@@ -32,15 +32,16 @@ struct ReceiptItemRow: View {
             HStack(spacing: 12) {
                 // Category Icon
                 Text(iconForCategory(receipt.category))
-                    .font(.system(size: 16))
+                    .font(FontManager.geist(size: 16, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.gray : nil)
                     .frame(width: 32, height: 32)
                     .background(
                         Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                            .fill(colorScheme == .dark ? Color.white : Color.black.opacity(0.05))
                     )
 
                 Text(destinationName)
-                    .font(.system(size: 15, weight: .regular)) // 15pt
+                    .font(FontManager.geist(size: 15, weight: .regular)) // 15pt
                     .lineLimit(1)
                     .multilineTextAlignment(.leading)
                     .foregroundColor(Color.shadcnForeground(colorScheme))
@@ -49,7 +50,7 @@ struct ReceiptItemRow: View {
                 Spacer()
 
                 Text(CurrencyParser.formatAmount(receipt.amount))
-                    .font(.system(size: 15, weight: .regular)) // 15pt
+                    .font(FontManager.geist(size: 15, weight: .regular)) // 15pt
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
             }
             .padding(.vertical, 8)

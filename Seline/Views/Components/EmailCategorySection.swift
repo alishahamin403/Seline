@@ -67,7 +67,7 @@ struct EmailCategorySection: View {
     private var cardHeader: some View {
         HStack(spacing: 12) {
             Text(section.title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(FontManager.geist(size: 15, weight: .semibold))
                 .foregroundColor(Color.shadcnForeground(colorScheme))
 
             Spacer()
@@ -91,7 +91,7 @@ struct EmailCategorySection: View {
 
     private var countBadge: some View {
         Text("\(section.emailCount)")
-            .font(.system(size: 12, weight: .semibold))
+            .font(FontManager.geist(size: 12, weight: .semibold))
             .foregroundColor(colorScheme == .dark ? .white : .black)
             .frame(minWidth: 24, minHeight: 24)
             .padding(.horizontal, 6)
@@ -126,7 +126,7 @@ struct EmailCategorySection: View {
         HStack {
             Spacer()
             Text("No emails")
-                .font(.system(size: 13, weight: .regular))
+                .font(FontManager.geist(size: 13, weight: .regular))
                 .foregroundColor(emptyTextColor)
             Spacer()
         }
@@ -141,7 +141,7 @@ struct EmailCategorySection: View {
         emails: Array(sampleEmails.prefix(3))
     )
 
-    return VStack {
+    VStack {
         EmailCategorySection(
             section: section,
             isExpanded: .constant(true),

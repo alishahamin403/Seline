@@ -77,18 +77,18 @@ struct FolderSidebarView: View {
                     }) {
                         HStack(spacing: 12) {
                             Image(systemName: "note.text")
-                                .font(.system(size: 16, weight: .medium))
+                                .font(FontManager.geist(size: 16, weight: .medium))
                                 .foregroundColor(.white)
                                 .frame(width: 20)
 
                             Text("All Notes")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(FontManager.geist(size: 14, weight: .medium))
                                 .foregroundColor(.white)
 
                             Spacer()
 
                             Text("\(nonReceiptNotesCount)")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(FontManager.geist(size: 12, weight: .medium))
                                 .foregroundColor(.white.opacity(0.8))
                         }
                         .padding(.horizontal, 12)
@@ -110,7 +110,7 @@ struct FolderSidebarView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack {
                                 Text("FOLDERS")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(FontManager.geist(size: 11, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                 Spacer()
                             }
@@ -164,7 +164,7 @@ struct FolderSidebarView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
                             Text("TRASH")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(FontManager.geist(size: 11, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                             Spacer()
                         }
@@ -180,19 +180,19 @@ struct FolderSidebarView: View {
                         }) {
                             HStack(spacing: 12) {
                                 Image(systemName: "trash")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .frame(width: 20)
 
                                 Text("Deleted Items")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(FontManager.geist(size: 14, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                                 Spacer()
 
                                 if !notesManager.deletedNotes.isEmpty || !notesManager.deletedFolders.isEmpty {
                                     Text("\(notesManager.deletedNotes.count + notesManager.deletedFolders.count)")
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(FontManager.geist(size: 12, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                 }
                             }
@@ -207,15 +207,15 @@ struct FolderSidebarView: View {
                     if notesManager.folders.isEmpty {
                         VStack(spacing: 12) {
                             Image(systemName: "folder")
-                                .font(.system(size: 48, weight: .light))
+                                .font(FontManager.geist(size: 48, weight: .light))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.2) : .black.opacity(0.2))
 
                             Text("No folders yet")
-                                .font(.system(size: 15, weight: .medium))
+                                .font(FontManager.geist(size: 15, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
 
                             Text("Create a folder to organize your notes")
-                                .font(.system(size: 13, weight: .regular))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 32)
@@ -240,9 +240,9 @@ struct FolderSidebarView: View {
                 }) {
                     HStack(spacing: 10) {
                         Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 18, weight: .medium))
+                            .font(FontManager.geist(size: 18, weight: .medium))
                         Text("New Folder")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                     }
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
@@ -342,7 +342,7 @@ struct FolderRowView: View {
                             onToggleCollapse()
                         }) {
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(FontManager.geist(size: 10, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                 .rotationEffect(.degrees(isCollapsed ? 0 : 90))
                                 .frame(width: 16, height: 16)
@@ -357,13 +357,13 @@ struct FolderRowView: View {
 
                 // Folder icon
                 Image(systemName: isSelected ? "folder.fill" : "folder")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(isSelected ? .white : (colorScheme == .dark ? .white : .black))
                     .frame(width: 20)
 
                 // Folder name
                 Text(folder.name)
-                    .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                    .font(FontManager.geist(size: 14, systemWeight: isSelected ? .semibold : .medium))
                     .foregroundColor(isSelected ? .white : (colorScheme == .dark ? .white : .black))
                     .lineLimit(1)
 
@@ -372,7 +372,7 @@ struct FolderRowView: View {
                 // Note count badge
                 if notesCount > 0 {
                     Text("\(notesCount)")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(FontManager.geist(size: 11, weight: .medium))
                         .foregroundColor(isSelected ? .white.opacity(0.8) : (colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)))
                 }
 
@@ -382,7 +382,7 @@ struct FolderRowView: View {
                     onCreateNote(folder)
                 }) {
                     Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(FontManager.geist(size: 12, weight: .semibold))
                         .foregroundColor(isSelected ? .white.opacity(0.8) : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
                         .frame(width: 20, height: 20)
                 }

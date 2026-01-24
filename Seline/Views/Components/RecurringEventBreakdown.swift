@@ -12,7 +12,7 @@ struct RecurringEventBreakdown: View {
                         // Frequency badge
                         HStack {
                             Text("Frequency")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                             Spacer()
@@ -24,13 +24,13 @@ struct RecurringEventBreakdown: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text("Completion Rate")
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(FontManager.geist(size: 13, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                                 Spacer()
 
                                 Text("\(stat.completedCount)/\(stat.expectedCount)")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(FontManager.geist(size: 13, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
 
@@ -67,7 +67,7 @@ struct RecurringEventBreakdown: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack {
                                     Text("Missed Dates")
-                                        .font(.system(size: 13, weight: .medium))
+                                        .font(FontManager.geist(size: 13, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                                     Spacer()
@@ -80,18 +80,18 @@ struct RecurringEventBreakdown: View {
                                     ForEach(stat.missedDates.sorted(by: >).prefix(5), id: \.self) { date in
                                         HStack(spacing: 8) {
                                             Image(systemName: "circle.fill")
-                                                .font(.system(size: 4))
+                                                .font(FontManager.geist(size: 4, weight: .regular))
                                                 .foregroundColor(Color.red.opacity(0.6))
 
                                             Text(formatMissedDate(date))
-                                                .font(.system(size: 13, weight: .regular))
+                                                .font(FontManager.geist(size: 13, weight: .regular))
                                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7))
                                         }
                                     }
 
                                     if stat.missedDates.count > 5 {
                                         Text("+ \(stat.missedDates.count - 5) more")
-                                            .font(.system(size: 12, weight: .regular))
+                                            .font(FontManager.geist(size: 12, weight: .regular))
                                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                                             .italic()
                                             .padding(.leading, 12)

@@ -19,11 +19,11 @@ struct FilePreviewSheet: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("File Attachment")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(FontManager.geist(size: 12, weight: .semibold))
                                 .foregroundColor(.secondary)
 
                             Text(fileURL.lastPathComponent)
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(FontManager.geist(size: 14, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .lineLimit(1)
                         }
@@ -32,7 +32,7 @@ struct FilePreviewSheet: View {
 
                         Button(action: { dismiss() }) {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 18))
+                                .font(FontManager.geist(size: 18, weight: .regular))
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -108,14 +108,14 @@ struct GenericFilePreviewView: View {
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "doc")
-                        .font(.system(size: 48))
+                        .font(FontManager.geist(size: 48, weight: .regular))
                         .foregroundColor(.secondary)
 
                     Text("File Preview Not Available")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
 
                     Text("This file type cannot be previewed in-app")
-                        .font(.system(size: 12))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(.secondary)
 
                     Text(fileURL.lastPathComponent)

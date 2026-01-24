@@ -32,7 +32,7 @@ struct MissedRecurringEventsSummary: View {
                                 .frame(width: 40, height: 40)
 
                             Image(systemName: "chart.line.uptrend.xyaxis")
-                                .font(.system(size: 18, weight: .medium))
+                                .font(FontManager.geist(size: 18, weight: .medium))
                                 .foregroundColor(
                                     colorScheme == .dark ?
                                         Color.white :
@@ -42,11 +42,11 @@ struct MissedRecurringEventsSummary: View {
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Weekly Insights")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(FontManager.geist(size: 16, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
                             Text("Last week's patterns")
-                                .font(.system(size: 13, weight: .regular))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
 
@@ -59,7 +59,7 @@ struct MissedRecurringEventsSummary: View {
                             }
                         }) {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(FontManager.geist(size: 14, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -67,7 +67,7 @@ struct MissedRecurringEventsSummary: View {
 
                         // Chevron
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 14, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                             .rotationEffect(.degrees(isExpanded ? 180 : 0))
                     }
@@ -90,12 +90,12 @@ struct MissedRecurringEventsSummary: View {
                             .padding(.vertical, 20)
                         } else if !aiSummary.isEmpty {
                             Text(aiSummary)
-                                .font(.system(size: 14, weight: .regular))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.8))
                                 .lineSpacing(4)
                         } else {
                             Text("Tap refresh to generate insights")
-                                .font(.system(size: 14, weight: .regular))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                                 .italic()
                         }
@@ -104,11 +104,11 @@ struct MissedRecurringEventsSummary: View {
                         HStack(spacing: 16) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("\(summary.totalMissedCount)")
-                                    .font(.system(size: 24, weight: .bold))
+                                    .font(FontManager.geist(size: 24, weight: .bold))
                                     .foregroundColor(Color.red.opacity(0.8))
 
                                 Text("Missed")
-                                    .font(.system(size: 12, weight: .regular))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                             }
 
@@ -117,7 +117,7 @@ struct MissedRecurringEventsSummary: View {
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("\(summary.missedEvents.count)")
-                                    .font(.system(size: 24, weight: .bold))
+                                    .font(FontManager.geist(size: 24, weight: .bold))
                                     .foregroundColor(
                                         colorScheme == .dark ?
                                             Color.white :
@@ -125,7 +125,7 @@ struct MissedRecurringEventsSummary: View {
                                     )
 
                                 Text("Events")
-                                    .font(.system(size: 12, weight: .regular))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                             }
                         }

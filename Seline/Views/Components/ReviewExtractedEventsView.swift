@@ -62,13 +62,13 @@ struct ReviewExtractedEventsView: View {
                                         HStack(spacing: 6) {
                                             if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
                                                 Circle()
-                                                    .fill(tag.color)
+                                                    .fill(tag.color(for: colorScheme))
                                                     .frame(width: 8, height: 8)
                                                 Text(tag.name)
                                             } else {
-                                                // Use the default color from palette (index 0 - muted blue)
+                                                // Use the dedicated Personal green color
                                                 Circle()
-                                                    .fill(TagColorPalette.colorForIndex(0))
+                                                    .fill(TimelineEventColorManager.personalColor)
                                                     .frame(width: 8, height: 8)
                                                 Text("Personal")
                                             }
@@ -76,7 +76,7 @@ struct ReviewExtractedEventsView: View {
                                             Spacer()
 
                                             Image(systemName: "chevron.down")
-                                                .font(.system(size: 10))
+                                                .font(FontManager.geist(size: 10, weight: .regular))
                                         }
                                         .font(.subheadline)
                                         .padding(.horizontal, 12)
@@ -97,7 +97,7 @@ struct ReviewExtractedEventsView: View {
                                         showingCreateTag.toggle()
                                     }) {
                                         Image(systemName: "plus.circle.fill")
-                                            .font(.system(size: 20))
+                                            .font(FontManager.geist(size: 20, weight: .regular))
                                             .foregroundColor(.primary)
                                             .opacity(0.6)
                                     }
@@ -142,7 +142,7 @@ struct ReviewExtractedEventsView: View {
                             if extractionResponse.events.isEmpty {
                                 VStack(spacing: 12) {
                                     Image(systemName: "calendar.badge.exclamationmark")
-                                        .font(.system(size: 32))
+                                        .font(FontManager.geist(size: 32, weight: .regular))
                                         .foregroundColor(.gray)
                                         .opacity(0.5)
                                     Text("No events found")
@@ -214,7 +214,7 @@ struct ReviewExtractedEventsView: View {
 
                     VStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 56))
+                            .font(FontManager.geist(size: 56, weight: .regular))
                             .foregroundColor(.green)
 
                         VStack(spacing: 6) {
@@ -385,11 +385,14 @@ struct SimpleEventCard: View {
     @State private var showStartTimePicker = false
     @State private var showEndTimePicker = false
 
+    @Environment(\.colorScheme) var colorScheme
+    
     private var eventColor: Color {
         if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
-            return tag.color
+            return tag.color(for: colorScheme)
         }
-        return Color(red: 0.2039, green: 0.6588, blue: 0.3255) // Personal tag color (green)
+        // Use the dedicated Personal green color
+        return TimelineEventColorManager.personalColor
     }
 
     private func formatTime(_ date: Date) -> String {

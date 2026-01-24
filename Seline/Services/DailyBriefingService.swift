@@ -100,8 +100,9 @@ class DailyBriefingService: ObservableObject {
         // Get unread email count
         let unreadEmails = emailService.inboxEmails.filter { !$0.isRead }.count
 
-        // Get today's events
-        let allEvents = await calendarService.fetchCalendarEventsFromCurrentMonthOnwards()
+        // Get today's events (filtered by user email)
+        let userEmail = AuthenticationManager.shared.currentUser?.profile?.email
+        let allEvents = await calendarService.fetchCalendarEventsFromCurrentMonthOnwards(userEmail: userEmail)
         let calendar = Calendar.current
         let eventsToday = allEvents.filter { event in
             calendar.isDateInToday(event.startDate)

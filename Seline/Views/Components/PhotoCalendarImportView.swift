@@ -25,7 +25,7 @@ struct PhotoCalendarImportView: View {
                     // Icon and title
                     VStack(spacing: 16) {
                         Image(systemName: "camera.fill")
-                            .font(.system(size: 60))
+                            .font(FontManager.geist(size: 60, weight: .regular))
                             .foregroundColor(.white)
                             .frame(width: 100, height: 100)
                             .background(Circle().fill(Color(red: 0.27, green: 0.27, blue: 0.27)))
@@ -115,7 +115,7 @@ struct PhotoCalendarImportView: View {
 
                         VStack(spacing: 16) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 50))
+                                .font(FontManager.geist(size: 50, weight: .regular))
                                 .foregroundColor(.orange)
 
                             VStack(spacing: 8) {

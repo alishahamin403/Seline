@@ -40,55 +40,51 @@ struct MonthlySummaryReceiptCard: View {
                     isExpanded.toggle()
                 }
             }) {
-                VStack(spacing: 8) {
+                VStack(spacing: 6) {
                     HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 8) {
-                                Text(monthlySummary.month)
-                                    .font(.system(size: 21, weight: .regular)) // 21pt Regular (Unbolded)
-                                    .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                                // Chevron removed as requested
-                            }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(monthlySummary.month)
+                                .font(FontManager.geist(size: 17, weight: .semibold))
+                                .foregroundColor(Color.shadcnForeground(colorScheme))
 
                             HStack(spacing: 6) {
                                 Text("\(monthlySummary.receipts.count) receipts")
-                                    .font(.system(size: 13, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
                                 Text("•")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
 
                                 Text(String(format: "Avg $%.0f/day", dailyAverage))
-                                    .font(.system(size: 13, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                             }
                         }
 
                         Spacer()
 
-                        VStack(alignment: .trailing, spacing: 4) {
+                        VStack(alignment: .trailing, spacing: 3) {
                             Text(CurrencyParser.formatAmountNoDecimals(monthlySummary.monthlyTotal))
-                                .font(.system(size: 18, weight: .regular)) // 18pt
+                                .font(FontManager.geist(size: 16, weight: .semibold))
                                 .foregroundColor(.primary)
 
                             // Category breakdown button
                             Button(action: {
                                 showCategoryBreakdown = true
                             }) {
-                                HStack(spacing: 4) {
+                                HStack(spacing: 3) {
                                     Image(systemName: "chart.pie.fill")
-                                        .font(.system(size: 12))
+                                        .font(FontManager.geist(size: 11, weight: .regular))
                                     Text("Categories")
-                                        .font(.system(size: 12, weight: .regular))
+                                        .font(FontManager.geist(size: 11, weight: .regular))
                                 }
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                             }
                         }
                     }
                 }
-                .padding(16) // Padding inside the card
+                .padding(14)
             }
             .buttonStyle(PlainButtonStyle())
 

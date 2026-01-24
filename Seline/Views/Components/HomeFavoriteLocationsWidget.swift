@@ -16,8 +16,10 @@ struct HomeFavoriteLocationsWidget: View {
             // Header
             HStack(spacing: 10) {
                 Text("Favorites")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
                 
                 Spacer()
             }
@@ -26,27 +28,27 @@ struct HomeFavoriteLocationsWidget: View {
             if favorites.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "star")
-                        .font(.system(size: 24, weight: .light))
+                        .font(FontManager.geist(size: 24, weight: .light))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
                     
                     Text("No favorites yet")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     
                     Text("Star locations to see them here")
-                        .font(.system(size: 11, weight: .regular))
+                        .font(FontManager.geist(size: 11, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.35) : Color.black.opacity(0.35))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
+                    HStack(spacing: 10) {
                         ForEach(favorites) { place in
                             locationButton(place: place)
                         }
                     }
-                    .padding(.horizontal, 4) // Subtle padding inside the slider
+                    .padding(.horizontal, 2)
                 }
             }
         }
@@ -56,21 +58,21 @@ struct HomeFavoriteLocationsWidget: View {
     }
     
     private func locationButton(place: SavedPlace) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             PlaceImageView(
                 place: place,
-                size: 70,
-                cornerRadius: 16
+                size: 54,
+                cornerRadius: 12
             )
-            .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-            
+            .shadow(color: .black.opacity(0.15), radius: 3, x: 0, y: 1)
+
             Text(place.displayName)
-                .font(.system(size: 12, weight: .medium))
+                .font(FontManager.geist(size: 11, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .minimumScaleFactor(0.8)
-                .frame(width: 70, height: 32)
+                .frame(width: 54, height: 28)
         }
         .contentShape(Rectangle())
         .onTapGesture {

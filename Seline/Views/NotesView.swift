@@ -23,6 +23,7 @@ struct NotesView: View, Searchable {
     @StateObject private var openAIService = DeepSeekService.shared
     @Namespace private var tabAnimation
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
+    @State private var noteForReminder: Note? = nil
 
     var filteredPinnedNotes: [Note] {
         var notes: [Note]
@@ -154,7 +155,7 @@ struct NotesView: View, Searchable {
                                     }
                                 }) {
                                     Image(systemName: "folder")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(FontManager.geist(size: 14, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
@@ -165,29 +166,6 @@ struct NotesView: View, Searchable {
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
-
-                            // Search button
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    if isSearchActive {
-                                        isSearchActive = false
-                                        searchText = ""
-                                    } else {
-                                        isSearchActive = true
-                                    }
-                                }
-                            }) {
-                                Image(systemName: isSearchActive ? "xmark.circle.fill" : "magnifyingglass")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
-                                    )
-                            }
-                            .buttonStyle(PlainButtonStyle())
 
                             Spacer()
 
@@ -206,7 +184,7 @@ struct NotesView: View, Searchable {
                                         }
                                     }) {
                                         Image(systemName: tabIcon)
-                                            .font(.system(size: 14, weight: .medium))
+                                            .font(FontManager.geist(size: 14, weight: .medium))
                                             .foregroundColor(tabForegroundColor(isSelected: isSelected))
                                             .padding(.horizontal, 16)
                                             .padding(.vertical, 8)
@@ -255,11 +233,11 @@ struct NotesView: View, Searchable {
                         if selectedTab == "notes", let folderId = selectedFolderId {
                             HStack(spacing: 6) {
                                 Image(systemName: "folder.fill")
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(FontManager.geist(size: 12, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                                 Text(notesManager.getFolderName(for: folderId))
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(FontManager.geist(size: 12, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                                 Spacer()
@@ -270,7 +248,7 @@ struct NotesView: View, Searchable {
                                     }
                                 }) {
                                     Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(FontManager.geist(size: 12, weight: .medium))
                                         .foregroundColor(.gray)
                                 }
                                 .buttonStyle(PlainButtonStyle())
@@ -292,7 +270,7 @@ struct NotesView: View, Searchable {
 
                 // Tab content
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 16) {
+                    LazyVStack(spacing: 16) {
                         if selectedTab == "notes" {
                             notesTabContent
                         } else if selectedTab == "receipts" {
@@ -344,6 +322,39 @@ struct NotesView: View, Searchable {
                 print("Created recurring expense: \(expense.title)")
             }
             .presentationBg()
+        }
+
+        .sheet(item: $noteForReminder) { note in
+            NoteReminderSheet(
+                note: note,
+                onSave: { date, message in
+                    var updatedNote = note
+                    updatedNote.reminderDate = date
+                    updatedNote.reminderNote = message.isEmpty ? nil : message
+                    notesManager.updateNote(updatedNote)
+                    
+                    // Invalidate widget cache
+                    CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.upcomingNoteReminders)
+                    
+                    // Haptic feedback
+                    HapticManager.shared.success()
+                    
+                    // TODO: Schedule local notification if needed
+                },
+                onRemove: {
+                    var updatedNote = note
+                    updatedNote.reminderDate = nil
+                    updatedNote.reminderNote = nil
+                    notesManager.updateNote(updatedNote)
+                    
+                    // Invalidate widget cache
+                    CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.upcomingNoteReminders)
+                    
+                    HapticManager.shared.success()
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingReceiptImagePicker) {
             ImagePicker(selectedImage: Binding(
@@ -485,6 +496,9 @@ struct NotesView: View, Searchable {
                                             },
                                             onDelete: { note in
                                                 notesManager.deleteNote(note)
+                                            },
+                                            onSetReminder: { note in
+                                                noteForReminder = note
                                             }
                                         )
                                     }
@@ -532,6 +546,9 @@ struct NotesView: View, Searchable {
                                             },
                                             onDelete: { note in
                                                 notesManager.deleteNote(note)
+                                            },
+                                            onSetReminder: { note in
+                                                noteForReminder = note
                                             }
                                         )
                                     }
@@ -581,6 +598,9 @@ struct NotesView: View, Searchable {
                                             },
                                             onDelete: { note in
                                                 notesManager.deleteNote(note)
+                                            },
+                                            onSetReminder: { note in
+                                                noteForReminder = note
                                             }
                                         )
                                     }
@@ -602,16 +622,16 @@ struct NotesView: View, Searchable {
             if filteredPinnedNotes.isEmpty && recentNotes.isEmpty && notesByMonth.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "note.text")
-                        .font(.system(size: 48, weight: .light))
+                        .font(FontManager.geist(size: 48, weight: .light))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
                     Text(searchText.isEmpty ? "No notes yet" : "No notes found")
-                        .font(.system(size: 18, weight: .medium))
+                        .font(FontManager.geist(size: 18, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                     if searchText.isEmpty {
                         Text("Tap the + button to create your first note")
-                            .font(.system(size: 14, weight: .regular))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                             .multilineTextAlignment(.center)
                     }
@@ -629,10 +649,10 @@ struct NotesView: View, Searchable {
             if searchResults.isEmpty {
                 HStack {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(.secondary)
                     Text("No results for \"\(searchText)\"")
-                        .font(.system(size: 14))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(.secondary)
                     Spacer()
                 }
@@ -649,18 +669,18 @@ struct NotesView: View, Searchable {
                         HStack(spacing: 12) {
                             // Icon
                             Image(systemName: note.isPinned ? "pin.fill" : "doc.text")
-                                .font(.system(size: 14))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(note.isPinned ? .orange : .secondary)
                                 .frame(width: 24)
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(note.title.isEmpty ? "Untitled" : note.title)
-                                    .font(.system(size: 15, weight: .medium))
+                                    .font(FontManager.geist(size: 15, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .lineLimit(1)
                                 
                                 Text(note.content.prefix(50).replacingOccurrences(of: "\n", with: " "))
-                                    .font(.system(size: 12))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
                             }
@@ -669,7 +689,7 @@ struct NotesView: View, Searchable {
                             
                             // Date
                             Text(note.dateModified.formatted(.relative(presentation: .named)))
-                                .font(.system(size: 11))
+                                .font(FontManager.geist(size: 11, weight: .regular))
                                 .foregroundColor(.secondary)
                         }
                         .padding(.horizontal, 16)
@@ -730,7 +750,7 @@ struct NotesView: View, Searchable {
                             }
                         } label: {
                             Image(systemName: "plus")
-                                .font(.system(size: 20, weight: .semibold))
+                                .font(FontManager.geist(size: 20, weight: .semibold))
                                 .foregroundColor(.white)
                                 .frame(width: 56, height: 56)
                                 .background(
@@ -752,7 +772,7 @@ struct NotesView: View, Searchable {
                             }
                         }) {
                             Image(systemName: "plus")
-                                .font(.system(size: 20, weight: .semibold))
+                                .font(FontManager.geist(size: 20, weight: .semibold))
                                 .foregroundColor(.white)
                                 .frame(width: 56, height: 56)
                                 .background(
@@ -950,9 +970,11 @@ struct NoteEditView: View {
     @State private var editingNote: Note? = nil  // Track the note being edited (can be updated when new note is created)
     @State private var isLockedInSession: Bool = false
     @State private var showingFaceIDPrompt: Bool = false
-    @State private var undoHistory: [NSAttributedString] = []
-    @State private var redoHistory: [NSAttributedString] = []
+    @State private var undoHistory: [(title: String, content: String)] = []
+    @State private var redoHistory: [(title: String, content: String)] = []
     @State private var noteIsLocked: Bool = false
+    @FocusState private var isTitleFocused: Bool
+    @FocusState private var isContentFocused: Bool
     @State private var selectedFolderId: UUID? = nil
     @State private var showingFolderPicker = false
     @State private var showingNewFolderAlert = false
@@ -969,6 +991,7 @@ struct NoteEditView: View {
     @State private var showingCameraPicker = false
     @State private var showingFileImporter = false
     @State private var showingReceiptImagePicker = false
+    @State private var showingFormattingBar = false
     @State private var showingReceiptCameraPicker = false
     @State private var imageAttachments: [UIImage] = []
     @State private var showingImageViewer = false
@@ -1016,6 +1039,13 @@ struct NoteEditView: View {
     
     // Add More mode: "replace" or "append"
     @State private var addMoreMode: String = "append"
+    
+    // Table insertion
+    @State private var showingTablePicker = false
+    
+    // Swipe-to-go-back gesture state for smooth iOS Notes-like navigation
+    @State private var swipeOffset: CGFloat = 0
+    @GestureState private var isDragging: Bool = false
 
     var isAnyProcessing: Bool {
         isProcessingCleanup || isProcessingSummarize || isProcessingAddMore || isProcessingReceipt || isGeneratingTitle || isProcessingFile
@@ -1042,6 +1072,38 @@ struct NoteEditView: View {
         ZStack {
             mainContentView
         }
+        .offset(x: swipeOffset)
+        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8, blendDuration: 0), value: swipeOffset)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 30, coordinateSpace: .local)
+                .updating($isDragging) { _, state, _ in
+                    state = true
+                }
+                .onChanged { value in
+                    // Only allow right swipe from left edge (x < 50)
+                    if value.startLocation.x < 50 && value.translation.width > 0 {
+                        // Apply resistance to make it feel natural
+                        swipeOffset = value.translation.width * 0.8
+                    }
+                }
+                .onEnded { value in
+                    // If swiped more than 100 points from left edge, dismiss
+                    if value.startLocation.x < 50 && value.translation.width > 100 {
+                        // Animate off screen then save and dismiss
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            swipeOffset = UIScreen.main.bounds.width
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            saveNoteAndDismiss()
+                        }
+                    } else {
+                        // Snap back
+                        withAnimation(.interactiveSpring(response: 0.3, dampingFraction: 0.8, blendDuration: 0)) {
+                            swipeOffset = 0
+                        }
+                    }
+                }
+        )
         .navigationBarHidden(true)
         .toolbarBackground(.hidden, for: .tabBar)
         .toolbar(.hidden, for: .tabBar)
@@ -1171,6 +1233,12 @@ struct NoteEditView: View {
             }
             .presentationBg()
         }
+        .sheet(isPresented: $showingTablePicker) {
+            TableTemplatePickerSheet(isPresented: $showingTablePicker) { template in
+                insertTable(from: template)
+            }
+            .presentationBg()
+        }
         .alert("Add More Information", isPresented: $showingAddMorePrompt) {
             TextField("What would you like to add?", text: $addMorePromptText)
             Button("Cancel", role: .cancel) {
@@ -1223,6 +1291,27 @@ struct NoteEditView: View {
             // Background
             backgroundColor
                 .ignoresSafeArea()
+            
+            // Shadow overlay during swipe (appears on left edge)
+            if swipeOffset > 0 {
+                HStack {
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color.black.opacity(0.15),
+                                    Color.clear
+                                ]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: 20)
+                        .offset(x: -20)
+                    Spacer()
+                }
+                .ignoresSafeArea()
+            }
 
             VStack(spacing: 0) {
                 // Custom toolbar - fixed at top
@@ -1250,11 +1339,11 @@ struct NoteEditView: View {
                                 ShadcnSpinner(size: .small)
                                 if isProcessingFile {
                                     Text("Analyzing file...")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(FontManager.geist(size: 14, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                                 } else {
                                     Text("Analyzing receipt...")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(FontManager.geist(size: 14, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                                 }
                             }
@@ -1270,24 +1359,15 @@ struct NoteEditView: View {
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(.horizontal, 4)
                 }
-                .simultaneousGesture(
-                    DragGesture()
-                        .onEnded { gesture in
-                            if gesture.translation.height > 50 {
-                                // Swipe down detected - dismiss keyboard
-                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                            }
-                        }
-                )
+                // Removed swipe-to-dismiss-keyboard gesture - it was interfering with normal typing
+                // Users can dismiss keyboard by tapping outside the text field or using the keyboard dismiss key
+                // Removed: Format bar no longer auto-dismisses when tapping content
+                // User must manually tap the Aa button again to dismiss the formatting bar
 
-                // Bottom buttons - fixed at bottom, outside scroll view
-                VStack(spacing: 0) {
-                    bottomActionButtons
-                        .background(colorScheme == .dark ? Color.black : Color.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                }
-                .zIndex(2)
+                // Bottom floating toolbar - Apple Notes style pill
+                bottomActionButtons
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
             }
         }
     }
@@ -1301,25 +1381,23 @@ struct NoteEditView: View {
 
     private var customToolbar: some View {
         HStack(spacing: 12) {
-            // Back button
+            // Back button - no haptic needed for basic navigation
             Button(action: {
-                HapticManager.shared.navigation()
                 saveNoteAndDismiss()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 36, height: 36)
                     .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
             }
 
-            // Undo button
+            // Undo button - no haptic for common action
             Button(action: {
-                HapticManager.shared.buttonTap()
                 undoLastChange()
             }) {
                 Image(systemName: "arrow.uturn.backward")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 36, height: 36)
                     .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
@@ -1329,37 +1407,35 @@ struct NoteEditView: View {
 
             Spacer()
 
-            // Share button
+            // Share button - no haptic for common action
             Button(action: {
-                HapticManager.shared.buttonTap()
                 showingShareSheet = true
             }) {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 36, height: 36)
                     .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
             }
 
-            // Folder button
+            // Folder button - no haptic for common action
             Button(action: {
-                HapticManager.shared.folder()
                 showingFolderPicker = true
             }) {
                 Image(systemName: "folder")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 36, height: 36)
                     .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
             }
 
-            // Delete button
+            // Delete button - keep haptic for destructive action
             Button(action: {
                 HapticManager.shared.delete()
                 deleteNote()
             }) {
                 Image(systemName: "trash")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(.white)
                     .frame(width: 36, height: 36)
                     .background(Circle().fill(Color.red))
@@ -1367,25 +1443,24 @@ struct NoteEditView: View {
             .opacity(note != nil ? 1.0 : 0.5)
             .disabled(note == nil)
 
-            // Lock/Unlock button
+            // Lock/Unlock button - no haptic for toggle action
             Button(action: {
-                HapticManager.shared.lockToggle()
                 toggleLock()
             }) {
                 Image(systemName: noteIsLocked ? "lock.fill" : "lock.open")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 36, height: 36)
                     .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
             }
 
-            // Save button
+            // Save button - keep haptic for important action
             Button(action: {
                 HapticManager.shared.save()
                 saveNoteAndDismiss()
             }) {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(FontManager.geist(size: 16, weight: .bold))
                     .foregroundColor(colorScheme == .dark ? .black : .white)
                     .frame(width: 36, height: 36)
                     .background(
@@ -1489,23 +1564,38 @@ struct NoteEditView: View {
         }()
         
         return VStack(alignment: .leading, spacing: 12) {
-            // Title - smaller font (22pt), reduced padding (12pt)
-            TextField("Title", text: $title, axis: .vertical)
-                .font(.system(size: 22, weight: .bold))
-                .submitLabel(.next)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
+            // Title - NO multiline axis so Enter triggers submit properly
+            // Auto-focus title when creating new note (like Apple Notes)
+            NoteTitleField(
+                text: $title,
+                isFocused: $isTitleFocused,
+                onEnterPressed: {
+                    // When user presses Enter in title, move focus to content immediately
+                    // Don't explicitly resign title - let focus transfer naturally keep keyboard visible
+                    isContentFocused = true
+                }
+            )
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
+            .onChange(of: title) { _ in
+                // Save to undo history on title change
+                saveToUndoHistory()
+            }
             
-            // Content editor with date detection
-            UnifiedNoteEditor(
-                text: $content,
+            // Content editor with table support and date detection
+            HybridNoteContentView(
+                content: $content,
+                isContentFocused: $isContentFocused,
                 onEditingChanged: {
-                    // No auto-save - save only on checkmark
+                    // Save to undo history on content change
+                    saveToUndoHistory()
                 },
                 onDateDetected: { date, context in
                     // User tapped highlighted date - parse event details with LLM
                     detectedEventDate = date
-                    detectedEventEndDate = date.addingTimeInterval(3600)
+                    detectedEventEndDate = date.addingTimeInterval(3600) // 1 hour default
+                    eventSelectedTime = date // Set the time picker to detected time
+                    eventSelectedEndTime = date.addingTimeInterval(3600)
                     detectedEventHasTime = true
                     isParsingEventFromNote = true
                     showingEventCreationPrompt = true
@@ -1538,6 +1628,34 @@ struct NoteEditView: View {
         }
     }
 
+    // Insert a table from template
+    private func insertTable(from template: TableTemplate) {
+        var tableMarkdown = ""
+        
+        // Build header row
+        if let headerRow = template.rows.first {
+            tableMarkdown += "| " + headerRow.map { $0.isEmpty ? " " : $0 }.joined(separator: " | ") + " |\n"
+            // Add separator row
+            tableMarkdown += "|" + headerRow.map { _ in "---" }.joined(separator: "|") + "|\n"
+        }
+        
+        // Add data rows
+        for row in template.rows.dropFirst() {
+            tableMarkdown += "| " + row.map { $0.isEmpty ? " " : $0 }.joined(separator: " | ") + " |\n"
+        }
+        
+        // Insert into content
+        if content.isEmpty {
+            content = tableMarkdown
+        } else if content.hasSuffix("\n") {
+            content += "\n" + tableMarkdown
+        } else {
+            content += "\n\n" + tableMarkdown
+        }
+        
+        HapticManager.shared.success()
+    }
+
     private var imageAttachmentsView: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 16) {
@@ -1564,9 +1682,9 @@ struct NoteEditView: View {
                         }) {
                             HStack {
                                 Image(systemName: "trash")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(FontManager.geist(size: 14, weight: .medium))
                                 Text("Remove")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(FontManager.geist(size: 14, weight: .medium))
                             }
                             .foregroundColor(.red)
                             .padding(.horizontal, 16)
@@ -1622,11 +1740,11 @@ struct NoteEditView: View {
             Spacer()
             VStack(spacing: 24) {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 48, weight: .light))
+                    .font(FontManager.geist(size: 48, weight: .light))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
                 Text("Note is locked")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(FontManager.geist(size: 18, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                 VStack(spacing: 12) {
@@ -1634,7 +1752,7 @@ struct NoteEditView: View {
                         authenticateWithBiometricOrPasscode()
                     }) {
                         Text("Unlock with Face ID or Passcode")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(FontManager.geist(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .black : .white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
@@ -1648,7 +1766,7 @@ struct NoteEditView: View {
                         dismiss()
                     }) {
                         Text("Cancel")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(FontManager.geist(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
@@ -1666,168 +1784,323 @@ struct NoteEditView: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
+    // MARK: - Apple Notes Style Floating Pill Toolbar
     private var bottomActionButtons: some View {
-        // Bottom action buttons - 5 buttons in a row
-        HStack(spacing: 8) {
-            // AI button - Menu with 3 options
-            Menu {
-                Button(action: {
-                    HapticManager.shared.aiActionStart()
-                    Task {
-                        await cleanUpNoteWithAI()
-                    }
-                }) {
-                    Label("Clean up", systemImage: "sparkles")
-                }
-                .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                
-                Button(action: {
-                    HapticManager.shared.aiActionStart()
-                    Task {
-                        await summarizeNoteWithAI()
-                    }
-                }) {
-                    Label("Summarize", systemImage: "text.bubble")
-                }
-                .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                
-                Button(action: {
-                    HapticManager.shared.aiActionStart()
-                    showingAddMorePrompt = true
-                }) {
-                    Label("Add More", systemImage: "plus.circle")
-                }
-                .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            } label: {
-                if isProcessingCleanup || isProcessingSummarize || isProcessingAddMore {
-                    ShadcnSpinner(size: .small)
-                        .frame(height: 36)
-                } else {
-                    Image(systemName: "wand.and.stars")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 40, height: 36)
-                }
+        VStack(spacing: 8) {
+            // Formatting bar - appears above main toolbar when Aa is tapped
+            if showingFormattingBar {
+                formattingPillBar
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                        removal: .opacity
+                    ))
             }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-            .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            // Spacer
-            Spacer()
             
-            // Todo checkbox button
-            Button(action: {
-                HapticManager.shared.buttonTap()
-                insertTodoAtCursor()
-            }) {
-                Image(systemName: "checklist")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 40, height: 36)
+            // Main toolbar - floating pill
+            mainToolbarPill
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showingFormattingBar)
+    }
+    
+    // Formatting options pill with glass effect - Order: Body, H1, H2, H3, Bold, Italic, Strikethrough, Bullet, Numbered
+    private var formattingPillBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 5) {
+                // Headings group
+                formatIconButton(label: "Aa", size: 15) { applyFormattingActionAndDismiss(.body) }
+                formatIconButton(label: "H1", size: 14, weight: .bold) { applyFormattingActionAndDismiss(.heading1) }
+                formatIconButton(label: "H2", size: 13, weight: .semibold) { applyFormattingActionAndDismiss(.heading2) }
+                formatIconButton(label: "H3", size: 12, weight: .medium) { applyFormattingActionAndDismiss(.heading3) }
+
+                pillDivider
+
+                // Text styling group
+                formatIconButton(label: "B", size: 16, weight: .bold) { applyFormattingActionAndDismiss(.bold) }
+                formatIconButton(label: "I", size: 16, isItalic: true) { applyFormattingActionAndDismiss(.italic) }
+                formatStrikethroughButton { applyFormattingActionAndDismiss(.strikethrough) }
+
+                pillDivider
+
+                // List group
+                formatSystemIconButton(systemName: "list.bullet") { applyFormattingActionAndDismiss(.bulletPoint) }
+                formatSystemIconButton(systemName: "list.number") { applyFormattingActionAndDismiss(.numberedList) }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-
-            // File icon button
-            Button(action: {
-                showingFileImporter = true
-            }) {
-                Image(systemName: "doc.fill")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 40, height: 36)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+        }
+        .frame(height: 50)
+        .background(
+            // Glassmorphism effect
+            ZStack {
+                // Blur background
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(.ultraThinMaterial)
+                
+                // Subtle gradient overlay for premium look
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.6),
+                                colorScheme == .dark ? Color.white.opacity(0.02) : Color.white.opacity(0.3)
+                            ]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                
+                // Border for definition
+                RoundedRectangle(cornerRadius: 26)
+                    .stroke(
+                        colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08),
+                        lineWidth: 1
+                    )
             }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
+        )
+        .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
+    }
+    
+    private func formatIconButton(label: String, size: CGFloat, weight: Font.Weight = .regular, isItalic: Bool = false, action: @escaping () -> Void) -> some View {
+        Button {
+            HapticManager.shared.selection()
+            action()
+        } label: {
+            Text(label)
+                .font(isItalic ? .system(size: size, weight: weight).italic() : .system(size: size, weight: weight))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.85))
+                .frame(width: 38, height: 34)
+                .background(
+                    Capsule()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04), lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(ScaleButtonStyle())
+    }
 
-            // Gallery icon button
-            Button(action: {
-                showingImagePicker = true
-            }) {
-                Image(systemName: "photo.fill")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 40, height: 36)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
+    private func formatStrikethroughButton(action: @escaping () -> Void) -> some View {
+        Button {
+            HapticManager.shared.selection()
+            action()
+        } label: {
+            Text("S")
+                .font(.system(size: 16, weight: .medium))
+                .strikethrough(true)
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.85))
+                .frame(width: 38, height: 34)
+                .background(
+                    Capsule()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04), lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(ScaleButtonStyle())
+    }
 
-            // View attachments button - only shows if there are images or files
-            if !imageAttachments.isEmpty || attachment != nil {
-                Button(action: {
-                    HapticManager.shared.buttonTap()
-                    // Show image attachments sheet if available
-                    if !imageAttachments.isEmpty {
-                        showingAttachmentsSheet = true
-                    } else if let attachment = attachment {
-                        // Download and show file preview
-                        Task {
-                            do {
-                                print("📥 Downloading file for preview: \(attachment.fileName)")
-                                print("📥 Storage path: \(attachment.storagePath)")
-
-                                // Download the file from storage using AttachmentService
-                                let fileData = try await AttachmentService.shared.downloadFile(from: attachment.storagePath)
-
-                                print("✅ Downloaded \(fileData.count) bytes")
-
-                                // Save to temporary file for preview
-                                let tmpDirectory = FileManager.default.temporaryDirectory
-                                let tmpFile = tmpDirectory.appendingPathComponent(attachment.fileName)
-
-                                try fileData.write(to: tmpFile)
-
-                                print("✅ File saved to temp location: \(tmpFile.path)")
-
-                                await MainActor.run {
-                                    self.filePreviewURL = tmpFile
-                                    self.showingFilePreview = true
-                                }
-                            } catch {
-                                print("❌ Failed to download file for preview: \(error)")
-                                print("📊 Storage path that failed: \(attachment.storagePath)")
-                                print("📊 File name: \(attachment.fileName)")
-                                await MainActor.run {
-                                    HapticManager.shared.error()
+    private func formatSystemIconButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button {
+            HapticManager.shared.selection()
+            action()
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.85))
+                .frame(width: 38, height: 34)
+                .background(
+                    Capsule()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04), lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(ScaleButtonStyle())
+    }
+    
+    private var formattingDivider: some View {
+        Rectangle()
+            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+            .frame(width: 1, height: 22)
+    }
+    
+    private var pillDivider: some View {
+        Rectangle()
+            .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
+            .frame(width: 1, height: 18)
+    }
+    
+    // Main toolbar pill with glass effect matching format bar
+    private var mainToolbarPill: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                // Aa - formatting
+                mainToolbarIconButton(systemName: "textformat.size", isActive: showingFormattingBar) {
+                    withAnimation { showingFormattingBar.toggle() }
+                }
+                
+                // Checklist
+                mainToolbarIconButton(systemName: "checklist") { insertTodoAtCursor() }
+                
+                // Table
+                mainToolbarIconButton(systemName: "tablecells") { showingTablePicker = true }
+                
+                // Attachment
+                mainToolbarIconButton(systemName: "paperclip") { showingFileImporter = true }
+                
+                // Camera
+                mainToolbarIconButton(systemName: "camera") { showingCameraPicker = true }
+                
+                // Photos
+                mainToolbarIconButton(systemName: "photo") { showingImagePicker = true }
+                
+                // AI wand
+                Menu {
+                    Button { HapticManager.shared.aiActionStart(); Task { await cleanUpNoteWithAI() } } label: {
+                        Label("Clean up", systemImage: "sparkles")
+                    }
+                    .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    
+                    Button { HapticManager.shared.aiActionStart(); Task { await summarizeNoteWithAI() } } label: {
+                        Label("Summarize", systemImage: "text.bubble")
+                    }
+                    .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    
+                    Button { HapticManager.shared.aiActionStart(); showingAddMorePrompt = true } label: {
+                        Label("Add More", systemImage: "plus.circle")
+                    }
+                    .disabled(isAnyProcessing)
+                } label: {
+                    Group {
+                        if isProcessingCleanup || isProcessingSummarize || isProcessingAddMore {
+                            ShadcnSpinner(size: .small)
+                        } else {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 17))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        }
+                    }
+                    .frame(width: 42, height: 38)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+                    )
+                }
+                
+                // Attachments badge
+                if !imageAttachments.isEmpty || attachment != nil {
+                    Button {
+                        HapticManager.shared.buttonTap()
+                        if !imageAttachments.isEmpty {
+                            showingAttachmentsSheet = true
+                        } else if let att = attachment {
+                            Task {
+                                if let data = try? await AttachmentService.shared.downloadFile(from: att.storagePath) {
+                                    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(att.fileName)
+                                    try? data.write(to: tmp)
+                                    await MainActor.run { filePreviewURL = tmp; showingFilePreview = true }
                                 }
                             }
                         }
-                    }
-                }) {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: "eye")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 40, height: 36)
-
-                        // Badge showing total attachment count
-                        let totalCount = imageAttachments.count + (attachment != nil ? 1 : 0)
-                        Text("\(totalCount)")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 16, height: 16)
-                            .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1)))
-                            .offset(x: 8, y: -4)
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "eye")
+                                .font(.system(size: 17))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .frame(width: 42, height: 38)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+                                )
+                            
+                            Text("\(imageAttachments.count + (attachment != nil ? 1 : 0))")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: 14, height: 14)
+                                .background(Circle().fill(Color.red))
+                                .offset(x: 4, y: 2)
+                        }
                     }
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                )
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .background(colorScheme == .dark ? Color.black : Color.white)
+        .frame(height: 52)
+        .background(
+            // Glassmorphism effect matching format bar
+            ZStack {
+                // Blur background
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(.ultraThinMaterial)
+                
+                // Subtle gradient overlay for premium look
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.6),
+                                colorScheme == .dark ? Color.white.opacity(0.02) : Color.white.opacity(0.3)
+                            ]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                
+                // Border for definition
+                RoundedRectangle(cornerRadius: 26)
+                    .stroke(
+                        colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08),
+                        lineWidth: 1
+                    )
+            }
+        )
+        .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
+    }
+    
+    private func mainToolbarIconButton(systemName: String, isActive: Bool = false, action: @escaping () -> Void) -> some View {
+        Button {
+            HapticManager.shared.buttonTap()
+            action()
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.85))
+                .frame(width: 38, height: 34)
+                .background(
+                    Capsule()
+                        .fill(
+                            isActive
+                                ? (colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.12))
+                                : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                        )
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04), lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(ScaleButtonStyle())
+    }
+
+    private func applyFormattingAction(_ action: NoteFormattingAction) {
+        NotificationCenter.default.post(
+            name: .noteFormattingAction,
+            object: nil,
+            userInfo: ["action": action.rawValue]
+        )
+    }
+    
+    private func applyFormattingActionAndDismiss(_ action: NoteFormattingAction) {
+        applyFormattingAction(action)
+        // Keep formatting bar visible - user must manually dismiss by tapping Aa button again
+        // This allows rapid formatting without repeatedly opening the bar
     }
 
     // MARK: - Lifecycle Methods
@@ -1898,6 +2171,21 @@ struct NoteEditView: View {
             // Set initial folder for new note
             selectedFolderId = folderId
         }
+        
+        // Auto-focus title when creating new note (like Apple Notes)
+        // Use multiple attempts to ensure keyboard appears reliably
+        if note == nil {
+            // First attempt after short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                isTitleFocused = true
+            }
+            // Second attempt to ensure keyboard appears
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                if !isTitleFocused {
+                    isTitleFocused = true
+                }
+            }
+        }
 
         // Initialize undo history
         saveToUndoHistory()
@@ -1925,42 +2213,28 @@ struct NoteEditView: View {
             return
         }
 
-        // If title is empty but content exists, generate title with AI
-        if trimmedTitle.isEmpty && (!trimmedContent.isEmpty || !imageAttachments.isEmpty) {
-            isGeneratingTitle = true
-            Task {
-                do {
-                    let generatedTitle = try await openAIService.generateNoteTitle(from: trimmedContent.isEmpty ? "Image attachment" : trimmedContent)
-                    await performSave(title: generatedTitle, content: contentToSave)
-                    await MainActor.run {
-                        self.title = generatedTitle
-                        isGeneratingTitle = false
-                        dismiss()
-                    }
-                } catch {
-                    // If AI fails, use timestamp as fallback
-                    let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short)
-                    await performSave(title: timestamp, content: contentToSave)
-                    await MainActor.run {
-                        self.title = "Note \(timestamp)"
-                        isGeneratingTitle = false
-                        dismiss()
-                    }
-                }
-            }
-            return
-        }
-
-        // CRITICAL: Wait for save to complete before dismissing
-        Task {
-            await performSave(title: trimmedTitle.isEmpty ? "Untitled" : trimmedTitle, content: contentToSave)
-            await MainActor.run {
-                dismiss()
-            }
+        // PERFORMANCE FIX: Dismiss IMMEDIATELY - save in background
+        // This eliminates any lag the user feels
+        dismiss()
+        
+        // Simple save - no AI title generation (like Apple Notes)
+        // If title is empty, use "Note" as fallback
+        let finalTitle = trimmedTitle.isEmpty ? "Note" : trimmedTitle
+        
+        // Save in background - don't wait
+        Task.detached(priority: .background) {
+            await performSaveInBackground(title: finalTitle, content: contentToSave)
         }
     }
+    
+    /// Background save that doesn't block the UI
+    @MainActor
+    private func performSaveInBackground(title: String, content: String) async -> UUID? {
+        return await performSave(title: title, content: content)
+    }
+    
 
-    private func performSave(title: String, content: String) async {
+    private func performSave(title: String, content: String) async -> UUID? {
         if let existingNote = editingNote {
             // Updating an existing note
             var updatedNote = existingNote
@@ -1983,6 +2257,7 @@ struct NoteEditView: View {
             // The duplicate call was causing race conditions and save failures
             notesManager.updateNote(updatedNote)
             editingNote = updatedNote
+            return updatedNote.id
         } else {
             // Create new note - Use addNoteAndWaitForSync which handles both UI update and sync
             var newNote = Note(title: title, content: content, folderId: selectedFolderId)
@@ -2004,6 +2279,8 @@ struct NoteEditView: View {
             } else if !syncSuccess {
                 print("⚠️ Failed to sync note to Supabase, will retry on next save")
             }
+            
+            return newNote.id
         }
     }
     
@@ -2090,29 +2367,20 @@ struct NoteEditView: View {
     }
 
     private func saveToUndoHistory() {
-        // Create combined attributed string with title
-        let titleAttrString = NSAttributedString(
-            string: title,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 24, weight: .bold),
-                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-            ]
-        )
-        let separator = NSAttributedString(string: "\n---\n")
-        let combined = NSMutableAttributedString()
-        combined.append(titleAttrString)
-        combined.append(separator)
-        combined.append(attributedContent)
-
-        if let last = undoHistory.last, !last.isEqual(to: combined) {
-            undoHistory.append(combined)
-            if undoHistory.count > 20 { // Limit history
-                undoHistory.removeFirst()
-            }
-            redoHistory.removeAll() // Clear redo when new changes are made
-        } else if undoHistory.isEmpty {
-            undoHistory.append(combined)
+        // Track title and content as strings (like Notes app)
+        let currentState = (title: title, content: content)
+        
+        // Only save if different from last state
+        if let last = undoHistory.last, 
+           last.title == currentState.title && last.content == currentState.content {
+            return // No change, don't add to history
         }
+        
+        undoHistory.append(currentState)
+        if undoHistory.count > 50 { // Limit history (increased for better undo support)
+            undoHistory.removeFirst()
+        }
+        redoHistory.removeAll() // Clear redo when new changes are made
     }
 
     private func undoLastChange() {
@@ -2122,18 +2390,10 @@ struct NoteEditView: View {
         redoHistory.append(currentState)
 
         if let previousState = undoHistory.last {
-            let text = previousState.string
-            let components = text.components(separatedBy: "\n---\n")
-            if components.count >= 2 {
-                title = components[0]
-                // Extract attributed content after separator
-                if let range = previousState.string.range(of: "\n---\n") {
-                    let contentStartIndex = previousState.string.distance(from: previousState.string.startIndex, to: range.upperBound)
-                    let contentRange = NSRange(location: contentStartIndex, length: previousState.length - contentStartIndex)
-                    attributedContent = previousState.attributedSubstring(from: contentRange)
-                    content = attributedContent.string
-                }
-            }
+            title = previousState.title
+            content = previousState.content
+            // Update attributedContent from the new content string
+            attributedContent = parseContentWithImages(previousState.content)
         }
     }
 
@@ -2356,27 +2616,30 @@ struct NoteEditView: View {
         do {
             // Build a comprehensive prompt for the LLM to extract event details
             let prompt = """
-            Extract event details from this text. Return ONLY a valid JSON object.
+            You are an intelligent event parser. Extract event details from this text and generate helpful context.
             
             Text: "\(context)"
             Detected base date: \(DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .none))
             
+            IMPORTANT RULES:
+            1. The TITLE should NOT include the date/time - extract only the action or subject
+            2. ALWAYS generate a brief, helpful description (1-3 sentences max)
+            
             Extract and return JSON with these fields:
-            - title: A SHORT event name (max 5-6 words, like "Meeting with Bob" or "Doctor Appointment")
-            - description: Any additional details, context, or notes (everything that's not the title)
-            - startTime: Time in HH:mm 24-hour format if mentioned (e.g., "2pm" -> "14:00", "3:30pm" -> "15:30")
+            - title: Clean EVENT NAME only. Remove any date/time. Capitalize properly. Examples:
+              * "Jan 15 5pm - look into Lasic surgery" → "LASIK Surgery Research"
+              * "tomorrow at 2pm meeting with John" → "Meeting with John"
+              * "next week dentist appointment" → "Dentist Appointment"
+            - description: REQUIRED - A brief helpful snippet about the topic (1-3 sentences). Examples:
+              * "LASIK Surgery": "Eye surgery that reshapes the cornea to correct vision. Consult with an ophthalmologist to discuss candidacy and recovery time."
+              * "Dentist Appointment": "Remember to bring insurance card and arrive 10 min early. Mention any sensitivity or concerns."
+              * "Meeting with John": "Prepare agenda and key discussion points beforehand."
+            - startTime: Time in HH:mm 24-hour format if mentioned (e.g., "5pm" -> "17:00")
             - endTime: End time in HH:mm format if mentioned, otherwise null
-            - location: Location or place if mentioned, otherwise null
-            - reminder: One of ["none", "15min", "1hour", "3hours", "1day"] if user mentions reminder/alert, otherwise "15min" as default
+            - location: Location if mentioned, otherwise null
             
-            Example input: "Meeting with John at 2pm tomorrow at Starbucks to discuss project"
-            Example output: {"title": "Meeting with John", "description": "Discuss project", "startTime": "14:00", "endTime": null, "location": "Starbucks", "reminder": "15min"}
-            
-            Example input: "Call mom at 5:30pm remind me 30 minutes before"
-            Example output: {"title": "Call mom", "description": null, "startTime": "17:30", "endTime": null, "location": null, "reminder": "30min"}
-            
-            IMPORTANT: Title should be CONCISE (3-6 words max). Put all other info in description.
-            Return ONLY the JSON, no other text.
+            Return ONLY valid JSON, no explanations:
+            {"title": "...", "description": "...", "startTime": "...", "endTime": null, "location": null}
             """
             
             let response = try await openAIService.generateNoteTitle(from: prompt)
@@ -2399,21 +2662,26 @@ struct NoteEditView: View {
                let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
                 
                 await MainActor.run {
-                    // Title - keep it short
+                    // Title - should NOT contain the date
                     if let title = json["title"] as? String, !title.isEmpty {
                         detectedEventTitle = title
                     } else {
-                        // Extract first few words as title
-                        let words = context.split(separator: " ").prefix(5).joined(separator: " ")
-                        detectedEventTitle = words
+                        // Fallback: try to extract meaningful words (not date/time)
+                        let filteredWords = extractNonDateWords(from: context)
+                        detectedEventTitle = filteredWords.prefix(5).joined(separator: " ").capitalized
                     }
                     
-                    // Description
+                    // Description - AI-generated helpful content
                     if let desc = json["description"] as? String, !desc.isEmpty, desc != "null" {
                         detectedEventDescription = desc
+                    } else {
+                        // Fallback: generate a simple placeholder based on title
+                        if !detectedEventTitle.isEmpty {
+                            detectedEventDescription = "Reminder: \(detectedEventTitle)"
+                        }
                     }
                     
-                    // Parse time if present
+                    // Parse time if present (but don't override if already set from chip)
                     let calendar = Calendar.current
                     if let startTimeStr = json["startTime"] as? String, !startTimeStr.isEmpty, startTimeStr != "null" {
                         let parts = startTimeStr.split(separator: ":")
@@ -2440,50 +2708,55 @@ struct NoteEditView: View {
                         eventSelectedEndTime = detectedEventEndDate
                     }
                     
-                    // Location - add to description if present
+                    // Location
                     if let location = json["location"] as? String, !location.isEmpty, location != "null" {
-                        if detectedEventDescription.isEmpty {
-                            detectedEventDescription = "📍 \(location)"
-                        } else {
-                            detectedEventDescription = "📍 \(location)\n\(detectedEventDescription)"
-                        }
+                        detectedEventLocation = location
                     }
                     
-                    // Reminder
-                    if let reminderStr = json["reminder"] as? String {
-                        switch reminderStr.lowercased() {
-                        case "none": eventReminder = .none
-                        case "5min", "15min": eventReminder = .fifteenMinutes
-                        case "30min", "1hour": eventReminder = .oneHour
-                        case "3hours": eventReminder = .threeHours
-                        case "1day": eventReminder = .oneDay
-                        default: eventReminder = .fifteenMinutes
-                        }
-                    }
+                    // Default reminder
+                    eventReminder = .fifteenMinutes
                     
                     isParsingEventFromNote = false
                 }
             } else {
                 // Fallback: use smart extraction
                 await MainActor.run {
-                    let words = context.split(separator: " ")
-                    detectedEventTitle = words.prefix(5).joined(separator: " ")
-                    if words.count > 5 {
-                        detectedEventDescription = words.dropFirst(5).joined(separator: " ")
-                    }
+                    let filteredWords = extractNonDateWords(from: context)
+                    let titleWords = filteredWords.prefix(5).joined(separator: " ").capitalized
+                    detectedEventTitle = titleWords
+                    detectedEventDescription = "Reminder: \(titleWords)"
                     isParsingEventFromNote = false
                 }
             }
         } catch {
             // Fallback on error
             await MainActor.run {
-                let words = context.split(separator: " ")
-                detectedEventTitle = words.prefix(5).joined(separator: " ")
-                if words.count > 5 {
-                    detectedEventDescription = words.dropFirst(5).joined(separator: " ")
+                let filteredWords = extractNonDateWords(from: context)
+                detectedEventTitle = filteredWords.prefix(5).joined(separator: " ").capitalized
+                if filteredWords.count > 5 {
+                    detectedEventDescription = filteredWords.dropFirst(5).joined(separator: " ")
                 }
                 isParsingEventFromNote = false
             }
+        }
+    }
+    
+    /// Helper to extract words that are not dates/times
+    private func extractNonDateWords(from text: String) -> [String] {
+        let words = text.split(separator: " ").map { String($0) }
+        let dateTimePatterns = [
+            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+            "am", "pm", "at", "on", "tomorrow", "today", "next", "week"
+        ]
+        
+        return words.filter { word in
+            let lowercased = word.lowercased().trimmingCharacters(in: .punctuationCharacters)
+            // Skip if it's a date pattern or looks like a time (contains digits and : or am/pm)
+            if dateTimePatterns.contains(lowercased) { return false }
+            if lowercased.range(of: #"^\d+:?\d*$"#, options: .regularExpression) != nil { return false }
+            if lowercased.range(of: #"^\d+(am|pm)$"#, options: .regularExpression) != nil { return false }
+            return true
         }
     }
     
@@ -3153,7 +3426,7 @@ struct ImageViewer: View {
                         isPresented = false
                     }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(FontManager.geist(size: 20, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 44, height: 44)
                             .background(Circle().fill(Color.white.opacity(0.2)))
@@ -3211,17 +3484,17 @@ struct FormattingMenuView: View {
                         }) {
                             HStack {
                                 Image(systemName: "tablecells")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .frame(width: 24)
                                 Text("Insert Table")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
                         }
                     } header: {
                         Text("Insert")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(FontManager.geist(size: 13, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                     }
 
@@ -3232,11 +3505,11 @@ struct FormattingMenuView: View {
                         }) {
                             HStack {
                                 Image(systemName: "bold")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
                                     .frame(width: 24)
                                 Text("Bold")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
                             }
                         }
@@ -3248,11 +3521,11 @@ struct FormattingMenuView: View {
                         }) {
                             HStack {
                                 Image(systemName: "italic")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
                                     .frame(width: 24)
                                 Text("Italic")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
                             }
                         }
@@ -3264,11 +3537,11 @@ struct FormattingMenuView: View {
                         }) {
                             HStack {
                                 Image(systemName: "underline")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
                                     .frame(width: 24)
                                 Text("Underline")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
                             }
                         }
@@ -3280,11 +3553,11 @@ struct FormattingMenuView: View {
                         }) {
                             HStack {
                                 Image(systemName: "textformat.size.larger")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
                                     .frame(width: 24)
                                 Text("Heading 1")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
                             }
                         }
@@ -3296,23 +3569,23 @@ struct FormattingMenuView: View {
                         }) {
                             HStack {
                                 Image(systemName: "textformat.size")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
                                     .frame(width: 24)
                                 Text("Heading 2")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
                             }
                         }
                         .disabled(!hasSelection)
                     } header: {
                         Text("Text Formatting")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(FontManager.geist(size: 13, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                     } footer: {
                         if !hasSelection {
                             Text("Select text to apply formatting")
-                                .font(.system(size: 12, weight: .regular))
+                                .font(FontManager.geist(size: 12, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                         }
                     }
@@ -3338,6 +3611,197 @@ struct FormattingMenuView: View {
         }
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
+    }
+}
+
+// MARK: - Custom Auto-Sizing TextView for Title
+class AutoSizingTextView: UITextView {
+    override var intrinsicContentSize: CGSize {
+        // Ensure we have a valid width
+        guard bounds.width > 0 else {
+            return CGSize(width: UIView.noIntrinsicMetric, height: 32)
+        }
+
+        // Force layout to calculate correct size
+        layoutManager.ensureLayout(for: textContainer)
+
+        // Calculate the height needed for the current text
+        let size = CGSize(width: bounds.width, height: .greatestFiniteMagnitude)
+        let estimatedSize = sizeThatFits(size)
+
+        // Ensure minimum height
+        let finalHeight = max(estimatedSize.height, 32)
+
+        return CGSize(width: UIView.noIntrinsicMetric, height: finalHeight)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        invalidateIntrinsicContentSize()
+    }
+
+    override var bounds: CGRect {
+        didSet {
+            // When bounds change (width changes), invalidate size to recalculate height
+            if oldValue.width != bounds.width {
+                invalidateIntrinsicContentSize()
+            }
+        }
+    }
+}
+
+// MARK: - Note Title Field (UIKit wrapper for proper Enter key handling)
+// This ensures pressing Enter in title moves focus to body, NOT insert newline
+// USES UITextView for text wrapping (UITextField doesn't support wrapping)
+struct NoteTitleField: UIViewRepresentable {
+    @Binding var text: String
+    var isFocused: FocusState<Bool>.Binding
+    var onEnterPressed: () -> Void
+
+    func makeUIView(context: Context) -> AutoSizingTextView {
+        let textView = AutoSizingTextView()
+        textView.delegate = context.coordinator
+        textView.font = UIFont.systemFont(ofSize: 22, weight: .bold)
+        textView.textColor = UIColor.label
+        textView.backgroundColor = .clear
+        textView.returnKeyType = .next
+        textView.autocorrectionType = .default
+        textView.autocapitalizationType = .sentences
+        textView.isScrollEnabled = false
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+
+        // CRITICAL FIX: Enable text wrapping to prevent horizontal scrolling
+        textView.textContainer.lineBreakMode = .byWordWrapping
+        textView.textContainer.widthTracksTextView = true
+        textView.textContainer.maximumNumberOfLines = 0 // Allow multiple lines for long titles
+
+        // Disable horizontal scrolling completely
+        textView.showsHorizontalScrollIndicator = false
+        textView.showsVerticalScrollIndicator = false
+        textView.bounces = false
+
+        textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.setContentHuggingPriority(.defaultHigh, for: .vertical)
+
+        // Set initial text or placeholder
+        if text.isEmpty {
+            textView.text = "Title"
+            textView.textColor = UIColor.placeholderText
+        } else {
+            textView.text = text
+            textView.textColor = UIColor.label
+        }
+
+        // Force initial layout
+        textView.layoutIfNeeded()
+
+        return textView
+    }
+
+    func updateUIView(_ textView: AutoSizingTextView, context: Context) {
+        // Only update text if it changed externally
+        if textView.text != text && !textView.isFirstResponder {
+            if text.isEmpty {
+                textView.text = "Title"
+                textView.textColor = UIColor.placeholderText
+            } else {
+                textView.text = text
+                textView.textColor = UIColor.label
+            }
+            // CRITICAL: Invalidate size after updating text
+            textView.invalidateIntrinsicContentSize()
+        }
+
+        // Handle focus requests
+        if isFocused.wrappedValue && !textView.isFirstResponder {
+            // Use async to avoid SwiftUI state update conflicts
+            DispatchQueue.main.async {
+                textView.becomeFirstResponder()
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, UITextViewDelegate {
+        var parent: NoteTitleField
+
+        init(_ parent: NoteTitleField) {
+            self.parent = parent
+        }
+
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            // Handle Enter key press - move to body field
+            if text == "\n" {
+                parent.onEnterPressed()
+                return false
+            }
+            return true
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            // Update binding as user types
+            parent.text = textView.text
+
+            // CRITICAL: Force layout and invalidate size immediately
+            textView.layoutManager.ensureLayout(for: textView.textContainer)
+            textView.setNeedsLayout()
+            textView.layoutIfNeeded()
+            textView.invalidateIntrinsicContentSize()
+
+            // Notify SwiftUI that layout needs to update
+            DispatchQueue.main.async {
+                textView.invalidateIntrinsicContentSize()
+            }
+
+            // Handle placeholder visibility
+            if textView.text.isEmpty {
+                textView.text = "Title"
+                textView.textColor = UIColor.placeholderText
+                textView.selectedRange = NSRange(location: 0, length: 0)
+            }
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            // Clear placeholder when user starts typing
+            if textView.textColor == UIColor.placeholderText {
+                textView.text = ""
+                textView.textColor = UIColor.label
+            }
+
+            DispatchQueue.main.async {
+                self.parent.isFocused.wrappedValue = true
+            }
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            // Show placeholder if empty
+            if textView.text.isEmpty {
+                textView.text = "Title"
+                textView.textColor = UIColor.placeholderText
+            }
+
+            // Sync final text
+            parent.text = textView.text == "Title" && textView.textColor == UIColor.placeholderText ? "" : textView.text
+
+            DispatchQueue.main.async {
+                self.parent.isFocused.wrappedValue = false
+            }
+        }
+    }
+}
+
+// MARK: - Scale Button Style for elegant press feedback
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }
 }
 

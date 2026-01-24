@@ -47,9 +47,15 @@ struct TaskRow: View {
                     onToggleCompletion()
                 }
             }) {
-                Image(systemName: isTaskCompleted ? "checkmark.square.fill" : "square")
-                    .foregroundColor(checkboxColor)
-                    .font(.system(size: 18, weight: .medium))
+                ZStack {
+                    Color.clear
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                    
+                    Image(systemName: isTaskCompleted ? "checkmark.square.fill" : "square")
+                        .foregroundColor(checkboxColor)
+                        .font(FontManager.geist(size: 18, weight: .medium))
+                }
             }
             .buttonStyle(PlainButtonStyle())
 
@@ -67,7 +73,7 @@ struct TaskRow: View {
                     // Recurring indicator
                     if task.isRecurring {
                         Image(systemName: "repeat")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(FontManager.geist(size: 12, weight: .medium))
                             .foregroundColor(blueColor.opacity(0.7))
                     }
                 }

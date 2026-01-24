@@ -78,6 +78,7 @@ struct CalendarWeekView: View {
         VStack(spacing: 0) {
             // Week day selector (sliding scale)
             weekDaySelector
+                .padding(.bottom, 6)
             
             // All day events section
             AllDayEventsSection(
@@ -128,7 +129,7 @@ struct CalendarWeekView: View {
                                 .id(date)
                         }
                     }
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 8)
                 }
                 .onAppear {
                     // Auto-scroll to selected date on appear
@@ -146,7 +147,7 @@ struct CalendarWeekView: View {
                 }
             }
         }
-        .frame(height: 70) // Fixed height for the week selector
+        .frame(height: 58) // Fixed height for the week selector
     }
     
     private func dayCell(date: Date) -> some View {
@@ -162,25 +163,25 @@ struct CalendarWeekView: View {
             VStack(spacing: 6) {
                 // Day letter (S, M, T, W, T, F, S)
                 Text(dayLetter(date))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(isSelected ? primaryTextColor : secondaryTextColor)
                 
                 // Day number with highlight
                 ZStack {
                     if isToday {
-                        // Today: white circle outline (no fill), outline color = camera icon color
+                        // Today: circle outline (no fill) - thinner stroke
                         Circle()
-                            .stroke(Color(red: 0.2, green: 0.2, blue: 0.2), lineWidth: 2)
-                            .frame(width: 32, height: 32)
+                            .stroke(Color(red: 0.2, green: 0.2, blue: 0.2), lineWidth: 1.5)
+                            .frame(width: 30, height: 30)
                     } else if isSelected {
-                        // Selected (not today): filled circle with camera icon color
+                        // Selected (not today): filled circle
                         Circle()
                             .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
-                            .frame(width: 32, height: 32)
+                            .frame(width: 30, height: 30)
                     }
                     
                     Text(dayNumber(date))
-                        .font(.system(size: 15, weight: isToday || isSelected ? .semibold : .regular))
+                        .font(FontManager.geist(size: 15, systemWeight: isToday || isSelected ? .semibold : .regular))
                         .foregroundColor(
                             isToday ? primaryTextColor : // Regular text color for today (outline only)
                             isSelected ? Color.white : // White text on dark background when selected

@@ -81,6 +81,17 @@ class LocationSessionManager {
             session.closeTime = Date()
             activeSessions[sessionId] = session
 
+            // AUTO-DELETE: Delete sessions under 2 minutes (likely made in error)
+            if session.durationMinutes < 2 {
+                print("🗑️ Auto-deleting short session: \(sessionId.uuidString) (duration: \(session.durationMinutes) min < 2 min)")
+                Task {
+                    await deleteSessionVisits(sessionId: sessionId, userId: session.userId)
+                }
+                // Remove from memory immediately since we're deleting it
+                activeSessions.removeValue(forKey: sessionId)
+                return
+            }
+
             // Remove from memory after TTL
             DispatchQueue.main.asyncAfter(deadline: .now() + sessionCacheTTL) { [weak self] in
                 self?.activeSessions.removeValue(forKey: sessionId)
@@ -88,6 +99,34 @@ class LocationSessionManager {
 
             print("✅ Closed session: \(sessionId.uuidString)")
             print("   Duration: \(session.durationMinutes) minutes, Visits: \(session.visitCount)")
+        }
+    }
+    
+    /// Delete all visits for a session from Supabase
+    private func deleteSessionVisits(sessionId: UUID, userId: UUID) async {
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            
+            // Delete all visits for this session
+            try await client
+                .from("location_visits")
+                .delete()
+                .eq("session_id", value: sessionId.uuidString)
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+            
+            print("✅ Deleted all visits for session: \(sessionId.uuidString)")
+            
+            // Invalidate cache for affected locations
+            // We need to fetch visits first to know which locations to invalidate
+            if let visits = await getSessionVisits(sessionId, userId: userId), !visits.isEmpty {
+                let placeIds = Set(visits.map { $0.savedPlaceId })
+                for placeId in placeIds {
+                    LocationVisitAnalytics.shared.invalidateCache(for: placeId)
+                }
+            }
+        } catch {
+            print("❌ Error deleting session visits: \(error)")
         }
     }
 

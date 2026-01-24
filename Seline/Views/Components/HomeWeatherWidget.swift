@@ -81,13 +81,13 @@ struct HomeWeatherWidget: View {
                 // Header row
                 HStack(spacing: 8) {
                     Image(systemName: weatherConditionIcon)
-                        .font(.system(size: 20, weight: .medium))
+                        .font(FontManager.geist(size: 20, weight: .medium))
                         .foregroundColor(weatherIconColor)
                     
                     // Location and condition on same line
                     HStack(alignment: .bottom, spacing: 6) {
                         Text(currentWeather?.locationName ?? locationService.locationName)
-                            .font(.system(size: 15, weight: .regular))
+                            .font(FontManager.geist(size: 15, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .lineLimit(1)
                         
@@ -99,11 +99,11 @@ struct HomeWeatherWidget: View {
                     // Temperature
                     if let temperature = currentWeather?.temperature {
                         Text("\(temperature)°")
-                            .font(.system(size: 28, weight: .light))
+                            .font(FontManager.geist(size: 28, weight: .light))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     } else {
                         Text("--°")
-                            .font(.system(size: 28, weight: .light))
+                            .font(FontManager.geist(size: 28, weight: .light))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     }
                 }
@@ -114,22 +114,22 @@ struct HomeWeatherWidget: View {
                         // Sunrise
                         HStack(spacing: 6) {
                             Image(systemName: "sunrise.fill")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(FontManager.geist(size: 12, weight: .medium))
                                 .foregroundColor(Color(red: 1.0, green: 0.75, blue: 0.2))
                             
                             Text(formatTime(weather.sunrise))
-                                .font(.system(size: 11, weight: .regular))
+                                .font(FontManager.geist(size: 11, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                         
                         // Sunset
                         HStack(spacing: 6) {
                             Image(systemName: "sunset.fill")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(FontManager.geist(size: 12, weight: .medium))
                                 .foregroundColor(Color(red: 1.0, green: 0.5, blue: 0.2))
                             
                             Text(formatTime(weather.sunset))
-                                .font(.system(size: 11, weight: .regular))
+                                .font(FontManager.geist(size: 11, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                         
@@ -144,15 +144,15 @@ struct HomeWeatherWidget: View {
                             let forecast = hourlyForecasts[index]
                             VStack(spacing: 4) {
                                 Text(forecast.hour)
-                                    .font(.system(size: 10, weight: .medium))
+                                    .font(FontManager.geist(size: 10, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                                 
                                 Image(systemName: forecast.iconName)
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(FontManager.geist(size: 14, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                                 
                                 Text("\(forecast.temperature)°")
-                                    .font(.system(size: 12, weight: .regular))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
                             .frame(maxWidth: .infinity)
@@ -167,15 +167,15 @@ struct HomeWeatherWidget: View {
                         ForEach(forecasts.prefix(6), id: \.day) { forecast in
                             VStack(spacing: 4) {
                                 Text(forecast.day)
-                                    .font(.system(size: 10, weight: .medium))
+                                    .font(FontManager.geist(size: 10, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                                 
                                 Image(systemName: forecast.iconName)
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(FontManager.geist(size: 14, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                 
                                 Text("\(forecast.temperature)°")
-                                    .font(.system(size: 12, weight: .regular))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
                             }
                             .frame(maxWidth: .infinity)

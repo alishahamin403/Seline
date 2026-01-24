@@ -259,30 +259,30 @@ struct WeatherWidget: View {
                 HStack(spacing: 6) {
                     // Location text
                     Text(weatherService.weatherData?.locationName ?? locationService.locationName)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
                     // Separator
                     Text("|")
-                        .font(.system(size: 12, weight: .regular))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
 
                     // Temperature - regular weight
                     if let temperature = weatherService.weatherData?.temperature {
                         Text("\(temperature)°")
-                            .font(.system(size: 12, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     } else {
                         Text("--°")
-                            .font(.system(size: 12, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     }
 
                     // Weather condition icon
                     weatherConditionIcon
-                        .font(.system(size: 14, weight: .regular))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                 }
 
@@ -291,20 +291,20 @@ struct WeatherWidget: View {
                     // Sunrise - yellow icon
                     HStack(spacing: 4) {
                         Image(systemName: "sunrise.fill")
-                            .font(.system(size: 10, weight: .regular))
+                            .font(FontManager.geist(size: 10, weight: .regular))
                             .foregroundColor(Color(red: 1.0, green: 0.8, blue: 0.0))
                         Text(formatTime(sunrise))
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
 
                     // Sunset - yellow icon
                     HStack(spacing: 4) {
                         Image(systemName: "sunset.fill")
-                            .font(.system(size: 10, weight: .regular))
+                            .font(FontManager.geist(size: 10, weight: .regular))
                             .foregroundColor(Color(red: 1.0, green: 0.8, blue: 0.0))
                         Text(formatTime(sunset))
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
                 }
@@ -314,17 +314,17 @@ struct WeatherWidget: View {
                     ForEach(weatherService.weatherData?.dailyForecasts ?? [], id: \.day) { forecast in
                         VStack(spacing: 2) {
                             Image(systemName: forecast.iconName)
-                                .font(.system(size: 10, weight: .regular))
+                                .font(FontManager.geist(size: 10, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                 .frame(height: 12)
 
                             Text("\(forecast.temperature)°")
-                                .font(.system(size: 9, weight: .regular))
+                                .font(FontManager.geist(size: 9, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                                 .frame(height: 12)
 
                             Text(forecast.day)
-                                .font(.system(size: 8, weight: .regular))
+                                .font(FontManager.geist(size: 8, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                                 .frame(height: 10)
                         }
@@ -483,7 +483,7 @@ struct NavigationETARow: View {
             HStack(spacing: 8) {
                 // Icon
                 Image(systemName: icon)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     .frame(width: 20)
 
@@ -491,7 +491,7 @@ struct NavigationETARow: View {
                 if !isLocationSet {
                     // Location not set - show "Set Location" with plus icon
                     Text("Set Location")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(
                             colorScheme == .dark ?
                                 Color.white :
@@ -501,7 +501,7 @@ struct NavigationETARow: View {
                     Spacer()
 
                     Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 15))
+                        .font(FontManager.geist(size: 15, weight: .regular))
                         .foregroundColor(
                             colorScheme == .dark ?
                                 Color.white :
@@ -517,11 +517,11 @@ struct NavigationETARow: View {
                     // Location set and ETA available
                     HStack(spacing: 4) {
                         Image(systemName: "car.fill")
-                            .font(.system(size: 10, weight: .regular))
+                            .font(FontManager.geist(size: 10, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                         Text(eta)
-                            .font(.system(size: 12, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.9))
                     }
 
@@ -529,7 +529,7 @@ struct NavigationETARow: View {
                 } else {
                     // Location set but ETA failed/unavailable
                     Text("—")
-                        .font(.system(size: 12, weight: .regular))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
 
                     Spacer()

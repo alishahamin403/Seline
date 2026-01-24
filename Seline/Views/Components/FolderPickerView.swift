@@ -46,19 +46,19 @@ struct FolderPickerView: View {
                         }) {
                             HStack(spacing: 12) {
                                 Image(systemName: "doc")
-                                    .font(.system(size: 20, weight: .medium))
+                                    .font(FontManager.geist(size: 20, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .frame(width: 40)
 
                                 Text("No Folder")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                                 Spacer()
 
                                 if selectedFolderId == nil {
                                     Image(systemName: "checkmark")
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
                                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                 }
                             }
@@ -85,19 +85,19 @@ struct FolderPickerView: View {
                                     }
 
                                     Image(systemName: "folder.fill")
-                                        .font(.system(size: 16, weight: .medium))
+                                        .font(FontManager.geist(size: 16, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                         .frame(width: 32)
 
                                     Text(item.folder.name)
-                                        .font(.system(size: 16, weight: .medium))
+                                        .font(FontManager.geist(size: 16, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                                     Spacer()
 
                                     if selectedFolderId == item.folder.id {
                                         Image(systemName: "checkmark")
-                                            .font(.system(size: 16, weight: .semibold))
+                                            .font(FontManager.geist(size: 16, weight: .semibold))
                                             .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                     }
                                 }
@@ -117,12 +117,12 @@ struct FolderPickerView: View {
                         }) {
                             HStack(spacing: 12) {
                                 Image(systemName: "folder.badge.plus")
-                                    .font(.system(size: 20, weight: .medium))
+                                    .font(FontManager.geist(size: 20, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                     .frame(width: 40)
 
                                 Text("New Folder")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                                 Spacer()

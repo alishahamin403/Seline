@@ -22,11 +22,11 @@ struct SaveFolderSelectionSheet: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Save Email")
-                                .font(.system(size: 18, weight: .bold))
+                                .font(FontManager.geist(size: 18, weight: .bold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
                             Text("Choose where to save this email")
-                                .font(.system(size: 13, weight: .regular))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         }
 
@@ -34,7 +34,7 @@ struct SaveFolderSelectionSheet: View {
 
                         Button(action: { isPresented = false }) {
                             Image(systemName: "xmark")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(FontManager.geist(size: 14, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         }
                     }
@@ -57,16 +57,16 @@ struct SaveFolderSelectionSheet: View {
                         Spacer()
 
                         Image(systemName: "folder")
-                            .font(.system(size: 48, weight: .light))
+                            .font(FontManager.geist(size: 48, weight: .light))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
 
                         VStack(spacing: 8) {
                             Text("No Folders Yet")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(FontManager.geist(size: 16, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
                             Text("Create a folder to save this email")
-                                .font(.system(size: 13, weight: .regular))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                 .multilineTextAlignment(.center)
                         }
@@ -74,9 +74,9 @@ struct SaveFolderSelectionSheet: View {
                         Button(action: { showCreateFolder = true }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "plus")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
                                 Text("Create Folder")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
@@ -101,19 +101,19 @@ struct SaveFolderSelectionSheet: View {
                                 }) {
                                     HStack(spacing: 14) {
                                         Image(systemName: "folder")
-                                            .font(.system(size: 18, weight: .medium))
+                                            .font(FontManager.geist(size: 18, weight: .medium))
                                             .foregroundColor(colorScheme == .dark ? .white : .black)
                                             .frame(width: 24)
 
                                         VStack(alignment: .leading, spacing: 3) {
                                             Text(folder.name)
-                                                .font(.system(size: 14, weight: .medium))
+                                                .font(FontManager.geist(size: 14, weight: .medium))
                                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                                 .lineLimit(1)
 
                                             if let count = viewModel.folderEmailCounts[folder.id] {
                                                 Text("\(count) email\(count != 1 ? "s" : "")")
-                                                    .font(.system(size: 12, weight: .regular))
+                                                    .font(FontManager.geist(size: 12, weight: .regular))
                                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                             }
                                         }
@@ -125,7 +125,7 @@ struct SaveFolderSelectionSheet: View {
                                                 .scaleEffect(0.8)
                                         } else {
                                             Image(systemName: "chevron.right")
-                                                .font(.system(size: 12, weight: .semibold))
+                                                .font(FontManager.geist(size: 12, weight: .semibold))
                                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                         }
                                     }
@@ -146,18 +146,18 @@ struct SaveFolderSelectionSheet: View {
                             Button(action: { showCreateFolder = true }) {
                                 HStack(spacing: 14) {
                                     Image(systemName: "plus")
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                         .frame(width: 24)
 
                                     Text("Create New Folder")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(FontManager.geist(size: 14, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                                     Spacer()
 
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 12, weight: .semibold))
+                                        .font(FontManager.geist(size: 12, weight: .semibold))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                 }
                                 .padding(.horizontal, 14)
@@ -187,13 +187,13 @@ struct SaveFolderSelectionSheet: View {
                     VStack(spacing: 0) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Folder Name")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(FontManager.geist(size: 13, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                 .padding(.horizontal, 20)
                                 .padding(.top, 20)
 
                             TextField("Enter folder name", text: $newFolderName)
-                                .font(.system(size: 16, weight: .regular))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .padding(.horizontal, 20)
                                 .padding(.vertical, 12)
                                 .background(
@@ -212,7 +212,7 @@ struct SaveFolderSelectionSheet: View {
                         VStack(spacing: 10) {
                             Button(action: { createFolderAndSave() }) {
                                 Text("Create & Save")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
                                     .foregroundColor(.white)
@@ -230,7 +230,7 @@ struct SaveFolderSelectionSheet: View {
                                 showCreateFolder = false
                                 newFolderName = ""
                             }
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         }
                         .padding(.horizontal, 20)

@@ -7,7 +7,11 @@ struct SavedPlaceRow: View {
     @StateObject private var locationsManager = LocationsManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var showEditSheet = false
-    @State private var isFavourite: Bool
+
+    // Computed property - automatically reflects current favorite status
+    private var isFavourite: Bool {
+        locationsManager.savedPlaces.first(where: { $0.id == place.id })?.isFavourite ?? place.isFavourite
+    }
 
     var body: some View {
         Button(action: {
@@ -24,14 +28,14 @@ struct SavedPlaceRow: View {
                         VStack(alignment: .leading, spacing: 2) {
                             // Display name (custom or original)
                             Text(place.displayName)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(FontManager.geist(size: 16, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .lineLimit(1)
 
                             // Show original name if custom name exists
                             if place.customName != nil {
                                 Text(place.name)
-                                    .font(.system(size: 12, weight: .regular))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                                     .lineLimit(1)
                             }
@@ -41,7 +45,7 @@ struct SavedPlaceRow: View {
 
                         // Category badge
                         Text(place.category)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                             .foregroundColor(
                                 colorScheme == .dark ?
                                     Color(red: 0.518, green: 0.792, blue: 0.914) :
@@ -61,7 +65,7 @@ struct SavedPlaceRow: View {
 
                     // Address (always visible)
                     Text(place.formattedAddress)
-                        .font(.system(size: 14, weight: .regular))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -70,11 +74,11 @@ struct SavedPlaceRow: View {
                     if let rating = place.rating {
                         HStack(spacing: 4) {
                             Image(systemName: "star.fill")
-                                .font(.system(size: 12))
+                                .font(FontManager.geist(size: 12, weight: .regular))
                                 .foregroundColor(.yellow)
 
                             Text(String(format: "%.1f", rating))
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
                         }
                     }
@@ -84,7 +88,7 @@ struct SavedPlaceRow: View {
 
                 // Chevron
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
             }
             .padding(.horizontal, 16)
@@ -94,7 +98,6 @@ struct SavedPlaceRow: View {
         .contextMenu {
             Button(action: {
                 locationsManager.toggleFavourite(for: place.id)
-                isFavourite.toggle()
             }) {
                 Label(isFavourite ? "Remove from Favourites" : "Add to Favourites", systemImage: isFavourite ? "star.fill" : "star")
             }
@@ -114,17 +117,7 @@ struct SavedPlaceRow: View {
         .sheet(isPresented: $showEditSheet) {
             EditPlaceNameSheet(place: place)
         }
-    .presentationBg()
-        .onAppear {
-            isFavourite = place.isFavourite
-        }
-    }
-
-    init(place: SavedPlace, onTap: @escaping (SavedPlace) -> Void, onDelete: @escaping (SavedPlace) -> Void) {
-        self.place = place
-        self.onTap = onTap
-        self.onDelete = onDelete
-        _isFavourite = State(initialValue: place.isFavourite)
+        .presentationBg()
     }
 }
 
@@ -143,11 +136,11 @@ struct EditPlaceNameSheet: View {
             VStack(spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Custom Name")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                     TextField("Enter a custom name...", text: $customName)
-                        .font(.system(size: 16))
+                        .font(FontManager.geist(size: 16, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
@@ -170,11 +163,11 @@ struct EditPlaceNameSheet: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Original Name")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                     Text(place.name)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(FontManager.geist(size: 16, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
@@ -188,11 +181,11 @@ struct EditPlaceNameSheet: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Address")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                     Text(place.address)
-                        .font(.system(size: 14))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
@@ -211,7 +204,7 @@ struct EditPlaceNameSheet: View {
                     saveCustomName()
                 }) {
                     Text("Save")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)

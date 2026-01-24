@@ -117,7 +117,7 @@ class WidgetManager: ObservableObject {
         if let index = configurations.firstIndex(where: { $0.type == type }) {
             configurations[index].isVisible.toggle()
             saveConfigurations()
-            HapticManager.shared.selection()
+            // Removed haptic - too frequent
         }
     }
     
@@ -131,7 +131,7 @@ class WidgetManager: ObservableObject {
         if let index = configurations.firstIndex(where: { $0.type == type }) {
             configurations[index].isVisible = false
             saveConfigurations()
-            HapticManager.shared.selection()
+            // Removed haptic - too frequent
         }
     }
     
@@ -144,7 +144,7 @@ class WidgetManager: ObservableObject {
             configurations[index].order = maxOrder + 1
             normalizeOrder()
             saveConfigurations()
-            HapticManager.shared.selection()
+            // Removed haptic - too frequent
         }
     }
     
@@ -161,7 +161,7 @@ class WidgetManager: ObservableObject {
         }
         
         saveConfigurations()
-        HapticManager.shared.selection()
+        // Removed haptic - too frequent during drag
     }
     
     /// Move widget by dragging (for custom drag gesture)
@@ -192,18 +192,14 @@ class WidgetManager: ObservableObject {
     
     /// Enter edit mode
     func enterEditMode() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            isEditMode = true
-        }
+        isEditMode = true
         HapticManager.shared.medium()
     }
     
     /// Exit edit mode
     func exitEditMode() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            isEditMode = false
-        }
-        HapticManager.shared.light()
+        isEditMode = false
+        // Removed haptic on exit - only need feedback on entry
     }
     
     /// Reset to default configuration

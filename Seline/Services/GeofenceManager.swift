@@ -28,6 +28,7 @@ struct LocationVisitRecord: Codable, Identifiable {
     var isOutlier: Bool? // Whether visit is a statistical outlier
     var isCommuteStop: Bool? // Whether visit is a brief stop during commute
     var semanticValid: Bool? // Whether visit makes semantic sense
+    var visitNotes: String? // User's notes about why they visited (extracted from natural language)
 
     let createdAt: Date
     var updatedAt: Date
@@ -54,6 +55,7 @@ struct LocationVisitRecord: Codable, Identifiable {
         case isOutlier = "is_outlier"
         case isCommuteStop = "is_commute_stop"
         case semanticValid = "semantic_valid"
+        case visitNotes = "visit_notes"
 
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -96,6 +98,7 @@ struct LocationVisitRecord: Codable, Identifiable {
             isOutlier: nil,
             isCommuteStop: nil,
             semanticValid: nil,
+            visitNotes: nil,
             createdAt: Date(),
             updatedAt: Date()
         )
@@ -119,6 +122,7 @@ struct LocationVisitRecord: Codable, Identifiable {
 
     /// Splits the visit into two records at midnight if it spans across days
     /// Returns an array with 1 or 2 visits depending on whether midnight was crossed
+    /// CRITICAL: Sets merge_reason to "midnight_split_part1" and "midnight_split_part2" for proper tracking
     func splitAtMidnightIfNeeded() -> [LocationVisitRecord] {
         guard spansMidnight(), let exit = exitTime else {
             return [self]
@@ -142,6 +146,7 @@ struct LocationVisitRecord: Codable, Identifiable {
         visit1.exitTime = midnightOfEntryDay
         let minutes1 = Int(midnightOfEntryDay.timeIntervalSince(entryTime) / 60)
         visit1.durationMinutes = max(minutes1, 1)
+        visit1.mergeReason = "midnight_split_part1" // CRITICAL: Tag as midnight split
         visit1.updatedAt = Date()
 
         // Visit 2: Start of exit day (12:00:00 AM) to exit
@@ -161,6 +166,7 @@ struct LocationVisitRecord: Codable, Identifiable {
         visit2.exitTime = exit
         let minutes2 = Int(exit.timeIntervalSince(midnightStart) / 60)
         visit2.durationMinutes = max(minutes2, 1)
+        visit2.mergeReason = "midnight_split_part2" // CRITICAL: Tag as midnight split
         // Use the entry time (midnight) for day/time classification, not exit time
         let entryComponents = calendar.dateComponents([.weekday, .month, .year], from: midnightStart)
         visit2.dayOfWeek = Self.dayOfWeekName(for: entryComponents.weekday ?? 1)
@@ -215,6 +221,10 @@ class GeofenceManager: NSObject, ObservableObject {
     // Thread safety: Protect activeVisits dictionary from race conditions
     // Ensures atomic access during simultaneous geofence entry/exit events
     private let activeVisitsLock = NSLock()
+    
+    // Track which visits have already received arrival notifications to prevent duplicates
+    private var notifiedVisitSessions: Set<UUID> = []
+    private let notificationTrackingLock = NSLock()
 
     @Published var isMonitoring = false
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
@@ -527,6 +537,17 @@ class GeofenceManager: NSObject, ObservableObject {
                 return
             }
 
+            // CRITICAL: Check if we already have an active visit for this place
+            // This prevents duplicate visit creation and duplicate notifications
+            activeVisitsLock.lock()
+            let hasActiveVisit = self.activeVisits[placeId] != nil
+            activeVisitsLock.unlock()
+            
+            if hasActiveVisit {
+                print("ℹ️ Active visit already exists for place: \(placeId), skipping duplicate entry")
+                return
+            }
+
             // Check location accuracy - reject entry if accuracy is poor (> 30m)
             guard let currentLocation = self.sharedLocationManager.currentLocation else {
                 print("⚠️ No recent location data available, cannot determine best-match location")
@@ -590,11 +611,22 @@ class GeofenceManager: NSObject, ObservableObject {
                 print("✅ Speed check passed: \(String(format: "%.1f", speed * 3.6)) km/h (walking/stationary)")
             }
 
-            // SOLUTION 3: BEST-MATCH LOCATION SELECTION
-            // Find all nearby locations within their geofence radius and pick the closest one
-            // This prevents recording visits at wrong locations when geofences overlap
+            // SOLUTION 3: BEST-MATCH LOCATION SELECTION WITH WEIGHTED CONFIDENCE
+            // Find all nearby locations within their geofence radius and pick the best match
+            // IMPROVEMENT: Use weighted scoring that considers distance-to-radius ratio
+            // A small store you're clearly inside (10m from center, 60m radius = 83% confidence)
+            // beats a large mall where you're near edge (400m from center, 500m radius = 20% confidence)
             let allPlaces = LocationsManager.shared.savedPlaces
-            var nearbyPlaces: [(place: SavedPlace, distance: CLLocationDistance)] = []
+            
+            struct PlaceMatch {
+                let place: SavedPlace
+                let distance: CLLocationDistance
+                let radius: CLLocationDistance
+                let confidenceScore: Double // Higher = better match (1.0 = at center, 0.0 = at edge)
+                let penetrationRatio: Double // How deep inside the geofence (0.0 = edge, 1.0 = center)
+            }
+            
+            var nearbyPlaces: [PlaceMatch] = []
 
             for place in allPlaces {
                 let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
@@ -603,7 +635,22 @@ class GeofenceManager: NSObject, ObservableObject {
 
                 // Check if we're within this place's geofence
                 if distance <= radius {
-                    nearbyPlaces.append((place: place, distance: distance))
+                    // Calculate how deep inside the geofence we are
+                    // penetrationRatio: 1.0 = at center, 0.0 = at edge
+                    let penetrationRatio = 1.0 - (distance / radius)
+                    
+                    // Calculate confidence score
+                    // Weight formula: penetration² gives more weight to being near center
+                    // Small stores with tight placement score higher
+                    let confidenceScore = pow(penetrationRatio, 2)
+                    
+                    nearbyPlaces.append(PlaceMatch(
+                        place: place,
+                        distance: distance,
+                        radius: radius,
+                        confidenceScore: confidenceScore,
+                        penetrationRatio: penetrationRatio
+                    ))
                 }
             }
 
@@ -613,31 +660,44 @@ class GeofenceManager: NSObject, ObservableObject {
                 return
             }
 
-            // Find the CLOSEST place
-            let closestPlace = nearbyPlaces.min(by: { $0.distance < $1.distance })!
+            // Sort by confidence score (highest first), then by distance (closest first) as tiebreaker
+            let sortedMatches = nearbyPlaces.sorted { match1, match2 in
+                if abs(match1.confidenceScore - match2.confidenceScore) > 0.1 {
+                    // Significant confidence difference - use confidence
+                    return match1.confidenceScore > match2.confidenceScore
+                } else {
+                    // Similar confidence - prefer closer distance
+                    return match1.distance < match2.distance
+                }
+            }
+            
+            let bestMatch = sortedMatches.first!
 
             // Log all nearby places for debugging
             if nearbyPlaces.count > 1 {
                 print("\n🎯 BEST-MATCH SELECTION (Multiple overlapping geofences detected)")
+                print("🎯 Using weighted confidence scoring (higher = better match)")
                 print("🎯 Nearby places within geofence:")
-                for (place, dist) in nearbyPlaces.sorted(by: { $0.distance < $1.distance }) {
-                    let marker = place.id == closestPlace.place.id ? "✅ SELECTED" : "  "
-                    print("   \(marker) \(place.displayName): \(String(format: "%.1f", dist))m away")
+                for match in sortedMatches {
+                    let marker = match.place.id == bestMatch.place.id ? "✅ SELECTED" : "  "
+                    let penetrationPct = Int(match.penetrationRatio * 100)
+                    let confidencePct = Int(match.confidenceScore * 100)
+                    print("   \(marker) \(match.place.displayName): \(String(format: "%.0f", match.distance))m from center (radius: \(Int(match.radius))m, \(penetrationPct)% inside, confidence: \(confidencePct)%)")
                 }
                 print("🎯 ==========================================\n")
             }
 
-            // Override placeId with the closest place
-            let bestMatchPlaceId = closestPlace.place.id
+            // Override placeId with the best match
+            let bestMatchPlaceId = bestMatch.place.id
 
-            // If the triggered geofence was NOT the closest place, we ignore this event
-            // (We'll pick it up when the closest place's geofence triggers)
+            // If the triggered geofence was NOT the best match, we ignore this event
+            // (We'll pick it up when the best match's geofence triggers)
             if placeId != bestMatchPlaceId {
-                print("⏭️ SKIPPING: Geofence triggered for \(region.identifier) but closest place is \(closestPlace.place.displayName)")
+                print("⏭️ SKIPPING: Geofence triggered for \(region.identifier) but best match is \(bestMatch.place.displayName)")
                 return
             }
 
-            print("✅ BEST-MATCH CONFIRMED: Recording visit for \(closestPlace.place.displayName) (\(String(format: "%.1f", closestPlace.distance))m away)")
+            print("✅ BEST-MATCH CONFIRMED: Recording visit for \(bestMatch.place.displayName) (\(String(format: "%.0f", bestMatch.distance))m from center, \(Int(bestMatch.confidenceScore * 100))% confidence)")
 
             // Check if we already have an active visit for this location
             // This prevents duplicate sessions if geofence is re-triggered while user is still in location
@@ -655,11 +715,11 @@ class GeofenceManager: NSObject, ObservableObject {
             // Check if dwell time validation is enabled OR if we detected a tall building
             // PERFORMANCE FIX: Skip dwell validation for trusted locations (Home, Work) for instant entry
             // TALL BUILDING FIX: Force dwell validation for tall buildings even if not globally enabled
-            let isTrustedLocation = DwellTimeValidator.shared.shouldSkipDwellValidation(for: closestPlace.place.category)
+            let isTrustedLocation = DwellTimeValidator.shared.shouldSkipDwellValidation(for: bestMatch.place.category)
             let shouldUseDwellValidation = !isTrustedLocation && (DwellTimeValidator.shared.isEnabled || inTallBuilding)
 
             if isTrustedLocation {
-                print("⚡️ TRUSTED LOCATION (\(closestPlace.place.category)) - Skipping dwell validation for instant entry")
+                print("⚡️ TRUSTED LOCATION (\(bestMatch.place.category)) - Skipping dwell validation for instant entry")
             } else if shouldUseDwellValidation {
                 // Check if there's already a pending entry
                 if DwellTimeValidator.shared.hasPendingEntry(for: bestMatchPlaceId) {
@@ -674,9 +734,9 @@ class GeofenceManager: NSObject, ObservableObject {
                 // Register pending entry - will create visit after dwell time expires
                 DwellTimeValidator.shared.registerPendingEntry(
                     placeId: bestMatchPlaceId,
-                    placeName: closestPlace.place.displayName,
+                    placeName: bestMatch.place.displayName,
                     currentLocation: currentLocation,
-                    geofenceRadius: closestPlace.place.customGeofenceRadius ?? GeofenceRadiusManager.shared.getRadius(for: closestPlace.place),
+                    geofenceRadius: bestMatch.place.customGeofenceRadius ?? GeofenceRadiusManager.shared.getRadius(for: bestMatch.place),
                     locationManager: self.sharedLocationManager
                 ) { validatedPlaceId in
                     // This closure is called after dwell time validation passes
@@ -685,7 +745,7 @@ class GeofenceManager: NSObject, ObservableObject {
                     }
                 }
 
-                print("⏳ Dwell time validation started for \(closestPlace.place.displayName)")
+                print("⏳ Dwell time validation started for \(bestMatch.place.displayName)")
                 return
             }
 
@@ -763,46 +823,89 @@ class GeofenceManager: NSObject, ObservableObject {
                     MergeDetectionService.shared.cacheClosedVisit(mergeCandidate)
                 }
             } else {
-                // Create a new visit record with new session
-                let sessionId = UUID()
-                let visit = LocationVisitRecord.create(
-                    userId: userId,
-                    savedPlaceId: placeId,
-                    entryTime: Date(),
-                    sessionId: sessionId,
-                    confidenceScore: 1.0,
-                    mergeReason: nil
-                )
+                // CRITICAL SAFETY CHECK: Before creating a new visit, explicitly check Supabase
+                // for any open visits that might have been missed by merge detection
+                // This prevents overwriting existing visits when the app restarts or memory is cleared
+                if let existingOpenVisit = await self.findOpenVisitInSupabase(for: placeId, userId: userId) {
+                    print("\n⚠️ ===== FOUND EXISTING OPEN VISIT IN SUPABASE =====")
+                    print("⚠️ Existing visit ID: \(existingOpenVisit.id)")
+                    print("⚠️ Entry time: \(existingOpenVisit.entryTime)")
+                    print("⚠️ This visit should have been found by merge detection!")
+                    print("⚠️ Merging with existing visit instead of creating new one")
+                    print("⚠️ ================================================\n")
+                    
+                    // Merge with the existing open visit
+                    let sessionId = existingOpenVisit.sessionId ?? UUID()
+                    if await LocationErrorRecoveryService.shared.executeAtomicMerge(
+                        existingOpenVisit,
+                        sessionId: sessionId,
+                        confidence: 1.0,
+                        reason: "recovered_open_visit",
+                        geofenceManager: self,
+                        sessionManager: LocationSessionManager.shared
+                    ) {
+                        // Add to merge detection cache
+                        MergeDetectionService.shared.cacheClosedVisit(existingOpenVisit)
+                        print("✅ Successfully merged with existing open visit")
+                    } else {
+                        print("❌ Failed to merge with existing open visit - this should not happen")
+                    }
+                } else {
+                    // No existing open visit found - safe to create new one
+                    // Create a new visit record with new session
+                    let sessionId = UUID()
+                    let visit = LocationVisitRecord.create(
+                        userId: userId,
+                        savedPlaceId: placeId,
+                        entryTime: Date(),
+                        sessionId: sessionId,
+                        confidenceScore: 1.0,
+                        mergeReason: nil
+                    )
 
-                // Add to activeVisits with lock protection
-                activeVisitsLock.lock()
-                self.activeVisits[placeId] = visit
-                activeVisitsLock.unlock()
+                    // Add to activeVisits with lock protection
+                    activeVisitsLock.lock()
+                    self.activeVisits[placeId] = visit
+                    activeVisitsLock.unlock()
 
-                // Create session and save to Supabase
-                LocationSessionManager.shared.createSession(for: placeId, userId: userId)
+                    // Create session and save to Supabase
+                    LocationSessionManager.shared.createSession(for: placeId, userId: userId)
 
-                print("📝 Started tracking visit for place: \(placeId)")
-                print("📝 New session: \(sessionId.uuidString)")
+                    print("📝 Started tracking visit for place: \(placeId)")
+                    print("📝 New session: \(sessionId.uuidString)")
 
-                // Invalidate analytics cache since a new active visit was created
-                LocationVisitAnalytics.shared.invalidateCache(for: placeId)
+                    // Invalidate analytics cache since a new active visit was created
+                    LocationVisitAnalytics.shared.invalidateCache(for: placeId)
 
-                // Save to Supabase
-                await self.saveVisitToSupabase(visit)
+                    // Save to Supabase
+                    await self.saveVisitToSupabase(visit)
 
-                // Notify that visits have been updated so UI can refresh
-                NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
+                    // Notify that visits have been updated so UI can refresh
+                    NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
 
-                // CRITICAL FIX: Reload widgets so they show the new location immediately
-                // This ensures the widget updates even when the app is in the background
-                WidgetCenter.shared.reloadAllTimelines()
-                print("🔄 Widget timelines reloaded after visit creation")
+                    // CRITICAL FIX: Reload widgets so they show the new location immediately
+                    // This ensures the widget updates even when the app is in the background
+                    WidgetCenter.shared.reloadAllTimelines()
+                    print("🔄 Widget timelines reloaded after visit creation")
 
-                // Send arrival notification with context
-                if let place = allPlaces.first(where: { $0.id == placeId }) {
-                    Task {
-                        await self.sendArrivalNotification(for: place)
+                    // Send arrival notification with context (only once per visit session)
+                    if let place = allPlaces.first(where: { $0.id == placeId }) {
+                        // Check if we've already sent a notification for this visit session
+                        let sessionId = visit.sessionId ?? UUID()
+                        notificationTrackingLock.lock()
+                        let alreadyNotified = notifiedVisitSessions.contains(sessionId)
+                        if !alreadyNotified {
+                            notifiedVisitSessions.insert(sessionId)
+                        }
+                        notificationTrackingLock.unlock()
+                        
+                        if !alreadyNotified {
+                            Task {
+                                await self.sendArrivalNotification(for: place)
+                            }
+                        } else {
+                            print("ℹ️ Arrival notification already sent for visit session: \(sessionId)")
+                        }
                     }
                 }
             }
@@ -850,6 +953,14 @@ class GeofenceManager: NSObject, ObservableObject {
 
             if var visit = visit {
                 visit.recordExit(exitTime: Date())
+
+                // Clean up notification tracking for this visit session
+                if let sessionId = visit.sessionId {
+                    notificationTrackingLock.lock()
+                    notifiedVisitSessions.remove(sessionId)
+                    notificationTrackingLock.unlock()
+                    print("🧹 Cleaned up notification tracking for session: \(sessionId)")
+                }
 
                 let durationMinutes = visit.durationMinutes ?? 0
                 let entryTime = visit.entryTime
@@ -936,12 +1047,14 @@ class GeofenceManager: NSObject, ObservableObject {
                         print("   Existing IDs: \(existingSplits.map { $0.id.uuidString })")
                         return
                     }
-                    
-                    // Delete the original visit before saving split visits
-                    await self.deleteVisitFromSupabase(visit)
+
+                    // CRITICAL FIX: Save split visits FIRST, then delete original
+                    // This prevents data loss if save fails
+                    var savedCount = 0
                     for visitPart in visitsToSave {
                         print("  - \(visitPart.dayOfWeek): \(visitPart.entryTime) to \(visitPart.exitTime?.description ?? "nil") (\(visitPart.durationMinutes ?? 0) min)")
                         await self.saveVisitToSupabase(visitPart)
+                        savedCount += 1
 
                         // ENHANCEMENT: Check if visit is an outlier
                         if let duration = visitPart.durationMinutes {
@@ -957,6 +1070,14 @@ class GeofenceManager: NSObject, ObservableObject {
                                 visit.isOutlier = true
                             }
                         }
+                    }
+
+                    // Only delete original AFTER all splits are saved
+                    if savedCount == visitsToSave.count {
+                        print("✅ All \(savedCount) split visits saved, now deleting original")
+                        await self.deleteVisitFromSupabase(visit)
+                    } else {
+                        print("⚠️ Only \(savedCount)/\(visitsToSave.count) splits saved, keeping original as backup")
                     }
                 } else {
                     print("✅ Finished tracking visit for place: \(placeId), duration: \(visit.durationMinutes ?? 0) min")
@@ -1055,32 +1176,59 @@ class GeofenceManager: NSObject, ObservableObject {
                 MergeDetectionService.shared.cacheClosedVisit(mergeCandidate)
             }
         } else {
-            // Create new visit
-            let sessionId = UUID()
-            let visit = LocationVisitRecord.create(
-                userId: userId,
-                savedPlaceId: placeId,
-                entryTime: Date(),
-                sessionId: sessionId,
-                confidenceScore: 1.0,
-                mergeReason: nil
-            )
+            // CRITICAL SAFETY CHECK: Before creating a new visit, explicitly check Supabase
+            // for any open visits that might have been missed by merge detection
+            if let existingOpenVisit = await self.findOpenVisitInSupabase(for: placeId, userId: userId) {
+                print("\n⚠️ ===== FOUND EXISTING OPEN VISIT IN SUPABASE (DWELL VALIDATION) =====")
+                print("⚠️ Existing visit ID: \(existingOpenVisit.id)")
+                print("⚠️ Entry time: \(existingOpenVisit.entryTime)")
+                print("⚠️ Merging with existing visit instead of creating new one")
+                print("⚠️ ===============================================================\n")
+                
+                // Merge with the existing open visit
+                let sessionId = existingOpenVisit.sessionId ?? UUID()
+                if await LocationErrorRecoveryService.shared.executeAtomicMerge(
+                    existingOpenVisit,
+                    sessionId: sessionId,
+                    confidence: 1.0,
+                    reason: "recovered_open_visit_dwell",
+                    geofenceManager: self,
+                    sessionManager: LocationSessionManager.shared
+                ) {
+                    MergeDetectionService.shared.cacheClosedVisit(existingOpenVisit)
+                    print("✅ Successfully merged with existing open visit after dwell validation")
+                } else {
+                    print("❌ Failed to merge with existing open visit - this should not happen")
+                }
+            } else {
+                // No existing open visit found - safe to create new one
+                // Create new visit
+                let sessionId = UUID()
+                let visit = LocationVisitRecord.create(
+                    userId: userId,
+                    savedPlaceId: placeId,
+                    entryTime: Date(),
+                    sessionId: sessionId,
+                    confidenceScore: 1.0,
+                    mergeReason: nil
+                )
 
-            activeVisitsLock.lock()
-            self.activeVisits[placeId] = visit
-            activeVisitsLock.unlock()
+                activeVisitsLock.lock()
+                self.activeVisits[placeId] = visit
+                activeVisitsLock.unlock()
 
-            LocationSessionManager.shared.createSession(for: placeId, userId: userId)
-            LocationVisitAnalytics.shared.invalidateCache(for: placeId)
+                LocationSessionManager.shared.createSession(for: placeId, userId: userId)
+                LocationVisitAnalytics.shared.invalidateCache(for: placeId)
 
-            await self.saveVisitToSupabase(visit)
+                await self.saveVisitToSupabase(visit)
 
-            NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
+                NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
 
-            // Reload widgets so they show the new location
-            WidgetCenter.shared.reloadAllTimelines()
+                // Reload widgets so they show the new location
+                WidgetCenter.shared.reloadAllTimelines()
 
-            print("✅ Visit created after dwell validation: \(placeId)")
+                print("✅ Visit created after dwell validation: \(placeId)")
+            }
         }
 
         // Start background validation if needed
@@ -1101,6 +1249,68 @@ class GeofenceManager: NSObject, ObservableObject {
     // - Scenario A: Open visit <5 min (app restart, 100% confidence)
     // - Scenario B: Closed visit <3 min (quick return, 95% confidence)
     // - Scenario C: Closed visit 3-10 min in geofence (GPS reconnect, 85% confidence)
+
+    /// Find any open visit (exit_time IS NULL) in Supabase for a place
+    /// This is a safety check to prevent creating duplicate visits
+    /// ENHANCED: Also checks for recently closed visits to catch race conditions
+    private func findOpenVisitInSupabase(for placeId: UUID, userId: UUID) async -> LocationVisitRecord? {
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+
+            // First check for open visits
+            let openResponse = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .eq("saved_place_id", value: placeId.uuidString)
+                .is("exit_time", value: nil) // Only open visits (no exit time)
+                .order("entry_time", ascending: false) // Most recent first
+                .limit(1)
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            let openVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: openResponse.data)
+
+            if let openVisit = openVisits.first {
+                print("🔍 Found open visit in Supabase: ID=\(openVisit.id), Entry=\(openVisit.entryTime)")
+                return openVisit
+            }
+
+            // CRITICAL FIX: Also check for very recent visits (within 2 minutes) to catch duplicates
+            // This prevents race conditions where multiple geofence entries create duplicate visits
+            let twoMinutesAgo = Date().addingTimeInterval(-120)
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+            let recentResponse = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .eq("saved_place_id", value: placeId.uuidString)
+                .gte("entry_time", value: formatter.string(from: twoMinutesAgo))
+                .order("entry_time", ascending: false) // Most recent first
+                .limit(1)
+                .execute()
+
+            let recentVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: recentResponse.data)
+
+            if let recentVisit = recentVisits.first {
+                let secondsSinceCreation = Date().timeIntervalSince(recentVisit.entryTime)
+
+                // If the visit was created within the last 30 seconds, it's likely a duplicate
+                if secondsSinceCreation < 30 {
+                    print("🔍 Found very recent visit in Supabase (likely duplicate): ID=\(recentVisit.id)")
+                    print("   Entry=\(recentVisit.entryTime), Created \(String(format: "%.1f", secondsSinceCreation))s ago")
+                    return recentVisit
+                }
+            }
+
+            return nil
+        } catch {
+            print("❌ Error querying Supabase for open visits: \(error)")
+            return nil
+        }
+    }
 
     /// Fetches the most recent incomplete visit for a location and closes it
     private func findAndCloseIncompleteVisit(for placeId: UUID) async {
@@ -1292,27 +1502,50 @@ class GeofenceManager: NSObject, ObservableObject {
                     continue
                 }
 
-                // Create a new visit since user is inside but no active visit exists
-                print("📝 Creating new visit for \(place.displayName) (user was already inside)")
+                // CRITICAL SAFETY CHECK: Before creating a new visit, explicitly check Supabase
+                // for any open visits that might exist from a previous session
+                if let existingOpenVisit = await self.findOpenVisitInSupabase(for: place.id, userId: userId) {
+                    print("\n⚠️ ===== FOUND EXISTING OPEN VISIT IN SUPABASE (APP LAUNCH) =====")
+                    print("⚠️ Existing visit ID: \(existingOpenVisit.id)")
+                    print("⚠️ Entry time: \(existingOpenVisit.entryTime)")
+                    print("⚠️ Restoring existing visit instead of creating new one")
+                    print("⚠️ ===========================================================\n")
+                    
+                    // Restore the existing open visit to memory
+                    activeVisitsLock.lock()
+                    activeVisits[place.id] = existingOpenVisit
+                    activeVisitsLock.unlock()
+                    
+                    // Add to session manager
+                    if let sessionId = existingOpenVisit.sessionId {
+                        LocationSessionManager.shared.addVisitToSession(sessionId, visitRecord: existingOpenVisit)
+                    }
+                    
+                    print("✅ Restored existing open visit for \(place.displayName)")
+                } else {
+                    // No existing open visit found - safe to create new one
+                    // Create a new visit since user is inside but no active visit exists
+                    print("📝 Creating new visit for \(place.displayName) (user was already inside)")
 
-                let sessionId = UUID()
-                let visit = LocationVisitRecord.create(
-                    userId: userId,
-                    savedPlaceId: place.id,
-                    entryTime: Date(),
-                    sessionId: sessionId,
-                    confidenceScore: 0.9,  // Slightly lower confidence since detected on app launch
-                    mergeReason: "app_launch_inside"
-                )
+                    let sessionId = UUID()
+                    let visit = LocationVisitRecord.create(
+                        userId: userId,
+                        savedPlaceId: place.id,
+                        entryTime: Date(),
+                        sessionId: sessionId,
+                        confidenceScore: 0.9,  // Slightly lower confidence since detected on app launch
+                        mergeReason: "app_launch_inside"
+                    )
 
-                activeVisitsLock.lock()
-                activeVisits[place.id] = visit
-                activeVisitsLock.unlock()
+                    activeVisitsLock.lock()
+                    activeVisits[place.id] = visit
+                    activeVisitsLock.unlock()
 
-                LocationSessionManager.shared.createSession(for: place.id, userId: userId)
-                LocationVisitAnalytics.shared.invalidateCache(for: place.id)
+                    LocationSessionManager.shared.createSession(for: place.id, userId: userId)
+                    LocationVisitAnalytics.shared.invalidateCache(for: place.id)
 
-                await saveVisitToSupabase(visit)
+                    await saveVisitToSupabase(visit)
+                }
 
                 print("✅ Created visit for \(place.displayName)")
 
@@ -1512,6 +1745,13 @@ class GeofenceManager: NSObject, ObservableObject {
     /// Internal method that actually saves to Supabase (without midnight check)
     /// This is called after midnight splitting is done
     private func saveVisitToSupabaseDirectly(_ visit: LocationVisitRecord) async {
+        // AUTO-DELETE: Skip saving visits under 2 minutes (likely false positives)
+        // Only check if visit is complete (has exit_time and duration)
+        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
+            print("🗑️ Skipping save for short visit: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
+            return
+        }
+        
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
@@ -1572,16 +1812,45 @@ class GeofenceManager: NSObject, ObservableObject {
             )
             
             if !existingSplits.isEmpty {
-                print("⚠️ IDEMPOTENCY: Found \(existingSplits.count) existing split visit(s), skipping duplicate creation")
-                print("   Existing IDs: \(existingSplits.map { $0.id.uuidString })")
+                // Verify splits cover the expected time range before deleting original
+                let expectedDuration = visit.durationMinutes ?? 0
+                let splitsDuration = existingSplits.compactMap { $0.durationMinutes }.reduce(0, +)
+                let durationMatch = abs(expectedDuration - splitsDuration) < 5 // 5 min tolerance
+
+                if durationMatch && existingSplits.count >= 2 {
+                    print("⚠️ IDEMPOTENCY: Found \(existingSplits.count) valid split visit(s)")
+                    print("   Existing IDs: \(existingSplits.map { $0.id.uuidString })")
+                    print("   Duration match: \(splitsDuration)min vs expected \(expectedDuration)min")
+                    print("🧹 CLEANUP: Deleting orphaned original visit...")
+                    await deleteVisitFromSupabase(visit)
+                } else {
+                    print("⚠️ Splits exist but incomplete (duration: \(splitsDuration) vs \(expectedDuration)), keeping original")
+                }
                 return
             }
-            
-            // Delete the original visit and save the split parts
-            await deleteVisitFromSupabase(visit)
+
+            // CRITICAL FIX: Save split parts FIRST, then delete original
+            var savedCount = 0
             for part in visitsToSave {
                 await saveVisitToSupabase(part)
+                savedCount += 1
             }
+
+            // Only delete original after all splits are confirmed saved
+            if savedCount == visitsToSave.count {
+                print("✅ All \(savedCount) split visits saved, deleting original")
+                await deleteVisitFromSupabase(visit)
+            } else {
+                print("⚠️ Only \(savedCount)/\(visitsToSave.count) splits saved, keeping original")
+            }
+            return
+        }
+
+        // AUTO-DELETE: Delete visits under 2 minutes instead of updating them
+        // Only check if visit is complete (has exit_time and duration)
+        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
+            print("🗑️ Auto-deleting short visit instead of updating: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
+            await deleteVisitFromSupabase(visit)
             return
         }
 
@@ -1612,6 +1881,37 @@ class GeofenceManager: NSObject, ObservableObject {
             LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
         } catch {
             print("❌ Error updating visit in Supabase: \(error)")
+        }
+    }
+
+    /// Update visit notes in Supabase
+    func updateVisitNotesInSupabase(_ visit: LocationVisitRecord) async {
+        guard SupabaseManager.shared.getCurrentUser() != nil else {
+            print("⚠️ No user ID, skipping Supabase visit notes update")
+            return
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let updateData: [String: PostgREST.AnyJSON] = [
+            "visit_notes": visit.visitNotes != nil ? .string(visit.visitNotes!) : .null,
+            "updated_at": .string(formatter.string(from: visit.updatedAt))
+        ]
+
+        do {
+            print("📝 Updating visit notes in Supabase - ID: \(visit.id.uuidString), Notes: \(visit.visitNotes ?? "nil")")
+
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("location_visits")
+                .update(updateData)
+                .eq("id", value: visit.id.uuidString)
+                .execute()
+
+            print("✅ Visit notes updated in Supabase: \(visit.id.uuidString)")
+        } catch {
+            print("❌ Error updating visit notes in Supabase: \(error)")
         }
     }
 
@@ -1777,13 +2077,20 @@ class GeofenceManager: NSObject, ObservableObject {
 
     /// Send arrival notification with contextual information
     private func sendArrivalNotification(for place: SavedPlace) async {
+        // Get the active visit to use its sessionId for notification identifier
+        activeVisitsLock.lock()
+        let visit = self.activeVisits[place.id]
+        let sessionId = visit?.sessionId ?? UUID()
+        activeVisitsLock.unlock()
+        
         // Get unread email count
         let emailService = EmailService.shared
         let unreadEmailCount = emailService.inboxEmails.filter { !$0.isRead }.count
 
-        // Get today's events count
+        // Get today's events count (filtered by user email)
         let calendarService = CalendarSyncService.shared
-        let todaysEvents = await calendarService.fetchCalendarEventsFromCurrentMonthOnwards()
+        let userEmail = await MainActor.run { AuthenticationManager.shared.currentUser?.profile?.email }
+        let todaysEvents = await calendarService.fetchCalendarEventsFromCurrentMonthOnwards(userEmail: userEmail)
         let calendar = Calendar.current
         let eventsToday = todaysEvents.filter { event in
             calendar.isDateInToday(event.startDate)
@@ -1793,12 +2100,37 @@ class GeofenceManager: NSObject, ObservableObject {
         var weatherInfo: String? = nil
         // TODO: Integrate with WeatherService if needed
 
-        // Send the notification
+        // Send the notification with sessionId-based identifier for deduplication
         await notificationService.scheduleArrivalNotification(
             locationName: place.displayName,
             unreadEmailCount: unreadEmailCount,
             upcomingEventsCount: eventsToday,
-            weatherInfo: weatherInfo
+            weatherInfo: weatherInfo,
+            sessionId: sessionId
         )
+    }
+    
+    // MARK: - People Connection Methods
+    
+    /// Link people to a visit - convenience method that delegates to PeopleManager
+    /// - Parameters:
+    ///   - visitId: The ID of the visit
+    ///   - personIds: Array of person IDs to link to the visit
+    func linkPeopleToVisit(visitId: UUID, personIds: [UUID]) async {
+        await PeopleManager.shared.linkPeopleToVisit(visitId: visitId, personIds: personIds)
+    }
+    
+    /// Get people associated with a visit - convenience method that delegates to PeopleManager
+    /// - Parameter visitId: The ID of the visit
+    /// - Returns: Array of Person objects associated with the visit
+    func getPeopleForVisit(visitId: UUID) async -> [Person] {
+        return await PeopleManager.shared.getPeopleForVisit(visitId: visitId)
+    }
+    
+    /// Get all visits that a person was part of
+    /// - Parameter personId: The ID of the person
+    /// - Returns: Array of visit UUIDs
+    func getVisitsForPerson(personId: UUID) async -> [UUID] {
+        return await PeopleManager.shared.getVisitIdsForPerson(personId: personId)
     }
 }

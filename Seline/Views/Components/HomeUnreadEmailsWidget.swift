@@ -35,15 +35,17 @@ struct HomeUnreadEmailsWidget: View {
             // Header
             HStack(spacing: 10) {
                 Text("Unread Emails")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
                 
                 Spacer()
                 
                 // Count badge
                 if unreadCount > 0 {
                     Text("\(unreadCount)")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(FontManager.geist(size: 13, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
@@ -58,11 +60,11 @@ struct HomeUnreadEmailsWidget: View {
             if unreadEmails.isEmpty {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(Color(red: 0.2, green: 0.7, blue: 0.4))
                     
                     Text("All caught up!")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -77,11 +79,11 @@ struct HomeUnreadEmailsWidget: View {
                     if unreadCount > 4 {
                         HStack(spacing: 6) {
                             Text("+\(unreadCount - 4) more")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(FontManager.geist(size: 12, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .medium))
+                                .font(FontManager.geist(size: 10, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -107,20 +109,20 @@ struct HomeUnreadEmailsWidget: View {
                 .frame(width: 28, height: 28)
                 .overlay(
                     Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(FontManager.geist(size: 11, weight: .semibold))
                         .foregroundColor(.white)
                 )
             
             VStack(alignment: .leading, spacing: 2) {
                 // Sender name
                 Text(email.sender.displayName)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(FontManager.geist(size: 13, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(1)
                 
                 // Subject
                 Text(email.subject)
-                    .font(.system(size: 11, weight: .regular))
+                    .font(FontManager.geist(size: 11, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     .lineLimit(1)
             }
@@ -129,7 +131,7 @@ struct HomeUnreadEmailsWidget: View {
             
             // Time indicator
             Text(formatEmailTime(email.timestamp))
-                .font(.system(size: 10, weight: .regular))
+                .font(FontManager.geist(size: 10, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
         }
         .padding(.vertical, 4)

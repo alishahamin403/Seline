@@ -8,6 +8,7 @@ struct MapsViewNew: View, Searchable {
     @StateObject private var locationService = LocationService.shared
     @StateObject private var navigationService = NavigationService.shared
     @StateObject private var supabaseManager = SupabaseManager.shared
+    @StateObject private var peopleManager = PeopleManager.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
     @Namespace private var tabAnimation
@@ -48,7 +49,6 @@ struct MapsViewNew: View, Searchable {
 
     var body: some View {
         mainContentView
-            .overlay(floatingAddButton)
             .sheet(isPresented: $showSearchModal) {
                 LocationSearchModal()
                     .presentationBg()
@@ -178,9 +178,8 @@ struct MapsViewNew: View, Searchable {
     
     private var headerSection: some View {
         VStack(spacing: 0) {
-            // Tab bar with search button
+            // Tab bar
             HStack(spacing: 12) {
-                searchButton
                 Spacer()
                 tabBarView
                 Spacer()
@@ -191,51 +190,14 @@ struct MapsViewNew: View, Searchable {
             .background(
                 colorScheme == .dark ? Color.black : Color.white
             )
-
-            // Search bar - show when search is active
-            if isLocationSearchActive {
-                EmailSearchBar(searchText: $locationSearchText) { query in
-                    // Search is handled by filtering in locationsTabContent
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 0)
-                .padding(.bottom, 12)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
         }
-    }
-    
-    // MARK: - Search Button
-    
-    private var searchButton: some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                if isLocationSearchActive {
-                    isLocationSearchActive = false
-                    locationSearchText = ""
-                } else {
-                    isLocationSearchActive = true
-                }
-            }
-        }) {
-            Image(systemName: isLocationSearchActive ? "xmark.circle.fill" : "magnifyingglass")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
     }
     
     // MARK: - Tab Bar View
     
     private var tabBarView: some View {
         HStack(spacing: 4) {
-            ForEach(["folders", "ranking", "timeline"], id: \.self) { tab in
+            ForEach(["folders", "people", "ranking", "timeline"], id: \.self) { tab in
                 tabButton(for: tab)
             }
         }
@@ -258,7 +220,7 @@ struct MapsViewNew: View, Searchable {
             }
         }) {
             Image(systemName: tabIcon)
-                .font(.system(size: 14, weight: .medium))
+                .font(FontManager.geist(size: 14, weight: .medium))
                 .foregroundColor(tabForegroundColor(isSelected: isSelected))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -278,6 +240,8 @@ struct MapsViewNew: View, Searchable {
     private func getTabIcon(for tab: String) -> String {
         if tab == "folders" {
             return "folder.fill"
+        } else if tab == "people" {
+            return "person.2.fill"
         } else if tab == "ranking" {
             return "chart.bar.fill"
         } else {
@@ -292,6 +256,8 @@ struct MapsViewNew: View, Searchable {
             VStack(spacing: 0) {
                 if selectedTab == "folders" {
                     locationsTabContent
+                } else if selectedTab == "people" {
+                    peopleTabContent
                 } else if selectedTab == "ranking" {
                     rankingTabContent
                 } else {
@@ -318,7 +284,7 @@ struct MapsViewNew: View, Searchable {
                             showSearchModal = true
                         }) {
                             Image(systemName: "plus")
-                                .font(.system(size: 20, weight: .semibold))
+                                .font(FontManager.geist(size: 20, weight: .semibold))
                                 .foregroundColor(.white)
                                 .frame(width: 56, height: 56)
                                 .background(
@@ -434,9 +400,9 @@ struct MapsViewNew: View, Searchable {
     private var locationsTabContent: some View {
         if locationsManager.categories.isEmpty {
             VStack(spacing: 16) {
-                Image(systemName: "map").font(.system(size: 48, weight: .light)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                Text("No saved places yet").font(.system(size: 18, weight: .medium)).foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                Text("Search for places and save them to categories").font(.system(size: 14, weight: .regular)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)).multilineTextAlignment(.center)
+                Image(systemName: "map").font(FontManager.geist(size: 48, weight: .light)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                Text("No saved places yet").font(FontManager.geist(size: 18, weight: .medium)).foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                Text("Search for places and save them to categories").font(FontManager.geist(size: 14, weight: .regular)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)).multilineTextAlignment(.center)
             }.padding(.top, 60)
         } else if selectedCategory == nil {
             VStack(spacing: 16) {
@@ -473,7 +439,7 @@ struct MapsViewNew: View, Searchable {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     Text("Favorites")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(FontManager.geist(size: 17, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                     Spacer()
                 }
@@ -481,20 +447,20 @@ struct MapsViewNew: View, Searchable {
                 .padding(.top, 20)
 
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 10) {
                         ForEach(favourites, id: \.id) { place in
                             Button(action: {
                                 selectedPlace = place
                             }) {
-                                VStack(spacing: 8) {
-                                    PlaceImageView(place: place, size: 70, cornerRadius: 16)
+                                VStack(spacing: 6) {
+                                    PlaceImageView(place: place, size: 54, cornerRadius: 12)
 
                                     Text(place.displayName)
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(FontManager.geist(size: 11, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                         .lineLimit(2)
                                         .multilineTextAlignment(.center)
-                                        .frame(width: 70, height: 32)
+                                        .frame(width: 54, height: 28)
                                         .minimumScaleFactor(0.8)
                                 }
                             }
@@ -537,7 +503,7 @@ struct MapsViewNew: View, Searchable {
                 x: 0,
                 y: 4
             )
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
         }
     }
 
@@ -565,7 +531,7 @@ struct MapsViewNew: View, Searchable {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     Text("Recently Visited")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(FontManager.geist(size: 17, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                     Spacer()
                 }
@@ -573,20 +539,20 @@ struct MapsViewNew: View, Searchable {
                 .padding(.top, 20)
 
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 10) {
                         ForEach(recentlyVisitedPlaces, id: \.id) { place in
                             Button(action: {
                                 selectedPlace = place
                             }) {
-                                VStack(spacing: 8) {
-                                    PlaceImageView(place: place, size: 70, cornerRadius: 16)
+                                VStack(spacing: 6) {
+                                    PlaceImageView(place: place, size: 54, cornerRadius: 12)
 
                                     Text(place.displayName)
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(FontManager.geist(size: 11, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                         .lineLimit(2)
                                         .multilineTextAlignment(.center)
-                                        .frame(width: 70, height: 32)
+                                        .frame(width: 54, height: 28)
                                         .minimumScaleFactor(0.8)
                                 }
                             }
@@ -616,7 +582,7 @@ struct MapsViewNew: View, Searchable {
                 x: 0,
                 y: 4
             )
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
         }
     }
 
@@ -625,9 +591,25 @@ struct MapsViewNew: View, Searchable {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Text("All Locations")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(FontManager.geist(size: 17, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 Spacer()
+                if selectedCategory == nil {
+                    Button(action: {
+                        showSearchModal = true
+                    }) {
+                        Text("Add")
+                            .font(FontManager.geist(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .fill(colorScheme == .dark ? Color.white : Color.black)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
@@ -684,12 +666,22 @@ struct MapsViewNew: View, Searchable {
             x: 0,
             y: 4
         )
-        .padding(.horizontal, 12)
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
     }
 
     @ViewBuilder
     private var rankingTabContent: some View {
         RankingView(locationsManager: locationsManager, colorScheme: colorScheme, locationSearchText: locationSearchText)
+    }
+    
+    @ViewBuilder
+    private var peopleTabContent: some View {
+        PeopleListView(
+            peopleManager: peopleManager,
+            locationsManager: locationsManager,
+            colorScheme: colorScheme,
+            searchText: locationSearchText
+        )
     }
 
     @ViewBuilder
@@ -816,9 +808,37 @@ struct MapsViewNew: View, Searchable {
 
     private func loadTopLocations() {
         Task {
+            // OPTIMIZATION: Check cache first to avoid expensive Supabase queries
+            typealias LocationTuple = (id: UUID, displayName: String, visitCount: Int)
+            
+            // Try to load from cache (use codable wrapper for caching)
+            if let cached: [[String: Any]] = CacheManager.shared.get(forKey: CacheManager.CacheKey.topLocations) {
+                // Convert cached data back to tuple array
+                var cachedLocations: [LocationTuple] = []
+                var cachedAllLocations: [LocationTuple] = []
+                
+                for item in cached {
+                    if let idString = item["id"] as? String, 
+                       let id = UUID(uuidString: idString),
+                       let displayName = item["displayName"] as? String,
+                       let visitCount = item["visitCount"] as? Int {
+                        cachedAllLocations.append((id: id, displayName: displayName, visitCount: visitCount))
+                    }
+                }
+                
+                if !cachedAllLocations.isEmpty {
+                    cachedLocations = Array(cachedAllLocations.prefix(3))
+                    await MainActor.run {
+                        topLocations = cachedLocations
+                        allLocations = cachedAllLocations
+                    }
+                    return // Use cached data
+                }
+            }
+            
             // OPTIMIZATION: Fetch stats in parallel for all places (much faster!)
             let places = locationsManager.savedPlaces
-            var placesWithCounts: [(id: UUID, displayName: String, visitCount: Int)] = []
+            var placesWithCounts: [LocationTuple] = []
             
             await withTaskGroup(of: (UUID, String, Int?).self) { group in
                 for place in places {
@@ -855,12 +875,41 @@ struct MapsViewNew: View, Searchable {
             await MainActor.run {
                 topLocations = top3
                 allLocations = allSorted  // Store all locations for "See All" feature
+                
+                // OPTIMIZATION: Cache the results for 5 minutes
+                // Convert to dictionary array for caching (tuples aren't Codable)
+                let cacheData: [[String: Any]] = allSorted.map { item in
+                    return [
+                        "id": item.id.uuidString,
+                        "displayName": item.displayName,
+                        "visitCount": item.visitCount
+                    ]
+                }
+                CacheManager.shared.set(cacheData, forKey: CacheManager.CacheKey.topLocations, ttl: CacheManager.TTL.medium)
             }
         }
     }
 
     private func loadRecentlyVisited() {
         Task {
+            // OPTIMIZATION: Check cache first to avoid expensive Supabase queries
+            if let cachedIds: [String] = CacheManager.shared.get(forKey: CacheManager.CacheKey.recentlyVisitedPlaces) {
+                // Rebuild places from cached IDs
+                var cachedPlaces: [SavedPlace] = []
+                for idString in cachedIds {
+                    if let id = UUID(uuidString: idString),
+                       let place = locationsManager.savedPlaces.first(where: { $0.id == id }) {
+                        cachedPlaces.append(place)
+                    }
+                }
+                if !cachedPlaces.isEmpty {
+                    await MainActor.run {
+                        recentlyVisitedPlaces = cachedPlaces
+                    }
+                    return // Use cached data
+                }
+            }
+            
             // Get visits from last 7 days
             let calendar = Calendar.current
             let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
@@ -890,6 +939,10 @@ struct MapsViewNew: View, Searchable {
 
             await MainActor.run {
                 recentlyVisitedPlaces = recentPlaces
+                
+                // OPTIMIZATION: Cache the place IDs for 5 minutes
+                let cacheData = recentPlaces.map { $0.id.uuidString }
+                CacheManager.shared.set(cacheData, forKey: CacheManager.CacheKey.recentlyVisitedPlaces, ttl: CacheManager.TTL.medium)
             }
         }
     }
@@ -1166,7 +1219,7 @@ struct CategoryCard: View {
                     } else {
                         // Empty folder - show single large icon
                         Image(systemName: "mappin.circle.fill")
-                            .font(.system(size: 40, weight: .medium))
+                            .font(FontManager.geist(size: 40, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : Color(white: 0.25))
                     }
                 }
@@ -1182,7 +1235,7 @@ struct CategoryCard: View {
 
                 // Folder name below
                 Text(category)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(FontManager.geist(size: 13, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -1309,7 +1362,7 @@ struct FolderOverlayView: View {
             VStack(spacing: 40) {
                 // Folder title
                 Text(category)
-                    .font(.system(size: 32, weight: .regular))
+                    .font(FontManager.geist(size: 32, weight: .regular))
                     .foregroundColor(.white)
 
                 // Large rounded container with apps
@@ -1318,11 +1371,11 @@ struct FolderOverlayView: View {
                         // Empty state
                         VStack(spacing: 20) {
                             Image(systemName: "mappin.slash")
-                                .font(.system(size: 48, weight: .light))
+                                .font(FontManager.geist(size: 48, weight: .light))
                                 .foregroundColor(.white.opacity(0.5))
 
                             Text("No places in this folder")
-                                .font(.system(size: 16, weight: .regular))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(.white.opacity(0.7))
                         }
                         .frame(height: 400)
@@ -1359,7 +1412,7 @@ struct FolderOverlayView: View {
                                                     HapticManager.shared.selection()
                                                 }) {
                                                     Image(systemName: place.isFavourite ? "star.fill" : "star")
-                                                        .font(.system(size: 12, weight: .semibold))
+                                                        .font(FontManager.geist(size: 12, weight: .semibold))
                                                         .foregroundColor(.white)
                                                         .padding(6)
                                                         .background(
@@ -1373,7 +1426,7 @@ struct FolderOverlayView: View {
 
                                             // Place name
                                             Text(place.displayName)
-                                                .font(.system(size: 12, weight: .regular))
+                                                .font(FontManager.geist(size: 12, weight: .regular))
                                                 .foregroundColor(.white)
                                                 .lineLimit(2)
                                                 .multilineTextAlignment(.center)
@@ -1482,14 +1535,14 @@ struct FolderOverlayView: View {
             VStack(spacing: 0) {
                 HStack {
                     Text("Edit Icon")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Spacer()
 
                     Button(action: { showingIconPicker = false }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 18))
+                            .font(FontManager.geist(size: 18, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
                 }
@@ -1505,7 +1558,7 @@ struct FolderOverlayView: View {
                 HStack(spacing: 12) {
                     Button(action: { showingIconPicker = false }) {
                         Text("Cancel")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(.blue)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
@@ -1522,7 +1575,7 @@ struct FolderOverlayView: View {
                         }
                     }) {
                         Text("Save")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
@@ -1581,7 +1634,7 @@ struct FolderPlaceStatusView: View {
                     .frame(width: 6, height: 6)
 
                 Text(isOpen ? "Open" : "Closed")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(FontManager.geist(size: 10, weight: .medium))
                     .foregroundColor(isOpen ? Color.green.opacity(0.9) : .red.opacity(0.8))
             }
             .lineLimit(1)
@@ -1672,18 +1725,9 @@ struct MiniMapView: View {
         ZStack {
             Map(coordinateRegion: .constant(region), showsUserLocation: true, annotationItems: places) { place in
                 MapAnnotation(coordinate: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)) {
-                    Button(action: {
+                    MiniMapAnnotationView(onTap: {
                         onPlaceTap(place)
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 12, height: 12)
-                            Circle()
-                                .stroke(Color.white, lineWidth: 2)
-                                .frame(width: 12, height: 12)
-                        }
-                    }
+                    })
                 }
             }
             .disabled(false)
@@ -1697,7 +1741,7 @@ struct MiniMapView: View {
                         onExpandTap()
                     }) {
                         Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(FontManager.geist(size: 12, weight: .medium))
                             .foregroundColor(.white)
                             .padding(8)
                             .background(Color.black.opacity(0.6))
@@ -1711,6 +1755,14 @@ struct MiniMapView: View {
             if !hasInitialized {
                 updateRegion()
                 hasInitialized = true
+            }
+            
+            // Configure UIScrollView for smooth scrolling (same as home page)
+            DispatchQueue.main.async {
+                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let window = windowScene.windows.first {
+                    configureScrollViewsForSmoothScrolling(in: window)
+                }
             }
         }
     }
@@ -1747,6 +1799,18 @@ struct MiniMapView: View {
             region = MKCoordinateRegion(center: center, span: span)
         }
     }
+    
+    // Configure all UIScrollViews to delay content touches for smoother scrolling
+    // Same implementation as MainAppView for consistent behavior
+    private func configureScrollViewsForSmoothScrolling(in view: UIView) {
+        if let scrollView = view as? UIScrollView {
+            scrollView.delaysContentTouches = true
+            scrollView.canCancelContentTouches = true
+        }
+        for subview in view.subviews {
+            configureScrollViewsForSmoothScrolling(in: subview)
+        }
+    }
 }
 
 // MARK: - Expandable Category Row
@@ -1772,14 +1836,14 @@ struct ExpandableCategoryRow: View {
             Button(action: onToggle) {
                 HStack(spacing: 12) {
                     Text(category)
-                        .font(.system(size: 16, weight: .regular))
+                        .font(FontManager.geist(size: 16, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Spacer()
                     
                     // Count badge - matching notes section styling
                     Text("\(places.count)")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(FontManager.geist(size: 12, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(minWidth: 24, minHeight: 24)
                         .padding(.horizontal, 6)
@@ -1811,20 +1875,20 @@ struct ExpandableCategoryRow: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(spacing: 6) {
                                         Text(place.displayName)
-                                            .font(.system(size: 15, weight: .medium))
+                                            .font(FontManager.geist(size: 15, weight: .medium))
                                             .foregroundColor(colorScheme == .dark ? .white : .black)
                                             .lineLimit(1)
 
                                         if place.isFavourite {
                                             Image(systemName: "star.fill")
-                                                .font(.system(size: 11, weight: .semibold))
+                                                .font(FontManager.geist(size: 11, weight: .semibold))
                                                 .foregroundColor(.yellow)
                                         }
                                     }
 
                                     if let distance = calculateDistance(to: place) {
                                         Text(formatDistance(distance))
-                                            .font(.system(size: 13, weight: .regular))
+                                            .font(FontManager.geist(size: 13, weight: .regular))
                                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                                     }
                                 }
@@ -1934,29 +1998,8 @@ struct FullMapView: View {
             // Interactive map - user can pan and zoom freely
             Map(coordinateRegion: $region, showsUserLocation: true, annotationItems: places) { place in
                 MapAnnotation(coordinate: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)) {
-                    Button(action: {
+                    MapAnnotationView(place: place, colorScheme: colorScheme) {
                         onPlaceTap(place)
-                    }) {
-                        VStack(spacing: 4) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 16, height: 16)
-                                Circle()
-                                    .stroke(Color.white, lineWidth: 2.5)
-                                    .frame(width: 16, height: 16)
-                            }
-
-                            Text(place.displayName)
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color.black.opacity(0.75))
-                                )
-                        }
                     }
                 }
             }
@@ -1970,7 +2013,7 @@ struct FullMapView: View {
                         dismiss()
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 30))
+                            .font(FontManager.geist(size: 30, weight: .regular))
                             .foregroundColor(.white)
                             .background(
                                 Circle()
@@ -1993,7 +2036,7 @@ struct FullMapView: View {
                         centerOnCurrentLocation()
                     }) {
                         Image(systemName: "location.fill")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(FontManager.geist(size: 18, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 44, height: 44)
                             .background(Color.blue)
@@ -2007,6 +2050,14 @@ struct FullMapView: View {
         }
         .onAppear {
             initializeRegion()
+            
+            // Configure UIScrollView for smooth scrolling (same as home page)
+            DispatchQueue.main.async {
+                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let window = windowScene.windows.first {
+                    configureScrollViewsForSmoothScrolling(in: window)
+                }
+            }
         }
     }
 
@@ -2055,6 +2106,18 @@ struct FullMapView: View {
             )
         }
     }
+    
+    // Configure all UIScrollViews to delay content touches for smoother scrolling
+    // Same implementation as MainAppView for consistent behavior
+    private func configureScrollViewsForSmoothScrolling(in view: UIView) {
+        if let scrollView = view as? UIScrollView {
+            scrollView.delaysContentTouches = true
+            scrollView.canCancelContentTouches = true
+        }
+        for subview in view.subviews {
+            configureScrollViewsForSmoothScrolling(in: subview)
+        }
+    }
 }
 
 // MARK: - Change Folder Sheet
@@ -2076,14 +2139,14 @@ struct ChangeFolderSheet: View {
                 // Header
                 HStack {
                     Text("Move to Folder")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(FontManager.geist(size: 20, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Spacer()
 
                     Button(action: onDismiss) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 22))
+                            .font(FontManager.geist(size: 22, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
                 }
@@ -2097,11 +2160,11 @@ struct ChangeFolderSheet: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(place.displayName)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(FontManager.geist(size: 15, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
 
                         Text("Currently in: \(currentCategory)")
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                     }
 
@@ -2127,18 +2190,18 @@ struct ChangeFolderSheet: View {
                             }) {
                                 HStack(spacing: 12) {
                                     Image(systemName: "folder.fill")
-                                        .font(.system(size: 18, weight: .medium))
+                                        .font(FontManager.geist(size: 18, weight: .medium))
                                         .foregroundColor(category == currentCategory ? .blue : (colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7)))
 
                                     Text(category)
-                                        .font(.system(size: 15, weight: .medium))
+                                        .font(FontManager.geist(size: 15, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                                     Spacer()
 
                                     if category == currentCategory {
                                         Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 18, weight: .semibold))
+                                            .font(FontManager.geist(size: 18, weight: .semibold))
                                             .foregroundColor(.blue)
                                     }
                                 }
@@ -2162,11 +2225,11 @@ struct ChangeFolderSheet: View {
                         }) {
                             HStack(spacing: 12) {
                                 Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 18, weight: .medium))
+                                    .font(FontManager.geist(size: 18, weight: .medium))
                                     .foregroundColor(.green)
 
                                 Text("Create New Folder")
-                                    .font(.system(size: 15, weight: .medium))
+                                    .font(FontManager.geist(size: 15, weight: .medium))
                                     .foregroundColor(.green)
 
                                 Spacer()
@@ -2202,6 +2265,89 @@ struct ChangeFolderSheet: View {
                 Text("Enter a name for the new folder")
             }
         }
+    }
+}
+
+// MARK: - Map Annotation View (Gesture-Aware)
+// These views use a drag gesture to allow scrolling while preventing accidental taps
+
+struct MapAnnotationView: View {
+    let place: SavedPlace
+    let colorScheme: ColorScheme
+    let onTap: () -> Void
+    
+    @State private var dragOffset: CGSize = .zero
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 16, height: 16)
+                Circle()
+                    .stroke(Color.white, lineWidth: 2.5)
+                    .frame(width: 16, height: 16)
+            }
+            
+            Text(place.displayName)
+                .font(FontManager.geist(size: 10, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.black.opacity(0.75))
+                )
+        }
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    dragOffset = value.translation
+                }
+                .onEnded { value in
+                    // Only trigger tap if drag distance is very small (< 10 points)
+                    let dragDistance = sqrt(pow(value.translation.width, 2) + pow(value.translation.height, 2))
+                    if dragDistance < 10 {
+                        HapticManager.shared.selection()
+                        onTap()
+                    }
+                    dragOffset = .zero
+                }
+        )
+    }
+}
+
+struct MiniMapAnnotationView: View {
+    let onTap: () -> Void
+    
+    @State private var dragOffset: CGSize = .zero
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 12, height: 12)
+            Circle()
+                .stroke(Color.white, lineWidth: 2)
+                .frame(width: 12, height: 12)
+        }
+        .contentShape(Circle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    dragOffset = value.translation
+                }
+                .onEnded { value in
+                    // Only trigger tap if drag distance is very small (< 10 points)
+                    let dragDistance = sqrt(pow(value.translation.width, 2) + pow(value.translation.height, 2))
+                    if dragDistance < 10 {
+                        HapticManager.shared.selection()
+                        onTap()
+                    }
+                    dragOffset = .zero
+                }
+        )
     }
 }
 

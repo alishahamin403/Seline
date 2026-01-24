@@ -60,10 +60,22 @@ struct EmailListView: View {
             await onRefresh()
         }
         .animation(.easeInOut(duration: 0.3), value: loadingState)
-        .sheet(item: $selectedEmail) { email in
-            EmailDetailView(email: email)
-        }
-    .presentationBg()
+        .background(
+            NavigationLink(
+                destination: Group {
+                    if let email = selectedEmail {
+                        EmailDetailView(email: email)
+                    }
+                },
+                isActive: Binding(
+                    get: { selectedEmail != nil },
+                    set: { if !$0 { selectedEmail = nil } }
+                )
+            ) {
+                EmptyView()
+            }
+            .hidden()
+        )
     }
 }
 
@@ -92,7 +104,7 @@ struct ErrorEmailState: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 32, weight: .medium))
+                .font(FontManager.geist(size: 32, weight: .medium))
                 .foregroundColor(.orange)
 
             VStack(spacing: 8) {

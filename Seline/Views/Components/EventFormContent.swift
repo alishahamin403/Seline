@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 struct EventFormContent: View {
     // MARK: - Bindings
@@ -79,11 +80,11 @@ struct EventFormContent: View {
                         // Title Input
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Event Title")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(secondaryTextColor)
 
                             TextField("Enter event title", text: $title)
-                                .font(.system(size: 15))
+                                .font(FontManager.geist(size: 15, weight: .regular))
                                 .foregroundColor(textColor)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 12)
@@ -100,7 +101,7 @@ struct EventFormContent: View {
                         // Location Input
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Location")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(secondaryTextColor)
 
                             Button(action: { showingLocationPicker = true }) {
@@ -116,10 +117,10 @@ struct EventFormContent: View {
                                     Spacer()
                                     
                                     Image(systemName: "mappin.and.ellipse")
-                                        .font(.system(size: 14))
+                                        .font(FontManager.geist(size: 14, weight: .regular))
                                         .foregroundColor(secondaryTextColor)
                                 }
-                                .font(.system(size: 15))
+                                .font(FontManager.geist(size: 15, weight: .regular))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 12)
                                 .background(
@@ -144,11 +145,11 @@ struct EventFormContent: View {
                         // Description Input
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Description (Optional)")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(secondaryTextColor)
 
                             TextField("Add details...", text: $description, axis: .vertical)
-                                .font(.system(size: 14))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(textColor)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 12)
@@ -176,7 +177,7 @@ struct EventFormContent: View {
                         // Multi-Day Toggle
                         HStack {
                             Toggle("Multi-Day Event", isOn: $isMultiDay)
-                                .font(.system(size: 14, weight: .medium))
+                                .font(FontManager.geist(size: 14, weight: .medium))
                                 .foregroundColor(textColor)
                                 .onChange(of: isMultiDay) { newValue in
                                     if newValue {
@@ -198,7 +199,7 @@ struct EventFormContent: View {
                         // Start Date Picker
                         VStack(alignment: .leading, spacing: 6) {
                             Text(isMultiDay ? "Start Date" : "Date")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(secondaryTextColor)
 
                             HStack {
@@ -207,11 +208,11 @@ struct EventFormContent: View {
                                 }) {
                                     HStack {
                                         Text(formatDate(selectedDate))
-                                            .font(.system(size: 15, weight: .medium))
+                                            .font(FontManager.geist(size: 15, weight: .medium))
                                             .foregroundColor(textColor)
                                         Spacer()
                                         Image(systemName: "calendar")
-                                            .font(.system(size: 14))
+                                            .font(FontManager.geist(size: 14, weight: .regular))
                                             .foregroundColor(secondaryTextColor)
                                     }
                                     .padding(.horizontal, 14)
@@ -239,7 +240,7 @@ struct EventFormContent: View {
                         if isMultiDay {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("End Date")
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(FontManager.geist(size: 13, weight: .medium))
                                     .foregroundColor(secondaryTextColor)
 
                                 HStack {
@@ -248,11 +249,11 @@ struct EventFormContent: View {
                                     }) {
                                         HStack {
                                             Text(formatDate(selectedEndDate))
-                                                .font(.system(size: 15, weight: .medium))
+                                                .font(FontManager.geist(size: 15, weight: .medium))
                                                 .foregroundColor(textColor)
                                             Spacer()
                                             Image(systemName: "calendar")
-                                                .font(.system(size: 14))
+                                                .font(FontManager.geist(size: 14, weight: .regular))
                                                 .foregroundColor(secondaryTextColor)
                                         }
                                         .padding(.horizontal, 14)
@@ -292,7 +293,7 @@ struct EventFormContent: View {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Toggle(isMultiDay ? "Include Times" : "Include Time", isOn: $hasTime)
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(FontManager.geist(size: 14, weight: .medium))
                                     .foregroundColor(textColor)
                                 Spacer()
                             }
@@ -304,17 +305,17 @@ struct EventFormContent: View {
                                         HStack {
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text("Start Time")
-                                                    .font(.system(size: 12, weight: .medium))
+                                                    .font(FontManager.geist(size: 12, weight: .medium))
                                                     .foregroundColor(secondaryTextColor)
                                                 Text(formatTimeWithAMPM(selectedTime))
-                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .font(FontManager.geist(size: 15, weight: .semibold))
                                                     .foregroundColor(textColor)
                                             }
 
                                             Spacer()
 
                                             Image(systemName: "clock.fill")
-                                                .font(.system(size: 14))
+                                                .font(FontManager.geist(size: 14, weight: .regular))
                                                 .foregroundColor(secondaryTextColor)
                                         }
                                         .padding(.horizontal, 14)
@@ -343,17 +344,17 @@ struct EventFormContent: View {
                                         HStack {
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(isMultiDay ? "End Time (on End Date)" : "End Time")
-                                                    .font(.system(size: 12, weight: .medium))
+                                                    .font(FontManager.geist(size: 12, weight: .medium))
                                                     .foregroundColor(secondaryTextColor)
                                                 Text(formatTimeWithAMPM(selectedEndTime))
-                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .font(FontManager.geist(size: 15, weight: .semibold))
                                                     .foregroundColor(textColor)
                                             }
 
                                             Spacer()
 
                                             Image(systemName: "clock.fill")
-                                                .font(.system(size: 14))
+                                                .font(FontManager.geist(size: 14, weight: .regular))
                                                 .foregroundColor(secondaryTextColor)
                                         }
                                         .padding(.horizontal, 14)
@@ -387,17 +388,17 @@ struct EventFormContent: View {
                                 HStack(spacing: 6) {
                                         if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
                                             Circle()
-                                                .fill(tag.color)
+                                                .fill(tag.color(for: colorScheme))
                                                 .frame(width: 8, height: 8)
                                             Text(tag.name)
-                                                .font(.system(size: 14))
+                                                .font(FontManager.geist(size: 14, weight: .regular))
                                                 .foregroundColor(textColor)
                                         } else {
                                             Circle()
                                                 .fill(Color.gray.opacity(0.5))
                                                 .frame(width: 8, height: 8)
                                             Text("Personal")
-                                                .font(.system(size: 14))
+                                                .font(FontManager.geist(size: 14, weight: .regular))
                                                 .foregroundColor(textColor)
                                         }
                                     }
@@ -405,7 +406,7 @@ struct EventFormContent: View {
                                 Spacer()
 
                                 Image(systemName: "chevron.down")
-                                    .font(.system(size: 12))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(secondaryTextColor)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -441,7 +442,7 @@ struct EventFormContent: View {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
                                 Toggle("Repeat Event", isOn: $isRecurring)
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(FontManager.geist(size: 14, weight: .medium))
                                     .foregroundColor(textColor)
                                 Spacer()
                             }
@@ -451,12 +452,12 @@ struct EventFormContent: View {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text("Frequency")
-                                                .font(.system(size: 12, weight: .medium))
+                                                .font(FontManager.geist(size: 12, weight: .medium))
                                                 .foregroundColor(secondaryTextColor)
                                             Text(recurrenceFrequency == .custom && !customRecurrenceDays.isEmpty ?
                                                 customRecurrenceDays.sorted(by: { $0.sortOrder < $1.sortOrder }).map { $0.shortDisplayName }.joined(separator: ", ") :
                                                 recurrenceFrequency.rawValue.capitalized)
-                                                .font(.system(size: 14, weight: .semibold))
+                                                .font(FontManager.geist(size: 14, weight: .semibold))
                                                 .foregroundColor(textColor)
                                                 .lineLimit(1)
                                         }
@@ -464,7 +465,7 @@ struct EventFormContent: View {
                                         Spacer()
 
                                         Image(systemName: "chevron.down")
-                                            .font(.system(size: 12))
+                                            .font(FontManager.geist(size: 12, weight: .regular))
                                             .foregroundColor(secondaryTextColor)
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -499,23 +500,23 @@ struct EventFormContent: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 4) {
                                         Text("Reminder")
-                                            .font(.system(size: 13, weight: .medium))
+                                            .font(FontManager.geist(size: 13, weight: .medium))
                                             .foregroundColor(secondaryTextColor)
 
                                         if !hasTime {
                                             Text("(Requires time)")
-                                                .font(.system(size: 10, weight: .regular))
+                                                .font(FontManager.geist(size: 10, weight: .regular))
                                                 .foregroundColor(Color.gray.opacity(0.6))
                                         }
                                     }
 
                                     HStack(spacing: 6) {
                                         Image(systemName: selectedReminder.icon)
-                                            .font(.system(size: 12, weight: .semibold))
+                                            .font(FontManager.geist(size: 12, weight: .semibold))
                                             .foregroundColor(selectedReminder == .none ? Color.gray : textColor)
 
                                         Text(selectedReminder.displayName)
-                                            .font(.system(size: 14))
+                                            .font(FontManager.geist(size: 14, weight: .regular))
                                             .foregroundColor(textColor)
                                     }
                                 }
@@ -523,7 +524,7 @@ struct EventFormContent: View {
                                 Spacer()
 
                                 Image(systemName: "chevron.down")
-                                    .font(.system(size: 12))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(secondaryTextColor)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -610,7 +611,7 @@ struct SectionHeader: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 15, weight: .semibold))
+            .font(FontManager.geist(size: 15, weight: .semibold))
             .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
             .padding(.horizontal, 4)
     }
@@ -627,14 +628,10 @@ struct UnifiedTimePickerSheet: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                DatePicker(
-                    "",
-                    selection: $selectedTime,
-                    displayedComponents: .hourAndMinute
-                )
-                .datePickerStyle(.wheel)
-                .labelsHidden()
-                .padding(.vertical, 20)
+                // Use CustomTimePicker with 15-minute interval
+                CustomTimePicker(selection: $selectedTime, minuteInterval: 15)
+                    .frame(height: 200)
+                    .padding(.vertical, 20)
 
                 Spacer()
 
@@ -643,7 +640,7 @@ struct UnifiedTimePickerSheet: View {
                     dismiss()
                 }) {
                     Text("Done")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(FontManager.geist(size: 15, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -673,7 +670,7 @@ struct TagSelectionSheet: View {
     private var createNewTagSection: some View {
         HStack(spacing: 10) {
             TextField("Create new tag...", text: $newTagName)
-                .font(.system(size: 14))
+                .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -696,7 +693,7 @@ struct TagSelectionSheet: View {
                 }
             }) {
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 18))
+                    .font(FontManager.geist(size: 18, weight: .regular))
                     .foregroundColor(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : (colorScheme == .dark ? Color.white : Color.black))
             }
             .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -711,30 +708,30 @@ struct TagSelectionSheet: View {
         }) {
             HStack(spacing: 12) {
                 Circle()
-                    .fill(Color(red: 0.2039, green: 0.6588, blue: 0.3255))
+                    .fill(TimelineEventColorManager.personalColor)
                     .frame(width: 12, height: 12)
 
                 Text("Personal")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                 Spacer()
 
                 if selectedTagId == nil {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(Color(red: 0.2039, green: 0.6588, blue: 0.3255))
+                        .font(FontManager.geist(size: 16, weight: .regular))
+                        .foregroundColor(TimelineEventColorManager.personalColor)
                 }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(selectedTagId == nil ? Color(red: 0.2039, green: 0.6588, blue: 0.3255).opacity(0.1) : (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02)))
+                    .fill(selectedTagId == nil ? TimelineEventColorManager.personalColor.opacity(0.1) : (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02)))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(selectedTagId == nil ? Color(red: 0.2039, green: 0.6588, blue: 0.3255).opacity(0.3) : Color.clear, lineWidth: 1)
+                    .stroke(selectedTagId == nil ? TimelineEventColorManager.personalColor.opacity(0.3) : Color.clear, lineWidth: 1)
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -751,30 +748,30 @@ struct TagSelectionSheet: View {
                     }) {
                         HStack(spacing: 12) {
                             Circle()
-                                .fill(tag.color)
+                                .fill(tag.color(for: colorScheme))
                                 .frame(width: 12, height: 12)
 
                             Text(tag.name)
-                                .font(.system(size: 14, weight: .medium))
+                                .font(FontManager.geist(size: 14, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Spacer()
 
                             if selectedTagId == tag.id {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 16))
-                                    .foregroundColor(tag.color)
+                                    .font(FontManager.geist(size: 16, weight: .regular))
+                                    .foregroundColor(tag.color(for: colorScheme))
                             }
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(selectedTagId == tag.id ? tag.color.opacity(0.1) : (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02)))
+                                .fill(selectedTagId == tag.id ? tag.color(for: colorScheme).opacity(0.1) : (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02)))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
-                                .stroke(selectedTagId == tag.id ? tag.color.opacity(0.3) : Color.clear, lineWidth: 1)
+                                .stroke(selectedTagId == tag.id ? tag.color(for: colorScheme).opacity(0.3) : Color.clear, lineWidth: 1)
                         )
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -842,7 +839,7 @@ struct CustomDayButton: View {
     var body: some View {
             Button(action: onTap) {
             Text(day.shortDisplayName)
-                .font(.system(size: 14, weight: .medium))
+                .font(FontManager.geist(size: 14, weight: .medium))
                 .foregroundColor(foregroundColor)
                 .frame(width: 36, height: 36)
                 .background(
@@ -863,13 +860,25 @@ struct LocationSelectionSheet: View {
     @Binding var selectedLocation: String
     let colorScheme: ColorScheme
     @Environment(\.dismiss) var dismiss
-    
+
     @StateObject private var locationsManager = LocationsManager.shared
     @StateObject private var mapsService = GoogleMapsService.shared
+    @StateObject private var locationService = LocationService.shared
     @State private var searchText = ""
     @State private var searchResults: [PlaceSearchResult] = []
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>? = nil
+
+    // Filtered saved places based on search text
+    private var filteredSavedPlaces: [SavedPlace] {
+        guard !searchText.isEmpty else { return [] }
+        let lowercasedSearch = searchText.lowercased()
+        return locationsManager.savedPlaces.filter { place in
+            place.displayName.lowercased().contains(lowercasedSearch) ||
+            (place.customName?.lowercased().contains(lowercasedSearch) ?? false) ||
+            place.address.lowercased().contains(lowercasedSearch)
+        }
+    }
     
     private var backgroundColor: Color {
         colorScheme == .dark ? Color.black : Color(red: 0.98, green: 0.98, blue: 0.98)
@@ -938,11 +947,11 @@ struct LocationSelectionSheet: View {
     private var searchBar: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 16, weight: .medium))
+                .font(FontManager.geist(size: 16, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
             
             TextField("Search for a place...", text: $searchText)
-                .font(.system(size: 15, weight: .regular))
+                .font(FontManager.geist(size: 15, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .onChange(of: searchText) { newValue in
                     searchTask?.cancel()
@@ -962,7 +971,7 @@ struct LocationSelectionSheet: View {
             if !searchText.isEmpty {
                 Button(action: { searchText = "" }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(FontManager.geist(size: 16, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.3))
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -983,14 +992,14 @@ struct LocationSelectionSheet: View {
             // Section header
             HStack {
                 Text("Saved Places")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
                 
                 Spacer()
                 
                 // Count pill
                 Text("\(locationsManager.savedPlaces.count)")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(FontManager.geist(size: 11, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -1009,28 +1018,36 @@ struct LocationSelectionSheet: View {
                         dismiss()
                     }) {
                         HStack(spacing: 12) {
-                            // Icon
-                            ZStack {
-                                Circle()
-                                    .fill(iconColor(for: place).opacity(0.15))
-                                    .frame(width: 36, height: 36)
-                                
-                                Image(systemName: place.getDisplayIcon())
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(iconColor(for: place))
+                            // Name and address
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(place.displayName)
+                                    .font(FontManager.geist(size: 15, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .lineLimit(1)
+
+                                HStack(spacing: 4) {
+                                    Text(place.address)
+                                        .font(FontManager.geist(size: 12, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                        .lineLimit(1)
+
+                                    if let distance = calculateDistance(to: place) {
+                                        Text("•")
+                                            .font(FontManager.geist(size: 12, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+
+                                        Text(distance)
+                                            .font(FontManager.geist(size: 12, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                                    }
+                                }
                             }
-                            
-                            // Name
-                            Text(place.displayName)
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .lineLimit(1)
-                            
+
                             Spacer()
-                            
+
                             // Arrow
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(FontManager.geist(size: 12, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
                         }
                         .padding(.horizontal, 16)
@@ -1041,7 +1058,7 @@ struct LocationSelectionSheet: View {
                     // Divider (not on last item)
                     if index < locationsManager.savedPlaces.count - 1 {
                         Divider()
-                            .padding(.leading, 64)
+                            .padding(.leading, 16)
                     }
                 }
             }
@@ -1057,110 +1074,186 @@ struct LocationSelectionSheet: View {
     }
     
     // MARK: - Search Results Section
-    
+
     private var searchResultsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Section header
-            HStack {
-                Text("Search Results")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
-                
-                Spacer()
-                
-                if isSearching {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                }
-            }
-            
+        VStack(alignment: .leading, spacing: 16) {
             if isSearching {
                 HStack {
                     Spacer()
                     VStack(spacing: 12) {
                         ProgressView()
                         Text("Searching...")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                    }
-                    Spacer()
-                }
-                .padding(.vertical, 32)
-            } else if searchResults.isEmpty {
-                HStack {
-                    Spacer()
-                    VStack(spacing: 8) {
-                        Image(systemName: "location.slash")
-                            .font(.system(size: 24, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
-                        Text("No results found")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     }
                     Spacer()
                 }
                 .padding(.vertical, 32)
             } else {
-                // Results list card
-                VStack(spacing: 0) {
-                    ForEach(Array(searchResults.enumerated()), id: \.element.id) { index, result in
-                        Button(action: {
-                            selectedLocation = result.name
-                            HapticManager.shared.selection()
-                            dismiss()
-                        }) {
-                            HStack(spacing: 12) {
-                                // Icon
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.blue.opacity(0.15))
-                                        .frame(width: 36, height: 36)
-                                    
-                                    Image(systemName: "mappin.circle.fill")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(.blue)
+                // Saved Places Results (Priority)
+                if !filteredSavedPlaces.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Saved Locations")
+                                .font(FontManager.geist(size: 14, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
+
+                            Spacer()
+
+                            Text("\(filteredSavedPlaces.count)")
+                                .font(FontManager.geist(size: 11, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    Capsule()
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                                )
+                        }
+
+                        VStack(spacing: 0) {
+                            ForEach(Array(filteredSavedPlaces.enumerated()), id: \.element.id) { index, place in
+                                Button(action: {
+                                    selectedLocation = place.displayName
+                                    HapticManager.shared.selection()
+                                    dismiss()
+                                }) {
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(place.displayName)
+                                                .font(FontManager.geist(size: 15, weight: .medium))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                .lineLimit(1)
+
+                                            HStack(spacing: 4) {
+                                                Text(place.address)
+                                                    .font(FontManager.geist(size: 12, weight: .regular))
+                                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                                    .lineLimit(1)
+
+                                                if let distance = calculateDistance(to: place) {
+                                                    Text("•")
+                                                        .font(FontManager.geist(size: 12, weight: .regular))
+                                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+
+                                                    Text(distance)
+                                                        .font(FontManager.geist(size: 12, weight: .medium))
+                                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                                                }
+                                            }
+                                        }
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.right")
+                                            .font(FontManager.geist(size: 12, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 14)
                                 }
-                                
-                                // Name and address
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(result.name)
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                        .lineLimit(1)
-                                    
-                                    Text(result.address)
-                                        .font(.system(size: 12, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                                        .lineLimit(1)
+                                .buttonStyle(PlainButtonStyle())
+
+                                if index < filteredSavedPlaces.count - 1 {
+                                    Divider()
+                                        .padding(.leading, 16)
                                 }
-                                
-                                Spacer()
-                                
-                                // Arrow
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        // Divider (not on last item)
-                        if index < searchResults.count - 1 {
-                            Divider()
-                                .padding(.leading, 64)
-                        }
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(cardBackground)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
+                        )
                     }
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(cardBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
-                )
+
+                // Google Maps Results (Secondary)
+                if !searchResults.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Nearby Places")
+                            .font(FontManager.geist(size: 14, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
+
+                        VStack(spacing: 0) {
+                            ForEach(Array(searchResults.enumerated()), id: \.element.id) { index, result in
+                                Button(action: {
+                                    selectedLocation = result.name
+                                    HapticManager.shared.selection()
+                                    dismiss()
+                                }) {
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(result.name)
+                                                .font(FontManager.geist(size: 15, weight: .medium))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                .lineLimit(1)
+
+                                            HStack(spacing: 4) {
+                                                Text(result.address)
+                                                    .font(FontManager.geist(size: 12, weight: .regular))
+                                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                                    .lineLimit(1)
+
+                                                if let distance = calculateDistance(lat: result.latitude, lng: result.longitude) {
+                                                    Text("•")
+                                                        .font(FontManager.geist(size: 12, weight: .regular))
+                                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+
+                                                    Text(distance)
+                                                        .font(FontManager.geist(size: 12, weight: .medium))
+                                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                                                }
+                                            }
+                                        }
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.right")
+                                            .font(FontManager.geist(size: 12, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 14)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+
+                                if index < searchResults.count - 1 {
+                                    Divider()
+                                        .padding(.leading, 16)
+                                }
+                            }
+                        }
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(cardBackground)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
+                        )
+                    }
+                }
+
+                // No results state
+                if filteredSavedPlaces.isEmpty && searchResults.isEmpty {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 8) {
+                            Image(systemName: "location.slash")
+                                .font(FontManager.geist(size: 24, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                            Text("No results found")
+                                .font(FontManager.geist(size: 14, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 32)
+                }
             }
         }
     }
@@ -1170,34 +1263,53 @@ struct LocationSelectionSheet: View {
     private var emptyStateView: some View {
         VStack(spacing: 12) {
             Image(systemName: "mappin.and.ellipse")
-                .font(.system(size: 32, weight: .light))
+                .font(FontManager.geist(size: 32, weight: .light))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
             
             Text("No saved places")
-                .font(.system(size: 16, weight: .medium))
+                .font(FontManager.geist(size: 16, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
             
             Text("Search for a location above")
-                .font(.system(size: 13, weight: .regular))
+                .font(FontManager.geist(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
         }
         .padding(.vertical, 48)
     }
     
     // MARK: - Helper Methods
-    
-    private func iconColor(for place: SavedPlace) -> Color {
-        let icon = place.getDisplayIcon()
-        switch icon {
-        case "house.fill": return .green
-        case "briefcase.fill": return .blue
-        case "dumbbell.fill": return .orange
-        case "fork.knife": return .red
-        case "scissors": return .purple
-        default: return .blue
+
+    private func calculateDistance(to place: SavedPlace) -> String? {
+        guard let currentLocation = locationService.currentLocation else { return nil }
+        let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+        let distance = currentLocation.distance(from: placeLocation)
+
+        // Convert to miles or km based on locale
+        let distanceInMiles = distance / 1609.34
+        if distanceInMiles < 0.1 {
+            return "Nearby"
+        } else if distanceInMiles < 1 {
+            return String(format: "%.1f mi", distanceInMiles)
+        } else {
+            return String(format: "%.0f mi", distanceInMiles)
         }
     }
-    
+
+    private func calculateDistance(lat: Double, lng: Double) -> String? {
+        guard let currentLocation = locationService.currentLocation else { return nil }
+        let placeLocation = CLLocation(latitude: lat, longitude: lng)
+        let distance = currentLocation.distance(from: placeLocation)
+
+        let distanceInMiles = distance / 1609.34
+        if distanceInMiles < 0.1 {
+            return "Nearby"
+        } else if distanceInMiles < 1 {
+            return String(format: "%.1f mi", distanceInMiles)
+        } else {
+            return String(format: "%.0f mi", distanceInMiles)
+        }
+    }
+
     private func performSearch(query: String) async {
         await MainActor.run { isSearching = true }
         do {
@@ -1253,7 +1365,7 @@ struct RecurringOptionsSheet: View {
 
                                     if selectedFrequency == frequency {
                                         Image(systemName: "checkmark")
-                                            .font(.system(size: 16, weight: .semibold))
+                                            .font(FontManager.geist(size: 16, weight: .semibold))
                                             .foregroundColor(checkmarkColor)
                                     }
                                 }
@@ -1271,7 +1383,7 @@ struct RecurringOptionsSheet: View {
                                     .padding(.vertical, 8)
 
                                 Text("Select Days")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(FontManager.geist(size: 13, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                     .padding(.horizontal, 20)
 
@@ -1335,7 +1447,7 @@ struct ReminderOptionsSheet: View {
                     }) {
                         HStack {
                             Image(systemName: reminder.icon)
-                                .font(.system(size: 16))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(reminder == .none ? Color.gray : (colorScheme == .dark ? Color.white : Color.black))
                                 .frame(width: 24)
 
@@ -1347,7 +1459,7 @@ struct ReminderOptionsSheet: View {
 
                             if selectedReminder == reminder {
                                 Image(systemName: "checkmark")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
                                     .foregroundColor(
                                         colorScheme == .dark ?
                                             Color.white :

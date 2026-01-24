@@ -10,8 +10,7 @@ struct LabelImportProgressView: View {
             // Header
             VStack(spacing: 8) {
                 Text("Importing Your Gmail Labels")
-                    .font(.system(.title2, design: .rounded))
-                    .fontWeight(.semibold)
+                    .font(FontManager.geist(size: .title2, weight: .semibold))
 
                 Text("Setting up your email folders from Gmail...")
                     .font(.subheadline)
@@ -42,7 +41,7 @@ struct LabelImportProgressView: View {
                         .animation(.linear(duration: 0.3), value: progress.progressPercentage)
 
                     Image(systemName: "envelope.badge")
-                        .font(.system(size: 24))
+                        .font(FontManager.geist(size: 24, weight: .regular))
                         .foregroundColor(.blue)
                         .scaleEffect(isAnimating ? 1.1 : 0.9)
                         .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: isAnimating)
@@ -50,8 +49,7 @@ struct LabelImportProgressView: View {
 
                 // Progress percentage
                 Text("\(Int(progress.progressPercentage * 100))%")
-                    .font(.system(.body, design: .rounded))
-                    .fontWeight(.semibold)
+                    .font(FontManager.geist(size: .body, weight: .semibold))
                     .foregroundColor(.blue)
             }
 

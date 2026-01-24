@@ -74,7 +74,7 @@ struct EditTaskView: View {
             Button("Cancel") {
                 onCancel()
             }
-            .font(.system(size: 15, weight: .semibold))
+            .font(FontManager.geist(size: 15, weight: .semibold))
             .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
@@ -140,7 +140,7 @@ struct EditTaskView: View {
 
                 onSave(updatedTask)
             }
-            .font(.system(size: 15, weight: .semibold))
+            .font(FontManager.geist(size: 15, weight: .semibold))
             .foregroundColor(isValidInput ? (colorScheme == .dark ? Color.black : Color.white) : Color.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)

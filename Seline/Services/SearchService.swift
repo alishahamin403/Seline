@@ -524,7 +524,7 @@ class SearchService: ObservableObject {
     }
 
     /// Add a message to the conversation and process it
-    func addConversationMessage(_ userMessage: String) async {
+    func addConversationMessage(_ userMessage: String, isVoiceMode: Bool = false) async {
         let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -558,7 +558,7 @@ class SearchService: ObservableObject {
 
         if useSelineChat {
             // NEW: Use simplified SelineChat approach
-            await addConversationMessageWithSelineChat(trimmed, thinkStartTime: thinkStartTime)
+            await addConversationMessageWithSelineChat(trimmed, thinkStartTime: thinkStartTime, isVoiceMode: isVoiceMode)
         } else {
             // OLD: Use legacy system (fallback)
             await addConversationMessageLegacy(trimmed, thinkStartTime: thinkStartTime)
@@ -568,7 +568,7 @@ class SearchService: ObservableObject {
     // MARK: - SelineChat Implementation (Phase 2)
 
     /// NEW simplified chat using SelineChat with proper streaming support
-    private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date, skipUserMessage: Bool = false) async {
+    private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date, skipUserMessage: Bool = false, isVoiceMode: Bool = false) async {
         // Initialize SelineChat if needed
         if selineChat == nil {
             selineChat = SelineChat(appContext: SelineAppContext(), deepSeekService: DeepSeekService.shared)
@@ -615,10 +615,22 @@ class SearchService: ObservableObject {
             }
         }
 
-        // MARK: - Wire up streaming callbacks for real-time UI updates
+        setupSelineChatCallbacks(chat: chat, thinkStartTime: thinkStartTime, isVoiceMode: isVoiceMode)
+        
+        // Send message through SelineChat with voice mode
+        let response = await chat.sendMessage(userMessage, streaming: enableStreamingResponses, isVoiceMode: isVoiceMode)
+        
+        // Handle case where streaming might have been disabled or failed back to non-streaming
+        handleNonStreamingResponse(response: response, thinkStartTime: thinkStartTime, isVoiceMode: isVoiceMode)
+    }
+    
+    // Wire up streaming callbacks common to both normal chat and briefing
+    private func setupSelineChatCallbacks(chat: SelineChat, thinkStartTime: Date, isVoiceMode: Bool = false) {
+        print("🎤 Setting up SelineChat callbacks (isVoiceMode: \(isVoiceMode))")
         let streamingMessageID = UUID()
         var messageAdded = false
         var fullResponse = ""
+        var lastSpokenText = "" // Track what we've already spoken for streaming TTS
 
         // Callback when a streaming chunk arrives
         chat.onStreamingChunk = { [weak self] chunk in
@@ -634,7 +646,10 @@ class SearchService: ObservableObject {
                         text: fullResponse,
                         timestamp: Date(),
                         intent: .general,
-                        timeStarted: thinkStartTime
+                        timeStarted: thinkStartTime,
+                        locationInfo: chat.appContext.lastETALocationInfo,
+                        eventCreationInfo: chat.appContext.lastEventCreationInfo,
+                        relevantContent: chat.appContext.lastRelevantContent
                     )
                     self?.conversationHistory.append(assistantMsg)
                     messageAdded = true
@@ -648,10 +663,63 @@ class SearchService: ObservableObject {
                             text: fullResponse,
                             timestamp: self?.conversationHistory[lastIndex].timestamp ?? Date(),
                             intent: self?.conversationHistory[lastIndex].intent ?? .general,
-                            timeStarted: self?.conversationHistory[lastIndex].timeStarted
+                            timeStarted: self?.conversationHistory[lastIndex].timeStarted,
+                            locationInfo: chat.appContext.lastETALocationInfo,
+                            eventCreationInfo: chat.appContext.lastEventCreationInfo,
+                            relevantContent: chat.appContext.lastRelevantContent
                         )
                         self?.conversationHistory[lastIndex] = updatedMsg
                         self?.saveConversationLocally()
+                    }
+                }
+                
+                // For voice mode: speak new sentences/phrases as they complete
+                if isVoiceMode {
+                    let ttsService = TextToSpeechService.shared
+                    // Extract new text that hasn't been spoken yet
+                    let newText = String(fullResponse.dropFirst(lastSpokenText.count))
+                    
+                    // Find complete sentences or phrases to speak
+                    // Look for sentence terminators (. ! ? : ,) or natural break points
+                    var textToSpeak = ""
+                    var foundBreak = false
+                    
+                    // Check for sentence terminators followed by space or end
+                    let terminators: [Character] = [".", "!", "?"]
+                    for (index, char) in newText.enumerated() {
+                        if terminators.contains(char) {
+                            // Check if next char is space, newline, end, or we're at end
+                            let nextIndex = newText.index(newText.startIndex, offsetBy: index + 1, limitedBy: newText.endIndex)
+                            if nextIndex == nil || nextIndex == newText.endIndex {
+                                // At end of string
+                                textToSpeak = String(newText[...newText.index(newText.startIndex, offsetBy: index)])
+                                foundBreak = true
+                                break
+                            } else if let next = nextIndex, newText[next] == " " || newText[next] == "\n" {
+                                // Terminator followed by space/newline - complete sentence
+                                textToSpeak = String(newText[...newText.index(newText.startIndex, offsetBy: index)])
+                                foundBreak = true
+                                break
+                            }
+                        }
+                    }
+                    
+                    // Fallback: if we have 100+ chars without a terminator, speak at natural break (comma, colon)
+                    if !foundBreak && newText.count > 100 {
+                        let softBreaks: [Character] = [",", ":", ";", "-"]
+                        for (index, char) in newText.enumerated() {
+                            if softBreaks.contains(char) && index >= 50 {
+                                textToSpeak = String(newText[...newText.index(newText.startIndex, offsetBy: index)])
+                                foundBreak = true
+                                break
+                            }
+                        }
+                    }
+                    
+                    // Speak if we found text to speak
+                    if foundBreak && !textToSpeak.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ttsService.speakIncremental(textToSpeak.trimmingCharacters(in: .whitespacesAndNewlines))
+                        lastSpokenText += textToSpeak
                     }
                 }
             }
@@ -663,6 +731,23 @@ class SearchService: ObservableObject {
                 // Update final message with completion time and fetch related data
                 if let lastIndex = self?.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
                     let responseText = self?.conversationHistory[lastIndex].text ?? ""
+
+                    // For voice mode: speak any remaining text that wasn't spoken during streaming
+                    // If nothing was spoken during streaming (no sentence breaks found), speak the full response
+                    if isVoiceMode {
+                        let ttsService = TextToSpeechService.shared
+                        let remainingText = String(responseText.dropFirst(lastSpokenText.count))
+                        let textToSpeak = remainingText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        
+                        if !textToSpeak.isEmpty {
+                            print("🎤 Speaking remaining text: \(textToSpeak.prefix(50))...")
+                            ttsService.speakIncremental(textToSpeak)
+                        } else if lastSpokenText.isEmpty && !responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            // If nothing was spoken during streaming (no sentence breaks), speak the full response
+                            print("🎤 No text spoken during streaming, speaking full response")
+                            ttsService.speakIncremental(responseText.trimmingCharacters(in: .whitespacesAndNewlines))
+                        }
+                    }
 
                     // Fetch related data based on response
                     Task {
@@ -678,7 +763,11 @@ class SearchService: ObservableObject {
                                     intent: self?.conversationHistory[lastIndex].intent ?? .general,
                                     relatedData: relatedData.isEmpty ? nil : relatedData,
                                     timeStarted: self?.conversationHistory[lastIndex].timeStarted,
-                                    timeFinished: Date()
+                                    timeFinished: Date(),
+                                    followUpSuggestions: nil,
+                                    locationInfo: chat.appContext.lastETALocationInfo,
+                                    eventCreationInfo: chat.appContext.lastEventCreationInfo,
+                                    relevantContent: chat.appContext.lastRelevantContent
                                 )
                                 self?.conversationHistory[lastIndex] = finalMsg
                                 self?.saveConversationLocally()
@@ -691,29 +780,71 @@ class SearchService: ObservableObject {
                 print("✅ SelineChat streaming completed")
             }
         }
-
-        // Send message through SelineChat (handles both streaming and non-streaming based on enableStreamingResponses)
-        let response = await chat.sendMessage(userMessage, streaming: enableStreamingResponses)
-
-        // For non-streaming responses, add message synchronously with related data
+    }
+    
+    private func handleNonStreamingResponse(response: String, thinkStartTime: Date, isVoiceMode: Bool = false) {
+        
         if !enableStreamingResponses {
-            let relatedData = await fetchRelatedDataForResponse(response)
+            // If voice mode is active and we're not streaming, trigger TTS here
+            if isVoiceMode {
+                print("🎤 Non-streaming response in voice mode - triggering TTS")
+                TextToSpeechService.shared.speak(response)
+            }
+            
+            Task {
+                let relatedData = await fetchRelatedDataForResponse(response)
+                
+                await MainActor.run {
+                    let assistantMsg = ConversationMessage(
+                        id: UUID(),
+                        isUser: false,
+                        text: response,
+                        timestamp: Date(),
+                        intent: .general,
+                        relatedData: relatedData.isEmpty ? nil : relatedData,
+                        timeStarted: thinkStartTime,
+                        timeFinished: Date(),
+                        locationInfo: self.selineChat?.appContext.lastETALocationInfo,
+                        eventCreationInfo: self.selineChat?.appContext.lastEventCreationInfo,
+                        relevantContent: self.selineChat?.appContext.lastRelevantContent
+                    )
+                    self.conversationHistory.append(assistantMsg)
+                    self.isLoadingQuestionResponse = false
+                    self.saveConversationLocally()
+                    print("✅ SelineChat response added to history")
+                }
+            }
+        }
+    }
 
-            DispatchQueue.main.async {
+    /// Generate a proactive morning briefing
+    func generateMorningBriefing() async {
+        guard conversationHistory.isEmpty else { return }
+        
+        if selineChat == nil {
+            selineChat = SelineChat(appContext: SelineAppContext(), deepSeekService: DeepSeekService.shared)
+        }
+        guard let chat = selineChat else { return }
+        
+        // No loading state needed - response is instant
+        await chat.generateMorningBriefing()
+        
+        // Sync the result from SelineChat to SearchService history
+        if let lastMsg = chat.conversationHistory.last, lastMsg.role == .assistant {
+            // Check if we haven't already added this message
+            if conversationHistory.last?.text != lastMsg.content {
                 let assistantMsg = ConversationMessage(
                     id: UUID(),
                     isUser: false,
-                    text: response,
-                    timestamp: Date(),
-                    intent: .general,
-                    relatedData: relatedData.isEmpty ? nil : relatedData,
-                    timeStarted: thinkStartTime,
-                    timeFinished: Date()
+                    text: lastMsg.content,
+                    timestamp: lastMsg.timestamp,
+                    intent: .general
                 )
-                self.conversationHistory.append(assistantMsg)
-                self.isLoadingQuestionResponse = false
-                self.saveConversationLocally()
-                print("✅ SelineChat response added to history")
+                
+                await MainActor.run {
+                    self.conversationHistory.append(assistantMsg)
+                    self.saveConversationLocally()
+                }
             }
         }
     }
@@ -1738,6 +1869,18 @@ class SearchService: ObservableObject {
     /// Delete conversation from history
     func deleteConversation(withId id: UUID) {
         savedConversations.removeAll { $0.id == id }
+        saveConversationHistoryLocally()
+    }
+    
+    /// Delete all conversations from history
+    func deleteAllConversations() {
+        savedConversations.removeAll()
+        saveConversationHistoryLocally()
+    }
+    
+    /// Delete multiple conversations by their IDs
+    func deleteConversations(withIds ids: Set<UUID>) {
+        savedConversations.removeAll { ids.contains($0.id) }
         saveConversationHistoryLocally()
     }
 

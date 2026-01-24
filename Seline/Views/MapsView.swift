@@ -32,15 +32,15 @@ struct MapsView: View, Searchable {
                             // Empty state
                             VStack(spacing: 16) {
                                 Image(systemName: "map")
-                                    .font(.system(size: 48, weight: .light))
+                                    .font(FontManager.geist(size: 48, weight: .light))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
                                 Text("No saved places yet")
-                                    .font(.system(size: 18, weight: .medium))
+                                    .font(FontManager.geist(size: 18, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                                 Text("Tap + to search and save places")
-                                    .font(.system(size: 14, weight: .regular))
+                                    .font(FontManager.geist(size: 14, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                     .multilineTextAlignment(.center)
                             }
@@ -87,7 +87,7 @@ struct MapsView: View, Searchable {
                     if selectedCategory == nil {
                         // Title when showing all categories
                         Text("Maps")
-                            .font(.system(size: 28, weight: .bold))
+                            .font(FontManager.geist(size: 28, weight: .bold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .padding(.leading, 20)
                     } else {
@@ -99,9 +99,9 @@ struct MapsView: View, Searchable {
                         }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "chevron.left")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
                                 Text(selectedCategory!)
-                                    .font(.system(size: 20, weight: .bold))
+                                    .font(FontManager.geist(size: 20, weight: .bold))
                             }
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
@@ -141,7 +141,7 @@ struct MapsView: View, Searchable {
                         showSearchModal = true
                     }) {
                         Image(systemName: "plus")
-                            .font(.system(size: 24, weight: .semibold))
+                            .font(FontManager.geist(size: 24, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 60, height: 60)
                             .background(
@@ -247,34 +247,56 @@ struct PlaceSearchResultRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                // Location initials placeholder
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(
-                            colorScheme == .dark ? Color(white: 0.85) : Color(white: 0.25)
-                        )
-
-                    Text(initials)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
+                // Location image or initials placeholder
+                if let photoURL = result.photoURL {
+                    CachedAsyncImage(url: photoURL) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 44, height: 44)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    } placeholder: {
+                        // Loading state - show initials as placeholder
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(
+                                    colorScheme == .dark ? Color(white: 0.85) : Color(white: 0.25)
+                                )
+                            Text(initials)
+                                .font(FontManager.geist(size: 14, weight: .bold))
+                                .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
+                        }
+                        .frame(width: 44, height: 44)
+                    }
+                } else {
+                    // No photo available - show initials
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(
+                                colorScheme == .dark ? Color(white: 0.85) : Color(white: 0.25)
+                            )
+                        Text(initials)
+                            .font(FontManager.geist(size: 14, weight: .bold))
+                            .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
+                    }
+                    .frame(width: 44, height: 44)
                 }
-                .frame(width: 44, height: 44)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(result.name)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(FontManager.geist(size: 13, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(1)
 
                     HStack(spacing: 4) {
                         Text(result.address)
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                             .lineLimit(1)
                         
                         if let distance = distanceText {
                             Text("• \(distance)")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(FontManager.geist(size: 11, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                         }
                     }
@@ -287,14 +309,14 @@ struct PlaceSearchResultRow: View {
                         onSave()
                     }) {
                         Image(systemName: "bookmark")
-                            .font(.system(size: 14, weight: .regular))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(PlainButtonStyle())
                 } else {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                 }
             }

@@ -126,21 +126,21 @@ extension View {
     }
 }
 
-// MARK: - Shadcn Typography
+// MARK: - Shadcn Typography (using Geist font for consistency)
 extension Font {
-    static let shadcnTextXs = Font.system(size: 12, weight: .regular) // text-xs
-    static let shadcnTextSm = Font.system(size: 14, weight: .regular) // text-sm
-    static let shadcnTextBase = Font.system(size: 16, weight: .regular) // text-base
-    static let shadcnTextLg = Font.system(size: 18, weight: .regular) // text-lg
-    static let shadcnTextXl = Font.system(size: 20, weight: .regular) // text-xl
-    static let shadcnText2Xl = Font.system(size: 24, weight: .regular) // text-2xl
+    static let shadcnTextXs = FontManager.geist(size: 12, weight: FontManager.FontWeight.regular) // text-xs
+    static let shadcnTextSm = FontManager.geist(size: 14, weight: FontManager.FontWeight.regular) // text-sm
+    static let shadcnTextBase = FontManager.geist(size: 16, weight: FontManager.FontWeight.regular) // text-base
+    static let shadcnTextLg = FontManager.geist(size: 18, weight: FontManager.FontWeight.regular) // text-lg
+    static let shadcnTextXl = FontManager.geist(size: 20, weight: FontManager.FontWeight.regular) // text-xl
+    static let shadcnText2Xl = FontManager.geist(size: 24, weight: FontManager.FontWeight.regular) // text-2xl
 
     // Weight variants
-    static let shadcnTextXsMedium = Font.system(size: 12, weight: .medium)
-    static let shadcnTextSmMedium = Font.system(size: 14, weight: .medium)
-    static let shadcnTextBaseMedium = Font.system(size: 16, weight: .medium)
-    static let shadcnTextLgSemibold = Font.system(size: 18, weight: .semibold)
-    static let shadcnText2XlBold = Font.system(size: 24, weight: .bold)
+    static let shadcnTextXsMedium = FontManager.geist(size: 12, weight: FontManager.FontWeight.medium)
+    static let shadcnTextSmMedium = FontManager.geist(size: 14, weight: FontManager.FontWeight.medium)
+    static let shadcnTextBaseMedium = FontManager.geist(size: 16, weight: FontManager.FontWeight.medium)
+    static let shadcnTextLgSemibold = FontManager.geist(size: 18, weight: FontManager.FontWeight.semibold)
+    static let shadcnText2XlBold = FontManager.geist(size: 24, weight: FontManager.FontWeight.bold)
 }
 
 // MARK: - Shadcn Spacing
@@ -151,6 +151,9 @@ struct ShadcnSpacing {
     static let lg: CGFloat = 24 // 6 units
     static let xl: CGFloat = 32 // 8 units
     static let xxl: CGFloat = 48 // 12 units
+    
+    /// Horizontal margin from screen edge to tiles/boxes. Use app-wide for consistent layout.
+    static let screenEdgeHorizontal: CGFloat = 8
 }
 
 // MARK: - Shadcn Border Radius

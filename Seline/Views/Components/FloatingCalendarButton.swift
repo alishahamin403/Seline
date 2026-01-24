@@ -11,7 +11,7 @@ struct FloatingCalendarButton: View {
     var body: some View {
         Button(action: onTap) {
             Image(systemName: "calendar")
-                .font(.system(size: 20, weight: .semibold))
+                .font(FontManager.geist(size: 20, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 56, height: 56)
                 .background(

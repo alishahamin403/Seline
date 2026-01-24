@@ -201,19 +201,12 @@ struct CurrentLocationCardWidget: View {
         let neutralBarColor = colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.25)
 
         return HStack(spacing: 10) {
-            // Active indicator dot for current location
-            if isCurrentLocation {
-                Circle()
-                    .fill(activeIndicatorColor)
-                    .frame(width: 6, height: 6)
-            }
-
             // Name - highlighted if current location
             Text(visit.displayName)
-                .font(FontManager.geist(size: 13, weight: isCurrentLocation ? .semibold : .regular))
-                .foregroundColor(isCurrentLocation ? activeIndicatorColor : primaryTextColor)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(isCurrentLocation ? activeIndicatorColor : secondaryTextColor)
                 .lineLimit(1)
-                .frame(width: isCurrentLocation ? 104 : 110, alignment: .leading)
+                .frame(width: 110, alignment: .leading)
 
             // Progress Bar - green only for active session, gray for everything else
             GeometryReader { geo in
@@ -257,12 +250,12 @@ struct CurrentLocationCardWidget: View {
                         .font(FontManager.geist(size: 11, weight: .semibold))
                         .foregroundColor(activeIndicatorColor)
                     if visit.totalDurationMinutes > currentTimeMinutes {
-                        Text("(\(formatDuration(visit.totalDurationMinutes)) total)")
+                        Text(formatDuration(visit.totalDurationMinutes))
                             .font(FontManager.geist(size: 9, weight: .regular))
                             .foregroundColor(secondaryTextColor)
                     }
                 }
-                .frame(width: 70, alignment: .trailing)
+                .frame(width: 55, alignment: .trailing)
             } else {
                 Text(formatDuration(visit.totalDurationMinutes))
                     .font(FontManager.geist(size: 11, weight: .medium))
@@ -271,12 +264,15 @@ struct CurrentLocationCardWidget: View {
             }
         }
         .padding(.vertical, isCurrentLocation ? 6 : 0)
-        .padding(.horizontal, isCurrentLocation ? 8 : 0)
         .background(
-            isCurrentLocation ?
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(activeIndicatorColor.opacity(0.1))
-                : nil
+            GeometryReader { geo in
+                if isCurrentLocation {
+                    Rectangle()
+                        .fill(activeIndicatorColor.opacity(0.1))
+                        .frame(width: geo.size.width + 32) // Add 16px on each side
+                        .offset(x: -16) // Shift left to align with widget edge
+                }
+            }
         )
         .contentShape(Rectangle())
         .onTapGesture {

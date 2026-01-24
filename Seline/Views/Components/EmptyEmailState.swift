@@ -14,7 +14,7 @@ struct EmptyEmailState: View {
                 .frame(width: 80, height: 80)
                 .overlay(
                     Image(systemName: icon)
-                        .font(.system(size: 32, weight: .medium))
+                        .font(FontManager.geist(size: 32, weight: .medium))
                         .foregroundColor(Color.shadcnMutedForeground(colorScheme))
                 )
 

@@ -44,6 +44,8 @@ class BlockDocumentController: ObservableObject {
             newBlock = .code(CodeBlock())
         case .divider:
             newBlock = .divider(DividerBlock())
+        case .table:
+            newBlock = .table(TableBlock())
         }
 
         if let afterId = blockId, let index = blocks.firstIndex(where: { $0.id == afterId }) {
@@ -105,6 +107,8 @@ class BlockDocumentController: ObservableObject {
             newBlock = .code(CodeBlock(content: content, metadata: metadata))
         case .divider:
             newBlock = .divider(DividerBlock(metadata: metadata))
+        case .table:
+            newBlock = .table(TableBlock(metadata: metadata))
         }
 
         blocks[index] = newBlock
@@ -198,6 +202,8 @@ class BlockDocumentController: ObservableObject {
         case .code:
             newBlock = .code(CodeBlock(content: afterContent, metadata: currentBlock.metadata))
         case .divider:
+            newBlock = .text(TextBlock(content: afterContent, metadata: currentBlock.metadata))
+        case .table:
             newBlock = .text(TextBlock(content: afterContent, metadata: currentBlock.metadata))
         }
 
@@ -359,6 +365,28 @@ class BlockDocumentController: ObservableObject {
                 return indent + "```\n\(b.content)\n```"
             case .divider:
                 return indent + "---"
+            case .table(let b):
+                // Convert table to markdown format
+                guard !b.rows.isEmpty else { return "" }
+                var lines: [String] = []
+                
+                // Header row
+                if let headerRow = b.rows.first {
+                    let headerLine = "| " + headerRow.map { $0.content.isEmpty ? " " : $0.content }.joined(separator: " | ") + " |"
+                    lines.append(indent + headerLine)
+                    
+                    // Separator row
+                    let separatorLine = "|" + headerRow.map { _ in "---" }.joined(separator: "|") + "|"
+                    lines.append(indent + separatorLine)
+                }
+                
+                // Data rows
+                for row in b.rows.dropFirst() {
+                    let rowLine = "| " + row.map { $0.content.isEmpty ? " " : $0.content }.joined(separator: " | ") + " |"
+                    lines.append(indent + rowLine)
+                }
+                
+                return lines.joined(separator: "\n")
             }
         }.joined(separator: "\n")
     }
@@ -387,8 +415,64 @@ extension BlockDocumentController {
     static func parseMarkdown(_ markdown: String) -> [AnyBlock] {
         let lines = markdown.components(separatedBy: .newlines)
         var blocks: [AnyBlock] = []
-
+        
+        // First, pre-process to detect and convert tables
+        var processedLines: [String] = []
+        var tableHeaders: [String] = []
+        var isInTable = false
+        
         for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            
+            // Check if this is a table row (starts and contains pipes)
+            if trimmed.hasPrefix("|") && trimmed.contains("|") {
+                // Check if this is a separator row (|---|---|)
+                if trimmed.contains("---") || trimmed.contains(":---") || trimmed.contains("---:") {
+                    continue // Skip separator rows
+                }
+                
+                // Split by pipe and clean up
+                let cells = trimmed.split(separator: "|").map { 
+                    String($0).trimmingCharacters(in: .whitespaces) 
+                }.filter { !$0.isEmpty }
+                
+                if cells.isEmpty { continue }
+                
+                if !isInTable {
+                    // First table row = headers
+                    tableHeaders = cells
+                    isInTable = true
+                } else {
+                    // Data row - convert to structured format
+                    if !cells.isEmpty {
+                        // Use first column as section header
+                        processedLines.append("## \(cells[0])")
+                        
+                        // Add remaining columns as bullet points with bold labels
+                        for (index, cell) in cells.dropFirst().enumerated() {
+                            if index < tableHeaders.count - 1 {
+                                let header = tableHeaders[index + 1]
+                                processedLines.append("- **\(header):** \(cell)")
+                            } else {
+                                processedLines.append("- \(cell)")
+                            }
+                        }
+                        processedLines.append("") // Add blank line between rows
+                    }
+                }
+            } else {
+                // Not a table row
+                if isInTable {
+                    // Just exited a table
+                    isInTable = false
+                    tableHeaders = []
+                }
+                processedLines.append(trimmed)
+            }
+        }
+
+        // Now parse the processed lines
+        for line in processedLines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             if trimmed.isEmpty {

@@ -39,7 +39,7 @@ struct EmailCategoryChip: View {
     var body: some View {
         Button(action: action) {
             Text(category.displayName)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .font(FontManager.geist(size: 12, systemWeight: isSelected ? .semibold : .regular))
                 .foregroundColor(isSelected ?
                     .white :
                     (colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))

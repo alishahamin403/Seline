@@ -29,12 +29,12 @@ struct ShadcnCardHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 16, weight: .semibold))
+                .font(FontManager.geist(size: 16, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             if let subtitle = subtitle {
                 Text(subtitle)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
             }
         }

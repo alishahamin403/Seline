@@ -43,19 +43,31 @@ class InformationExtractor {
         context: ConversationActionContext,
         action: inout InteractiveAction
     ) async {
-        let today = ISO8601DateFormatter().string(from: Date()).split(separator: "T")[0]
+        // Use local timezone explicitly for today's date
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEEE, MMMM d, yyyy"
+        dateFormatter.timeZone = TimeZone.current
+        let today = dateFormatter.string(from: Date())
         let lastEventContext = context.lastEventCreated.map { "LAST EVENT CREATED: \($0)" } ?? ""
 
         let prompt = """
         The user wants to create an event. Extract the event details from their message.
 
         TODAY'S DATE: \(today)
+        TIMEZONE: \(TimeZone.current.identifier)
         \(lastEventContext)
 
         Conversation history:
         \(context.historyText)
 
         Current user message: "\(message)"
+
+        CRITICAL RULES FOR TITLE EXTRACTION:
+        1. The title should be the ACTUAL EVENT NAME/DESCRIPTION, not meta-words like "for me", "for tom", "create", "schedule", etc.
+        2. Remove date/time references from the title (e.g., "tomorrow", "5pm", "Monday")
+        3. Remove category words from the title (e.g., "work", "health", "social")
+        4. The title should describe WHAT the event is about, not WHEN or WHERE it is
+        5. If the message says "for tom at 5 pm Telus representation call regarding payment dispute", the title should be "Telus representation call regarding payment dispute" (NOT "Me For Tom")
 
         PROCESS:
         1. READ: What is the user describing? (event name, date, time, etc.)
@@ -64,8 +76,16 @@ class InformationExtractor {
         4. EXTRACT: Provide the structured data
 
         Example reasoning:
+        "User said 'Can you create an event for me for tom at 5 pm Telus representation call regarding payment dispute'.
+        - Title: Telus representation call regarding payment dispute (NOT 'Me For Tom' - ignore 'for me for tom')
+        - Date: Tomorrow (tom) = \(today)
+        - Start time: 17:00 (5pm in 24-hour format)
+        - End time: Not specified
+        - Category: Personal (default, no category mentioned)
+        - Description: Representation call with Telus about payment dispute"
+
         "User said 'schedule a meeting with John about Q4 budget on Friday at 2pm'.
-        - Title: Meeting with John (or 'Q4 Budget Meeting')
+        - Title: Meeting with John - Q4 Budget
         - Date: Friday = November 14, 2025
         - Start time: 14:00 (2pm in 24-hour format)
         - End time: Not specified
@@ -73,17 +93,18 @@ class InformationExtractor {
         - Description: About Q4 budget discussion with John"
 
         Extract these fields if present:
-        - title: Event title/name (what is this event called?)
+        - title: Event title/name (the actual event description, NOT meta-words like "for me", "create", etc.)
         - date: Date in ISO8601 format (YYYY-MM-DD). Convert relative dates using today's date.
         - startTime: Start time in HH:mm format (24-hour). Infer from context if needed.
         - endTime: End time in HH:mm format, or null if not specified
         - isAllDay: true/false
         - reminder: Minutes before event for reminder, or null
         - recurrence: "daily", "weekly", "biweekly", "monthly", "yearly", or null
+        - category: "Work", "Health", "Social", "Family", or "Personal" (extract if mentioned)
         - description: Additional context (people involved, purpose, notes)
 
         Return ONLY valid JSON with these fields. Use null for missing fields.
-        Example: {"title":"Meeting with John - Q4 Budget","date":"2025-11-14","startTime":"14:00","endTime":"15:00","isAllDay":false,"reminder":15,"recurrence":null,"description":"Discuss Q4 budget planning with John"}
+        Example: {"title":"Telus representation call regarding payment dispute","date":"2025-11-14","startTime":"17:00","endTime":null,"isAllDay":false,"reminder":null,"recurrence":null,"category":"Personal","description":"Call with Telus to discuss payment dispute"}
         """
 
         do {
@@ -139,6 +160,15 @@ class InformationExtractor {
                 if let description = extracted["description"] as? String, !description.isEmpty {
                     action.extractedInfo.eventDescription = description
                 }
+                
+                // Extract category if present
+                if let category = extracted["category"] as? String, !category.isEmpty {
+                    // Category is stored in eventDescription or we can add a new field
+                    // For now, we'll note it in the description if not already there
+                    if action.extractedInfo.eventDescription?.isEmpty ?? true {
+                        action.extractedInfo.eventDescription = "Category: \(category)"
+                    }
+                }
             }
         } catch {
             print("Error extracting event info: \(error)")
@@ -152,12 +182,17 @@ class InformationExtractor {
         context: ConversationActionContext,
         action: inout InteractiveAction
     ) async {
-        let today = ISO8601DateFormatter().string(from: Date()).split(separator: "T")[0]
+        // Use local timezone explicitly for today's date
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEEE, MMMM d, yyyy"
+        dateFormatter.timeZone = TimeZone.current
+        let today = dateFormatter.string(from: Date())
         let lastEventContext = context.lastEventCreated.map { "LAST CREATED EVENT TO UPDATE: \($0)" } ?? ""
 
         let prompt = """
         The user wants to UPDATE an existing event. Extract what changes they want to make.
         TODAY'S DATE: \(today)
+        TIMEZONE: \(TimeZone.current.identifier)
         \(lastEventContext)
 
         Conversation history:

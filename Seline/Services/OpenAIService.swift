@@ -3992,6 +3992,30 @@ class OpenAIService: ObservableObject {
                     } else {
                         context += "  ⓘ No geofence tracking data yet\n"
                     }
+                    
+                    // Add location memories (general reasons for visiting)
+                    if let memories = locMeta.locationMemories {
+                        context += "  💭 Location Memory:\n"
+                        if let purposeReason = memories.purposeReason {
+                            context += "    Why you visit: \(purposeReason)\n"
+                        }
+                        if let usualItems = memories.usualItems, !usualItems.isEmpty {
+                            context += "    Usually get: \(usualItems.joined(separator: ", "))\n"
+                        }
+                        if let frequency = memories.purchaseFrequency {
+                            context += "    Frequency: \(frequency)\n"
+                        }
+                    }
+                    
+                    // Add recent visit notes (specific visit context)
+                    if let visitNotes = locMeta.recentVisitNotes, !visitNotes.isEmpty {
+                        context += "  📝 Recent Visit Notes:\n"
+                        for visitNote in visitNotes.prefix(3) {
+                            let noteDate = dateFormatter.string(from: visitNote.visitDate)
+                            let timeOfDay = visitNote.timeOfDay.map { " (\($0))" } ?? ""
+                            context += "    • \(noteDate)\(timeOfDay): \(visitNote.note)\n"
+                        }
+                    }
 
                     if let notes = location.userNotes {
                         context += "  📝 Notes: \(notes)\n"
@@ -4426,6 +4450,31 @@ class OpenAIService: ObservableObject {
                 if let notes = location.notes {
                     formatted += "  Notes: \(notes)\n"
                 }
+                
+                // Add location memories (general reasons for visiting and what they usually get)
+                if let memories = location.locationMemories {
+                    formatted += "  Location Memory:\n"
+                    if let purposeReason = memories.purposeReason {
+                        formatted += "    Why user visits: \(purposeReason)\n"
+                    }
+                    if let usualItems = memories.usualItems, !usualItems.isEmpty {
+                        formatted += "    Usually gets: \(usualItems.joined(separator: ", "))\n"
+                    }
+                    if let frequency = memories.purchaseFrequency {
+                        formatted += "    Purchase frequency: \(frequency)\n"
+                    }
+                }
+                
+                // Add recent visit notes (specific visit context - why they visited at specific times)
+                if let visitNotes = location.recentVisitNotes, !visitNotes.isEmpty {
+                    formatted += "  Recent Visit Notes (specific visit context):\n"
+                    for visitNote in visitNotes {
+                        let noteDate = dateFormatter.string(from: visitNote.visitDate)
+                        let timeOfDay = visitNote.timeOfDay.map { " (\($0))" } ?? ""
+                        formatted += "    • \(noteDate)\(timeOfDay): \(visitNote.note)\n"
+                    }
+                }
+                
                 formatted += "\n"
             }
         } else {

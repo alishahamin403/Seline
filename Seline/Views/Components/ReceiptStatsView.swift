@@ -77,33 +77,47 @@ struct ReceiptStatsView: View {
                         if !availableYears.isEmpty && currentYear != availableYears.min() {
                             Button(action: { selectPreviousYear() }) {
                                 Image(systemName: "chevron.left")
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    .frame(width: 32, height: 32)
+                                    .font(FontManager.geist(size: 14, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                    .frame(width: 28, height: 28)
                             }
                         } else {
                             // Placeholder to maintain spacing
                             Color.clear
-                                .frame(width: 32, height: 32)
+                                .frame(width: 28, height: 28)
                         }
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(String(format: "%d", currentYear))
-                                .font(.system(size: 34, weight: .bold)) // Increased size
+                                .font(FontManager.geist(size: 24, weight: .semibold))
                                 .foregroundColor(.primary)
 
                             if let stats = currentYearStats {
                                 Text(CurrencyParser.formatAmountNoDecimals(stats.yearlyTotal))
-                                    .font(.system(size: 20, weight: .bold)) // Reduced further from 24pt
+                                    .font(FontManager.geist(size: 17, weight: .semibold))
                                     .foregroundColor(.green)
                             }
+                        }
+
+                        // Right arrow to navigate to next year
+                        if !availableYears.isEmpty && currentYear != availableYears.max() {
+                            Button(action: { selectNextYear() }) {
+                                Image(systemName: "chevron.right")
+                                    .font(FontManager.geist(size: 14, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                    .frame(width: 28, height: 28)
+                            }
+                        } else {
+                            // Placeholder to maintain spacing
+                            Color.clear
+                                .frame(width: 28, height: 28)
                         }
 
                         Spacer()
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
+                    .padding(.top, 4)
+                    .padding(.bottom, 12)
 
                     // Category Breakdown Section
                     if isLoadingCategories {
@@ -112,7 +126,7 @@ struct ReceiptStatsView: View {
                                 .scaleEffect(0.9, anchor: .center)
 
                             Text("Categorizing receipts...")
-                                .font(.system(size: 14, weight: .regular))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(.gray)
 
                             Spacer()
@@ -135,15 +149,15 @@ struct ReceiptStatsView: View {
                                 if stats.monthlySummaries.isEmpty {
                                     VStack(spacing: 8) {
                                         Image(systemName: "doc.text")
-                                            .font(.system(size: 32, weight: .light))
+                                            .font(FontManager.geist(size: 32, weight: .light))
                                             .foregroundColor(.gray)
 
                                         Text("No receipts found")
-                                            .font(.system(.body, design: .default))
+                                            .font(FontManager.geist(size: .body, weight: .regular))
                                             .foregroundColor(.gray)
 
                                         Text("for this year")
-                                            .font(.system(.caption, design: .default))
+                                            .font(FontManager.geist(size: .caption, weight: .regular))
                                             .foregroundColor(.gray)
                                     }
                                     .frame(maxWidth: .infinity)
@@ -167,11 +181,11 @@ struct ReceiptStatsView: View {
                             } else {
                                 VStack(spacing: 8) {
                                     Image(systemName: "doc.text")
-                                        .font(.system(size: 32, weight: .light))
+                                        .font(FontManager.geist(size: 32, weight: .light))
                                         .foregroundColor(.gray)
 
                                     Text("No receipts found")
-                                        .font(.system(.body, design: .default))
+                                        .font(FontManager.geist(size: .body, weight: .regular))
                                         .foregroundColor(.gray)
                                 }
                                 .frame(maxWidth: .infinity)
@@ -329,15 +343,15 @@ struct RecurringExpenseStatsContent: View {
             } else if filteredRecurringExpenses.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "repeat.circle.dashed")
-                        .font(.system(size: 32, weight: .light))
+                        .font(FontManager.geist(size: 32, weight: .light))
                         .foregroundColor(.gray)
 
                     Text("No recurring expenses")
-                        .font(.system(.body, design: .default))
+                        .font(FontManager.geist(size: .body, weight: .regular))
                         .foregroundColor(.gray)
 
                     Text("Create one using the repeat icon in notes")
-                        .font(.system(.caption, design: .default))
+                        .font(FontManager.geist(size: .caption, weight: .regular))
                         .foregroundColor(.gray)
                 }
                 .frame(maxWidth: .infinity)
@@ -419,7 +433,7 @@ struct RecurringExpenseStatsContent: View {
                                         HStack(spacing: 8) {
                                             // Show next occurrence date
                                             Image(systemName: "calendar")
-                                                .font(.system(size: 11))
+                                                .font(FontManager.geist(size: 11, weight: .regular))
                                                 .foregroundColor(.secondary)
                                             Text(formatInstanceDate(expense.nextOccurrence))
                                                 .font(.caption)
@@ -473,7 +487,7 @@ struct RecurringExpenseStatsContent: View {
                         .tint(colorScheme == .dark ? Color.white : Color.black)
 
                     Text("Loading expense details...")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(FontManager.geist(size: 16, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -24,6 +24,7 @@ enum BlockType: String, Codable {
     case quote
     case code
     case divider
+    case table
 
     var placeholder: String {
         switch self {
@@ -37,6 +38,7 @@ enum BlockType: String, Codable {
         case .quote: return "Quote"
         case .code: return "Code"
         case .divider: return ""
+        case .table: return "Table"
         }
     }
 
@@ -52,9 +54,11 @@ enum BlockType: String, Codable {
         case .quote: return "quote.bubble"
         case .code: return "chevron.left.forwardslash.chevron.right"
         case .divider: return "minus"
+        case .table: return "tablecells"
         }
     }
 }
+
 
 // MARK: - Block Metadata
 
@@ -240,7 +244,193 @@ struct DividerBlock: Block {
     }
 }
 
-// MARK: - Type-Erased Block Container
+// MARK: - Table Models
+
+struct TableCell: Codable, Equatable, Identifiable {
+    let id: UUID
+    var content: String
+    var isHeader: Bool
+    
+    init(id: UUID = UUID(), content: String = "", isHeader: Bool = false) {
+        self.id = id
+        self.content = content
+        self.isHeader = isHeader
+    }
+}
+
+struct TableBlock: Block {
+    let id: UUID
+    var content: String // Stores markdown representation for export
+    var createdAt: Date
+    var metadata: BlockMetadata
+    var rows: [[TableCell]] // 2D array of cells
+    var columnCount: Int
+    
+    var blockType: BlockType { .table }
+    
+    init(id: UUID = UUID(), rows: Int = 3, columns: Int = 3, metadata: BlockMetadata = .empty) {
+        self.id = id
+        self.createdAt = Date()
+        self.metadata = metadata
+        self.columnCount = columns
+        
+        // Create empty table with header row
+        var tableRows: [[TableCell]] = []
+        for rowIndex in 0..<rows {
+            var row: [TableCell] = []
+            for _ in 0..<columns {
+                row.append(TableCell(isHeader: rowIndex == 0))
+            }
+            tableRows.append(row)
+        }
+        self.rows = tableRows
+        self.content = ""
+    }
+    
+    init(id: UUID = UUID(), rows: [[TableCell]], metadata: BlockMetadata = .empty) {
+        self.id = id
+        self.createdAt = Date()
+        self.metadata = metadata
+        self.rows = rows
+        self.columnCount = rows.first?.count ?? 0
+        self.content = ""
+    }
+    
+    // Create from template
+    static func fromTemplate(_ template: TableTemplate) -> TableBlock {
+        var block = TableBlock(rows: template.rows.count, columns: template.rows.first?.count ?? 2)
+        block.rows = template.rows.enumerated().map { rowIndex, rowData in
+            rowData.enumerated().map { colIndex, cellContent in
+                TableCell(content: cellContent, isHeader: rowIndex == 0)
+            }
+        }
+        return block
+    }
+    
+    mutating func addRow() {
+        var newRow: [TableCell] = []
+        for _ in 0..<columnCount {
+            newRow.append(TableCell())
+        }
+        rows.append(newRow)
+    }
+    
+    mutating func addColumn() {
+        for rowIndex in 0..<rows.count {
+            rows[rowIndex].append(TableCell(isHeader: rowIndex == 0))
+        }
+        columnCount += 1
+    }
+    
+    mutating func deleteRow(at index: Int) {
+        guard rows.count > 1 && index < rows.count else { return }
+        rows.remove(at: index)
+    }
+    
+    mutating func deleteColumn(at index: Int) {
+        guard columnCount > 1 && index < columnCount else { return }
+        for rowIndex in 0..<rows.count {
+            rows[rowIndex].remove(at: index)
+        }
+        columnCount -= 1
+    }
+    
+    mutating func updateCell(row: Int, column: Int, content: String) {
+        guard row < rows.count && column < rows[row].count else { return }
+        rows[row][column].content = content
+    }
+}
+
+// MARK: - Table Templates
+
+struct TableTemplate: Identifiable {
+    let id = UUID()
+    let name: String
+    let icon: String
+    let description: String
+    let rows: [[String]] // Pre-filled content
+    
+    static let blank = TableTemplate(
+        name: "Blank Table",
+        icon: "tablecells",
+        description: "3×3 empty table",
+        rows: [
+            ["", "", ""],
+            ["", "", ""],
+            ["", "", ""]
+        ]
+    )
+    
+    static let weeklySchedule = TableTemplate(
+        name: "Weekly Schedule",
+        icon: "calendar",
+        description: "Plan your week",
+        rows: [
+            ["Time", "Mon", "Tue", "Wed", "Thu", "Fri"],
+            ["Morning", "", "", "", "", ""],
+            ["Afternoon", "", "", "", "", ""],
+            ["Evening", "", "", "", "", ""]
+        ]
+    )
+    
+    static let comparison = TableTemplate(
+        name: "Comparison",
+        icon: "arrow.left.arrow.right",
+        description: "Compare options",
+        rows: [
+            ["Feature", "Option A", "Option B"],
+            ["Price", "", ""],
+            ["Quality", "", ""],
+            ["Rating", "", ""]
+        ]
+    )
+    
+    static let todoTracker = TableTemplate(
+        name: "Task Tracker",
+        icon: "checklist",
+        description: "Track task progress",
+        rows: [
+            ["Task", "Status", "Due Date"],
+            ["", "🔴 Not Started", ""],
+            ["", "🟡 In Progress", ""],
+            ["", "🟢 Complete", ""]
+        ]
+    )
+    
+    static let budgetTracker = TableTemplate(
+        name: "Budget",
+        icon: "dollarsign.circle",
+        description: "Track expenses",
+        rows: [
+            ["Category", "Budget", "Spent", "Remaining"],
+            ["Food", "$0", "$0", "$0"],
+            ["Transport", "$0", "$0", "$0"],
+            ["Entertainment", "$0", "$0", "$0"]
+        ]
+    )
+    
+    static let meetingNotes = TableTemplate(
+        name: "Meeting Notes",
+        icon: "person.3",
+        description: "Capture meeting details",
+        rows: [
+            ["Topic", "Discussion", "Action Items"],
+            ["", "", ""],
+            ["", "", ""]
+        ]
+    )
+    
+    static let allTemplates: [TableTemplate] = [
+        .blank,
+        .weeklySchedule,
+        .comparison,
+        .todoTracker,
+        .budgetTracker,
+        .meetingNotes
+    ]
+}
+
+
 
 enum AnyBlock: Codable, Equatable, Identifiable {
     case text(TextBlock)
@@ -251,6 +441,7 @@ enum AnyBlock: Codable, Equatable, Identifiable {
     case quote(QuoteBlock)
     case code(CodeBlock)
     case divider(DividerBlock)
+    case table(TableBlock)
 
     var id: UUID {
         switch self {
@@ -262,6 +453,7 @@ enum AnyBlock: Codable, Equatable, Identifiable {
         case .quote(let block): return block.id
         case .code(let block): return block.id
         case .divider(let block): return block.id
+        case .table(let block): return block.id
         }
     }
 
@@ -276,6 +468,7 @@ enum AnyBlock: Codable, Equatable, Identifiable {
             case .quote(let block): return block.content
             case .code(let block): return block.content
             case .divider(let block): return block.content
+            case .table(let block): return block.content
             }
         }
         set {
@@ -302,6 +495,9 @@ enum AnyBlock: Codable, Equatable, Identifiable {
                 block.content = newValue
                 self = .code(block)
             case .divider: break
+            case .table(var block):
+                block.content = newValue
+                self = .table(block)
             }
         }
     }
@@ -316,6 +512,7 @@ enum AnyBlock: Codable, Equatable, Identifiable {
         case .quote: return .quote
         case .code: return .code
         case .divider: return .divider
+        case .table: return .table
         }
     }
 
@@ -330,6 +527,7 @@ enum AnyBlock: Codable, Equatable, Identifiable {
             case .quote(let block): return block.metadata
             case .code(let block): return block.metadata
             case .divider(let block): return block.metadata
+            case .table(let block): return block.metadata
             }
         }
         set {
@@ -358,6 +556,9 @@ enum AnyBlock: Codable, Equatable, Identifiable {
             case .divider(var block):
                 block.metadata = newValue
                 self = .divider(block)
+            case .table(var block):
+                block.metadata = newValue
+                self = .table(block)
             }
         }
     }

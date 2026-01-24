@@ -21,15 +21,15 @@ struct TrashView: View {
                     // Empty state
                     VStack(spacing: 16) {
                         Image(systemName: "trash")
-                            .font(.system(size: 64, weight: .light))
+                            .font(FontManager.geist(size: 64, weight: .light))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
 
                         Text("Trash is empty")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(FontManager.geist(size: 20, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                         Text("Deleted items will appear here and be automatically removed after 30 days")
-                            .font(.system(size: 14, weight: .regular))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 40)
@@ -40,11 +40,11 @@ struct TrashView: View {
                             // Info banner
                             HStack(spacing: 12) {
                                 Image(systemName: "info.circle.fill")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                     .foregroundColor(.gray)
 
                                 Text("Items are kept for 30 days before permanent deletion")
-                                    .font(.system(size: 13, weight: .regular))
+                                    .font(FontManager.geist(size: 13, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
 
                                 Spacer()
@@ -62,13 +62,13 @@ struct TrashView: View {
                                 VStack(alignment: .leading, spacing: 12) {
                                     HStack {
                                         Text("DELETED NOTES")
-                                            .font(.system(size: 12, weight: .bold))
+                                            .font(FontManager.geist(size: 12, weight: .bold))
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
 
                                         Spacer()
 
                                         Text("\(notesManager.deletedNotes.count)")
-                                            .font(.system(size: 12, weight: .semibold))
+                                            .font(FontManager.geist(size: 12, weight: .semibold))
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                     }
                                     .padding(.horizontal, 16)
@@ -94,13 +94,13 @@ struct TrashView: View {
                                 VStack(alignment: .leading, spacing: 12) {
                                     HStack {
                                         Text("DELETED FOLDERS")
-                                            .font(.system(size: 12, weight: .bold))
+                                            .font(FontManager.geist(size: 12, weight: .bold))
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
 
                                         Spacer()
 
                                         Text("\(notesManager.deletedFolders.count)")
-                                            .font(.system(size: 12, weight: .semibold))
+                                            .font(FontManager.geist(size: 12, weight: .semibold))
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                     }
                                     .padding(.horizontal, 16)
@@ -135,7 +135,7 @@ struct TrashView: View {
                         isPresented = false
                     }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                 }
@@ -146,7 +146,7 @@ struct TrashView: View {
                             showingEmptyTrashConfirmation = true
                         }) {
                             Text("Empty")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(FontManager.geist(size: 16, weight: .semibold))
                                 .foregroundColor(.red)
                         }
                     }
@@ -232,21 +232,21 @@ struct DeletedNoteRow: View {
             HStack(alignment: .top, spacing: 12) {
                 // Note icon
                 Image(systemName: "note.text")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(FontManager.geist(size: 20, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 4) {
                     // Title
                     Text(deletedNote.title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(1)
 
                     // Preview
                     if !deletedNote.content.isEmpty {
                         Text(deletedNote.content)
-                            .font(.system(size: 14, weight: .regular))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                             .lineLimit(2)
                     }
@@ -254,14 +254,14 @@ struct DeletedNoteRow: View {
                     // Deletion info
                     HStack(spacing: 8) {
                         Text("Deleted \(timeAgo(deletedNote.deletedAt))")
-                            .font(.system(size: 12, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
                         Text("•")
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
 
                         Text("\(deletedNote.daysUntilPermanentDeletion) days remaining")
-                            .font(.system(size: 12, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(.orange)
                     }
                 }
@@ -274,9 +274,9 @@ struct DeletedNoteRow: View {
                 Button(action: onRestore) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.uturn.backward")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 14, weight: .medium))
                         Text("Restore")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                     }
                     .foregroundColor(.gray)
                     .padding(.horizontal, 16)
@@ -290,9 +290,9 @@ struct DeletedNoteRow: View {
                 Button(action: onDelete) {
                     HStack(spacing: 6) {
                         Image(systemName: "trash")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 14, weight: .medium))
                         Text("Delete")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                     }
                     .foregroundColor(.red)
                     .padding(.horizontal, 16)
@@ -340,28 +340,28 @@ struct DeletedFolderRow: View {
             HStack(alignment: .top, spacing: 12) {
                 // Folder icon
                 Image(systemName: "folder.fill")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(FontManager.geist(size: 20, weight: .medium))
                     .foregroundColor(Color(hex: deletedFolder.color) ?? .gray)
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 4) {
                     // Name
                     Text(deletedFolder.name)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(1)
 
                     // Deletion info
                     HStack(spacing: 8) {
                         Text("Deleted \(timeAgo(deletedFolder.deletedAt))")
-                            .font(.system(size: 12, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
                         Text("•")
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
 
                         Text("\(deletedFolder.daysUntilPermanentDeletion) days remaining")
-                            .font(.system(size: 12, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(.orange)
                     }
                 }
@@ -374,9 +374,9 @@ struct DeletedFolderRow: View {
                 Button(action: onRestore) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.uturn.backward")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 14, weight: .medium))
                         Text("Restore")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                     }
                     .foregroundColor(.gray)
                     .padding(.horizontal, 16)
@@ -390,9 +390,9 @@ struct DeletedFolderRow: View {
                 Button(action: onDelete) {
                     HStack(spacing: 6) {
                         Image(systemName: "trash")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 14, weight: .medium))
                         Text("Delete")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                     }
                     .foregroundColor(.red)
                     .padding(.horizontal, 16)

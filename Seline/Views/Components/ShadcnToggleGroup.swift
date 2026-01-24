@@ -15,7 +15,7 @@ struct ShadcnToggleGroup: View {
                     }
                 }) {
                     Text(option)
-                        .font(.system(size: 14, weight: selection == option ? .semibold : .regular))
+                        .font(FontManager.geist(size: 14, systemWeight: selection == option ? .semibold : .regular))
                         .foregroundColor(
                             selection == option ?
                                 (colorScheme == .dark ?

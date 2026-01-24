@@ -78,7 +78,7 @@ struct AllDayEventsSection: View {
                     .padding(.horizontal, 16)
                 }
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
         }
     }
 
@@ -101,7 +101,7 @@ struct AllDayEventsSection: View {
                         onToggleCompletion(task)
                     }) {
                         Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(FontManager.geist(size: 12, weight: .medium))
                             .foregroundColor(textColor)
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -109,7 +109,7 @@ struct AllDayEventsSection: View {
 
                 // Task title
                 Text(task.title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(textColor)
                     .strikethrough(isCompleted, color: textColor.opacity(0.5))
                     .lineLimit(1)
@@ -118,13 +118,7 @@ struct AllDayEventsSection: View {
                 HStack(spacing: 3) {
                     if task.hasEmailAttachment {
                         Image(systemName: "envelope.fill")
-                            .font(.system(size: 9))
-                            .foregroundColor(textColor.opacity(0.7))
-                    }
-
-                    if task.isRecurring {
-                        Image(systemName: "repeat")
-                            .font(.system(size: 9))
+                            .font(FontManager.geist(size: 9, weight: .regular))
                             .foregroundColor(textColor.opacity(0.7))
                     }
                 }

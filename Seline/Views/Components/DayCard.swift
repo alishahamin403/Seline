@@ -121,13 +121,13 @@ struct DayCard: View {
             }) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(weekday.displayName)
-                        .font(.system(size: 37, weight: .regular))
+                        .font(FontManager.geist(size: 37, weight: .regular))
                         .foregroundColor(dayTitleColor)
 
                     // Only show date when expanded
                     if isExpanded {
                         Text(formattedDate)
-                            .font(.system(size: 14, weight: .regular))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(Color.shadcnForeground(colorScheme))
                     }
                 }
@@ -190,7 +190,7 @@ struct DayCard: View {
             HStack(spacing: 12) {
                 Image(systemName: "plus.circle")
                     .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                    .font(.system(size: 18, weight: .medium))
+                    .font(FontManager.geist(size: 18, weight: .medium))
 
                 TextField("Add a new task...", text: $newTaskText)
                     .font(.shadcnTextSm)
@@ -211,7 +211,7 @@ struct DayCard: View {
                     showReminderPicker.toggle()
                 }) {
                     Image(systemName: selectedReminder == .none ? "bell.slash" : "bell.fill")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(FontManager.geist(size: 16, weight: .medium))
                         .foregroundColor(selectedReminder == .none ? grayColor : Color.shadcnPrimary)
                 }
             }
@@ -240,7 +240,7 @@ struct DayCard: View {
                         }) {
                             HStack {
                                 Image(systemName: reminder.icon)
-                                    .font(.system(size: 14))
+                                    .font(FontManager.geist(size: 14, weight: .regular))
                                     .foregroundColor(selectedReminder == reminder ? (colorScheme == .dark ? Color.white : Color.black) : Color.gray)
                                     .frame(width: 20)
 
@@ -252,7 +252,7 @@ struct DayCard: View {
 
                                 if selectedReminder == reminder {
                                     Image(systemName: "checkmark")
-                                        .font(.system(size: 14, weight: .semibold))
+                                        .font(FontManager.geist(size: 14, weight: .semibold))
                                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                 }
                             }
@@ -301,7 +301,7 @@ struct DayCard: View {
             HStack(spacing: 12) {
                 Image(systemName: "plus.circle")
                     .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                    .font(.system(size: 18, weight: .medium))
+                    .font(FontManager.geist(size: 18, weight: .medium))
 
                 Text("Add a new task...")
                     .font(.shadcnTextSm)

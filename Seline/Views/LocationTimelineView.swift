@@ -6,6 +6,7 @@ struct LocationTimelineView: View {
 
     @StateObject private var supabaseManager = SupabaseManager.shared
     @StateObject private var locationsManager = LocationsManager.shared
+    @StateObject private var peopleManager = PeopleManager.shared
 
     @State private var selectedDate: Date = Date()
     @State private var currentMonth: Date = Date()
@@ -20,12 +21,13 @@ struct LocationTimelineView: View {
     @State private var isMerging = false
     @State private var showMergeError = false
     @State private var mergeErrorMessage = ""
-    @State private var showingVisitNotesSheet = false
     @State private var selectedVisitForNotes: LocationVisitRecord? = nil
+    @State private var selectedVisitForPeople: LocationVisitRecord? = nil
     @State private var daySummaryText: String? = nil
     @State private var isGeneratingSummary = false
     @State private var lastSummaryGeneratedFor: Date? = nil
     @State private var lastSummaryNotesHash: Int = 0 // Hash of visit notes for cache invalidation
+    @State private var visitPeopleCache: [UUID: [Person]] = [:] // Cache people for each visit
 
     private let calendar = Calendar.current
 
@@ -87,28 +89,54 @@ struct LocationTimelineView: View {
             // Clear summary so it regenerates for the new date
             daySummaryText = nil
         }
+        .onChange(of: visitsForSelectedDay.count) { _ in
+            // Generate summary after visits are loaded (fixes cache not showing on first load)
+            // Only generate if we have visits with notes
+            if !visitsWithNotes.isEmpty {
+                generateDaySummaryIfNeeded()
+            } else {
+                daySummaryText = nil
+            }
+        }
         .sheet(item: $selectedPlace) { place in
             PlaceDetailSheet(place: place, onDismiss: { 
                 selectedPlace = nil
             })
             .presentationBg()
         }
-        .sheet(isPresented: $showingVisitNotesSheet) {
-            if let visit = selectedVisitForNotes {
-                VisitNotesSheet(
-                    visit: visit,
-                    place: locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId }),
-                    colorScheme: colorScheme,
-                    onSave: { notes in
-                        await saveVisitNotes(visit: visit, notes: notes)
-                        selectedVisitForNotes = nil
-                    },
-                    onDismiss: {
-                        selectedVisitForNotes = nil
+        .sheet(item: $selectedVisitForNotes) { visit in
+            VisitNotesSheet(
+                visit: visit,
+                place: locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId }),
+                colorScheme: colorScheme,
+                onSave: { notes in
+                    await saveVisitNotes(visit: visit, notes: notes)
+                    selectedVisitForNotes = nil
+                },
+                onDismiss: {
+                    selectedVisitForNotes = nil
+                }
+            )
+            .presentationBg()
+        }
+        .sheet(item: $selectedVisitForPeople) { visit in
+            VisitPeoplePickerSheet(
+                visit: visit,
+                colorScheme: colorScheme,
+                onSave: { personIds in
+                    Task {
+                        await peopleManager.linkPeopleToVisit(
+                            visitId: visit.id,
+                            personIds: personIds
+                        )
+                        await loadPeopleForVisits([visit])
                     }
-                )
-                .presentationBg()
-            }
+                },
+                onDismiss: {
+                    selectedVisitForPeople = nil
+                }
+            )
+            .presentationBg()
         }
     }
 
@@ -213,7 +241,7 @@ struct LocationTimelineView: View {
             .padding(.bottom, 8)
         }
         .shadcnTileStyle(colorScheme: colorScheme)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
         .padding(.vertical, 12)
     }
 
@@ -320,7 +348,7 @@ struct LocationTimelineView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "info.circle.fill")
                         .font(.system(size: 14))
-                        .foregroundColor(.blue)
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                     
                     Text(selectedVisitsForMerge.count == 0 ? "Tap the first visit" :
                          selectedVisitsForMerge.count == 1 ? "Tap the second visit to merge with" :
@@ -338,6 +366,7 @@ struct LocationTimelineView: View {
                                 if isMerging {
                                     ProgressView()
                                         .scaleEffect(0.7)
+                                        .tint(colorScheme == .dark ? .white : .black)
                                 } else {
                                     Image(systemName: "checkmark.circle.fill")
                                         .font(.system(size: 14, weight: .medium))
@@ -345,12 +374,12 @@ struct LocationTimelineView: View {
                                 Text("Merge")
                                     .font(FontManager.geist(size: 13, weight: .semibold))
                             }
-                            .foregroundColor(.white)
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.green)
+                                Capsule()
+                                    .fill(colorScheme == .dark ? Color.white : Color.black)
                             )
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -361,13 +390,17 @@ struct LocationTimelineView: View {
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.blue.opacity(0.1))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1), lineWidth: 1)
+                        )
                 )
                 .padding(.horizontal, 20)
             }
 
-            // Day summary section (always shows when there are visits)
-            if !visitsForSelectedDay.isEmpty {
+            // Day summary section (only shows when there are visits with notes)
+            if !visitsWithNotes.isEmpty {
                 daySummarySection
             }
 
@@ -383,7 +416,7 @@ struct LocationTimelineView: View {
             }
         }
         .shadcnTileStyle(colorScheme: colorScheme)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
         .padding(.vertical, 12)
         .alert("Merge Failed", isPresented: $showMergeError) {
             Button("OK", role: .cancel) { }
@@ -417,12 +450,16 @@ struct LocationTimelineView: View {
                             // Selection indicator for merge mode
                             if isSelectedForMerge {
                                 Circle()
-                                    .stroke(Color.green, lineWidth: 2)
-                                    .frame(width: 16, height: 16)
+                                    .fill(colorScheme == .dark ? Color.white : Color.black)
+                                    .frame(width: 18, height: 18)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(colorScheme == .dark ? Color.black : Color.white, lineWidth: 2)
+                                    )
                                 
                                 Text("\((selectionIndex ?? 0) + 1)")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.green)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(colorScheme == .dark ? .black : .white)
                                     .offset(x: 10, y: -8)
                             }
                         }
@@ -478,22 +515,94 @@ struct LocationTimelineView: View {
                                     .lineLimit(2)
                                     .padding(.top, 4)
                             }
+                            
+                            // Show people who were present at this visit (tappable to edit)
+                            HStack(spacing: -6) {
+                                if let people = visitPeopleCache[visit.id], !people.isEmpty {
+                                    ForEach(people.prefix(4)) { person in
+                                        Circle()
+                                            .fill(colorForRelationship(person.relationship))
+                                            .frame(width: 22, height: 22)
+                                            .overlay(
+                                                Text(person.initials)
+                                                    .font(FontManager.geist(size: 8, weight: .semibold))
+                                                    .foregroundColor(.white)
+                                            )
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(colorScheme == .dark ? Color.black : Color.white, lineWidth: 1.5)
+                                            )
+                                    }
+                                    
+                                    if people.count > 4 {
+                                        Circle()
+                                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
+                                            .frame(width: 22, height: 22)
+                                            .overlay(
+                                                Text("+\(people.count - 4)")
+                                                    .font(FontManager.geist(size: 8, weight: .semibold))
+                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            )
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(colorScheme == .dark ? Color.black : Color.white, lineWidth: 1.5)
+                                            )
+                                    }
+                                    
+                                    Text("with \(people.map { $0.displayName }.prefix(2).joined(separator: ", "))\(people.count > 2 ? "..." : "")")
+                                        .font(FontManager.geist(size: 10, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                                        .padding(.leading, 8)
+                                } else {
+                                    // Show "Add people" button if no people connected
+                                    Button(action: {
+                                        selectedVisitForPeople = visit
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "person.badge.plus")
+                                                .font(FontManager.geist(size: 10, weight: .medium))
+                                            Text("Add people")
+                                                .font(FontManager.geist(size: 10, weight: .medium))
+                                        }
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+                            }
+                            .padding(.top, 4)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if !isMergeMode {
+                                    selectedVisitForPeople = visit
+                                }
+                            }
                         }
 
                         Spacer()
                         
                         // Merge selection indicator or Notes button
                         if isMergeMode {
-                            Image(systemName: isSelectedForMerge ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20))
-                                .foregroundColor(isSelectedForMerge ? .green : (colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3)))
+                            ZStack {
+                                if isSelectedForMerge {
+                                    Circle()
+                                        .fill(colorScheme == .dark ? Color.white : Color.black)
+                                        .frame(width: 24, height: 24)
+                                    
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                                } else {
+                                    Circle()
+                                        .stroke(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 2)
+                                        .frame(width: 24, height: 24)
+                                }
+                            }
                         } else {
                             // Show note icon if visit has notes, calendar+ icon if no notes
                             if let notes = visit.visitNotes, !notes.isEmpty {
                                 // Has notes - show note icon to view
                                 Button(action: {
                                     selectedVisitForNotes = visit
-                                    showingVisitNotesSheet = true
                                 }) {
                                     Image(systemName: "note.text")
                                         .font(FontManager.geist(size: 16, weight: .medium))
@@ -504,7 +613,6 @@ struct LocationTimelineView: View {
                                 // No notes - show calendar+ icon to add notes
                                 Button(action: {
                                     selectedVisitForNotes = visit
-                                    showingVisitNotesSheet = true
                                 }) {
                                     Image(systemName: "calendar.badge.plus")
                                         .font(FontManager.geist(size: 16, weight: .medium))
@@ -521,8 +629,15 @@ struct LocationTimelineView: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                            .stroke(isSelectedForMerge ? Color.green : Color.clear, lineWidth: 2)
+                            .stroke(
+                                isSelectedForMerge ? 
+                                (colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6)) : 
+                                Color.clear, 
+                                lineWidth: isSelectedForMerge ? 1.5 : 0
+                            )
                     )
+                    .scaleEffect(isSelectedForMerge ? 1.02 : 1.0)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isSelectedForMerge)
                 }
             }
             .buttonStyle(PlainButtonStyle())
@@ -558,10 +673,15 @@ struct LocationTimelineView: View {
             .overlay(daySummaryBorder)
             .padding(.horizontal, 20)
             .onAppear {
+                // Generate summary when section appears
                 generateDaySummaryIfNeeded()
             }
             .onChange(of: visitsForSelectedDay.count) { _ in
                 // Regenerate when visits count changes
+                generateDaySummaryIfNeeded()
+            }
+            .onChange(of: currentNotesHash) { _ in
+                // Regenerate when visit notes change (after visits are loaded)
                 generateDaySummaryIfNeeded()
             }
     }
@@ -608,35 +728,19 @@ struct LocationTimelineView: View {
     }
 
     private func generateDaySummaryIfNeeded() {
-        // Only generate if we have visits
-        guard !visitsForSelectedDay.isEmpty else {
+        // Only generate if we have visits with notes
+        guard !visitsWithNotes.isEmpty else {
             daySummaryText = nil
             return
         }
 
-        // Create a cache key based on date and visits content
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        let dateKey = dateFormatter.string(from: selectedDate)
-
-        // Use combined hash of visits AND notes for cache invalidation
+        // Calculate hash of visits WITH NOTES for cache invalidation
         var hasher = Hasher()
-        for visit in visitsForSelectedDay.sorted(by: { $0.entryTime < $1.entryTime }) {
+        for visit in visitsWithNotes.sorted(by: { $0.entryTime < $1.entryTime }) {
             hasher.combine(visit.id)
             hasher.combine(visit.visitNotes ?? "")
         }
-        let combinedHash = hasher.finalize()
-
-        // Cache key includes date and content hash
-        let cacheKey = "cache.daySummary.\(dateKey).\(combinedHash)"
-
-        // Check CacheManager first for persistent caching across view recreations
-        if let cachedSummary: String = CacheManager.shared.get(forKey: cacheKey) {
-            daySummaryText = cachedSummary
-            lastSummaryGeneratedFor = normalizeDate(selectedDate)
-            lastSummaryNotesHash = combinedHash
-            return
-        }
+        let combinedHash = Int(hasher.finalize())
 
         // Also check in-memory state (for same session)
         let normalizedDate = normalizeDate(selectedDate)
@@ -649,63 +753,90 @@ struct LocationTimelineView: View {
         isGeneratingSummary = true
 
         Task {
+            // First try to load from Supabase
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd"
+            let dateKey = dateFormatter.string(from: selectedDate)
+            
+            if let savedSummary = await loadDaySummaryFromSupabase(for: dateKey) {
+                // Check if hash matches (visits haven't changed)
+                if savedSummary.visitsHash == combinedHash {
+                    await MainActor.run {
+                        daySummaryText = savedSummary.summaryText
+                        lastSummaryGeneratedFor = normalizedDate
+                        lastSummaryNotesHash = combinedHash
+                        isGeneratingSummary = false
+                    }
+                    return
+                }
+                // Hash mismatch - visits changed, need to regenerate
+            }
+            
+            // Generate new summary or regenerate if visits changed
             let summary = await generateDaySummary()
             await MainActor.run {
                 daySummaryText = summary
                 lastSummaryGeneratedFor = normalizedDate
                 lastSummaryNotesHash = combinedHash
                 isGeneratingSummary = false
-
-                // Cache for 24 hours (summaries don't change unless visits change)
-                CacheManager.shared.set(summary, forKey: cacheKey, ttl: 86400)
+            }
+            
+            // Save to Supabase
+            if let summary = summary {
+                await saveDaySummaryToSupabase(date: dateKey, summary: summary, visitsHash: combinedHash)
             }
         }
     }
 
-    private func generateDaySummary() async -> String {
-        // Build the context from all visits for the day
+    private func generateDaySummary() async -> String? {
+        // Only generate summary if we have visits with notes
+        guard !visitsWithNotes.isEmpty else {
+            return nil
+        }
+
+        // Build the context from all visits WITH NOTES for the day
         var visitDetails: [String] = []
-        let sortedVisits = visitsForSelectedDay.sorted(by: { $0.entryTime < $1.entryTime })
+        let sortedVisits = visitsWithNotes.sorted(by: { $0.entryTime < $1.entryTime })
 
         for visit in sortedVisits {
             let place = locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId })
             let placeName = place?.displayName ?? "Unknown"
-
-            // Include notes if available, otherwise just the place name
+            
+            // Format visit details with time and notes
+            let timeFormatter = DateFormatter()
+            timeFormatter.dateFormat = "h:mm a"
+            let entryTime = timeFormatter.string(from: visit.entryTime)
+            
             if let notes = visit.visitNotes, !notes.isEmpty {
-                visitDetails.append("\(placeName): \(notes)")
-            } else {
-                visitDetails.append(placeName)
+                visitDetails.append("\(placeName) at \(entryTime): \(notes)")
             }
         }
 
-        let visitContext = visitDetails.joined(separator: ", ")
-        let hasNotes = visitsForSelectedDay.contains { $0.visitNotes != nil && !($0.visitNotes?.isEmpty ?? true) }
+        let visitContext = visitDetails.joined(separator: "\n")
 
-        // If we have notes, ask AI to summarize with context
-        // If no notes, just list the places visited in order
-        if hasNotes {
-            let systemPrompt = """
-            Create an ultra-concise day summary in first person. Maximum 15-20 words total.
-            Cover all activities mentioned. No fluff, just facts. Example: "Home relaxing, gym workout, massage at V-One, then back home."
-            """
+        // Generate concise, factual AI summary with key content from visits only
+        let systemPrompt = """
+        Create a concise day summary in first person that ONLY includes facts from the visit notes provided.
+        DO NOT add any information that is not explicitly mentioned in the visit notes.
+        DO NOT make assumptions or add extra details.
+        Keep it brief: 1-2 sentences (20-40 words maximum).
+        Only mention what the user actually did based on the notes provided.
+        Format: Simple, factual statement. Example: "Relaxed at home, then worked out focusing on hamstrings, back, and triceps. Had a massage at V-One Wellness."
+        """
 
-            let userPrompt = "Summarize: \(visitContext)"
+        let userPrompt = "Visit notes for today:\n\(visitContext)\n\nCreate a concise summary using ONLY the information above:"
 
-            do {
-                let summary = try await OpenAIService.shared.generateText(
-                    systemPrompt: systemPrompt,
-                    userPrompt: userPrompt,
-                    maxTokens: 50,
-                    temperature: 0.5
-                )
-                return summary
-            } catch {
-                print("❌ Failed to generate day summary: \(error)")
-                return createFallbackSummary()
-            }
-        } else {
-            // No notes - just create a simple location list
+        do {
+            let summary = try await OpenAIService.shared.generateText(
+                systemPrompt: systemPrompt,
+                userPrompt: userPrompt,
+                maxTokens: 80,
+                temperature: 0.3
+            )
+            return summary
+        } catch {
+            print("❌ Failed to generate day summary: \(error)")
+            // Return a simple fallback that at least includes the places with notes
             return createFallbackSummary()
         }
     }
@@ -834,6 +965,14 @@ struct LocationTimelineView: View {
             
             // Reload visits to show updated notes
             await loadVisitsForSelectedDay()
+            
+            // Regenerate day summary since visit notes changed
+            await MainActor.run {
+                daySummaryText = nil
+                lastSummaryGeneratedFor = nil
+                lastSummaryNotesHash = 0
+            }
+            generateDaySummaryIfNeeded()
         } catch {
             print("❌ Failed to save visit notes: \(error)")
         }
@@ -1052,12 +1191,104 @@ struct LocationTimelineView: View {
                     // OPTIMIZATION: Cache for 2 minutes (shorter TTL for daily data that updates more often)
                     CacheManager.shared.set(visits, forKey: cacheKey, ttl: 120) // 2 minutes
                 }
+                
+                // Load people for each visit
+                await loadPeopleForVisits(visits)
             } catch {
                 print("Error loading visits for day: \(error)")
                 await MainActor.run {
                     isLoading = false
                 }
             }
+        }
+    }
+    
+    // MARK: - Load People for Visits
+    
+    private func loadPeopleForVisits(_ visits: [LocationVisitRecord]) async {
+        for visit in visits {
+            let people = await peopleManager.getPeopleForVisit(visitId: visit.id)
+            await MainActor.run {
+                visitPeopleCache[visit.id] = people
+            }
+        }
+    }
+    
+    private func colorForRelationship(_ relationship: RelationshipType) -> Color {
+        switch relationship {
+        case .family: return Color(red: 0.8, green: 0.3, blue: 0.3)
+        case .partner: return Color(red: 0.9, green: 0.3, blue: 0.5)
+        case .closeFriend: return Color(red: 0.3, green: 0.6, blue: 0.9)
+        case .friend: return Color(red: 0.3, green: 0.7, blue: 0.5)
+        case .coworker: return Color(red: 0.5, green: 0.5, blue: 0.7)
+        case .classmate: return Color(red: 0.6, green: 0.4, blue: 0.7)
+        case .neighbor: return Color(red: 0.5, green: 0.6, blue: 0.5)
+        case .mentor: return Color(red: 0.8, green: 0.6, blue: 0.2)
+        case .acquaintance: return Color(red: 0.5, green: 0.5, blue: 0.5)
+        case .other: return Color(red: 0.4, green: 0.4, blue: 0.4)
+        }
+    }
+    
+    // MARK: - Day Summary Supabase Functions
+    
+    private func loadDaySummaryFromSupabase(for dateKey: String) async -> (summaryText: String, visitsHash: Int)? {
+        guard let userId = supabaseManager.getCurrentUser()?.id else { return nil }
+        
+        do {
+            let client = await supabaseManager.getPostgrestClient()
+            let response = try await client
+                .from("day_summaries")
+                .select("summary_text, visits_hash")
+                .eq("user_id", value: userId.uuidString)
+                .eq("summary_date", value: dateKey)
+                .execute()
+            
+            let decoder = JSONDecoder()
+            struct DaySummaryResponse: Codable {
+                let summary_text: String
+                let visits_hash: Int
+            }
+            
+            let summaries: [DaySummaryResponse] = try decoder.decode([DaySummaryResponse].self, from: response.data)
+            
+            if let summary = summaries.first {
+                return (summary.summary_text, summary.visits_hash)
+            }
+            
+            return nil
+        } catch {
+            print("❌ Failed to load day summary from Supabase: \(error)")
+            return nil
+        }
+    }
+    
+    private func saveDaySummaryToSupabase(date dateKey: String, summary: String, visitsHash: Int) async {
+        guard let userId = supabaseManager.getCurrentUser()?.id else { return }
+        
+        do {
+            let client = await supabaseManager.getPostgrestClient()
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let nowString = formatter.string(from: Date())
+            
+            // Use upsert to insert or update
+            // Note: visits_hash is stored as BIGINT in database, use string representation to avoid precision issues
+            let summaryData: [String: PostgREST.AnyJSON] = [
+                "user_id": .string(userId.uuidString),
+                "summary_date": .string(dateKey),
+                "summary_text": .string(summary),
+                "visits_hash": .string(String(visitsHash)), // Store as string to preserve full 64-bit value
+                "updated_at": .string(nowString)
+            ]
+            
+            try await client
+                .from("day_summaries")
+                .upsert(summaryData, onConflict: "user_id,summary_date")
+                .execute()
+            
+            print("✅ Saved day summary to Supabase for date: \(dateKey)")
+        } catch {
+            print("❌ Failed to save day summary to Supabase: \(error)")
         }
     }
 }

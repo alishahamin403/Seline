@@ -355,8 +355,8 @@ struct SpendingAndETAWidget: View {
                 HStack(alignment: .bottom, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("This Month")
-                            .font(FontManager.geist(size: 11, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                             .textCase(.uppercase)
                             .tracking(0.5)
 
@@ -523,28 +523,24 @@ struct SpendingAndETAWidget: View {
                 }
             }
         }
+        .padding(.horizontal, -16) // Extend scroll area so cards touch widget edges
         .padding(.top, 8)
     }
 
     private func insightChip(_ insight: SpendingInsightsService.SpendingInsight) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: insight.icon)
-                .font(.system(size: 16, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+        VStack(alignment: .leading, spacing: 6) {
+            Text(insight.title)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .lineLimit(1)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(insight.title)
-                    .font(FontManager.geist(size: 13, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .lineLimit(1)
-
-                Text(insight.subtitle)
-                    .font(FontManager.geist(size: 11, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(insight.subtitle)
+                .font(FontManager.geist(size: 11, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(minWidth: 180)

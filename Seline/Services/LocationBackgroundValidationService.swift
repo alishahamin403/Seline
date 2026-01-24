@@ -1,6 +1,7 @@
 import Foundation
 import CoreLocation
 import PostgREST
+import WidgetKit
 
 // MARK: - LocationBackgroundValidationService
 //
@@ -14,6 +15,12 @@ class LocationBackgroundValidationService {
     private var validationTimer: Timer?
     private let validationInterval: TimeInterval = 30 // Check every 30 seconds
     private var isRunning = false
+    
+    // CRITICAL FIX: Continuous monitoring mode
+    // When enabled, the timer keeps running even without active visits
+    // to detect new location entries that iOS geofencing may have missed
+    private var isContinuousMode = false
+    private var savedPlacesRef: [SavedPlace] = []
 
     private weak var geofenceManager: GeofenceManager?
     private weak var locationManager: SharedLocationManager?
@@ -37,6 +44,7 @@ class LocationBackgroundValidationService {
         // print("⏱️  Starting background validation timer (30 sec interval)")
         self.geofenceManager = geofenceManager
         self.locationManager = locationManager
+        self.savedPlacesRef = savedPlaces
 
         isRunning = true
         validationTimer = Timer.scheduledTimer(
@@ -48,9 +56,48 @@ class LocationBackgroundValidationService {
             }
         }
     }
+    
+    /// CRITICAL FIX: Start continuous monitoring mode
+    /// This keeps the timer running even without active visits to detect new entries
+    /// Call this on app launch to ensure location changes are detected promptly
+    func startContinuousMonitoring(
+        geofenceManager: GeofenceManager,
+        locationManager: SharedLocationManager,
+        savedPlaces: [SavedPlace]
+    ) {
+        print("🔄 Starting CONTINUOUS location monitoring mode")
+        
+        self.geofenceManager = geofenceManager
+        self.locationManager = locationManager
+        self.savedPlacesRef = savedPlaces
+        self.isContinuousMode = true
+        
+        guard !isRunning else {
+            print("⚠️ Timer already running, enabled continuous mode")
+            return
+        }
+        
+        isRunning = true
+        validationTimer = Timer.scheduledTimer(
+            withTimeInterval: validationInterval,
+            repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor in
+                await self?.performContinuousValidation()
+            }
+        }
+        
+        print("✅ Continuous monitoring started (30 sec interval)")
+    }
 
     /// Stop validation timer
     func stopValidationTimer() {
+        // Don't stop if in continuous mode
+        if isContinuousMode {
+            print("⚠️ Cannot stop timer in continuous mode")
+            return
+        }
+        
         guard isRunning else { return }
 
         validationTimer?.invalidate()
@@ -59,10 +106,148 @@ class LocationBackgroundValidationService {
 
         print("⏹️  Stopped background validation timer")
     }
+    
+    /// Force stop timer even in continuous mode (for testing/debugging)
+    func forceStopTimer() {
+        validationTimer?.invalidate()
+        validationTimer = nil
+        isRunning = false
+        isContinuousMode = false
+        print("🛑 Force stopped validation timer")
+    }
+    
+    /// Update saved places reference (call when places are added/removed)
+    func updateSavedPlaces(_ places: [SavedPlace]) {
+        self.savedPlacesRef = places
+    }
 
     /// Check if timer is running
     func isValidationRunning() -> Bool {
         return isRunning
+    }
+
+    // MARK: - Continuous Validation (Entry + Exit Detection)
+    
+    /// Perform continuous validation - checks for both new entries AND validates active visits
+    /// This runs every 30 seconds to catch location changes iOS geofencing might miss
+    private func performContinuousValidation() async {
+        guard let geofenceManager = geofenceManager,
+              let locationManager = locationManager else {
+            print("⚠️ Manager references lost in continuous validation")
+            return
+        }
+        
+        // Get current location
+        guard let currentLocation = locationManager.currentLocation else {
+            // DEBUG: Only log occasionally to reduce spam
+            // print("⚠️ No current location available for continuous validation")
+            return
+        }
+        
+        let savedPlaces = savedPlacesRef.isEmpty ? LocationsManager.shared.savedPlaces : savedPlacesRef
+        
+        // Check each saved place
+        for place in savedPlaces {
+            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+            let distance = currentLocation.distance(from: placeLocation)
+            let radius = GeofenceRadiusManager.shared.getRadius(for: place)
+            
+            let isInsideGeofence = distance <= radius
+            let hasActiveVisit = geofenceManager.getActiveVisit(for: place.id) != nil
+            
+            if isInsideGeofence && !hasActiveVisit {
+                // USER IS INSIDE BUT NO VISIT - iOS geofence entry was missed!
+                print("\n🚨 ===== MISSED GEOFENCE ENTRY DETECTED =====")
+                print("🚨 Location: \(place.displayName)")
+                print("🚨 Distance: \(String(format: "%.0f", distance))m (within \(String(format: "%.0f", radius))m radius)")
+                print("🚨 Creating visit now!")
+                print("🚨 ==========================================\n")
+                
+                await createMissedVisit(for: place, currentLocation: currentLocation, geofenceManager: geofenceManager)
+                
+                // Only handle one entry at a time to avoid race conditions
+                break
+                
+            } else if !isInsideGeofence && hasActiveVisit {
+                // USER IS OUTSIDE BUT HAS VISIT - iOS geofence exit was missed!
+                // Note: This is handled by validateActiveVisits, but we double-check here
+                print("\n🚨 ===== MISSED GEOFENCE EXIT DETECTED =====")
+                print("🚨 Location: \(place.displayName)")
+                print("🚨 Distance: \(String(format: "%.0f", distance))m (outside \(String(format: "%.0f", radius))m radius)")
+                print("🚨 Ending visit now!")
+                print("🚨 ==========================================\n")
+                
+                await autoCloseVisit(place.id, geofenceManager: geofenceManager)
+            }
+        }
+        
+        // Also run standard validation for midnight checks
+        await validateActiveVisits(with: savedPlaces)
+    }
+    
+    /// Create a visit that was missed by iOS geofencing
+    private func createMissedVisit(
+        for place: SavedPlace,
+        currentLocation: CLLocation,
+        geofenceManager: GeofenceManager
+    ) async {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("⚠️ No user ID for visit tracking")
+            return
+        }
+        
+        // Double-check no existing visit (thread safety)
+        if geofenceManager.getActiveVisit(for: place.id) != nil {
+            print("ℹ️ Visit already exists, skipping")
+            return
+        }
+        
+        // Speed check - reject if user is moving too fast (passing by)
+        let speed = currentLocation.speed
+        let maxAllowedSpeed: Double = 5.5 // ~20 km/h
+        
+        if speed > 0 && speed > maxAllowedSpeed {
+            print("⚠️ User moving too fast (\(String(format: "%.1f", speed * 3.6)) km/h) - skipping visit creation")
+            return
+        }
+        
+        // Accuracy check
+        let accuracy = currentLocation.horizontalAccuracy
+        if accuracy > 100 {
+            print("⚠️ GPS accuracy too poor (\(String(format: "%.0f", accuracy))m) - skipping visit creation")
+            return
+        }
+        
+        // Create the visit
+        let sessionId = UUID()
+        let visit = LocationVisitRecord.create(
+            userId: userId,
+            savedPlaceId: place.id,
+            entryTime: Date(),
+            sessionId: sessionId,
+            confidenceScore: 0.9, // Slightly lower confidence for missed detection
+            mergeReason: "missed_geofence_entry"
+        )
+        
+        // Add to active visits (thread-safe)
+        geofenceManager.updateActiveVisit(visit, for: place.id)
+        
+        // Create session
+        LocationSessionManager.shared.createSession(for: place.id, userId: userId)
+        
+        // Invalidate cache
+        LocationVisitAnalytics.shared.invalidateCache(for: place.id)
+        
+        // Save to Supabase
+        await geofenceManager.saveVisitToSupabase(visit)
+        
+        print("✅ Created missed visit for: \(place.displayName)")
+        
+        // Post notification
+        NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
+        
+        // Refresh widgets
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     // MARK: - Validation Logic
@@ -77,9 +262,16 @@ class LocationBackgroundValidationService {
 
         let activeVisits = geofenceManager.activeVisits
         guard !activeVisits.isEmpty else {
-            // No active visits - stop timer
-            print("✅ All visits closed, stopping validation timer")
-            stopValidationTimer()
+            // No active visits
+            if isContinuousMode {
+                // In continuous mode, keep running to detect new entries
+                // DEBUG: Commented out to reduce spam
+                // print("✅ No active visits, but continuous mode enabled - keeping timer running")
+            } else {
+                // Not in continuous mode - stop timer
+                print("✅ All visits closed, stopping validation timer")
+                stopValidationTimer()
+            }
             return
         }
 
@@ -272,6 +464,13 @@ class LocationBackgroundValidationService {
             }
         }
 
+        // AUTO-DELETE: Skip saving visits under 2 minutes (likely false positives)
+        // Only check if visit is complete (has exit_time and duration)
+        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
+            print("🗑️ Skipping save for short visit in BGValidation: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
+            return
+        }
+
         // No split needed - save directly
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -327,6 +526,15 @@ class LocationBackgroundValidationService {
             for part in visitsToSave {
                 await saveVisitToSupabase(part)
             }
+            return
+        }
+
+        // AUTO-DELETE: Delete visits under 2 minutes instead of updating them
+        // Only check if visit is complete (has exit_time and duration)
+        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
+            print("🗑️ Auto-deleting short visit in BGValidation instead of updating: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
+            let geofenceManager = await GeofenceManager.shared
+            await geofenceManager.deleteVisitFromSupabase(visit)
             return
         }
 

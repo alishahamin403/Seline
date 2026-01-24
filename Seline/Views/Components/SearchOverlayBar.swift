@@ -25,12 +25,12 @@ struct SearchOverlayBar: View {
             HStack(spacing: 8) {
                 // Search icon
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(.gray)
 
                 // Text field
                 TextField("Search emails, events, notes, locations...", text: $searchText)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(FontManager.geist(size: 14, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .focused($isSearchFocused)
 
@@ -40,7 +40,7 @@ struct SearchOverlayBar: View {
                         searchText = ""
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 14, weight: .medium))
                             .foregroundColor(.gray)
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -53,7 +53,7 @@ struct SearchOverlayBar: View {
                     onDismiss()
                 }) {
                     Text("Cancel")
-                        .font(.system(size: 14, weight: .regular))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
             }
@@ -81,7 +81,7 @@ struct SearchOverlayBar: View {
 
                         if searchResults.isEmpty {
                             Text("No results found")
-                                .font(.system(size: 14, weight: .regular))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                                 .padding(.vertical, 20)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -89,10 +89,12 @@ struct SearchOverlayBar: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
+                    .padding(.bottom, 12)
                 }
+                .frame(maxHeight: UIScreen.main.bounds.height * 0.5)
                 .background(
                     colorScheme == .dark ?
-                        Color.gmailDarkBackground :
+                        Color(red: 0.11, green: 0.11, blue: 0.12) :
                         Color.white
                 )
                 .cornerRadius(12)
@@ -148,6 +150,14 @@ struct SearchOverlayBar: View {
                 selectedTab = .maps
                 selectedFolder = category
             }
+        case .receipt:
+            // Receipts are linked to notes - open the note if available
+            if let note = result.note {
+                selectedNote = note
+            }
+        case .recurringExpense:
+            // Recurring expenses are shown in Notes tab - navigate there
+            selectedTab = .notes
         }
 
         // Dismiss search overlay after setting the state
@@ -201,24 +211,82 @@ struct SearchOverlayBar: View {
             ))
         }
 
-        // Search notes
+        // Search notes - deduplicate to hide note versions when receipt versions exist
         let matchingNotes = notesManager.notes.filter {
             $0.title.lowercased().contains(lowercasedSearch) ||
             $0.content.lowercased().contains(lowercasedSearch)
         }
 
-        for note in matchingNotes.prefix(5) {
-            results.append(OverlaySearchResult(
-                type: .note,
-                title: note.title,
-                subtitle: note.formattedDateModified,
-                icon: "note.text",
-                task: nil,
-                email: nil,
-                note: note,
-                location: nil,
-                category: nil
-            ))
+        // Separate notes with attachments (receipts) from those without
+        let notesWithAttachments = matchingNotes.filter { $0.attachmentId != nil }
+        let notesWithoutAttachments = matchingNotes.filter { $0.attachmentId == nil }
+
+        // Filter out notes WITHOUT attachments if a similar note WITH attachment exists
+        var filteredNotesWithoutAttachments: [Note] = []
+        for noteWithout in notesWithoutAttachments {
+            // Check if there's a matching note with attachment
+            let hasMatchingReceipt = notesWithAttachments.contains { noteWith in
+                // Compare titles by removing price and date patterns
+                let title1 = noteWithout.title.lowercased()
+                    .replacingOccurrences(of: #"\$[\d,]+\.?\d*"#, with: "", options: .regularExpression)
+                    .replacingOccurrences(of: #"\s*-\s*\w+\s+\d{1,2},?\s*\d{0,4}"#, with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                let title2 = noteWith.title.lowercased()
+                    .replacingOccurrences(of: #"\$[\d,]+\.?\d*"#, with: "", options: .regularExpression)
+                    .replacingOccurrences(of: #"\s*-\s*\w+\s+\d{1,2},?\s*\d{0,4}"#, with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Consider them duplicates if normalized titles match
+                return title1 == title2 && !title1.isEmpty
+            }
+
+            // Only keep notes WITHOUT attachments if no matching receipt exists
+            if !hasMatchingReceipt {
+                filteredNotesWithoutAttachments.append(noteWithout)
+            }
+        }
+
+        // Combine receipts and non-duplicate regular notes
+        let finalNotes = (notesWithAttachments + filteredNotesWithoutAttachments)
+            .sorted { $0.dateModified > $1.dateModified }
+
+        for note in finalNotes.prefix(5) {
+            if note.attachmentId != nil {
+                // This is a receipt
+                let amount = extractAmount(from: note.title)
+                let subtitle: String
+                if let amount = amount {
+                    subtitle = String(format: "$%.2f • %@", amount, note.formattedDateModified)
+                } else {
+                    subtitle = note.formattedDateModified
+                }
+
+                results.append(OverlaySearchResult(
+                    type: .receipt,
+                    title: note.title,
+                    subtitle: subtitle,
+                    icon: "doc.text",
+                    task: nil,
+                    email: nil,
+                    note: note,
+                    location: nil,
+                    category: nil
+                ))
+            } else {
+                // This is a regular note
+                results.append(OverlaySearchResult(
+                    type: .note,
+                    title: note.title,
+                    subtitle: note.formattedDateModified,
+                    icon: "note.text",
+                    task: nil,
+                    email: nil,
+                    note: note,
+                    location: nil,
+                    category: nil
+                ))
+            }
         }
 
         // Search locations
@@ -288,6 +356,18 @@ struct SearchOverlayBar: View {
         formatter.timeStyle = .short
         return formatter.string(from: date)
     }
+
+    private func extractAmount(from text: String) -> Double? {
+        // Try to extract dollar amount from text like "$61.50" or "$59.00"
+        let pattern = #"\$(\d+(?:,\d{3})*(?:\.\d{2})?)"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+           let match = regex.firstMatch(in: text, options: [], range: NSRange(text.startIndex..., in: text)),
+           let range = Range(match.range(at: 1), in: text) {
+            let amountString = String(text[range]).replacingOccurrences(of: ",", with: "")
+            return Double(amountString)
+        }
+        return nil
+    }
 }
 
 // MARK: - Search Result Row
@@ -300,19 +380,19 @@ struct OverlaySearchResultRow: View {
         HStack(spacing: 12) {
             // Icon
             Image(systemName: result.icon)
-                .font(.system(size: 14, weight: .medium))
+                .font(FontManager.geist(size: 14, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                 .frame(width: 24)
 
             // Content
             VStack(alignment: .leading, spacing: 2) {
                 Text(result.title)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .lineLimit(1)
 
                 Text(result.subtitle)
-                    .font(.system(size: 12, weight: .regular))
+                    .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     .lineLimit(1)
             }
@@ -321,7 +401,7 @@ struct OverlaySearchResultRow: View {
 
             // Type badge
             Text(result.type.rawValue.capitalized)
-                .font(.system(size: 11, weight: .semibold))
+                .font(FontManager.geist(size: 11, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
@@ -364,4 +444,6 @@ enum OverlaySearchResultType: String {
     case note
     case location
     case folder
+    case receipt
+    case recurringExpense
 }

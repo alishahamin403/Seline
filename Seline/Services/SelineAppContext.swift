@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import MapKit
 
 /// Simple data context for LLM - collects all app data without pre-filtering
 /// The LLM will handle filtering, reasoning, and natural language understanding
@@ -29,6 +30,15 @@ class SelineAppContext {
     private(set) var locations: [SavedPlace] = []
     private(set) var currentDate: Date = Date()
     private(set) var weatherData: WeatherData?
+    
+    // MARK: - ETA Location Data (for map card display in chat)
+    private(set) var lastETALocationInfo: ETALocationInfo?
+    
+    // MARK: - Event Creation Data (for event card display in chat)
+    private(set) var lastEventCreationInfo: [EventCreationInfo]?
+    
+    // MARK: - Relevant Content Data (for inline email/note/event card display in chat)
+    private(set) var lastRelevantContent: [RelevantContentInfo]?
 
     // MARK: - Cache Control
 
@@ -86,6 +96,36 @@ class SelineAppContext {
         folderNameCache[folderId] = name
         return name
     }
+    
+    // MARK: - Date Comparison Helpers (using currentDate, NOT system Date())
+    
+    /// Check if a date is "today" based on currentDate (NOT system time)
+    private func isDateToday(_ date: Date) -> Bool {
+        let calendar = Calendar.current
+        return calendar.isDate(date, inSameDayAs: currentDate)
+    }
+    
+    /// Check if a date is "tomorrow" based on currentDate
+    private func isDateTomorrow(_ date: Date) -> Bool {
+        let calendar = Calendar.current
+        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: currentDate) else { return false }
+        return calendar.isDate(date, inSameDayAs: tomorrow)
+    }
+    
+    /// Check if a date is within "this week" from currentDate
+    private func isDateThisWeek(_ date: Date) -> Bool {
+        let calendar = Calendar.current
+        let startOfToday = calendar.startOfDay(for: currentDate)
+        guard let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfToday) else { return false }
+        return date >= startOfToday && date < endOfWeek
+    }
+    
+    /// Check if a date is in the past (before currentDate)
+    private func isDatePast(_ date: Date) -> Bool {
+        let calendar = Calendar.current
+        let startOfToday = calendar.startOfDay(for: currentDate)
+        return date < startOfToday
+    }
 
     /// Get a compact summary of events by count per time period
     private func getEventSummary() -> String {
@@ -113,6 +153,14 @@ class SelineAppContext {
     func refresh() async {
         print("🔄 SelineAppContext.refresh() called")
         self.currentDate = Date()
+        
+        // Debug: Show exactly what date/time we're using
+        let debugFormatter = DateFormatter()
+        debugFormatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm:ss a"
+        debugFormatter.timeZone = TimeZone.current
+        print("📅 Current Date set to: \(debugFormatter.string(from: currentDate))")
+        print("🌍 Timezone: \(TimeZone.current.identifier)")
+        
         // Clear folder name cache on refresh
         self.folderNameCache.removeAll()
 
@@ -168,8 +216,8 @@ class SelineAppContext {
                 print("     Recurrence end: \(event.recurrenceEndDate.map { formatDate($0) } ?? "None")")
 
                 if let nextDate = nextDate {
-                    let isTomorrow = Calendar.current.isDateInTomorrow(nextDate)
-                    let isToday = Calendar.current.isDateInToday(nextDate)
+                    let isTomorrow = isDateTomorrow(nextDate)
+                    let isToday = isDateToday(nextDate)
                     print("     Next occurrence: \(formatDate(nextDate))\(isTomorrow ? " (TOMORROW)" : "")\(isToday ? " (TODAY)" : "")")
                 } else {
                     print("     Next occurrence: NONE (ended or invalid)")
@@ -457,6 +505,599 @@ class SelineAppContext {
         }
     }
 
+    /// Detects if query is related to ETA/travel time/drive time
+    private func isETAQuery(_ query: String) -> Bool {
+        let lowercaseQuery = query.lowercased()
+        let etaKeywords = [
+            // Direct ETA keywords
+            "how long", "how far", "eta", "travel time", "drive time", "driving time",
+            "get there", "get to", "commute", "distance", "minutes away", "hours away",
+            // Direction/route keywords
+            "from", "to get", "to drive", "route", "trip", "journey",
+            // Time-based travel questions
+            "take to get", "take to drive", "take me to", "will it take",
+            // Traffic-related
+            "traffic", "with traffic", "right now"
+        ]
+
+        return etaKeywords.contains { keyword in
+            lowercaseQuery.contains(keyword)
+        }
+    }
+    
+    /// Extract location names from an ETA query
+    /// Examples: 
+    ///   "how long from airbnb to lakeridge" -> origin: "airbnb", destination: "lakeridge"
+    ///   "how far is lakeridge from my airbnb" -> origin: "my airbnb", destination: "lakeridge"
+    private func extractETALocations(from query: String) -> (String?, String?) {
+        let lowercaseQuery = query.lowercased()
+        let stopPhrases = ["?", "right now", "with traffic", "today", "tonight", "by car", "driving", " and ", " also ", " then ", " plus ", ","]
+        
+        // Helper to clean up location names
+        func cleanLocation(_ text: String) -> String? {
+            var cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            for phrase in stopPhrases {
+                if let range = cleaned.range(of: phrase) {
+                    cleaned = String(cleaned[..<range.lowerBound])
+                }
+            }
+            // Remove common prefixes like "my", "the", "our" for better search
+            let prefixes = ["my ", "the ", "our "]
+            for prefix in prefixes {
+                if cleaned.hasPrefix(prefix) {
+                    cleaned = String(cleaned.dropFirst(prefix.count))
+                }
+            }
+            cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+            return cleaned.isEmpty ? nil : cleaned
+        }
+        
+        // Pattern 1: "from X to Y" (standard format)
+        if let fromRange = lowercaseQuery.range(of: "from "),
+           let toRange = lowercaseQuery.range(of: " to "),
+           fromRange.upperBound < toRange.lowerBound {
+            let originStart = fromRange.upperBound
+            let originEnd = toRange.lowerBound
+            let destinationStart = toRange.upperBound
+            
+            let origin = cleanLocation(String(lowercaseQuery[originStart..<originEnd]))
+            let destination = cleanLocation(String(lowercaseQuery[destinationStart...]))
+            
+            return (origin, destination)
+        }
+        
+        // Pattern 2: "X from Y" or "how far is X from Y" (reverse format - destination first)
+        // Examples: "how far is lakeridge from my airbnb", "distance to starbucks from home"
+        if let fromRange = lowercaseQuery.range(of: " from ") {
+            // Destination is BEFORE "from", origin is AFTER "from"
+            let beforeFrom = String(lowercaseQuery[..<fromRange.lowerBound])
+            let afterFrom = String(lowercaseQuery[fromRange.upperBound...])
+            
+            // Extract destination from before "from" - remove question starters
+            var destination = beforeFrom
+            let questionStarters = ["how far is ", "how long is ", "what's the distance to ", 
+                                    "distance to ", "eta to ", "how far ", "how long to get to ",
+                                    "how long to ", "whats the eta to "]
+            for starter in questionStarters {
+                if let range = destination.range(of: starter) {
+                    destination = String(destination[range.upperBound...])
+                }
+            }
+            
+            let cleanedDestination = cleanLocation(destination)
+            let cleanedOrigin = cleanLocation(afterFrom)
+            
+            if cleanedDestination != nil || cleanedOrigin != nil {
+                return (cleanedOrigin, cleanedDestination)
+            }
+        }
+        
+        // Pattern 3: "to X" only (from current location implied)
+        if let toRange = lowercaseQuery.range(of: " to ") {
+            let destinationStart = toRange.upperBound
+            let destination = cleanLocation(String(lowercaseQuery[destinationStart...]))
+            return (nil, destination)
+        }
+        
+        // Pattern 4: "how far is X" or "eta to X" (destination only, from current location)
+        let destinationOnlyPatterns = ["how far is ", "how long to ", "eta to ", "distance to ", 
+                                       "how far to ", "drive time to ", "travel time to "]
+        for pattern in destinationOnlyPatterns {
+            if let range = lowercaseQuery.range(of: pattern) {
+                let destination = cleanLocation(String(lowercaseQuery[range.upperBound...]))
+                return (nil, destination)
+            }
+        }
+        
+        return (nil, nil)
+    }
+    
+    // MARK: - Event Creation Detection
+    
+    /// Detects if query is requesting to create an event
+    func isEventCreationQuery(_ query: String) -> Bool {
+        let lowercaseQuery = query.lowercased()
+        let creationKeywords = [
+            "create event", "create an event", "add event", "add an event",
+            "schedule", "set up", "set a", "remind me", "reminder for",
+            "create meeting", "add meeting", "schedule meeting",
+            "create appointment", "add appointment", "book",
+            "put on my calendar", "add to my calendar", "add to calendar",
+            "new event", "make an event"
+        ]
+        
+        return creationKeywords.contains { keyword in
+            lowercaseQuery.contains(keyword)
+        }
+    }
+    
+    /// Extracts event details from a creation query
+    /// Returns array of EventCreationInfo for single or multiple events
+    func extractEventDetails(from query: String) -> [EventCreationInfo] {
+        var events: [EventCreationInfo] = []
+        let lowercaseQuery = query.lowercased()
+        
+        // Split by "and also", "and", "plus" for multiple events
+        let eventSeparators = [" and also ", " also ", " plus "]
+        var queryParts = [query]
+        
+        for separator in eventSeparators {
+            var newParts: [String] = []
+            for part in queryParts {
+                let subParts = part.lowercased().components(separatedBy: separator)
+                if subParts.count > 1 {
+                    newParts.append(contentsOf: subParts)
+                } else {
+                    newParts.append(part)
+                }
+            }
+            queryParts = newParts
+        }
+        
+        // Process each potential event
+        for part in queryParts {
+            if let eventInfo = parseSingleEvent(from: part) {
+                events.append(eventInfo)
+            }
+        }
+        
+        // If no events parsed, try to extract from the whole query
+        if events.isEmpty {
+            if let eventInfo = parseSingleEvent(from: query) {
+                events.append(eventInfo)
+            }
+        }
+        
+        return events
+    }
+    
+    /// Parse a single event from a query part
+    private func parseSingleEvent(from query: String) -> EventCreationInfo? {
+        let lowercaseQuery = query.lowercased()
+        
+        // Extract title - look for quoted text or text after creation keywords
+        var title = extractEventTitle(from: lowercaseQuery)
+        guard !title.isEmpty else { return nil }
+        
+        // Extract date and time
+        let (date, hasTime) = extractEventDateTime(from: lowercaseQuery)
+        guard let eventDate = date else { return nil }
+        
+        // Extract reminder
+        let reminderMinutes = extractReminderMinutes(from: lowercaseQuery)
+        
+        // Extract category (default to "Personal")
+        let category = extractEventCategory(from: lowercaseQuery)
+        
+        // Clean up the title
+        title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if title.count > 100 { title = String(title.prefix(100)) }
+        
+        return EventCreationInfo(
+            title: title.capitalized,
+            date: eventDate,
+            hasTime: hasTime,
+            reminderMinutes: reminderMinutes,
+            category: category
+        )
+    }
+    
+    /// Extract event title from query
+    private func extractEventTitle(from query: String) -> String {
+        let lowercased = query.lowercased()
+        let originalQuery = query // Keep original for better extraction
+        
+        // Try to find quoted text first (use original query to preserve case)
+        if let match = originalQuery.range(of: "\"([^\"]+)\"", options: .regularExpression) {
+            var title = String(originalQuery[match])
+            title = title.replacingOccurrences(of: "\"", with: "")
+            return title
+        }
+        
+        // NEW: Pattern 0: Extract text after time/date indicators - most common case
+        // Handles: "for tom at 5 pm Telus representation call regarding payment dispute"
+        // Should extract: "Telus representation call regarding payment dispute"
+        let timePatterns = [
+            "\\d{1,2}\\s*(am|pm|:\\d+\\s*(am|pm)?)",
+            "at\\s+\\d{1,2}\\s*(am|pm|:\\d+\\s*(am|pm)?)",
+            "tomorrow",
+            "today",
+            "next week",
+            "monday|tuesday|wednesday|thursday|friday|saturday|sunday",
+            "mon|tue|wed|thu|fri|sat|sun"
+        ]
+        
+        // Find the last occurrence of time/date pattern
+        var lastTimeNSRange: NSRange? = nil
+        for pattern in timePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                let range = NSRange(location: 0, length: lowercased.utf16.count)
+                let matches = regex.matches(in: lowercased, range: range)
+                if let lastMatch = matches.last {
+                    if lastTimeNSRange == nil || lastMatch.range.upperBound > lastTimeNSRange!.upperBound {
+                        lastTimeNSRange = lastMatch.range
+                    }
+                }
+            }
+        }
+        
+        // If we found a time/date, extract everything after it
+        if let timeNSRange = lastTimeNSRange {
+            // Convert NSRange to String.Index safely
+            if let timeIndex = lowercased.utf16.index(lowercased.utf16.startIndex, offsetBy: timeNSRange.upperBound, limitedBy: lowercased.utf16.endIndex),
+               let timeStringIndex = timeIndex.samePosition(in: lowercased),
+               timeStringIndex < lowercased.endIndex {
+                
+                var titleCandidate = String(lowercased[timeStringIndex...])
+            
+            // Remove common prefixes that aren't part of the title
+            let prefixesToRemove = [
+                "for\\s+me\\s+",
+                "for\\s+",
+                "create\\s+",
+                "schedule\\s+",
+                "add\\s+",
+                "make\\s+",
+                "put\\s+",
+                "to\\s+"
+            ]
+            for prefix in prefixesToRemove {
+                if let prefixRange = titleCandidate.range(of: prefix, options: .regularExpression) {
+                    titleCandidate = String(titleCandidate[prefixRange.upperBound...])
+                }
+            }
+            
+            // Remove category mentions at the end
+            let categoryPatterns = ["\\s+(work|health|social|family|personal)\\s*$"]
+            for pattern in categoryPatterns {
+                titleCandidate = titleCandidate.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+            }
+            
+            titleCandidate = titleCandidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // If we got a meaningful title (at least 5 chars), use it
+            if titleCandidate.count >= 5 && titleCandidate.count <= 100 {
+                // Preserve original capitalization from original query
+                // Convert the same NSRange position to originalQuery's index
+                if let originalTimeIndex = originalQuery.utf16.index(originalQuery.utf16.startIndex, offsetBy: timeNSRange.upperBound, limitedBy: originalQuery.utf16.endIndex),
+                   let originalTimeStringIndex = originalTimeIndex.samePosition(in: originalQuery),
+                   originalTimeStringIndex < originalQuery.endIndex {
+                    let originalAfterTime = String(originalQuery[originalTimeStringIndex...])
+                    // Try to find the same text in original to preserve case
+                    if let foundRange = originalAfterTime.lowercased().range(of: titleCandidate) {
+                        return String(originalAfterTime[foundRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
+                return titleCandidate.capitalized
+            }
+            }
+        }
+        
+        // Pattern 1: "[activity] with [name]" - e.g., "drinks with Arnab"
+        if let match = lowercased.range(of: "(grab |have |get )?(drinks|lunch|dinner|breakfast|coffee|meeting|call|chat)\\s+with\\s+([a-zA-Z]+)", options: .regularExpression) {
+            let extracted = String(lowercased[match]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if extracted.count >= 5 {
+                return extracted.capitalized
+            }
+        }
+        
+        // Pattern 2: "with [name] to [activity]" - e.g., "with Arnab to grab drinks"
+        if let match = lowercased.range(of: "with\\s+([a-zA-Z]+)\\s+to\\s+(grab |have |get )?(drinks|lunch|dinner|breakfast|coffee|meeting|chat)", options: .regularExpression) {
+            let extracted = String(lowercased[match])
+            // Reformat to "[activity] with [name]"
+            if let nameMatch = extracted.range(of: "with\\s+([a-zA-Z]+)", options: .regularExpression),
+               let activityMatch = extracted.range(of: "(drinks|lunch|dinner|breakfast|coffee|meeting|chat)", options: .regularExpression) {
+                let name = String(extracted[nameMatch]).replacingOccurrences(of: "with ", with: "")
+                let activity = String(extracted[activityMatch])
+                return "\(activity.capitalized) with \(name.capitalized)"
+            }
+        }
+        
+        // Pattern 3: "meet [name]" or "meeting with [name]"
+        if let match = lowercased.range(of: "(meet|meeting)\\s+(with\\s+)?([a-zA-Z]+)", options: .regularExpression) {
+            let extracted = String(lowercased[match]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if extracted.count >= 5 {
+                return extracted.capitalized
+            }
+        }
+        
+        // Pattern 4: "[appointment type] appointment"
+        if let match = lowercased.range(of: "(doctor|dentist|dental|medical|therapy|gym|workout)('s)?\\s*(appointment|session|visit)?", options: .regularExpression) {
+            var extracted = String(lowercased[match]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !extracted.contains("appointment") { extracted += " appointment" }
+            return extracted.capitalized
+        }
+        
+        // Pattern 5: Extract activity description after "for" but skip short words like "me", "tom"
+        // Improved to handle "for me for tom at 5 pm [actual title]"
+        if let forRange = lowercased.range(of: "for\\s+(?:me\\s+)?(?:for\\s+)?(?:tom|tomorrow|today|this\\s+)?(?:wed|thu|fri|sat|sun|mon|tue|wednesday|thursday|friday|saturday|sunday|monday|tuesday)?\\s*(?:at\\s+\\d+\\s*(am|pm|:\\d+))?\\s*", options: .regularExpression) {
+            var afterFor = String(lowercased[forRange.upperBound...])
+            
+            // Stop at common delimiters
+            let stopWords = [" at ", " on ", " in ", " give ", " put ", " and make", " do some", " the meet"]
+            for stop in stopWords {
+                if let stopRange = afterFor.range(of: stop) {
+                    afterFor = String(afterFor[..<stopRange.lowerBound])
+                }
+            }
+            
+            // Remove time patterns
+            afterFor = afterFor.replacingOccurrences(of: "\\d+\\s*(am|pm|:\\d+)", with: "", options: .regularExpression)
+            afterFor = afterFor.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Skip if it's just "me" or very short
+            if afterFor.count >= 5 && afterFor.count <= 100 && !["me", "tom", "tomorrow", "today"].contains(afterFor.lowercased()) {
+                return afterFor.capitalized
+            }
+        }
+        
+        // Pattern 6: Just look for "[name] to [activity]" anywhere
+        if let match = lowercased.range(of: "([a-zA-Z]+)\\s+to\\s+(grab|have|get)?\\s*(drinks|lunch|dinner|coffee)", options: .regularExpression) {
+            let extracted = String(lowercased[match])
+            // Try to build a sensible title
+            if let activityMatch = extracted.range(of: "(drinks|lunch|dinner|coffee)", options: .regularExpression) {
+                let activity = String(extracted[activityMatch])
+                let name = extracted.replacingOccurrences(of: " to.*", with: "", options: .regularExpression)
+                if name.count >= 2 && name.count <= 20 {
+                    return "\(activity.capitalized) with \(name.capitalized)"
+                }
+            }
+        }
+        
+        // Fallback: Look for person name + activity clues
+        let activities = ["drinks", "lunch", "dinner", "coffee", "meeting", "call", "chat", "hangout"]
+        for activity in activities {
+            if lowercased.contains(activity) {
+                // Find a name near "with"
+                if let withRange = lowercased.range(of: "with\\s+([a-zA-Z]+)", options: .regularExpression) {
+                    let nameWithPrefix = String(lowercased[withRange])
+                    let name = nameWithPrefix.replacingOccurrences(of: "with ", with: "")
+                    if name.count >= 2 {
+                        return "\(activity.capitalized) with \(name.capitalized)"
+                    }
+                }
+                return activity.capitalized
+            }
+        }
+        
+        return "New Event"
+    }
+    /// Extract date and time from query
+    private func extractEventDateTime(from query: String) -> (Date?, Bool) {
+        let calendar = Calendar.current
+        var hasTime = false
+        var baseDate = Date()
+        var foundDate = false
+        
+        // Check for relative dates - including common abbreviations
+        let tomorrowPatterns = ["tomorrow", " tom ", "tom ", " tmrw", " tmr ", " tom", "for tom", "for tomorrow"]
+        for pattern in tomorrowPatterns {
+            if query.contains(pattern) || query.hasPrefix("tom ") || query.hasSuffix(" tom") {
+                baseDate = calendar.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+                foundDate = true
+                break
+            }
+        }
+        
+        if !foundDate && query.contains("today") {
+            baseDate = Date()
+            foundDate = true
+        } else if !foundDate && query.contains("next week") {
+            baseDate = calendar.date(byAdding: .weekOfYear, value: 1, to: Date()) ?? Date()
+            foundDate = true
+        }
+        
+        // Check for day of week - handle full names AND abbreviations
+        // Map includes both full names and common abbreviations
+        let weekdayMappings: [(patterns: [String], weekday: Int)] = [
+            (["sunday", " sun ", "this sun", "next sun"], 1),
+            (["monday", " mon ", "this mon", "next mon"], 2),
+            (["tuesday", " tue ", " tues ", "this tue", "next tue", "this tues", "next tues"], 3),
+            (["wednesday", " wed ", "this wed", "next wed"], 4),
+            (["thursday", " thu ", " thur ", " thurs ", "this thu", "next thu", "this thur", "next thur"], 5),
+            (["friday", " fri ", "this fri", "next fri"], 6),
+            (["saturday", " sat ", "this sat", "next sat"], 7)
+        ]
+        
+        if !foundDate {
+            for (patterns, dayNumber) in weekdayMappings {
+                for pattern in patterns {
+                    if query.contains(pattern) {
+                        if let nextDate = calendar.nextDate(after: Date(), matching: DateComponents(weekday: dayNumber), matchingPolicy: .nextTime) {
+                            baseDate = nextDate
+                            foundDate = true
+                        }
+                        break
+                    }
+                }
+                if foundDate { break }
+            }
+        }
+        
+        // Extract time
+        var hour = 9  // Default to 9 AM
+        var minute = 0
+        
+        // Match patterns like "3pm", "3:30pm", "15:00"
+        if let match = query.range(of: "(\\d{1,2}):(\\d{2})\\s*(am|pm)?", options: .regularExpression) {
+            let timeStr = String(query[match])
+            let components = timeStr.components(separatedBy: CharacterSet(charactersIn: ": "))
+            if let h = Int(components[0]) {
+                hour = h
+                if components.count > 1, let m = Int(components[1].prefix(2)) {
+                    minute = m
+                }
+                if timeStr.contains("pm") && hour < 12 { hour += 12 }
+                if timeStr.contains("am") && hour == 12 { hour = 0 }
+                hasTime = true
+            }
+        } else if let match = query.range(of: "(\\d{1,2})\\s*(am|pm)", options: .regularExpression) {
+            let timeStr = String(query[match])
+            if let h = Int(timeStr.filter { $0.isNumber }) {
+                hour = h
+                if timeStr.contains("pm") && hour < 12 { hour += 12 }
+                if timeStr.contains("am") && hour == 12 { hour = 0 }
+                hasTime = true
+            }
+        }
+        
+        // Combine date and time
+        var components = calendar.dateComponents([.year, .month, .day], from: baseDate)
+        components.hour = hour
+        components.minute = minute
+        
+        return (calendar.date(from: components), hasTime)
+    }
+    
+    /// Extract reminder minutes from query
+    private func extractReminderMinutes(from query: String) -> Int? {
+        // Check for specific reminder patterns
+        if query.contains("no reminder") { return nil }
+        
+        if let match = query.range(of: "(\\d+)\\s*min(ute)?s?\\s*(before|reminder|early)", options: .regularExpression) {
+            let numStr = String(query[match]).filter { $0.isNumber }
+            if let minutes = Int(numStr) {
+                return minutes
+            }
+        }
+        
+        if query.contains("1 hour") || query.contains("an hour") || query.contains("one hour") {
+            return 60
+        }
+        
+        if query.contains("30 min") { return 30 }
+        if query.contains("15 min") { return 15 }
+        if query.contains("10 min") { return 10 }
+        if query.contains("5 min") { return 5 }
+        
+        // Default reminder keywords without specific time
+        if query.contains("remind") || query.contains("reminder") {
+            return 15  // Default to 15 minutes
+        }
+        
+        return nil
+    }
+    
+    /// Extract category from query - matches category names flexibly
+    private func extractEventCategory(from query: String) -> String {
+        let lowercased = query.lowercased()
+        
+        // Available categories
+        let categories: [(keywords: [String], name: String)] = [
+            (["work", "business", "office", "meeting", "work meeting", "work call", "work event"], "Work"),
+            (["health", "healthcare", "medical", "doctor", "dentist", "appointment", "therapy", "gym", "workout", "fitness"], "Health"),
+            (["social", "friends", "hangout", "party", "event", "celebration"], "Social"),
+            (["family", "family event", "family time"], "Family"),
+            (["personal", "personal event"], "Personal")
+        ]
+        
+        // First check for explicit category mentions with context words
+        let explicitPatterns: [(pattern: String, category: String)] = [
+            ("work category", "Work"),
+            ("category work", "Work"),
+            ("put in work", "Work"),
+            ("in work category", "Work"),
+            ("work event", "Work"),
+            ("health category", "Health"),
+            ("category health", "Health"),
+            ("put in health", "Health"),
+            ("in health category", "Health"),
+            ("social category", "Social"),
+            ("category social", "Social"),
+            ("put in social", "Social"),
+            ("in social category", "Social"),
+            ("family category", "Family"),
+            ("category family", "Family"),
+            ("put in family", "Family"),
+            ("in family category", "Family"),
+            ("personal category", "Personal"),
+            ("category personal", "Personal"),
+            ("put in personal", "Personal"),
+            ("in personal category", "Personal"),
+            ("as work", "Work"),
+            ("categorize work", "Work"),
+            ("as health", "Health"),
+            ("categorize health", "Health"),
+            ("as social", "Social"),
+            ("categorize social", "Social"),
+            ("as family", "Family"),
+            ("categorize family", "Family"),
+            ("as personal", "Personal"),
+            ("categorize personal", "Personal")
+        ]
+        
+        // Check explicit patterns first (highest priority)
+        for (pattern, category) in explicitPatterns {
+            if lowercased.contains(pattern) {
+                return category
+            }
+        }
+        
+        // Then check for category keywords in context (medium priority)
+        // Look for category words that appear near event-related keywords
+        let eventKeywords = ["event", "meeting", "appointment", "call", "schedule", "create", "add"]
+        for (keywords, categoryName) in categories {
+            for keyword in keywords {
+                // Check if keyword appears and is likely referring to category
+                if lowercased.contains(keyword) {
+                    // Check if it's near an event keyword or at the end of the query
+                    if let keywordRange = lowercased.range(of: keyword) {
+                        let index = keywordRange.lowerBound
+                        
+                        // Safely calculate start index (20 chars before, but not before start)
+                        let startIndex: String.Index
+                        if let beforeIndex = lowercased.index(index, offsetBy: -20, limitedBy: lowercased.startIndex) {
+                            startIndex = beforeIndex
+                        } else {
+                            startIndex = lowercased.startIndex
+                        }
+                        
+                        // Safely calculate end index (20 chars after, but not after end)
+                        let endIndex: String.Index
+                        if let afterIndex = lowercased.index(index, offsetBy: 20, limitedBy: lowercased.endIndex) {
+                            endIndex = afterIndex
+                        } else {
+                            endIndex = lowercased.endIndex
+                        }
+                        
+                        let context = String(lowercased[startIndex..<endIndex])
+                        
+                        // If keyword appears near event keywords or at end of query, it's likely a category
+                        let isNearEventKeyword = eventKeywords.contains { context.contains($0) }
+                        let isAtEnd = lowercased.hasSuffix(keyword) || lowercased.suffix(10).contains(keyword)
+                        
+                        if isNearEventKeyword || isAtEnd {
+                            return categoryName
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Default category
+        return "Personal"
+    }
+
     /// Detects if query is related to restaurants, stores, or specific locations
     private func isRestaurantOrLocationQuery(_ query: String) -> Bool {
         let lowercaseQuery = query.lowercased()
@@ -557,6 +1198,31 @@ class SelineAppContext {
 
     /// Build context with intelligent filtering based on user query
     func buildContextPrompt(forQuery userQuery: String) async -> String {
+        // Reset ETA location info for each new query - prevents map card from persisting on unrelated follow-ups
+        self.lastETALocationInfo = nil
+        
+        // Reset event creation info for each new query
+        self.lastEventCreationInfo = nil
+        
+        // Reset relevant content for each new query
+        self.lastRelevantContent = nil
+        
+        // Find relevant content (emails, notes, events) to display inline
+        await findRelevantContent(forQuery: userQuery)
+        
+        // Detect event creation queries and extract details
+        let userAskedToCreateEvent = isEventCreationQuery(userQuery)
+        if userAskedToCreateEvent {
+            let extractedEvents = extractEventDetails(from: userQuery)
+            if !extractedEvents.isEmpty {
+                self.lastEventCreationInfo = extractedEvents
+                print("📅 Detected event creation request: \(extractedEvents.count) event(s)")
+                for event in extractedEvents {
+                    print("   • \(event.title) on \(event.formattedDateTime)")
+                }
+            }
+        }
+        
         // Extract useful filters from the query (but don't gate sections based on keywords)
         let categoryFilter = extractCategoryFilter(from: userQuery)
         let timePeriodFilter = extractTimePeriodFilter(from: userQuery)
@@ -567,6 +1233,10 @@ class SelineAppContext {
         // Detect expense vs bank statement queries
         let userAskedAboutExpenses = isExpenseQuery(userQuery)
         let userAskedAboutBankStatement = isBankStatementQuery(userQuery)
+        
+        // Detect ETA/travel time queries and extract locations
+        let userAskedAboutETA = isETAQuery(userQuery)
+        let etaLocations = userAskedAboutETA ? extractETALocations(from: userQuery) : (nil, nil)
 
         // Only refresh if cache is invalid (OPTIMIZATION: Skip refresh if data is fresh)
         if !isCacheValid {
@@ -599,6 +1269,27 @@ class SelineAppContext {
             }
         } else {
             print("⚡ Skipping visit stats - not a location query")
+        }
+
+        // Ensure weather data is available if user explicitly asked for it
+        let isWeatherRequest = userQuery.lowercased().contains("weather") || 
+                              userQuery.lowercased().contains("temperature") || 
+                              userQuery.lowercased().contains("forecast") ||
+                              userQuery.lowercased().contains("rain") ||
+                              userQuery.lowercased().contains("snow") ||
+                              userQuery.lowercased().contains("sun")
+        
+        if isWeatherRequest {
+            if weatherData == nil {
+                print("🌤️ Weather query detected but data missing - force fetching...")
+                let locationService = LocationService.shared
+                // Default to Toronto if location unavailable
+                let location = await locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
+                
+                await self.weatherService.fetchWeather(for: location)
+                self.weatherData = self.weatherService.weatherData
+                print("✅ Weather data forced loaded for query")
+            }
         }
 
         // OPTIMIZATION: Cache filtered results to avoid recomputation
@@ -667,13 +1358,22 @@ class SelineAppContext {
         // Build context with filtered events (skip refresh since we just did it)
         var context = ""
 
-        // Current date context
+        // Current date context - CRITICAL: Use local timezone explicitly
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .full
         dateFormatter.timeStyle = .short
+        dateFormatter.timeZone = TimeZone.current // Use device's local timezone
+        
+        // Also create a day-of-week formatter for clarity
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "EEEE" // Full day name (Monday, Tuesday, etc.)
+        dayFormatter.timeZone = TimeZone.current
 
         context += "=== CURRENT DATE ===\n"
-        context += dateFormatter.string(from: currentDate) + "\n\n"
+        context += "Today is: \(dayFormatter.string(from: currentDate)), \(dateFormatter.string(from: currentDate))\n"
+        let utcOffset = TimeZone.current.secondsFromGMT() / 3600
+        let utcSign = utcOffset >= 0 ? "+" : ""
+        context += "Timezone: \(TimeZone.current.identifier) (UTC\(utcSign)\(utcOffset))\n\n"
 
         // Current location context
         let locationService = LocationService.shared
@@ -766,11 +1466,12 @@ class SelineAppContext {
             } else {
                 let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
 
-                if calendar.isDateInToday(eventDate) {
+                // Use our custom date comparison helpers (based on currentDate, not system time)
+                if isDateToday(eventDate) {
                     today.append(event)
-                } else if calendar.isDateInTomorrow(eventDate) {
+                } else if isDateTomorrow(eventDate) {
                     tomorrow.append(event)
-                } else if calendar.isDate(eventDate, inSameDayAs: currentDate.addingTimeInterval(2*24*3600)) {
+                } else if isDateThisWeek(eventDate) && !isDateToday(eventDate) && !isDateTomorrow(eventDate) {
                     thisWeek.append(event)
                 } else if eventDate > currentDate {
                     upcoming.append(event)
@@ -790,7 +1491,7 @@ class SelineAppContext {
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
-                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    let recurringInfo = getRecurringInfo(event)
                     let calendarIndicator = event.isFromCalendar ? " [📅 CALENDAR]" : ""
 
                     context += "  \(status): \(event.title)\(recurringInfo)\(calendarIndicator) - \(categoryName) - \(timeInfo)\n"
@@ -809,7 +1510,7 @@ class SelineAppContext {
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
-                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    let recurringInfo = getRecurringInfo(event)
                     let calendarIndicator = event.isFromCalendar ? " [📅 CALENDAR]" : ""
 
                     context += "  \(status): \(event.title)\(recurringInfo)\(calendarIndicator) - \(categoryName) - \(timeInfo)\n"
@@ -838,7 +1539,7 @@ class SelineAppContext {
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
-                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    let recurringInfo = getRecurringInfo(event)
                     let calendarIndicator = event.isFromCalendar ? " [📅 CALENDAR]" : ""
 
                     context += "  \(status): \(event.title)\(recurringInfo)\(calendarIndicator) - \(categoryName) - \(timeInfo)\n"
@@ -854,7 +1555,7 @@ class SelineAppContext {
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let dateStr = formatDate(event.targetDate ?? event.scheduledTime ?? currentDate)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
-                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    let recurringInfo = getRecurringInfo(event)
                     let calendarIndicator = event.isFromCalendar ? " [📅 CALENDAR]" : ""
 
                     context += "  \(status): \(event.title)\(recurringInfo)\(calendarIndicator) - \(categoryName) - \(dateStr)\n"
@@ -901,23 +1602,50 @@ class SelineAppContext {
                     context += "  ... and \(olderPastEvents.count - 5) more older past events\n"
                 }
             }
-            // RECURRING EVENTS SUMMARY - CONDENSED (removed monthly breakdown to save tokens)
+            // RECURRING EVENTS SUMMARY - With next occurrence dates for accurate answers
             let recurringEvents = events.filter { $0.isRecurring }
             if !recurringEvents.isEmpty {
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateStyle = .medium
+                
                 context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
-                for event in recurringEvents.prefix(10) {  // Limit to 10 recurring events
-                    let currentMonth = calendar.dateComponents([.month, .year], from: currentDate)
-
-                    let thisMonthCompletions = event.completedDates.filter { date in
-                        let dateComponents = calendar.dateComponents([.month, .year], from: date)
-                        return dateComponents.month == currentMonth.month && dateComponents.year == currentMonth.year
-                    }
-
+                context += "**IMPORTANT: For recurring events (especially birthdays/anniversaries), use the 'Next occurrence' date below to answer 'when' questions.**\n"
+                
+                for event in recurringEvents.prefix(15) {  // Increased to 15 for better coverage
                     let categoryName = getCategoryName(for: event.tagId)
-                    context += "  • \(event.title) [\(categoryName)] - All-time: \(event.completedDates.count) | This month: \(thisMonthCompletions.count)\n"
+                    
+                    // Frequency info
+                    var frequencyStr = "Unknown"
+                    if let freq = event.recurrenceFrequency {
+                        switch freq {
+                        case .daily: frequencyStr = "Daily"
+                        case .weekly: frequencyStr = "Weekly"
+                        case .biweekly: frequencyStr = "Bi-weekly"
+                        case .monthly: frequencyStr = "Monthly"
+                        case .yearly: frequencyStr = "Yearly"
+                        case .custom: frequencyStr = "Custom"
+                        }
+                    }
+                    
+                    // Next occurrence - CRITICAL for answering "when is X" questions
+                    var nextOccurrenceStr = "Unknown"
+                    if let nextDate = getNextOccurrenceDate(for: event) {
+                        nextOccurrenceStr = dateFormatter.string(from: nextDate)
+                    } else if let targetDate = event.targetDate {
+                        nextOccurrenceStr = dateFormatter.string(from: targetDate) + " (original date)"
+                    }
+                    
+                    // Original/anchor date - for reference
+                    let anchorDate = event.targetDate ?? event.createdAt
+                    let anchorStr = dateFormatter.string(from: anchorDate)
+                    
+                    context += "  • \(event.title)\n"
+                    context += "    Category: \(categoryName) | Frequency: \(frequencyStr)\n"
+                    context += "    Original date: \(anchorStr) | **Next occurrence: \(nextOccurrenceStr)**\n"
+                    context += "    Completions: \(event.completedDates.count) total\n"
                 }
-                if recurringEvents.count > 10 {
-                    context += "  ... and \(recurringEvents.count - 10) more recurring events\n"
+                if recurringEvents.count > 15 {
+                    context += "  ... and \(recurringEvents.count - 15) more recurring events\n"
                 }
             }
         } else {
@@ -962,6 +1690,20 @@ class SelineAppContext {
                     let isCurrentMonth = (month == currentMonthStr)
 
                     context += "\n**\(month)**\(isCurrentMonth ? " (Current Month)" : ""): \(items.count) receipts, Total: $\(String(format: "%.2f", total))\n"
+                    
+                    // Add DATE-BY-DATE breakdown to help LLM answer date-specific queries
+                    let dayFormatter = DateFormatter()
+                    dayFormatter.dateFormat = "MMMM d"
+                    let receiptsByDay = Dictionary(grouping: items) { receipt in
+                        dayFormatter.string(from: receipt.date)
+                    }
+                    let sortedDays = receiptsByDay.keys.sorted { day1, day2 in
+                        // Sort by extracting day number
+                        let num1 = Int(day1.components(separatedBy: " ").last ?? "0") ?? 0
+                        let num2 = Int(day2.components(separatedBy: " ").last ?? "0") ?? 0
+                        return num1 < num2
+                    }
+                    context += "  **Days with receipts**: \(sortedDays.joined(separator: ", "))\n"
 
                     // Get real category breakdown for this month using ReceiptCategorizationService
                     let categoryBreakdown = await categorizationService.getCategoryBreakdown(for: items)
@@ -1061,6 +1803,119 @@ class SelineAppContext {
             print("⚠️ Error fetching recurring expenses for context: \(error)")
         }
 
+        // Add ETA section if user asked about travel times
+        if userAskedAboutETA {
+            context += "\n=== TRAVEL TIME / ETA CALCULATIONS ===\n"
+            
+            let locationService = LocationService.shared
+            let currentLocation = locationService.currentLocation
+            
+            // Search for locations (saved OR any location via MapKit/geocoding)
+            var originResult: LocationSearchResult?
+            var destinationResult: LocationSearchResult?
+            
+            if let originName = etaLocations.0 {
+                originResult = await searchAnyLocation(originName)
+                if let origin = originResult {
+                    let savedTag = origin.isSavedLocation ? " [Saved]" : " [Found via search]"
+                    context += "📍 Origin: \(origin.name)\(savedTag)\n"
+                    context += "   Address: \(origin.address)\n"
+                } else {
+                    context += "📍 Origin: \"\(originName)\" - ⚠️ LOCATION NOT FOUND\n"
+                    context += "   **ASK USER:** Please ask the user for the exact address or full name of '\(originName)'\n"
+                }
+            }
+            
+            if let destName = etaLocations.1 {
+                destinationResult = await searchAnyLocation(destName)
+                if let dest = destinationResult {
+                    let savedTag = dest.isSavedLocation ? " [Saved]" : " [Found via search]"
+                    context += "🎯 Destination: \(dest.name)\(savedTag)\n"
+                    context += "   Address: \(dest.address)\n"
+                } else {
+                    context += "🎯 Destination: \"\(destName)\" - ⚠️ LOCATION NOT FOUND\n"
+                    context += "   **ASK USER:** Please ask the user for the exact address or full name of '\(destName)'\n"
+                }
+            }
+            
+            // Calculate ETA if we have both locations
+            if let origin = originResult, let dest = destinationResult {
+                // Calculate from origin to destination
+                let originLocation = CLLocation(latitude: origin.coordinate.latitude, longitude: origin.coordinate.longitude)
+                do {
+                    let result = try await navigationService.calculateETA(
+                        from: originLocation,
+                        to: dest.coordinate
+                    )
+                    context += "\n🚗 **CALCULATED ETA (with current traffic):**\n"
+                    context += "   Drive time: \(result.durationText)\n"
+                    context += "   Distance: \(result.distanceText)\n"
+                    context += "   Route: \(origin.name) → \(dest.name)\n"
+                    
+                    // Store for UI display
+                    self.lastETALocationInfo = ETALocationInfo(
+                        originName: origin.name,
+                        originAddress: origin.address,
+                        originLatitude: origin.coordinate.latitude,
+                        originLongitude: origin.coordinate.longitude,
+                        destinationName: dest.name,
+                        destinationAddress: dest.address,
+                        destinationLatitude: dest.coordinate.latitude,
+                        destinationLongitude: dest.coordinate.longitude,
+                        driveTime: result.durationText,
+                        distance: result.distanceText
+                    )
+                } catch {
+                    context += "\n⚠️ Could not calculate ETA: \(error.localizedDescription)\n"
+                }
+            } else if let dest = destinationResult, let current = currentLocation, originResult == nil && etaLocations.0 == nil {
+                // No origin specified - calculate from current location to destination
+                do {
+                    let result = try await navigationService.calculateETA(
+                        from: current,
+                        to: dest.coordinate
+                    )
+                    context += "\n🚗 **CALCULATED ETA FROM CURRENT LOCATION (with current traffic):**\n"
+                    context += "   Drive time: \(result.durationText)\n"
+                    context += "   Distance: \(result.distanceText)\n"
+                    context += "   From: Current location (\(locationService.locationName))\n"
+                    context += "   To: \(dest.name)\n"
+                    
+                    // Store for UI display
+                    self.lastETALocationInfo = ETALocationInfo(
+                        originName: "Current Location",
+                        originAddress: locationService.locationName,
+                        originLatitude: current.coordinate.latitude,
+                        originLongitude: current.coordinate.longitude,
+                        destinationName: dest.name,
+                        destinationAddress: dest.address,
+                        destinationLatitude: dest.coordinate.latitude,
+                        destinationLongitude: dest.coordinate.longitude,
+                        driveTime: result.durationText,
+                        distance: result.distanceText
+                    )
+                } catch {
+                    context += "\n⚠️ Could not calculate ETA: \(error.localizedDescription)\n"
+                }
+            } else if originResult == nil || destinationResult == nil {
+                // One or both locations not found
+                context += "\n⚠️ **CANNOT CALCULATE ETA** - One or more locations could not be found.\n"
+                context += "**INSTRUCTION FOR LLM:** Ask the user to provide more details:\n"
+                if originResult == nil && etaLocations.0 != nil {
+                    context += "  - For '\(etaLocations.0!)': Ask for the full address or exact business name\n"
+                }
+                if destinationResult == nil && etaLocations.1 != nil {
+                    context += "  - For '\(etaLocations.1!)': Ask for the full address or exact business name\n"
+                }
+                context += "\nExample follow-up questions:\n"
+                context += "  - \"What's the full address of your airbnb?\"\n"
+                context += "  - \"Is that Lakeridge Ski Resort in Uxbridge, Ontario?\"\n"
+                context += "  - \"Could you give me the exact location name or address?\"\n"
+            }
+            
+            context += "\n"
+        }
+
         // Add locations section (always included)
         context += "\n=== SAVED LOCATIONS ===\n"
 
@@ -1124,6 +1979,24 @@ class SelineAppContext {
                             }
                             if let peakDay = stats.mostCommonDayOfWeek {
                                 context += "      Most visited day: \(peakDay)\n"
+                            }
+                        }
+                        
+                        // LOCATION MEMORIES - General reasons for visiting this location
+                        // Note: This is loaded asynchronously in MetadataBuilderService, so we need to fetch it here
+                        Task {
+                            do {
+                                let memories = try await LocationMemoryService.shared.getMemories(for: place.id)
+                                let purposeMemory = memories.first(where: { $0.memoryType == .purpose })
+                                let purchaseMemory = memories.first(where: { $0.memoryType == .purchase })
+                                
+                                if purposeMemory != nil || purchaseMemory != nil {
+                                    await MainActor.run {
+                                        // This will be included in next context build
+                                    }
+                                }
+                            } catch {
+                                print("⚠️ Failed to load location memories for context: \(error)")
                             }
                         }
 
@@ -1571,7 +2444,9 @@ class SelineAppContext {
                     lastVisited: stats?.lastVisitDate,
                     isFrequent: stats?.totalVisits != nil ? (stats!.totalVisits > 1) : nil,
                     peakVisitTimes: nil,
-                    mostVisitedDays: nil
+                    mostVisitedDays: nil,
+                    locationMemories: nil, // Location memories are loaded asynchronously in MetadataBuilderService
+                    recentVisitNotes: nil // Visit notes are loaded asynchronously in MetadataBuilderService
                 )
             },
             notes: [],
@@ -1836,13 +2711,22 @@ class SelineAppContext {
 
         var context = ""
 
-        // Current date context
+        // Current date context - CRITICAL: Use local timezone explicitly
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .full
         dateFormatter.timeStyle = .short
+        dateFormatter.timeZone = TimeZone.current // Use device's local timezone
+        
+        // Also create a day-of-week formatter for clarity
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "EEEE" // Full day name (Monday, Tuesday, etc.)
+        dayFormatter.timeZone = TimeZone.current
 
         context += "=== CURRENT DATE ===\n"
-        context += dateFormatter.string(from: currentDate) + "\n\n"
+        context += "Today is: \(dayFormatter.string(from: currentDate)), \(dateFormatter.string(from: currentDate))\n"
+        let utcOffset2 = TimeZone.current.secondsFromGMT() / 3600
+        let utcSign2 = utcOffset2 >= 0 ? "+" : ""
+        context += "Timezone: \(TimeZone.current.identifier) (UTC\(utcSign2)\(utcOffset2))\n\n"
 
         // Current location context
         let locationService = LocationService.shared
@@ -1925,14 +2809,15 @@ class SelineAppContext {
                         }
                     }
                 } else {
-                    // For non-recurring events, use the original date logic
+                    // For non-recurring events, use our custom date comparison helpers
                     let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
 
-                    if calendar.isDateInToday(eventDate) {
+                    // Use our custom date comparison helpers (based on currentDate, not system time)
+                    if isDateToday(eventDate) {
                         today.append(event)
-                    } else if calendar.isDateInTomorrow(eventDate) {
+                    } else if isDateTomorrow(eventDate) {
                         tomorrow.append(event)
-                    } else if calendar.isDate(eventDate, inSameDayAs: currentDate.addingTimeInterval(2*24*3600)) {
+                    } else if isDateThisWeek(eventDate) && !isDateToday(eventDate) && !isDateTomorrow(eventDate) {
                         thisWeek.append(event)
                     } else if eventDate > currentDate {
                         upcoming.append(event)
@@ -1949,8 +2834,11 @@ class SelineAppContext {
                     let categoryName = getCategoryName(for: event.tagId)
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
-                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
-                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    
+                    // Correctly check completion for recurring events on *this specific day*
+                    let isCompleted = event.isRecurring ? event.isCompletedOn(date: currentDate) : event.isCompleted
+                    let status = isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let recurringInfo = getRecurringInfo(event)
 
                     context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
 
@@ -1967,8 +2855,12 @@ class SelineAppContext {
                     let categoryName = getCategoryName(for: event.tagId)
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
-                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
-                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    
+                    // Correctly check completion for recurring events on *tomorrow*
+                    let tomorrowDate = Calendar.current.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+                    let isCompleted = event.isRecurring ? event.isCompletedOn(date: tomorrowDate) : event.isCompleted
+                    let status = isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let recurringInfo = getRecurringInfo(event)
 
                     context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
 
@@ -1986,7 +2878,7 @@ class SelineAppContext {
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
-                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    let recurringInfo = getRecurringInfo(event)
 
                     context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
                 }
@@ -2001,7 +2893,7 @@ class SelineAppContext {
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let dateStr = formatDate(event.targetDate ?? event.scheduledTime ?? currentDate)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
-                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    let recurringInfo = getRecurringInfo(event)
 
                     context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(dateStr)\n"
                 }
@@ -2010,54 +2902,50 @@ class SelineAppContext {
                 }
             }
 
-            // RECURRING EVENTS SUMMARY with monthly/yearly stats
+            // RECURRING EVENTS SUMMARY with next occurrence dates
             let recurringEvents = events.filter { $0.isRecurring }
             if !recurringEvents.isEmpty {
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateStyle = .medium
+                
                 context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
-                for event in recurringEvents {
-                    let currentMonth = calendar.dateComponents([.month, .year], from: currentDate)
-
-                    let thisMonthCompletions = event.completedDates.filter { date in
-                        let dateComponents = calendar.dateComponents([.month, .year], from: date)
-                        return dateComponents.month == currentMonth.month && dateComponents.year == currentMonth.year
-                    }
-
+                context += "**IMPORTANT: For recurring events (especially birthdays/anniversaries), use the 'Next occurrence' date below to answer 'when' questions.**\n"
+                
+                for event in recurringEvents.prefix(15) {
                     let categoryName = getCategoryName(for: event.tagId)
-                    context += "  • \(event.title) [\(categoryName)]\n"
-                    context += "    All-time: \(event.completedDates.count) completions\n"
-                    context += "    This month: \(thisMonthCompletions.count) completions\n"
-
-                    // Monthly breakdown
-                    let monthlyStats = Dictionary(grouping: event.completedDates) { date in
-                        let formatter = DateFormatter()
-                        formatter.dateFormat = "MMMM yyyy"
-                        return formatter.string(from: date)
-                    }
-
-                    if !monthlyStats.isEmpty {
-                        // Sort months by date (most recent first)
-                        let sortedMonths = monthlyStats.keys.sorted { month1, month2 in
-                            // Create dummy dates from the month strings for comparison
-                            let formatter = DateFormatter()
-                            formatter.dateFormat = "MMMM yyyy"
-                            let date1 = formatter.date(from: month1) ?? Date.distantPast
-                            let date2 = formatter.date(from: month2) ?? Date.distantPast
-                            return date1 > date2
-                        }
-
-                        context += "    Monthly stats:\n"
-                        for month in sortedMonths.prefix(6) {
-                            let count = monthlyStats[month]?.count ?? 0
-                            context += "      \(month): \(count) completions\n"
+                    
+                    // Frequency info
+                    var frequencyStr = "Unknown"
+                    if let freq = event.recurrenceFrequency {
+                        switch freq {
+                        case .daily: frequencyStr = "Daily"
+                        case .weekly: frequencyStr = "Weekly"
+                        case .biweekly: frequencyStr = "Bi-weekly"
+                        case .monthly: frequencyStr = "Monthly"
+                        case .yearly: frequencyStr = "Yearly"
+                        case .custom: frequencyStr = "Custom"
                         }
                     }
-
-                    if !thisMonthCompletions.isEmpty {
-                        let dateStrings = thisMonthCompletions.sorted().map { formatDate($0) }
-                        context += "    Dates completed this month: \(dateStrings.joined(separator: ", "))\n"
-                    } else {
-                        context += "    No completions this month\n"
+                    
+                    // Next occurrence - CRITICAL for answering "when is X" questions
+                    var nextOccurrenceStr = "Unknown"
+                    if let nextDate = getNextOccurrenceDate(for: event) {
+                        nextOccurrenceStr = dateFormatter.string(from: nextDate)
+                    } else if let targetDate = event.targetDate {
+                        nextOccurrenceStr = dateFormatter.string(from: targetDate) + " (original date)"
                     }
+                    
+                    // Original/anchor date - for reference
+                    let anchorDate = event.targetDate ?? event.createdAt
+                    let anchorStr = dateFormatter.string(from: anchorDate)
+                    
+                    context += "  • \(event.title)\n"
+                    context += "    Category: \(categoryName) | Frequency: \(frequencyStr)\n"
+                    context += "    Original date: \(anchorStr) | **Next occurrence: \(nextOccurrenceStr)**\n"
+                    context += "    Completions: \(event.completedDates.count) total\n"
+                }
+                if recurringEvents.count > 15 {
+                    context += "  ... and \(recurringEvents.count - 15) more recurring events\n"
                 }
             }
 
@@ -2740,6 +3628,37 @@ class SelineAppContext {
 
         return ""
     }
+    
+    /// Get detailed recurring info including frequency and next occurrence date
+    private func getRecurringInfo(_ event: TaskItem) -> String {
+        guard event.isRecurring, let frequency = event.recurrenceFrequency else { return "" }
+        
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        
+        var info = " [RECURRING"
+        
+        // Add frequency type
+        switch frequency {
+        case .daily: info += " - Daily"
+        case .weekly: info += " - Weekly"
+        case .biweekly: info += " - Bi-weekly"
+        case .monthly: info += " - Monthly"
+        case .yearly: info += " - Yearly"
+        case .custom: info += " - Custom"
+        }
+        
+        // Add next occurrence date - this is CRITICAL for the LLM to know when the event actually happens
+        if let nextDate = getNextOccurrenceDate(for: event) {
+            info += ", Next: \(dateFormatter.string(from: nextDate))"
+        } else if let targetDate = event.targetDate {
+            // Fall back to target date for the original/anchor date
+            info += ", Original date: \(dateFormatter.string(from: targetDate))"
+        }
+        
+        info += "]"
+        return info
+    }
 
     /// Check if a recurring event occurs on a specific date
     private func shouldEventOccurOn(_ event: TaskItem, date: Date) -> Bool {
@@ -2753,8 +3672,9 @@ class SelineAppContext {
             return false
         }
 
-        // Check if event has started
-        if date < anchorDate {
+        // For yearly events, don't check if date < anchorDate - we want to check if it occurs in ANY year
+        // For other frequencies, check if event has started
+        if frequency != .yearly && date < anchorDate {
             return false
         }
 
@@ -2805,16 +3725,37 @@ class SelineAppContext {
 
         let calendar = Calendar.current
         let anchorDate = event.targetDate ?? event.createdAt
-        let startDate = minimumDate > anchorDate ? minimumDate : anchorDate
+        let currentDate = Date()
+        let startDate = minimumDate > currentDate ? minimumDate : currentDate
 
         // Check if event has ended
         if let endDate = event.recurrenceEndDate, startDate > endDate {
             return nil
         }
 
-        // Search for the next occurrence in the next year
+        // For yearly events, optimize the search by checking the current year first
+        if frequency == .yearly {
+            let anchorMonth = calendar.component(.month, from: anchorDate)
+            let anchorDay = calendar.component(.day, from: anchorDate)
+            let currentYear = calendar.component(.year, from: startDate)
+            
+            // Try current year first
+            if let thisYearDate = calendar.date(from: DateComponents(year: currentYear, month: anchorMonth, day: anchorDay)),
+               thisYearDate >= startDate,
+               shouldEventOccurOn(event, date: thisYearDate) {
+                return thisYearDate
+            }
+            
+            // If current year has passed, try next year
+            if let nextYearDate = calendar.date(from: DateComponents(year: currentYear + 1, month: anchorMonth, day: anchorDay)),
+               shouldEventOccurOn(event, date: nextYearDate) {
+                return nextYearDate
+            }
+        }
+
+        // For other frequencies or if yearly optimization didn't work, search day by day
         var searchDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
-        let searchLimit = calendar.date(byAdding: .year, value: 1, to: startDate) ?? startDate
+        let searchLimit = calendar.date(byAdding: .year, value: 2, to: startDate) ?? startDate
 
         while searchDate <= searchLimit {
             if shouldEventOccurOn(event, date: searchDate) {
@@ -2848,24 +3789,283 @@ class SelineAppContext {
     }
 
     /// Find saved location by name (fuzzy match)
+    /// Also searches user notes and address for context clues like "airbnb"
+    /// Handles possessives ("Agithan's house"), folder names ("Homes"), and common phrases
     func findLocationByName(_ name: String) -> SavedPlace? {
-        let searchName = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        var searchName = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Remove common phrases that indicate it's a person's place
+        let housePhrases = ["'s house", "'s home", "'s place", "s house", "s home", "s place", " house", " home", " place", " apartment", " condo"]
+        var personName: String? = nil
+        
+        // Extract person's name from possessives like "Agithan's house"
+        for phrase in housePhrases {
+            if searchName.contains(phrase) {
+                personName = searchName.replacingOccurrences(of: phrase, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                break
+            }
+        }
+        
+        let searchWords = searchName.split(separator: " ").map { String($0) }.filter { $0.count > 2 }
+        
+        // If we extracted a person's name, search for it specifically
+        if let name = personName, !name.isEmpty {
+            print("📍 Extracted person name: '\(name)' from query '\(searchName)'")
+            
+            // Try exact match on person's name
+            if let exact = locations.first(where: { 
+                $0.displayName.lowercased() == name || 
+                $0.name.lowercased() == name ||
+                $0.displayName.lowercased().contains(name) ||
+                $0.name.lowercased().contains(name)
+            }) {
+                print("📍 Found by person name: \(exact.displayName)")
+                return exact
+            }
+            
+            // Check if location is in "Homes" or "Home" category (folder match)
+            if let inHomesFolder = locations.first(where: { place in
+                let isHomeCategory = place.category.lowercased().contains("home")
+                let matchesName = place.displayName.lowercased().contains(name) || 
+                                  place.name.lowercased().contains(name) ||
+                                  (place.userNotes?.lowercased().contains(name) ?? false)
+                return isHomeCategory && matchesName
+            }) {
+                print("📍 Found in Homes folder: \(inHomesFolder.displayName)")
+                return inHomesFolder
+            }
+            
+            // Check any location that contains the person's name
+            for place in locations {
+                let allText = "\(place.displayName) \(place.name) \(place.userNotes ?? "") \(place.address)".lowercased()
+                if allText.contains(name) {
+                    print("📍 Found by name in location text: \(place.displayName)")
+                    return place
+                }
+            }
+        }
+        
+        // Handle common named locations like "work", "home", "gym"
+        let commonLocations: [String: [String]] = [
+            "work": ["work", "office", "workplace", "job"],
+            "home": ["home", "house", "my place", "my house", "apartment", "condo", "residence"],
+            "gym": ["gym", "fitness", "workout"]
+        ]
+        
+        for (category, keywords) in commonLocations {
+            if keywords.contains(where: { searchName.contains($0) }) {
+                // Find location in matching category
+                if let match = locations.first(where: { 
+                    $0.category.lowercased().contains(category) ||
+                    $0.displayName.lowercased().contains(category) ||
+                    $0.name.lowercased().contains(category)
+                }) {
+                    print("📍 Found by common location type '\(category)': \(match.displayName)")
+                    return match
+                }
+            }
+        }
         
         // Try exact match first
         if let exact = locations.first(where: { 
             $0.displayName.lowercased() == searchName || 
             $0.name.lowercased() == searchName 
         }) {
+            print("📍 Found exact match: \(exact.displayName)")
             return exact
         }
         
-        // Try partial match
-        return locations.first(where: { 
+        // Try partial match on name (contains)
+        if let partial = locations.first(where: { 
             $0.displayName.lowercased().contains(searchName) || 
             $0.name.lowercased().contains(searchName) ||
             searchName.contains($0.displayName.lowercased()) ||
             searchName.contains($0.name.lowercased())
-        })
+        }) {
+            print("📍 Found partial match: \(partial.displayName)")
+            return partial
+        }
+        
+        // Try word-level matching - all significant search words should be in location name
+        if searchWords.count >= 1 {
+            if let wordMatch = locations.first(where: { place in
+                let locationWords = place.displayName.lowercased() + " " + place.name.lowercased()
+                return searchWords.allSatisfy { locationWords.contains($0) }
+            }) {
+                print("📍 Found word-level match: \(wordMatch.displayName)")
+                return wordMatch
+            }
+            
+            // Also try if ANY significant word matches (for single-word searches like "shawarma")
+            if let anyWordMatch = locations.first(where: { place in
+                let locationName = place.displayName.lowercased() + " " + place.name.lowercased()
+                return searchWords.contains { word in 
+                    locationName.contains(word) && word.count >= 4 // Only match on substantial words
+                }
+            }) {
+                print("📍 Found any-word match: \(anyWordMatch.displayName)")
+                return anyWordMatch
+            }
+        }
+        
+        // Try searching in user notes (e.g., user might have noted "airbnb" in a location's notes)
+        if let fromNotes = locations.first(where: { place in
+            if let notes = place.userNotes?.lowercased() {
+                return notes.contains(searchName)
+            }
+            return false
+        }) {
+            return fromNotes
+        }
+        
+        // Try searching in address
+        if let fromAddress = locations.first(where: { 
+            $0.address.lowercased().contains(searchName)
+        }) {
+            return fromAddress
+        }
+        
+        // Try category/folder match (e.g., "ski" might match a location in "Ski Resort" category)
+        if let fromCategory = locations.first(where: { 
+            $0.category.lowercased().contains(searchName) ||
+            searchName.contains($0.category.lowercased())
+        }) {
+            return fromCategory
+        }
+        
+        return nil
+    }
+    
+    /// Search for any location using Apple's geocoding/MapKit (not just saved locations)
+    /// Returns the first matching result with coordinates
+    func searchAnyLocation(_ searchQuery: String) async -> LocationSearchResult? {
+        // First check saved locations
+        if let saved = findLocationByName(searchQuery) {
+            return LocationSearchResult(
+                name: saved.displayName,
+                address: saved.address,
+                coordinate: CLLocationCoordinate2D(latitude: saved.latitude, longitude: saved.longitude),
+                isSavedLocation: true
+            )
+        }
+        
+
+        
+        // Smart Context Search: Check calendar events for location context
+        // e.g. "Airbnb" -> Matches event "Airbnb Stay" with location "2601 Apricot Ln"
+        var queryToSearch = searchQuery
+        let searchLower = searchQuery.lowercased()
+        
+        if let eventMatch = events.first(where: { 
+            let hasLocation = !($0.location ?? "").isEmpty
+            let matchesTitle = $0.title.lowercased().contains(searchLower)
+            let matchesLocation = ($0.location ?? "").lowercased().contains(searchLower)
+            return hasLocation && (matchesTitle || matchesLocation)
+        }) {
+            if let loc = eventMatch.location {
+                print("📍 Found context in event '\(eventMatch.title)': Using address '\(loc)' for search")
+                queryToSearch = loc
+            }
+        }
+        
+        // Use MapKit local search for any location
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = queryToSearch
+        
+        // Bias search towards user's current location if available
+        if let currentLocation = LocationService.shared.currentLocation {
+            request.region = MKCoordinateRegion(
+                center: currentLocation.coordinate,
+                latitudinalMeters: 200000,  // 200km radius - wider to capture GTA and surrounding areas
+                longitudinalMeters: 200000
+            )
+        } else {
+            // Default to Toronto area if no current location
+            request.region = MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 43.6532, longitude: -79.3832),
+                latitudinalMeters: 200000,
+                longitudinalMeters: 200000
+            )
+        }
+        
+        do {
+            let search = MKLocalSearch(request: request)
+            let response = try await search.start()
+            
+            if let firstResult = response.mapItems.first {
+                let placemark = firstResult.placemark
+                let name = firstResult.name ?? placemark.name ?? searchQuery
+                
+                // Build address string
+                var addressParts: [String] = []
+                if let street = placemark.thoroughfare {
+                    if let number = placemark.subThoroughfare {
+                        addressParts.append("\(number) \(street)")
+                    } else {
+                        addressParts.append(street)
+                    }
+                }
+                if let city = placemark.locality {
+                    addressParts.append(city)
+                }
+                if let state = placemark.administrativeArea {
+                    addressParts.append(state)
+                }
+                let address = addressParts.isEmpty ? "Location found" : addressParts.joined(separator: ", ")
+                
+                return LocationSearchResult(
+                    name: name,
+                    address: address,
+                    coordinate: placemark.coordinate,
+                    isSavedLocation: false
+                )
+            }
+        } catch {
+            print("⚠️ MapKit search failed for '\(searchQuery)': \(error)")
+        }
+        
+        // Fallback: Try CLGeocoder for address-based search
+        let geocoder = CLGeocoder()
+        do {
+            let placemarks = try await geocoder.geocodeAddressString(searchQuery)
+            if let first = placemarks.first, let location = first.location {
+                let name = first.name ?? searchQuery
+                var addressParts: [String] = []
+                if let street = first.thoroughfare {
+                    if let number = first.subThoroughfare {
+                        addressParts.append("\(number) \(street)")
+                    } else {
+                        addressParts.append(street)
+                    }
+                }
+                if let city = first.locality {
+                    addressParts.append(city)
+                }
+                if let state = first.administrativeArea {
+                    addressParts.append(state)
+                }
+                let address = addressParts.isEmpty ? "Location found" : addressParts.joined(separator: ", ")
+                
+                return LocationSearchResult(
+                    name: name,
+                    address: address,
+                    coordinate: location.coordinate,
+                    isSavedLocation: false
+                )
+            }
+        } catch {
+            print("⚠️ Geocoding failed for '\(searchQuery)': \(error)")
+        }
+        
+        return nil
+    }
+    
+    /// Result from location search (either saved or from MapKit/geocoder)
+    struct LocationSearchResult {
+        let name: String
+        let address: String
+        let coordinate: CLLocationCoordinate2D
+        let isSavedLocation: Bool
     }
 
     // MARK: - Multi-Source Search Helpers
@@ -2940,6 +4140,204 @@ class SelineAppContext {
             return Array(filtered.prefix(10).map { $0.note })
         } else {
             return Array(notes.sorted { $0.dateModified > $1.dateModified }.prefix(10))
+        }
+    }
+    
+    // MARK: - Relevant Content Discovery
+    
+    /// Extract smart search keywords from user query
+    /// Identifies company names, product types, and relevant search terms
+    private func extractSmartSearchKeywords(from query: String) -> [String] {
+        let lowerQuery = query.lowercased()
+        var keywords: [String] = []
+        
+        // Common company/brand names to detect (order confirmations, purchases, etc.)
+        let commonBrands = [
+            "amazon", "apple", "google", "microsoft", "netflix", "spotify", "uber", "lyft",
+            "doordash", "ubereats", "grubhub", "walmart", "target", "costco", "bestbuy",
+            "ikea", "wayfair", "ebay", "etsy", "shopify", "paypal", "venmo", "zelle",
+            "airbnb", "booking", "expedia", "delta", "united", "american airlines",
+            "southwest", "jetblue", "hilton", "marriott", "starbucks", "dunkin",
+            "mcdonalds", "chipotle", "dominos", "pizza hut", "subway"
+        ]
+        
+        // Check for brand mentions in query
+        for brand in commonBrands {
+            if lowerQuery.contains(brand) {
+                keywords.append(brand)
+            }
+        }
+        
+        // Common search intent keywords
+        let intentKeywords: [(pattern: String, searchTerms: [String])] = [
+            ("order", ["order confirmation", "your order", "shipped", "delivery"]),
+            ("purchase", ["receipt", "order", "purchase", "payment"]),
+            ("shipping", ["shipped", "tracking", "delivery", "package"]),
+            ("receipt", ["receipt", "order confirmation", "payment"]),
+            ("confirmation", ["confirmation", "confirmed", "booked"]),
+            ("subscription", ["subscription", "renewal", "billing"]),
+            ("flight", ["flight", "booking", "itinerary", "boarding"]),
+            ("hotel", ["reservation", "booking", "confirmation"]),
+            ("payment", ["payment", "receipt", "invoice", "charged"])
+        ]
+        
+        for (pattern, terms) in intentKeywords {
+            if lowerQuery.contains(pattern) {
+                // Add the most relevant search term for this intent
+                keywords.append(terms[0])
+            }
+        }
+        
+        // Remove duplicates and return
+        return Array(Set(keywords))
+    }
+    
+    /// Search Gmail API for relevant emails based on query keywords
+    private func searchGmailForRelevantEmails(keywords: [String]) async -> [Email] {
+        guard !keywords.isEmpty else { return [] }
+        
+        // Build Gmail search query - combine keywords with OR for broader search
+        // Also search for recent emails (within last 90 days)
+        let searchQuery = keywords.map { "(\($0))" }.joined(separator: " OR ")
+        
+        print("🔍 Smart email search query: '\(searchQuery)'")
+        
+        do {
+            // Use GmailAPIClient directly to search
+            let gmailClient = GmailAPIClient.shared
+            let emails = try await gmailClient.searchEmails(query: searchQuery, maxResults: 5)
+            print("📧 Found \(emails.count) emails via Gmail API search")
+            return emails
+        } catch {
+            print("⚠️ Gmail search error: \(error.localizedDescription)")
+            return []
+        }
+    }
+    
+    /// Find relevant emails, notes, events based on user query for inline display
+    private func findRelevantContent(forQuery query: String) async {
+        let searchTerms = query.lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { $0.count > 3 }  // Only use significant words
+        
+        guard !searchTerms.isEmpty else { return }
+        
+        var foundContent: [RelevantContentInfo] = []
+        
+        // SMART EMAIL SEARCH: Extract relevant keywords and search Gmail API
+        let smartKeywords = extractSmartSearchKeywords(from: query)
+        let lowerQuery = query.lowercased()
+        
+        // Helper function to check if email matches query keywords
+        let emailMatchesQuery: (Email) -> Bool = { email in
+            let emailText = "\(email.subject) \(email.sender.displayName) \(email.sender.email) \(email.snippet)".lowercased()
+            
+            // If we have smart keywords (like "amazon"), require at least one to match
+            if !smartKeywords.isEmpty {
+                let hasKeywordMatch = smartKeywords.contains { keyword in
+                    emailText.contains(keyword.lowercased())
+                }
+                if !hasKeywordMatch {
+                    return false // Reject emails that don't match any keyword
+                }
+            }
+            
+            // Also check if significant search terms match
+            let significantTerms = searchTerms.filter { $0.count > 3 }
+            if !significantTerms.isEmpty {
+                let matchCount = significantTerms.filter { emailText.contains($0) }.count
+                // Require at least 1 significant term match
+                return matchCount >= 1
+            }
+            
+            return true
+        }
+        
+        // First, search Gmail API with smart keywords (more accurate results)
+        if !smartKeywords.isEmpty {
+            let gmailResults = await searchGmailForRelevantEmails(keywords: smartKeywords)
+            
+            // Filter results to only include emails that actually match the query
+            let filteredResults = gmailResults.filter(emailMatchesQuery)
+            
+            for email in filteredResults.prefix(3) {
+                foundContent.append(.email(
+                    id: email.id,
+                    subject: email.subject,
+                    sender: email.sender.displayName,
+                    snippet: String(email.snippet.prefix(100)),
+                    date: email.timestamp
+                ))
+            }
+            
+            // Also add these emails to the cached emails for context building
+            // This ensures the LLM can reference the full email content
+            for email in filteredResults {
+                if !emails.contains(where: { $0.id == email.id }) {
+                    emails.append(email)
+                }
+            }
+        }
+        
+        // If no Gmail results, fall back to cached email search with strict filtering
+        if foundContent.filter({ $0.contentType == .email }).isEmpty {
+            for email in emails.prefix(100) {
+                // Only include emails that match the query
+                if emailMatchesQuery(email) {
+                    foundContent.append(.email(
+                        id: email.id,
+                        subject: email.subject,
+                        sender: email.sender.displayName,
+                        snippet: String(email.snippet.prefix(100)),
+                        date: email.timestamp
+                    ))
+                    
+                    // Limit to 3 emails max
+                    if foundContent.filter({ $0.contentType == .email }).count >= 3 {
+                        break
+                    }
+                }
+            }
+        }
+        
+        // Search events - look for matches in title and description  
+        for event in events {
+            let eventText = "\(event.title) \(event.description ?? "")".lowercased()
+            let matchCount = searchTerms.filter { eventText.contains($0) }.count
+            
+            if matchCount >= 1 {
+                let category = getCategoryName(for: event.tagId)
+                // Convert String id to UUID (or create new UUID if conversion fails)
+                let eventUUID = UUID(uuidString: event.id) ?? UUID()
+                foundContent.append(.event(
+                    id: eventUUID,
+                    title: event.title,
+                    date: event.targetDate ?? event.scheduledTime ?? Date(),
+                    category: category
+                ))
+                
+                // Limit to 3 events max
+                if foundContent.filter({ $0.contentType == .event }).count >= 3 {
+                    break
+                }
+            }
+        }
+        
+        if !foundContent.isEmpty {
+            self.lastRelevantContent = foundContent
+            print("🔍 Found \(foundContent.count) relevant content items for query")
+            for item in foundContent {
+                switch item.contentType {
+                case .email:
+                    print("   📧 Email: \(item.emailSubject ?? "")")
+                case .note:
+                    print("   📝 Note: \(item.noteTitle ?? "")")
+                case .event:
+                    print("   📅 Event: \(item.eventTitle ?? "")")
+                case .location:
+                    print("   📍 Location: \(item.locationName ?? "")")
+                }
+            }
         }
     }
 }

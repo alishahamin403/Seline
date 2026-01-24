@@ -3,15 +3,15 @@ import SwiftUI
 enum TabSelection: String, CaseIterable {
     case home = "house"
     case email = "envelope"
-    case events = "calendar"
+    case events = "sparkles"
     case notes = "square.and.pencil"
-    case maps = "location.circle"
+    case maps = "map"
 
     var title: String {
         switch self {
         case .home: return "Home"
         case .email: return "Email"
-        case .events: return "Events"
+        case .events: return "Chat"
         case .notes: return "Notes"
         case .maps: return "Maps"
         }
@@ -21,9 +21,9 @@ enum TabSelection: String, CaseIterable {
         switch self {
         case .home: return "house.fill"
         case .email: return "envelope.fill"
-        case .events: return "calendar"
+        case .events: return "sparkles"
         case .notes: return "square.and.pencil"
-        case .maps: return "location.circle.fill"
+        case .maps: return "map.fill"
         }
     }
 }
@@ -77,22 +77,20 @@ struct TabButton: View {
 
     var body: some View {
         Button(action: {
-            HapticManager.shared.tabChange()
-            withAnimation(.smoothTabTransition) {
-                selectedTab = tab
-            }
+            // Removed haptic feedback on tab change for smoother feel
+            // Switch tabs immediately without animation for snappy transitions
+            selectedTab = tab
         }) {
             Image(systemName: isSelected ? tab.filledIcon : tab.rawValue)
                 .font(FontManager.geist(size: .title1, weight: .medium))
                 .foregroundColor(
                     isSelected ? selectedColor : .gray
                 )
-                .scaleEffect(isSelected ? 1.15 : 1.0)
+                .scaleEffect(isSelected ? 1.1 : 1.0)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 4)
         }
         .buttonStyle(PlainButtonStyle())
-        .animation(.smoothTabTransition, value: isSelected)
     }
 }
 

@@ -43,7 +43,7 @@ struct EmailFolderListView: View {
                         VStack {
                             Spacer()
                             Image(systemName: "folder")
-                                .font(.system(size: 50))
+                                .font(FontManager.geist(size: 50, weight: .regular))
                                 .foregroundColor(.gray)
                             Text("No Folders Yet")
                                 .font(.headline)

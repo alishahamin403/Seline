@@ -43,7 +43,7 @@ struct IconPickerView: View {
     var body: some View {
         VStack(spacing: 16) {
             Text("Select Icon")
-                .font(.system(size: 16, weight: .semibold))
+                .font(FontManager.geist(size: 16, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             Button(action: {
@@ -51,12 +51,12 @@ struct IconPickerView: View {
             }) {
                 VStack(spacing: 6) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(FontManager.geist(size: 20, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(height: 32)
 
                     Text("None")
-                        .font(.system(size: 10, weight: .regular))
+                        .font(FontManager.geist(size: 10, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                         .lineLimit(1)
                 }
@@ -87,12 +87,12 @@ struct IconPickerView: View {
                     }) {
                         VStack(spacing: 6) {
                             Image(systemName: icon.name)
-                                .font(.system(size: 20, weight: .semibold))
+                                .font(FontManager.geist(size: 20, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .frame(height: 32)
 
                             Text(icon.label)
-                                .font(.system(size: 10, weight: .regular))
+                                .font(FontManager.geist(size: 10, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                 .lineLimit(1)
                         }

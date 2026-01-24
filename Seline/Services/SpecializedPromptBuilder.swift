@@ -121,10 +121,16 @@ class SpecializedPromptBuilder {
         let calendar = Calendar.current
         let currentMonth = calendar.component(.month, from: now)
         let currentYear = calendar.component(.year, from: now)
+        
+        // Create a formatter with explicit local timezone for clarity
+        let localFormatter = DateFormatter()
+        localFormatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm a"
+        localFormatter.timeZone = TimeZone.current
 
         prompt += """
 
-        TODAY'S DATE: \(formatter.string(from: now))
+        TODAY'S DATE: \(localFormatter.string(from: now))
+        TIMEZONE: \(TimeZone.current.identifier) (UTC\(TimeZone.current.secondsFromGMT() >= 0 ? "+" : "")\(TimeZone.current.secondsFromGMT() / 3600))
         CURRENT MONTH: \(currentMonth)/\(currentYear)
 
         TEMPORAL CONVERSIONS:

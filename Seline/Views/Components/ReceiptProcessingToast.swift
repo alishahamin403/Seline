@@ -25,11 +25,11 @@ struct ReceiptProcessingToast: View {
                             .scaleEffect(0.8)
                     case .success:
                         Image(systemName: "checkmark")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
                     case .error:
                         Image(systemName: "exclamationmark")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
                     case .idle:
                         EmptyView()
@@ -38,7 +38,7 @@ struct ReceiptProcessingToast: View {
                 
                 // Status text
                 Text(statusText)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
                 
                 Spacer()

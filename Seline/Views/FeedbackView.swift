@@ -18,14 +18,14 @@ struct FeedbackView: View {
                 // Header
                 HStack {
                     Text("Send Feedback")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(FontManager.geist(size: 18, weight: .semibold))
                         .foregroundColor(isDarkMode ? .white : .black)
 
                     Spacer()
 
                     Button(action: { dismiss() }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(.gray)
                     }
                 }
@@ -37,14 +37,14 @@ struct FeedbackView: View {
                     VStack(spacing: 16) {
                         // Description Text
                         Text("We'd love to hear from you! Tell us what you think about Seline.")
-                            .font(.system(size: 14, weight: .regular))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(.gray)
                             .lineLimit(nil)
 
                         // Feedback TextEditor
                         ZStack(alignment: .topLeading) {
                             TextEditor(text: $feedbackMessage)
-                                .font(.system(size: 16, weight: .regular))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white : .black)
                                 .scrollContentBackground(.hidden)
                                 .background(
@@ -62,7 +62,7 @@ struct FeedbackView: View {
 
                             if feedbackMessage.isEmpty {
                                 Text("Type your feedback here...")
-                                    .font(.system(size: 16, weight: .regular))
+                                    .font(FontManager.geist(size: 16, weight: .regular))
                                     .foregroundColor(.gray.opacity(0.5))
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 12)
@@ -74,7 +74,7 @@ struct FeedbackView: View {
                         HStack {
                             Spacer()
                             Text("\(feedbackMessage.count)/500")
-                                .font(.system(size: 12, weight: .regular))
+                                .font(FontManager.geist(size: 12, weight: .regular))
                                 .foregroundColor(.gray.opacity(0.6))
                         }
 
@@ -90,7 +90,7 @@ struct FeedbackView: View {
                 HStack(spacing: 12) {
                     Button(action: { dismiss() }) {
                         Text("Cancel")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(.gray)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
@@ -108,7 +108,7 @@ struct FeedbackView: View {
                                 .padding(.vertical, 12)
                         } else {
                             Text("Submit")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(FontManager.geist(size: 16, weight: .semibold))
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)

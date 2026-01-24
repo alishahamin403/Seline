@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// A section view for displaying emails grouped by day
 struct EmailDaySectionView: View {
@@ -59,7 +60,7 @@ struct EmailDaySectionView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 8)
     }
     
     // MARK: - Header Row
@@ -69,11 +70,11 @@ struct EmailDaySectionView: View {
             // Date badge
             VStack(spacing: 2) {
                 Text(section.dayLabel.uppercased())
-                    .font(.system(size: 10, weight: isToday ? .bold : .medium))
+                    .font(FontManager.geist(size: 10, systemWeight: isToday ? .bold : .medium))
                     .foregroundColor(isToday ? primaryTextColor : tertiaryTextColor)
                 
                 Text(section.dateNumber)
-                    .font(.system(size: 18, weight: isToday ? .bold : .medium))
+                    .font(FontManager.geist(size: 18, systemWeight: isToday ? .bold : .medium))
                     .foregroundColor(primaryTextColor)
             }
             .frame(width: 44)
@@ -81,7 +82,7 @@ struct EmailDaySectionView: View {
             // Day name and email count
             HStack(spacing: 8) {
                 Text(dayDisplayName)
-                    .font(.system(size: 15, weight: isToday ? .semibold : .medium))
+                    .font(FontManager.geist(size: 15, systemWeight: isToday ? .semibold : .medium))
                     .foregroundColor(primaryTextColor)
                 
                 if section.emailCount > 0 {
@@ -90,12 +91,12 @@ struct EmailDaySectionView: View {
                         .frame(width: 3, height: 3)
                     
                     Text("\(section.emailCount) email\(section.emailCount == 1 ? "" : "s")")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(secondaryTextColor)
                     
                     if section.unreadCount > 0 {
                         Text("•")
-                            .font(.system(size: 13))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(tertiaryTextColor)
                         
                         HStack(spacing: 4) {
@@ -103,13 +104,13 @@ struct EmailDaySectionView: View {
                                 .fill(Color.blue)
                                 .frame(width: 6, height: 6)
                             Text("\(section.unreadCount) new")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(Color.blue)
                         }
                     }
                 } else {
                     Text("No emails")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(tertiaryTextColor)
                 }
             }
@@ -149,11 +150,11 @@ struct EmailDaySectionView: View {
     private var emptyStateView: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle")
-                .font(.system(size: 14, weight: .medium))
+                .font(FontManager.geist(size: 14, weight: .medium))
                 .foregroundColor(Color.green.opacity(0.7))
             
             Text("All caught up!")
-                .font(.system(size: 13, weight: .medium))
+                .font(FontManager.geist(size: 13, weight: .medium))
                 .foregroundColor(secondaryTextColor)
         }
         .padding(.vertical, 12)
@@ -177,16 +178,7 @@ struct EmailRowWithSummary: View {
     @StateObject private var openAIService = DeepSeekService.shared
     @StateObject private var emailService = EmailService.shared
     
-    private var avatarColor: Color {
-        let colors: [Color] = [
-            Color(red: 0.2588, green: 0.5216, blue: 0.9569),
-            Color(red: 0.9176, green: 0.2627, blue: 0.2078),
-            Color(red: 0.9843, green: 0.7373, blue: 0.0157),
-            Color(red: 0.2039, green: 0.6588, blue: 0.3255),
-        ]
-        let hash = HashUtils.deterministicHash(email.sender.email)
-        return colors[abs(hash) % colors.count]
-    }
+
     
     private var unreadBackgroundColor: Color {
         colorScheme == .dark ? Color(red: 0.15, green: 0.2, blue: 0.35) : Color(red: 0.93, green: 0.95, blue: 1.0)
@@ -207,19 +199,19 @@ struct EmailRowWithSummary: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
                         Text(email.sender.shortDisplayName)
-                            .font(.system(size: 14, weight: email.isRead ? .medium : .semibold))
+                            .font(FontManager.geist(size: 13, systemWeight: email.isRead ? .medium : .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .lineLimit(1)
                         
                         Spacer()
                         
                         Text(email.formattedTime)
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 10, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     }
                     
                     Text(email.subject)
-                        .font(.system(size: 13, weight: email.isRead ? .regular : .medium))
+                        .font(FontManager.geist(size: 12, systemWeight: email.isRead ? .regular : .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
                         .lineLimit(1)
                 }
@@ -228,13 +220,13 @@ struct EmailRowWithSummary: View {
                 HStack(spacing: 8) {
                     if email.isImportant {
                         Image(systemName: "exclamationmark")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(FontManager.geist(size: 10, weight: .bold))
                             .foregroundColor(.orange)
                     }
                     
                     if email.hasAttachments {
                         Image(systemName: "paperclip")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(FontManager.geist(size: 10, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     }
                     
@@ -243,21 +235,34 @@ struct EmailRowWithSummary: View {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isSummaryExpanded.toggle()
                         }
-                        if isSummaryExpanded && aiSummary == nil && email.aiSummary == nil {
-                            Task {
-                                await loadAISummary()
+                        if isSummaryExpanded {
+                            // Mark as read when expanded
+                            if !email.isRead {
+                                Task {
+                                    // Wait slightly for expansion animation to settle
+                                    try? await Task.sleep(nanoseconds: 400_000_000)
+                                    await MainActor.run {
+                                        emailService.markAsRead(email)
+                                    }
+                                }
+                            }
+                            // Load AI summary if needed
+                            if aiSummary == nil && email.aiSummary == nil {
+                                Task {
+                                    await loadAISummary()
+                                }
                             }
                         }
                     }) {
                         Image(systemName: isSummaryExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(FontManager.geist(size: 12, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .frame(width: 24, height: 24)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
             }
-            .padding(12)
+            .padding(8)
             .contentShape(Rectangle())
             .onTapGesture {
                 onTap()
@@ -309,6 +314,10 @@ struct EmailRowWithSummary: View {
                                 }
                             }
                         }
+                        
+                        // Smart Reply Section
+                        SmartReplySection(email: email)
+                            .padding(.top, 8)
                     } else {
                         Text("Tap to generate summary")
                             .font(FontManager.geist(size: .small, weight: .regular))
@@ -320,20 +329,27 @@ struct EmailRowWithSummary: View {
                             }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
                 .fill(email.isRead ? readBackgroundColor : unreadBackgroundColor)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
+        .shadow(
+            color: colorScheme == .dark ? .black.opacity(0.2) : .gray.opacity(0.15),
+            radius: colorScheme == .dark ? 4 : 12,
+            x: 0,
+            y: colorScheme == .dark ? 2 : 4
         )
-        .shadow(color: colorScheme == .dark ? .clear : Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
+        .shadow(
+            color: colorScheme == .dark ? .black.opacity(0.1) : .gray.opacity(0.08),
+            radius: colorScheme == .dark ? 2 : 6,
+            x: 0,
+            y: colorScheme == .dark ? 1 : 2
+        )
         .contextMenu {
             if email.isRead {
                 Button {
@@ -391,12 +407,25 @@ struct EmailRowWithSummary: View {
     }
     
     private var fallbackAvatar: some View {
-        Circle()
-            .fill(avatarColor)
+        // Use neutral, muted colors for a professional look
+        let neutralColors: [Color] = [
+            Color(red: 0.45, green: 0.52, blue: 0.60),  // Slate blue-gray
+            Color(red: 0.55, green: 0.55, blue: 0.55),  // Neutral gray
+            Color(red: 0.40, green: 0.55, blue: 0.55),  // Muted teal
+            Color(red: 0.55, green: 0.50, blue: 0.45),  // Warm taupe
+            Color(red: 0.50, green: 0.45, blue: 0.55),  // Muted purple
+            Color(red: 0.45, green: 0.55, blue: 0.50),  // Sage green
+        ]
+        
+        let hash = abs(email.sender.email.hashValue)
+        let color = neutralColors[hash % neutralColors.count]
+        
+        return Circle()
+            .fill(color)
             .frame(width: 40, height: 40)
             .overlay(
                 Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
                     .foregroundColor(.white)
             )
     }
@@ -405,6 +434,16 @@ struct EmailRowWithSummary: View {
     
     private func fetchProfilePicture() async {
         guard !isLoadingProfilePicture else { return }
+        
+        // Check CacheManager first for instant display
+        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
+        if let cachedUrl: String = CacheManager.shared.get(forKey: cacheKey), !cachedUrl.isEmpty {
+            await MainActor.run {
+                self.profilePictureUrl = cachedUrl
+            }
+            return
+        }
+        
         isLoadingProfilePicture = true
         
         do {
@@ -475,6 +514,320 @@ struct EmailRowWithSummary: View {
         await MainActor.run {
             isLoadingSummary = false
         }
+    }
+}
+
+// MARK: - Smart Reply Section
+
+struct SmartReplySection: View {
+    let email: Email
+    @Environment(\.colorScheme) var colorScheme
+    @State private var replyPrompt: String = ""
+    @State private var generatedReply: String = ""
+    @State private var isGenerating: Bool = false
+    @State private var isSending: Bool = false
+    @State private var showConfirmation: Bool = false
+    @State private var showSentSuccess: Bool = false
+    @State private var errorMessage: String?
+    @StateObject private var openAIService = DeepSeekService.shared
+    @FocusState private var isInputFocused: Bool
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Divider
+            Rectangle()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+                .frame(height: 1)
+            
+            // Smart Reply Header
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                
+                Text("Smart Reply")
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+            }
+            
+            if !showConfirmation {
+                // Input State
+                VStack(alignment: .leading, spacing: 10) {
+                    // Text input
+                    HStack(spacing: 10) {
+                        TextField("Describe how you'd like to reply...", text: $replyPrompt)
+                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                            )
+                            .focused($isInputFocused)
+                        
+                        // Generate button
+                        Button(action: {
+                            Task {
+                                await generateSmartReply()
+                            }
+                        }) {
+                            if isGenerating {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .frame(width: 40, height: 40)
+                            } else {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(FontManager.geist(size: 28, weight: .medium))
+                                    .foregroundColor(replyPrompt.isEmpty ? 
+                                        (colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3)) :
+                                        (colorScheme == .dark ? .white : .black))
+                            }
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(replyPrompt.isEmpty || isGenerating)
+                    }
+                    
+                    // Quick suggestions
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            QuickReplyChip(text: "Sounds good", colorScheme: colorScheme) {
+                                replyPrompt = "Agree politely and confirm"
+                            }
+                            QuickReplyChip(text: "Need more info", colorScheme: colorScheme) {
+                                replyPrompt = "Ask for more details or clarification"
+                            }
+                            QuickReplyChip(text: "Decline politely", colorScheme: colorScheme) {
+                                replyPrompt = "Politely decline the request"
+                            }
+                            QuickReplyChip(text: "Schedule meeting", colorScheme: colorScheme) {
+                                replyPrompt = "Suggest scheduling a meeting to discuss"
+                            }
+                        }
+                    }
+                    
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(.red)
+                    }
+                }
+            } else if showSentSuccess {
+                // Success State
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(FontManager.geist(size: 20, weight: .medium))
+                        .foregroundColor(.green)
+                    
+                    Text("Reply sent successfully!")
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                .padding(.vertical, 8)
+                .onAppear {
+                    // Auto-dismiss after 2 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showSentSuccess = false
+                            showConfirmation = false
+                            generatedReply = ""
+                            replyPrompt = ""
+                        }
+                    }
+                }
+            } else {
+                // Confirmation State
+                VStack(alignment: .leading, spacing: 12) {
+                    // Generated reply preview
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Preview")
+                            .font(FontManager.geist(size: 11, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .textCase(.uppercase)
+                        
+                        Text(generatedReply)
+                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                            )
+                    }
+                    
+                    // Error message if any
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(.red)
+                    }
+                    
+                    // Action buttons
+                    HStack(spacing: 12) {
+                        // Cancel button
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showConfirmation = false
+                                generatedReply = ""
+                                errorMessage = nil
+                            }
+                        }) {
+                            Text("Edit")
+                                .font(FontManager.geist(size: 14, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(isSending)
+                        .opacity(isSending ? 0.5 : 1)
+                        
+                        // Send button
+                        Button(action: {
+                            Task {
+                                await sendReply()
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                if isSending {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                        .frame(width: 12, height: 12)
+                                } else {
+                                    Image(systemName: "paperplane.fill")
+                                        .font(FontManager.geist(size: 12, weight: .medium))
+                                }
+                                Text(isSending ? "Sending..." : "Send Reply")
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
+                            }
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(colorScheme == .dark ? .white : .black)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(isSending)
+                        
+                        Spacer()
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Generate Smart Reply
+    
+    private func generateSmartReply() async {
+        guard !replyPrompt.isEmpty else { return }
+        
+        isGenerating = true
+        errorMessage = nil
+        isInputFocused = false
+        
+        do {
+            let prompt = """
+            Generate a professional email reply based on the user's intent.
+            
+            ORIGINAL EMAIL:
+            From: \(email.sender.displayName) <\(email.sender.email)>
+            Subject: \(email.subject)
+            Content: \(email.body ?? email.snippet)
+            
+            USER'S INTENT FOR REPLY: \(replyPrompt)
+            
+            INSTRUCTIONS:
+            - Write a natural, professional email reply
+            - Keep it concise but friendly
+            - Don't include subject line or email headers
+            - Don't include placeholder text like [Your Name]
+            - Just write the email body text
+            - Match the tone of the original email (formal/casual)
+            """
+            
+            let response = try await openAIService.answerQuestion(
+                query: prompt,
+                conversationHistory: [],
+                operationType: "smart_reply"
+            )
+            
+            await MainActor.run {
+                generatedReply = response.trimmingCharacters(in: .whitespacesAndNewlines)
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showConfirmation = true
+                }
+                isGenerating = false
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to generate reply. Please try again."
+                isGenerating = false
+            }
+        }
+    }
+    
+    // MARK: - Send Reply
+    
+    private func sendReply() async {
+        guard !generatedReply.isEmpty else { return }
+        
+        isSending = true
+        errorMessage = nil
+        
+        do {
+            // Send via Gmail API
+            _ = try await GmailAPIClient.shared.replyToEmail(
+                originalEmail: email,
+                body: generatedReply,
+                htmlBody: nil,
+                replyAll: false
+            )
+            
+            await MainActor.run {
+                isSending = false
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showSentSuccess = true
+                }
+                HapticManager.shared.success()
+            }
+        } catch {
+            await MainActor.run {
+                isSending = false
+                errorMessage = "Failed to send reply. Please try again."
+                HapticManager.shared.error()
+            }
+            print("❌ Failed to send reply: \(error)")
+        }
+    }
+}
+
+// MARK: - Quick Reply Chip
+
+struct QuickReplyChip: View {
+    let text: String
+    let colorScheme: ColorScheme
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(FontManager.geist(size: 12, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

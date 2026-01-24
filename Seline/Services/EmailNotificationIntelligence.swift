@@ -274,10 +274,10 @@ enum NotificationPriority {
 
     var shouldNotify: Bool {
         switch self {
-        case .high, .medium:
+        case .high, .medium, .low:
+            // ALL emails should notify by default
+            // Users can choose to suppress specific categories in settings
             return true
-        case .low:
-            return false // Can be configured to still notify
         }
     }
 

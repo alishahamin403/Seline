@@ -22,14 +22,16 @@ struct HomePinnedNotesWidget: View {
             // Header
             HStack(spacing: 10) {
                 Text("Pinned Notes")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
                 
                 Spacer()
                 
                 // Add note button
                 Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 28, height: 28)
                     .background(
@@ -46,15 +48,15 @@ struct HomePinnedNotesWidget: View {
             if pinnedNotes.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "note.text")
-                        .font(.system(size: 24, weight: .light))
+                        .font(FontManager.geist(size: 24, weight: .light))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
                     
                     Text("No pinned notes yet")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     
                     Text("Pin important notes to see them here")
-                        .font(.system(size: 11, weight: .regular))
+                        .font(FontManager.geist(size: 11, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.35) : Color.black.opacity(0.35))
                 }
                 .frame(maxWidth: .infinity)
@@ -69,11 +71,11 @@ struct HomePinnedNotesWidget: View {
                     if pinnedCount > 5 {
                         HStack(spacing: 6) {
                             Text("+\(pinnedCount - 5) more pinned")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(FontManager.geist(size: 12, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .medium))
+                                .font(FontManager.geist(size: 10, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -96,23 +98,23 @@ struct HomePinnedNotesWidget: View {
             VStack(alignment: .leading, spacing: 2) {
                 // Title
                 Text(note.title.isEmpty ? "Untitled" : note.title)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(1)
                 
                 // Last updated and folder info (same as notes page)
                 HStack(spacing: 8) {
                     Text(note.formattedDateModified)
-                        .font(.system(size: 11, weight: .regular))
+                        .font(FontManager.geist(size: 11, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     
                     if let folderId = note.folderId {
                         Text("•")
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                         
                         Text(notesManager.getFolderName(for: folderId))
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                             .lineLimit(1)
                     }

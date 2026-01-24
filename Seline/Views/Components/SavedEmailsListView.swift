@@ -24,13 +24,13 @@ struct SavedEmailsListView: View {
                     VStack(spacing: 16) {
                         Spacer()
                         Image(systemName: "envelope")
-                            .font(.system(size: 50))
+                            .font(FontManager.geist(size: 50, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.gray)
                         Text("No Emails")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(FontManager.geist(size: 18, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         Text("Save emails to this folder")
-                            .font(.system(size: 14))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
                         Spacer()
                     }
@@ -43,7 +43,7 @@ struct SavedEmailsListView: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
                                     Text(email.senderName ?? email.senderEmail)
-                                        .font(.system(size: 15, weight: .semibold))
+                                        .font(FontManager.geist(size: 15, weight: .semibold))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                         .lineLimit(1)
 
@@ -54,13 +54,13 @@ struct SavedEmailsListView: View {
                                             .scaleEffect(0.8)
                                     } else {
                                         Text(email.formattedTime)
-                                            .font(.system(size: 12))
+                                            .font(FontManager.geist(size: 12, weight: .regular))
                                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
                                     }
                                 }
 
                                 Text(email.subject)
-                                    .font(.system(size: 14))
+                                    .font(FontManager.geist(size: 14, weight: .regular))
                                     .lineLimit(2)
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black)
                             }
@@ -243,7 +243,7 @@ struct SavedEmailDetailView: View {
                                         .font(FontManager.geist(size: .body, weight: .medium))
                                 } else {
                                     Image(systemName: "trash")
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
                                     Text("Delete Email")
                                         .font(FontManager.geist(size: .body, weight: .medium))
                                 }
@@ -313,7 +313,7 @@ struct SavedEmailDetailView: View {
                     Spacer()
 
                     Image(systemName: isEmailBodyExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(Color.shadcnMuted(colorScheme))
                 }
                 .padding(.horizontal, 20)
@@ -347,7 +347,7 @@ struct SavedEmailDetailView: View {
                         if bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             VStack(spacing: 12) {
                                 Image(systemName: "doc.text")
-                                    .font(.system(size: 40, weight: .light))
+                                    .font(FontManager.geist(size: 40, weight: .light))
                                     .foregroundColor(Color.shadcnMuted(colorScheme))
 
                                 Text("No content available")
@@ -392,7 +392,7 @@ struct SavedEmailDetailView: View {
                 ForEach(email.attachments) { attachment in
                     HStack(spacing: 12) {
                         Image(systemName: attachment.systemIcon)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(FontManager.geist(size: 16, weight: .medium))
                             .foregroundColor(Color.shadcnForeground(colorScheme))
                             .frame(width: 24)
 
@@ -410,7 +410,7 @@ struct SavedEmailDetailView: View {
                         Spacer()
 
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(FontManager.geist(size: 12, weight: .semibold))
                             .foregroundColor(Color.shadcnMuted(colorScheme))
                     }
                     .padding(12)
@@ -453,7 +453,8 @@ struct SavedEmailDetailView: View {
             labels: [],
             aiSummary: email.aiSummary,
             gmailMessageId: email.gmailMessageId,
-            gmailThreadId: nil
+            gmailThreadId: nil,
+            unsubscribeInfo: nil
         )
     }
 }

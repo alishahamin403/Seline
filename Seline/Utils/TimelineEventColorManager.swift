@@ -62,6 +62,15 @@ struct TimelineEventColorManager {
             return colors[normalizedIndex].needsLightText
         }
     }
+    
+    // MARK: - Dedicated Colors for Built-in Categories
+    // These colors are used for Personal and Synced events to ensure consistency
+    
+    /// Personal events use a distinct green color (same everywhere in the app)
+    static let personalColor = Color(red: 0.2039, green: 0.6588, blue: 0.3255)
+    
+    /// Synced calendar events use a distinct blue color
+    static let syncedColor = Color(red: 0.3, green: 0.5, blue: 0.8)
 
     enum FilterType: Equatable, Hashable {
         case personal
@@ -112,12 +121,12 @@ struct TimelineEventColorManager {
     ) -> Color {
         switch filterType {
         case .personal:
-            // Personal events use neutral color index 0
-            return NeutralColorPalette.colorForIndex(0, colorScheme: colorScheme)
+            // Personal events always use the dedicated green color
+            return personalColor
 
         case .personalSync:
-            // Calendar synced events use neutral color index 1
-            return NeutralColorPalette.colorForIndex(1, colorScheme: colorScheme)
+            // Calendar synced events use the dedicated blue color
+            return syncedColor
 
         case .tag(let tagId):
             // Tag-based events use the tag's colorIndex from the neutral palette
@@ -171,12 +180,12 @@ struct TimelineEventColorManager {
             return Color(red: 0.2, green: 0.2, blue: 0.2)
 
         case .personal:
-            // Personal uses neutral color index 0
-            return NeutralColorPalette.colorForIndex(0, colorScheme: colorScheme)
+            // Personal uses the dedicated green color
+            return personalColor
 
         case .personalSync:
-            // Sync uses neutral color index 1
-            return NeutralColorPalette.colorForIndex(1, colorScheme: colorScheme)
+            // Sync uses the dedicated blue color
+            return syncedColor
 
         case .tag(let tagId):
             // Tags use the tag's actual colorIndex from neutral palette

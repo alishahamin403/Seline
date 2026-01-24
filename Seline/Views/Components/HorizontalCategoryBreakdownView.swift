@@ -38,22 +38,22 @@ struct HorizontalCategoryCard: View {
                         .frame(width: 44, height: 44)
                     
                     Text(getCategoryIcon(category.category))
-                        .font(.system(size: 20))
+                        .font(FontManager.geist(size: 20, weight: .regular))
                 }
 
                 // Category info
                 VStack(spacing: 2) {
                     Text(category.category)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(FontManager.geist(size: 11, weight: .semibold))
                         .foregroundColor(.primary)
 
                     Text(category.formattedAmount)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
                     Text(category.formattedPercentage)
-                        .font(.system(size: 10, weight: .regular))
+                        .font(FontManager.geist(size: 10, weight: .regular))
                         .foregroundColor(.gray)
                 }
             }

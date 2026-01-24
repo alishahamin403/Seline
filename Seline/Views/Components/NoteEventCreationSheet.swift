@@ -29,11 +29,11 @@ struct NoteEventCreationSheet: View {
                 // Title
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Event Title")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(FontManager.geist(size: 13, weight: .medium))
                         .foregroundColor(.secondary)
                     
                     TextField("Event name", text: $eventTitle)
-                        .font(.system(size: 16))
+                        .font(FontManager.geist(size: 16, weight: .regular))
                         .padding(12)
                         .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
                         .cornerRadius(10)
@@ -42,7 +42,7 @@ struct NoteEventCreationSheet: View {
                 // Start Date & Time
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Date & Time")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(FontManager.geist(size: 13, weight: .medium))
                         .foregroundColor(.secondary)
                     
                     DatePicker("", selection: $eventDate, displayedComponents: [.date, .hourAndMinute])
@@ -60,7 +60,7 @@ struct NoteEventCreationSheet: View {
                 if hasEndTime {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("End Time")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(FontManager.geist(size: 13, weight: .medium))
                             .foregroundColor(.secondary)
                         
                         DatePicker("", selection: $eventEndDate, displayedComponents: [.date, .hourAndMinute])
@@ -75,12 +75,12 @@ struct NoteEventCreationSheet: View {
                 // Description
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Description (Optional)")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(FontManager.geist(size: 13, weight: .medium))
                         .foregroundColor(.secondary)
                     
                     TextField("Add details...", text: $eventDescription, axis: .vertical)
                         .lineLimit(3...5)
-                        .font(.system(size: 14))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .padding(12)
                         .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
                         .cornerRadius(10)
@@ -98,7 +98,7 @@ struct NoteEventCreationSheet: View {
                         Image(systemName: "calendar.badge.plus")
                         Text("Create Event")
                     }
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)

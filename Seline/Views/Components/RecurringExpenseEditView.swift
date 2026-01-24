@@ -46,7 +46,7 @@ struct RecurringExpenseEditView: View {
         HStack(spacing: 12) {
             Button(action: { dismiss() }) {
                 Text("Cancel")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(FontManager.geist(size: 15, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -58,7 +58,7 @@ struct RecurringExpenseEditView: View {
 
             Button(action: saveChanges) {
                 Text(isSaving ? "Saving..." : "Save Changes")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(FontManager.geist(size: 15, weight: .semibold))
                     .foregroundColor(isFormValid && !isSaving ? (colorScheme == .dark ? Color.black : Color.white) : Color.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -79,7 +79,7 @@ struct RecurringExpenseEditView: View {
                         // BASIC INFO Section
                         VStack(alignment: .leading, spacing: 16) {
                             Text("Basic Info")
-                                .font(.system(size: 16, weight: .bold))
+                                .font(FontManager.geist(size: 16, weight: .bold))
                                 .padding(.horizontal, 4)
 
                             // Title
@@ -110,7 +110,7 @@ struct RecurringExpenseEditView: View {
                         // DETAILS Section
                         VStack(alignment: .leading, spacing: 16) {
                             Text("Details")
-                                .font(.system(size: 16, weight: .bold))
+                                .font(FontManager.geist(size: 16, weight: .bold))
                                 .padding(.horizontal, 4)
 
                             // Amount
@@ -174,7 +174,7 @@ struct RecurringExpenseEditView: View {
                         // ADVANCED Section
                         VStack(alignment: .leading, spacing: 16) {
                             Text("Advanced")
-                                .font(.system(size: 16, weight: .bold))
+                                .font(FontManager.geist(size: 16, weight: .bold))
                                 .padding(.horizontal, 4)
 
                             // End Date Toggle

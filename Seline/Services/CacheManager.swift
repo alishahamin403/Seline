@@ -155,6 +155,22 @@ extension CacheManager {
         static func locationStats(_ placeId: String) -> String {
             return "cache.location.stats.\(placeId)"
         }
+        
+        // Maps/Locations
+        static let topLocations = "cache.maps.topLocations"
+        static let recentlyVisitedPlaces = "cache.maps.recentlyVisited"
+        static let allLocationsRanking = "cache.maps.allLocationsRanking"
+        static let weeklyVisitsSummary = "cache.maps.weeklyVisitsSummary"
+        static func categoryPlaces(_ category: String) -> String {
+            return "cache.maps.category.\(category)"
+        }
+        
+        static let upcomingNoteReminders = "cache.notes.reminders.upcoming"
+        
+        // Email Profile Pictures
+        static func emailProfilePicture(_ email: String) -> String {
+            return "cache.email.profilePicture.\(email.lowercased())"
+        }
     }
 
     /// Standard TTL values (in seconds)

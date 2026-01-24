@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
     @StateObject private var geofenceManager = GeofenceManager.shared
+    @StateObject private var elevenLabsService = ElevenLabsTTSService.shared
 
     // Computed property to get current theme state
     private var isDarkMode: Bool {
@@ -36,12 +37,12 @@ struct SettingsView: View {
                         // Notifications Toggle
                         HStack(spacing: 16) {
                             Image(systemName: "bell")
-                                .font(.system(size: 16, weight: .regular))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .frame(width: 24)
 
                             Text("Notifications")
-                                .font(.system(size: 16, weight: .regular))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white : .black)
 
                             Spacer()
@@ -76,12 +77,12 @@ struct SettingsView: View {
                         // Appearance Menu
                         HStack(spacing: 16) {
                             Image(systemName: "eye")
-                                .font(.system(size: 16, weight: .regular))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .frame(width: 24)
 
                             Text("Appearance")
-                                .font(.system(size: 16, weight: .regular))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white : .black)
 
                             Spacer()
@@ -103,11 +104,11 @@ struct SettingsView: View {
                             } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: themeManager.selectedTheme.icon)
-                                        .font(.system(size: 14))
+                                        .font(FontManager.geist(size: 14, weight: .regular))
                                     Text(themeManager.selectedTheme.displayName)
-                                        .font(.system(size: 14))
+                                        .font(FontManager.geist(size: 14, weight: .regular))
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 14, weight: .semibold))
+                                        .font(FontManager.geist(size: 14, weight: .semibold))
                                 }
                                 .foregroundColor(.gray.opacity(0.5))
                             }
@@ -121,12 +122,12 @@ struct SettingsView: View {
                         // Location Tracking Toggle
                         HStack(spacing: 16) {
                             Image(systemName: "location.fill")
-                                .font(.system(size: 16, weight: .regular))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .frame(width: 24)
 
                             Text("Location Tracking")
-                                .font(.system(size: 16, weight: .regular))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white : .black)
 
                             Spacer()
@@ -145,18 +146,18 @@ struct SettingsView: View {
                         Button(action: { showingFeedback = true }) {
                             HStack(spacing: 16) {
                                 Image(systemName: "bubble.right")
-                                    .font(.system(size: 16, weight: .regular))
+                                    .font(FontManager.geist(size: 16, weight: .regular))
                                     .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                     .frame(width: 24)
 
                                 Text("Send Feedback")
-                                    .font(.system(size: 16, weight: .regular))
+                                    .font(FontManager.geist(size: 16, weight: .regular))
                                     .foregroundColor(isDarkMode ? .white : .black)
 
                                 Spacer()
 
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
                                     .foregroundColor(.gray.opacity(0.3))
                             }
                             .padding(.horizontal, 20)
@@ -184,14 +185,14 @@ struct SettingsView: View {
                 // Header
                 HStack {
                     Text("Location Tracking")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(FontManager.geist(size: 18, weight: .semibold))
                         .foregroundColor(isDarkMode ? .white : .black)
 
                     Spacer()
 
                     Button(action: { showingLocationInfo = false }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20))
+                            .font(FontManager.geist(size: 20, weight: .regular))
                             .foregroundColor(.gray)
                     }
                 }
@@ -203,16 +204,16 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 8) {
                                 Image(systemName: "location.fill")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
                                     .foregroundColor(.blue)
 
                                 Text("How It Works")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
                                     .foregroundColor(isDarkMode ? .white : .black)
                             }
 
                             Text("When enabled, Seline uses geofencing to automatically detect when you arrive and leave saved locations. This works in the background even when the app is closed.")
-                                .font(.system(size: 14))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .lineSpacing(2)
                         }
@@ -223,16 +224,16 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 8) {
                                 Image(systemName: "battery.100")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
                                     .foregroundColor(.green)
 
                                 Text("Battery Usage")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
                                     .foregroundColor(isDarkMode ? .white : .black)
                             }
 
                             Text("Geofencing is battery-efficient and only triggers when you cross location boundaries. Typical battery impact is minimal (1-2% per day).")
-                                .font(.system(size: 14))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .lineSpacing(2)
                         }
@@ -243,16 +244,16 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 8) {
                                 Image(systemName: "lock.shield.fill")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
                                     .foregroundColor(.orange)
 
                                 Text("Privacy")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
                                     .foregroundColor(isDarkMode ? .white : .black)
                             }
 
                             Text("Your location data stays private and is only stored on your device and in your secure Supabase database. We never share or sell your location data.")
-                                .font(.system(size: 14))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .lineSpacing(2)
                         }
@@ -303,7 +304,7 @@ struct SettingsView: View {
                                             return "U"
                                         }
                                     }())
-                                        .font(.system(size: 20, weight: .semibold))
+                                        .font(FontManager.geist(size: 20, weight: .semibold))
                                         .foregroundColor(isDarkMode ? .black : .white)
                                 )
                         @unknown default:
@@ -317,7 +318,7 @@ struct SettingsView: View {
                                             return "U"
                                         }
                                     }())
-                                        .font(.system(size: 20, weight: .semibold))
+                                        .font(FontManager.geist(size: 20, weight: .semibold))
                                         .foregroundColor(isDarkMode ? .black : .white)
                                 )
                         }
@@ -333,7 +334,7 @@ struct SettingsView: View {
                             .fill(isDarkMode ? Color.white : Color.black)
                             .overlay(
                                 Text(String(firstChar).uppercased())
-                                    .font(.system(size: 20, weight: .semibold))
+                                    .font(FontManager.geist(size: 20, weight: .semibold))
                                     .foregroundColor(isDarkMode ? .black : .white)
                             )
                             .frame(width: 60, height: 60)
@@ -342,7 +343,7 @@ struct SettingsView: View {
                             .fill(isDarkMode ? Color.white : Color.black)
                             .overlay(
                                 Text("U")
-                                    .font(.system(size: 20, weight: .semibold))
+                                    .font(FontManager.geist(size: 20, weight: .semibold))
                                     .foregroundColor(isDarkMode ? .black : .white)
                             )
                             .frame(width: 60, height: 60)
@@ -353,12 +354,12 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 // User Name
                 Text(authManager.currentUser?.profile?.name ?? "User")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
                     .foregroundColor(isDarkMode ? .white : .black)
 
                 // User Email
                 Text(authManager.currentUser?.profile?.email ?? "No email")
-                    .font(.system(size: 13))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(.gray)
             }
 
@@ -390,18 +391,18 @@ struct SettingsView: View {
         }) {
             HStack(spacing: 16) {
                 Image(systemName: "arrow.uturn.left")
-                    .font(.system(size: 16, weight: .regular))
+                    .font(FontManager.geist(size: 16, weight: .regular))
                     .foregroundColor(.red)
                     .frame(width: 24)
 
                 Text("Logout")
-                    .font(.system(size: 16, weight: .regular))
+                    .font(FontManager.geist(size: 16, weight: .regular))
                     .foregroundColor(.red)
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(.red.opacity(0.3))
             }
             .padding(.horizontal, 20)

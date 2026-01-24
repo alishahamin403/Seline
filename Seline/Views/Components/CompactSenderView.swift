@@ -6,7 +6,7 @@ struct CompactSenderView: View {
     @State private var profilePictureUrl: String?
     @Environment(\.colorScheme) var colorScheme
 
-    // Avatar background color - Google brand colors
+    // Avatar background color - Google brand colors (consistent with EmailRow)
     private var avatarColor: Color {
         let colors: [Color] = [
             Color(red: 0.2588, green: 0.5216, blue: 0.9569),  // Google Blue #4285F4
@@ -90,7 +90,7 @@ struct CompactSenderView: View {
 
                     // Expand/collapse indicator
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                         .animation(.easeInOut(duration: 0.3), value: isExpanded)
@@ -162,6 +162,15 @@ struct CompactSenderView: View {
     // MARK: - Private Methods
 
     private func fetchProfilePicture() async {
+        // Check CacheManager first for instant display
+        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
+        if let cachedUrl: String = CacheManager.shared.get(forKey: cacheKey), !cachedUrl.isEmpty {
+            await MainActor.run {
+                self.profilePictureUrl = cachedUrl
+            }
+            return
+        }
+        
         do {
             if let picUrl = try await GmailAPIClient.shared.fetchProfilePicture(for: email.sender.email) {
                 await MainActor.run {
@@ -170,7 +179,6 @@ struct CompactSenderView: View {
             }
         } catch {
             // Silently fail - will show initials fallback
-            print("Failed to fetch profile picture for \(email.sender.email): \(error)")
         }
     }
 }

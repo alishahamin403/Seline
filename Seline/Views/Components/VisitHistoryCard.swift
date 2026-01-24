@@ -42,7 +42,7 @@ struct VisitHistoryCard: View {
             }) {
                 HStack(alignment: .center, spacing: 12) {
                     Text("Visit History")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(FontManager.geist(size: 15, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                     
                     Spacer()
@@ -52,12 +52,12 @@ struct VisitHistoryCard: View {
                             .scaleEffect(0.8)
                     } else if visitHistory.isEmpty {
                         Text("No visits")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(FontManager.geist(size: 13, weight: .medium))
                             .foregroundColor(.secondary)
                     }
                     
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
@@ -145,7 +145,10 @@ struct VisitHistoryRow: View {
     let colorScheme: ColorScheme
     let onDelete: () -> Void
 
+    @StateObject private var peopleManager = PeopleManager.shared
     @State private var showDeleteConfirmation = false
+    @State private var connectedPeople: [Person] = []
+    @State private var showPeoplePicker = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -153,19 +156,19 @@ struct VisitHistoryRow: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(visit.entryTime.formatted(date: .abbreviated, time: .shortened))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(FontManager.geist(size: 13, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     HStack(spacing: 8) {
                         Text(visit.dayOfWeek)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                         Text("•")
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
 
                         Text(visit.timeOfDay)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
                 }
@@ -175,21 +178,21 @@ struct VisitHistoryRow: View {
                 if let duration = visit.durationMinutes {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(formatDuration(duration))
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(FontManager.geist(size: 13, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
 
                         Text("Duration")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
                 } else {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("Active")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(FontManager.geist(size: 13, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                         Text("In Progress")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     }
                 }
@@ -198,11 +201,11 @@ struct VisitHistoryRow: View {
             // Time Range and Delete Button
             HStack(spacing: 8) {
                 Image(systemName: "clock.fill")
-                    .font(.system(size: 10))
+                    .font(FontManager.geist(size: 10, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
 
                 Text(formatTimeRange(entry: visit.entryTime, exit: visit.exitTime))
-                    .font(.system(size: 12))
+                    .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                 Spacer()
@@ -211,11 +214,98 @@ struct VisitHistoryRow: View {
                     showDeleteConfirmation = true
                 }) {
                     Image(systemName: "trash.fill")
-                        .font(.system(size: 11))
+                        .font(FontManager.geist(size: 11, weight: .regular))
                         .foregroundColor(.red)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
+            
+            // Connected People Section
+            if !connectedPeople.isEmpty || !peopleManager.people.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.2.fill")
+                        .font(FontManager.geist(size: 10, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    
+                    if connectedPeople.isEmpty {
+                        Button(action: {
+                            showPeoplePicker = true
+                        }) {
+                            Text("Add people")
+                                .font(FontManager.geist(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    } else {
+                        // Show connected people avatars
+                        HStack(spacing: -6) {
+                            ForEach(connectedPeople.prefix(4)) { person in
+                                Circle()
+                                    .fill(colorForRelationship(person.relationship))
+                                    .frame(width: 20, height: 20)
+                                    .overlay(
+                                        Text(person.initials)
+                                            .font(FontManager.geist(size: 8, weight: .semibold))
+                                            .foregroundColor(.white)
+                                    )
+                                    .overlay(
+                                        Circle()
+                                            .stroke(colorScheme == .dark ? Color.black : Color.white, lineWidth: 1.5)
+                                    )
+                            }
+                            
+                            if connectedPeople.count > 4 {
+                                Circle()
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
+                                    .frame(width: 20, height: 20)
+                                    .overlay(
+                                        Text("+\(connectedPeople.count - 4)")
+                                            .font(FontManager.geist(size: 8, weight: .semibold))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    )
+                                    .overlay(
+                                        Circle()
+                                            .stroke(colorScheme == .dark ? Color.black : Color.white, lineWidth: 1.5)
+                                    )
+                            }
+                        }
+                        
+                        Button(action: {
+                            showPeoplePicker = true
+                        }) {
+                            Text("Edit")
+                                .font(FontManager.geist(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(.leading, 4)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.top, 6)
+            }
+        }
+        .task {
+            await loadConnectedPeople()
+        }
+        .sheet(isPresented: $showPeoplePicker) {
+            VisitPeoplePickerSheet(
+                visit: visit,
+                colorScheme: colorScheme,
+                onSave: { personIds in
+                    Task {
+                        await peopleManager.linkPeopleToVisit(
+                            visitId: visit.id,
+                            personIds: personIds
+                        )
+                        await loadConnectedPeople()
+                    }
+                },
+                onDismiss: {
+                    showPeoplePicker = false
+                }
+            )
         }
         .confirmationDialog("Delete Visit", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
@@ -260,6 +350,28 @@ struct VisitHistoryRow: View {
             return "Started at \(entryStr)"
         }
     }
+    
+    private func loadConnectedPeople() async {
+        let people = await peopleManager.getPeopleForVisit(visitId: visit.id)
+        await MainActor.run {
+            connectedPeople = people
+        }
+    }
+    
+    private func colorForRelationship(_ relationship: RelationshipType) -> Color {
+        switch relationship {
+        case .family: return Color(red: 0.8, green: 0.3, blue: 0.3)
+        case .partner: return Color(red: 0.9, green: 0.3, blue: 0.5)
+        case .closeFriend: return Color(red: 0.3, green: 0.6, blue: 0.9)
+        case .friend: return Color(red: 0.3, green: 0.7, blue: 0.5)
+        case .coworker: return Color(red: 0.5, green: 0.5, blue: 0.7)
+        case .classmate: return Color(red: 0.6, green: 0.4, blue: 0.7)
+        case .neighbor: return Color(red: 0.5, green: 0.6, blue: 0.5)
+        case .mentor: return Color(red: 0.8, green: 0.6, blue: 0.2)
+        case .acquaintance: return Color(red: 0.5, green: 0.5, blue: 0.5)
+        case .other: return Color(red: 0.4, green: 0.4, blue: 0.4)
+        }
+    }
 }
 
 // MARK: - Day Visit Group
@@ -279,22 +391,22 @@ struct DayVisitGroup: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(visitDay.formattedDate)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(FontManager.geist(size: 13, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
 
                         Text(visitDay.dayOfWeek)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
 
                     Spacer()
 
                     Text("\(visitDay.visits.count) visit\(visitDay.visits.count == 1 ? "" : "s")")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(FontManager.geist(size: 12, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
@@ -336,6 +448,190 @@ struct DayVisitGroup: View {
                         .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02))
                 )
                 .padding(.top, 6)
+            }
+        }
+    }
+}
+
+// MARK: - Visit People Picker Sheet
+
+struct VisitPeoplePickerSheet: View {
+    let visit: LocationVisitRecord
+    let colorScheme: ColorScheme
+    let onSave: ([UUID]) async -> Void
+    let onDismiss: () -> Void
+    
+    @StateObject private var peopleManager = PeopleManager.shared
+    @State private var selectedPeopleIds: Set<UUID> = []
+    @State private var isLoadingPeople: Bool = true
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Visit info header
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(visit.entryTime.formatted(date: .abbreviated, time: .shortened))
+                            .font(FontManager.geist(size: 18, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                        
+                        if let duration = visit.durationMinutes {
+                            Text("Duration: \(formatDuration(duration))")
+                                .font(FontManager.geist(size: 14, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    // Question
+                    Text("Who was with you?")
+                        .font(FontManager.geist(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .padding(.top, 8)
+                    
+                    // People selection
+                    if isLoadingPeople {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Loading...")
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                        }
+                        .padding(.top, 8)
+                    } else if peopleManager.people.isEmpty {
+                        Text("No people added yet. Add people from the People tab.")
+                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                            .padding(.top, 8)
+                    } else {
+                        // Horizontal scrollable people chips
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(peopleManager.people.sorted { $0.name < $1.name }) { person in
+                                    personChip(person: person)
+                                }
+                            }
+                        }
+                        .padding(.top, 8)
+                        
+                        // Show selected people count
+                        if !selectedPeopleIds.isEmpty {
+                            Text("\(selectedPeopleIds.count) \(selectedPeopleIds.count == 1 ? "person" : "people") selected")
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                                .padding(.top, 4)
+                        }
+                    }
+                    
+                    Spacer().frame(height: 40)
+                }
+                .padding(20)
+            }
+            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+            .navigationTitle("Connect People")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        onDismiss()
+                    }
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        Task {
+                            await onSave(Array(selectedPeopleIds))
+                            onDismiss()
+                        }
+                    }
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+            }
+            .task {
+                // Load existing people connections for this visit
+                let existingPeople = await peopleManager.getPeopleForVisit(visitId: visit.id)
+                await MainActor.run {
+                    selectedPeopleIds = Set(existingPeople.map { $0.id })
+                    isLoadingPeople = false
+                }
+            }
+        }
+    }
+    
+    private func personChip(person: Person) -> some View {
+        let isSelected = selectedPeopleIds.contains(person.id)
+        
+        return Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if isSelected {
+                    selectedPeopleIds.remove(person.id)
+                } else {
+                    selectedPeopleIds.insert(person.id)
+                }
+            }
+        }) {
+            HStack(spacing: 6) {
+                // Avatar or initials
+                Circle()
+                    .fill(colorForRelationship(person.relationship))
+                    .frame(width: 24, height: 24)
+                    .overlay(
+                        Text(person.initials)
+                            .font(FontManager.geist(size: 10, weight: .semibold))
+                            .foregroundColor(.white)
+                    )
+                
+                Text(person.displayName)
+                    .font(FontManager.geist(size: 13, weight: .medium))
+                
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(FontManager.geist(size: 10, weight: .bold))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(isSelected ?
+                          (colorScheme == .dark ? Color.white : Color.black) :
+                          (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)))
+            )
+            .foregroundColor(isSelected ?
+                           (colorScheme == .dark ? Color.black : Color.white) :
+                           (colorScheme == .dark ? Color.white : Color.black))
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private func colorForRelationship(_ relationship: RelationshipType) -> Color {
+        switch relationship {
+        case .family: return Color(red: 0.8, green: 0.3, blue: 0.3)
+        case .partner: return Color(red: 0.9, green: 0.3, blue: 0.5)
+        case .closeFriend: return Color(red: 0.3, green: 0.6, blue: 0.9)
+        case .friend: return Color(red: 0.3, green: 0.7, blue: 0.5)
+        case .coworker: return Color(red: 0.5, green: 0.5, blue: 0.7)
+        case .classmate: return Color(red: 0.6, green: 0.4, blue: 0.7)
+        case .neighbor: return Color(red: 0.5, green: 0.6, blue: 0.5)
+        case .mentor: return Color(red: 0.8, green: 0.6, blue: 0.2)
+        case .acquaintance: return Color(red: 0.5, green: 0.5, blue: 0.5)
+        case .other: return Color(red: 0.4, green: 0.4, blue: 0.4)
+        }
+    }
+    
+    private func formatDuration(_ minutes: Int) -> String {
+        if minutes < 60 {
+            return "\(minutes)m"
+        } else {
+            let hours = minutes / 60
+            let remainingMinutes = minutes % 60
+            if remainingMinutes == 0 {
+                return "\(hours)h"
+            } else {
+                return "\(hours)h \(remainingMinutes)m"
             }
         }
     }

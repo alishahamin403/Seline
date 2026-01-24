@@ -80,7 +80,7 @@ struct ReusableEmailHeaderView: View {
                         .frame(width: 40, height: 40)
 
                     Image(systemName: "envelope.fill")
-                        .font(.system(size: 16))
+                        .font(FontManager.geist(size: 16, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
 
@@ -88,7 +88,7 @@ struct ReusableEmailHeaderView: View {
                     // Subject
                     if let subject = subject {
                         Text(subject)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(FontManager.geist(size: 15, weight: .semibold))
                             .foregroundColor(Color.shadcnForeground(colorScheme))
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
@@ -98,11 +98,11 @@ struct ReusableEmailHeaderView: View {
                     if let senderName = senderName {
                         HStack(spacing: 4) {
                             Text("From:")
-                                .font(.system(size: 13, weight: .regular))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(Color.gray)
 
                             Text(senderName)
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ?
                                     Color.white.opacity(0.7) :
                                     Color.black.opacity(0.6))
@@ -117,7 +117,7 @@ struct ReusableEmailHeaderView: View {
             // Email snippet (collapsible)
             if showSnippet, let snippet = snippet, !snippet.isEmpty {
                 Text(snippet)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(Color.gray)
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
@@ -128,11 +128,11 @@ struct ReusableEmailHeaderView: View {
             if showTimestamp, let timestamp = timestamp {
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
-                        .font(.system(size: 11))
+                        .font(FontManager.geist(size: 11, weight: .regular))
                         .foregroundColor(Color.gray)
 
                     Text(formatEmailTimestamp(timestamp))
-                        .font(.system(size: 12, weight: .regular))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(Color.gray)
                 }
                 .padding(.top, 4)

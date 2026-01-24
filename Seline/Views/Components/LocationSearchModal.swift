@@ -23,11 +23,11 @@ struct LocationSearchModal: View {
                 // Search Bar
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(.gray)
 
                     TextField("Search for a place...", text: $searchText)
-                        .font(.system(size: 14, weight: .regular))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .focused($isSearchFieldFocused)
                         .onChange(of: searchText) { newValue in
@@ -63,7 +63,7 @@ struct LocationSearchModal: View {
                             searchResults = []
                         }) {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(FontManager.geist(size: 14, weight: .medium))
                                 .foregroundColor(.gray)
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -83,22 +83,22 @@ struct LocationSearchModal: View {
                     VStack(spacing: 8) {
                         ProgressView()
                         Text("Searching...")
-                            .font(.system(size: 14))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if !searchText.isEmpty && searchResults.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 48))
+                            .font(FontManager.geist(size: 48, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
 
                         Text("No results found")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(FontManager.geist(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                         Text("Try searching for a different location")
-                            .font(.system(size: 14))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -106,15 +106,15 @@ struct LocationSearchModal: View {
                 } else if searchResults.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "mappin.and.ellipse")
-                            .font(.system(size: 48, weight: .light))
+                            .font(FontManager.geist(size: 48, weight: .light))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
                         Text("Search for places")
-                            .font(.system(size: 18, weight: .medium))
+                            .font(FontManager.geist(size: 18, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                         Text("Find restaurants, cafes, stores, and more")
-                            .font(.system(size: 14, weight: .regular))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                             .multilineTextAlignment(.center)
                     }
@@ -194,7 +194,7 @@ struct LocationSearchModal: View {
                             .tint(colorScheme == .dark ? Color.white : Color.black)
 
                         Text("Loading location details...")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(FontManager.geist(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -212,9 +212,34 @@ struct LocationSearchModal: View {
         }
 
         do {
-            let results = try await mapsService.searchPlaces(query: query)
+            var results = try await mapsService.searchPlaces(query: query)
 
             await MainActor.run {
+                // Sort results by distance (closest to furthest)
+                // Prioritize nearby locations (within 50km) over far away ones
+                if let currentLocation = locationService.currentLocation {
+                    results = results.sorted { result1, result2 in
+                        let location1 = CLLocation(latitude: result1.latitude, longitude: result1.longitude)
+                        let location2 = CLLocation(latitude: result2.latitude, longitude: result2.longitude)
+                        
+                        let distance1 = currentLocation.distance(from: location1)
+                        let distance2 = currentLocation.distance(from: location2)
+                        
+                        // Prioritize nearby locations (within 50km) - they come first
+                        let isNearby1 = distance1 <= 50000 // 50km in meters
+                        let isNearby2 = distance2 <= 50000
+                        
+                        if isNearby1 && !isNearby2 {
+                            return true // result1 is nearby, result2 is not
+                        } else if !isNearby1 && isNearby2 {
+                            return false // result2 is nearby, result1 is not
+                        } else {
+                            // Both are nearby or both are far - sort by distance
+                            return distance1 < distance2
+                        }
+                    }
+                }
+                
                 searchResults = results
                 isSearching = false
 

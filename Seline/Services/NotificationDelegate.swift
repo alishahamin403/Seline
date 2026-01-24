@@ -36,6 +36,22 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         case "mark_read":
             // Mark emails as read (this would require additional implementation)
             print("Mark as read action tapped")
+            
+        case "SAVE_LOCATION":
+            // Save the suggested location
+            print("📍 Save location action tapped from notification")
+            Task { @MainActor in
+                if let _ = await LocationSuggestionService.shared.saveSuggestedLocation() {
+                    print("✅ Location saved from notification action")
+                }
+            }
+            
+        case "DISMISS_SUGGESTION":
+            // Dismiss the location suggestion
+            print("📍 Dismiss location suggestion from notification")
+            Task { @MainActor in
+                LocationSuggestionService.shared.dismissSuggestion()
+            }
 
         case UNNotificationDefaultActionIdentifier:
             // Default tap - navigate based on notification type
@@ -65,6 +81,11 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             } else {
                 print("⚠️ Top story notification has no URL")
             }
+            
+        case "location_suggestion":
+            // Tapping the notification opens the app - the home page will show the suggestion card
+            // The LocationSuggestionService already has the pending suggestion
+            print("📍 Location suggestion notification tapped - showing home page with suggestion card")
 
         default:
             print("Unknown notification type: \(notificationType ?? "nil")")

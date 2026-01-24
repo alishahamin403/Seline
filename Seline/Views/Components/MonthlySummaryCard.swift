@@ -33,7 +33,7 @@ struct MonthlySummaryCard: View {
                                 .frame(width: 40, height: 40)
 
                             Image(systemName: "calendar.badge.checkmark")
-                                .font(.system(size: 18, weight: .medium))
+                                .font(FontManager.geist(size: 18, weight: .medium))
                                 .foregroundColor(
                                     colorScheme == .dark ?
                                         Color.white :
@@ -43,11 +43,11 @@ struct MonthlySummaryCard: View {
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Monthly Summary")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(FontManager.geist(size: 16, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
                             Text(monthFormatter.string(from: selectedMonth))
-                                .font(.system(size: 13, weight: .regular))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
 
@@ -60,7 +60,7 @@ struct MonthlySummaryCard: View {
                             }
                         }) {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(FontManager.geist(size: 14, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -68,7 +68,7 @@ struct MonthlySummaryCard: View {
 
                         // Chevron
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 14, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                             .rotationEffect(.degrees(isExpanded ? 180 : 0))
                     }
@@ -92,7 +92,7 @@ struct MonthlySummaryCard: View {
                             .padding(.vertical, 20)
                         } else if !aiInsights.isEmpty {
                             Text(aiInsights)
-                                .font(.system(size: 14, weight: .regular))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.8))
                                 .lineSpacing(4)
                         }
@@ -102,7 +102,7 @@ struct MonthlySummaryCard: View {
                             // Main completion number
                             VStack(spacing: 4) {
                                 Text("\(summary.completedEvents)")
-                                    .font(.system(size: 48, weight: .bold))
+                                    .font(FontManager.geist(size: 48, weight: .bold))
                                     .foregroundColor(
                                         colorScheme == .dark ?
                                             Color.white :
@@ -110,7 +110,7 @@ struct MonthlySummaryCard: View {
                                     )
 
                                 Text("Events Completed")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(FontManager.geist(size: 14, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                             }
                             .frame(maxWidth: .infinity)
@@ -149,7 +149,7 @@ struct MonthlySummaryCard: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     HStack {
                                         Text("Top Completed Events")
-                                            .font(.system(size: 13, weight: .semibold))
+                                            .font(FontManager.geist(size: 13, weight: .semibold))
                                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7))
 
                                         Spacer()
@@ -159,12 +159,12 @@ struct MonthlySummaryCard: View {
                                         ForEach(Array(summary.topCompletedEvents.prefix(3).enumerated()), id: \.offset) { index, eventName in
                                             HStack(spacing: 8) {
                                                 Text("\(index + 1).")
-                                                    .font(.system(size: 12, weight: .semibold))
+                                                    .font(FontManager.geist(size: 12, weight: .semibold))
                                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
                                                     .frame(width: 20, alignment: .leading)
 
                                                 Text(eventName)
-                                                    .font(.system(size: 13, weight: .regular))
+                                                    .font(FontManager.geist(size: 13, weight: .regular))
                                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7))
                                                     .lineLimit(1)
                                             }
@@ -249,11 +249,11 @@ struct StatBadge: View {
     var body: some View {
         HStack(spacing: 6) {
             Text("\(value)")
-                .font(.system(size: 14, weight: .semibold))
+                .font(FontManager.geist(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             Text(label)
-                .font(.system(size: 12, weight: .regular))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
         }
         .padding(.horizontal, 12)

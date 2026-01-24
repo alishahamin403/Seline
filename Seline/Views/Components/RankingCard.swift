@@ -11,7 +11,12 @@ struct RankingCard: View {
     @State private var tempCuisine: String? = nil
     @State private var showCuisineMenu = false
 
-    let cuisineOptions = ["Italian", "Chinese", "Japanese", "Thai", "Indian", "Mexican", "French", "Korean", "Shawarma", "Jamaican", "Pizza", "Burger", "Cafe", "Other"]
+    let cuisineOptions = [
+        "American", "BBQ", "Burger", "Cafe", "Caribbean", "Chinese", "French", 
+        "Greek", "Indian", "Italian", "Jamaican", "Japanese", "Korean", 
+        "Mediterranean", "Mexican", "Middle Eastern", "Pakistani", "Pizza", 
+        "Seafood", "Thai", "Turkish", "Vegetarian", "Vietnamese", "Other"
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,14 +50,14 @@ struct RankingCard: View {
                 // Restaurant info
                 VStack(alignment: .leading, spacing: 4) {
                     Text(restaurant.displayName)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(FontManager.geist(size: 13, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     
                     // Address
                     Text(restaurant.formattedAddress)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                         .lineLimit(1)
                     
@@ -65,10 +70,10 @@ struct RankingCard: View {
                         if let googleRating = restaurant.rating {
                             HStack(spacing: 2) {
                                 Image(systemName: "star.fill")
-                                    .font(.system(size: 9))
+                                    .font(FontManager.geist(size: 9, weight: .regular))
                                     .foregroundColor(.orange)
                                 Text(String(format: "%.1f", googleRating))
-                                    .font(.system(size: 10, weight: .medium))
+                                    .font(FontManager.geist(size: 10, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             }
                         }
@@ -91,7 +96,7 @@ struct RankingCard: View {
         Group {
             if let userRating = restaurant.userRating {
                 Text("\(userRating)/10")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(FontManager.geist(size: 14, weight: .bold))
                     .foregroundColor(ratingColor(userRating))
                     .frame(width: 50)
                     .padding(.vertical, 8)
@@ -103,11 +108,11 @@ struct RankingCard: View {
             } else {
                 VStack(spacing: 3) {
                     Image(systemName: "star")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
                     
                     Text("Rate")
-                        .font(.system(size: 9, weight: .medium))
+                        .font(FontManager.geist(size: 9, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
                 }
                 .frame(width: 44)
@@ -122,7 +127,7 @@ struct RankingCard: View {
     
     private func cuisineTag(_ cuisine: String) -> some View {
         Text(cuisine)
-            .font(.system(size: 9, weight: .medium))
+            .font(FontManager.geist(size: 9, weight: .medium))
             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
@@ -157,16 +162,16 @@ struct RankingCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Your Rating")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 Spacer()
                 if let rating = tempRating {
                     Text("\(rating)/10")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(FontManager.geist(size: 14, weight: .bold))
                         .foregroundColor(ratingColor(rating))
                 } else {
                     Text("Tap to rate")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                 }
             }
@@ -181,7 +186,7 @@ struct RankingCard: View {
                         }
                     }) {
                         Image(systemName: (tempRating ?? 0) >= number ? "star.fill" : "star")
-                            .font(.system(size: (tempRating ?? 0) >= number ? 14 : 12, weight: .medium))
+                            .font(FontManager.geist(size: (tempRating ?? 0) >= number ? 14 : 12, systemWeight: .medium))
                             .foregroundColor((tempRating ?? 0) >= number ? ratingColor(tempRating ?? 0) : (colorScheme == .dark ? .white.opacity(0.2) : .black.opacity(0.2)))
                             .frame(maxWidth: .infinity)
                             .frame(height: 32)
@@ -201,7 +206,7 @@ struct RankingCard: View {
     private var cuisineFieldView: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Cuisine")
-                .font(.system(size: 14, weight: .medium))
+                .font(FontManager.geist(size: 14, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             Menu {
@@ -231,13 +236,13 @@ struct RankingCard: View {
             } label: {
                 HStack {
                     Text(tempCuisine ?? "Select Cuisine")
-                        .font(.system(size: 14, weight: tempCuisine == nil ? .regular : .medium))
+                        .font(FontManager.geist(size: 14, systemWeight: tempCuisine == nil ? .regular : .medium))
                         .foregroundColor(tempCuisine == nil ? (colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)) : (colorScheme == .dark ? .white : .black))
 
                     Spacer()
 
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                 }
                 .padding(.horizontal, 14)
@@ -253,20 +258,20 @@ struct RankingCard: View {
     private var notesFieldView: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Notes")
-                .font(.system(size: 14, weight: .medium))
+                .font(FontManager.geist(size: 14, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ZStack(alignment: .topLeading) {
                 if tempNotes.isEmpty {
                     Text("Add your personal notes here...")
-                        .font(.system(size: 14))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                 }
                 
                 TextEditor(text: $tempNotes)
-                    .font(.system(size: 14))
+                    .font(FontManager.geist(size: 14, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 8)
@@ -289,7 +294,7 @@ struct RankingCard: View {
             }
         }) {
             Text("Save Changes")
-                .font(.system(size: 14, weight: .semibold))
+                .font(FontManager.geist(size: 14, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)

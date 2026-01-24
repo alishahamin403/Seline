@@ -63,9 +63,11 @@ struct EmailListByDay: View {
         .refreshable {
             await onRefresh()
         }
-        .sheet(item: $selectedEmail) { email in
-            EmailDetailView(email: email)
-                .presentationBg()
+        .fullScreenCover(item: $selectedEmail) { email in
+            NavigationView {
+                EmailDetailView(email: email)
+            }
+            .presentationBg()
         }
     }
     
@@ -117,15 +119,15 @@ struct EmailListByDay: View {
     private var emptyStateView: some View {
         VStack(spacing: 16) {
             Image(systemName: "tray")
-                .font(.system(size: 48, weight: .light))
+                .font(FontManager.geist(size: 48, weight: .light))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
             
             Text("No Emails in the Last 7 Days")
-                .font(.system(size: 17, weight: .semibold))
+                .font(FontManager.geist(size: 17, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
             
             Text("Pull down to refresh")
-                .font(.system(size: 14, weight: .regular))
+                .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
         }
         .padding(.top, 60)

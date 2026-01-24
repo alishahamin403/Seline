@@ -294,11 +294,11 @@ struct AllLocationsEditView: View {
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: locationIcons[index])
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(FontManager.geist(size: 14, weight: .semibold))
                                 .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .black : .white) : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
 
                             Text(locationNames[index])
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(FontManager.geist(size: 13, weight: .semibold))
                                 .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .black : .white) : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
                                 .lineLimit(1)
                         }
@@ -334,7 +334,7 @@ struct AllLocationsEditView: View {
                         // Custom Name Input
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Location Name")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(FontManager.geist(size: 13, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                 .padding(.horizontal, 16)
 
@@ -345,7 +345,7 @@ struct AllLocationsEditView: View {
                                         setCurrentName(newValue)
                                     }
                                 ))
-                                .font(.system(size: 15, weight: .regular))
+                                .font(FontManager.geist(size: 15, weight: .regular))
 
                                 if !getCurrentName().isEmpty {
                                     Button(action: {
@@ -353,7 +353,7 @@ struct AllLocationsEditView: View {
                                         setCurrentName("")
                                     }) {
                                         Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 16))
+                                            .font(FontManager.geist(size: 16, weight: .regular))
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                     }
                                 }
@@ -368,7 +368,7 @@ struct AllLocationsEditView: View {
                         // Icon Selector - Horizontal
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Icon")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(FontManager.geist(size: 13, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                 .padding(.horizontal, 16)
 
@@ -380,7 +380,7 @@ struct AllLocationsEditView: View {
                                             setCurrentIcon(locationType.icon)
                                         }) {
                                             Image(systemName: locationType.icon)
-                                                .font(.system(size: 18, weight: .semibold))
+                                                .font(FontManager.geist(size: 18, weight: .semibold))
                                                 .foregroundColor(getCurrentIcon() == locationType.icon ? (colorScheme == .dark ? .black : .white) : (colorScheme == .dark ? .white : .black))
                                                 .frame(width: 52, height: 52)
                                                 .background(
@@ -399,11 +399,11 @@ struct AllLocationsEditView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text("Address")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(FontManager.geist(size: 13, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
 
                                 Text("Required")
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(FontManager.geist(size: 11, weight: .medium))
                                     .foregroundColor(.red.opacity(0.7))
                             }
                             .padding(.horizontal, 16)
@@ -412,7 +412,7 @@ struct AllLocationsEditView: View {
                                 // Search Field
                                 HStack(spacing: 8) {
                                     Image(systemName: "magnifyingglass")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(FontManager.geist(size: 14, weight: .medium))
                                         .foregroundColor(.gray)
 
                                     TextField("Search and select an address", text: .init(
@@ -421,7 +421,7 @@ struct AllLocationsEditView: View {
                                             setCurrentSearchQuery(newValue)
                                         }
                                     ))
-                                    .font(.system(size: 14, weight: .regular))
+                                    .font(FontManager.geist(size: 14, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .onSubmit {
                                         performSearch(index: selectedLocationIndex + 1)
@@ -434,7 +434,7 @@ struct AllLocationsEditView: View {
                                             setCurrentSearchResults([])
                                         }) {
                                             Image(systemName: "xmark.circle.fill")
-                                                .font(.system(size: 14, weight: .medium))
+                                                .font(FontManager.geist(size: 14, weight: .medium))
                                                 .foregroundColor(.gray)
                                         }
                                         .buttonStyle(PlainButtonStyle())
@@ -455,11 +455,11 @@ struct AllLocationsEditView: View {
                                     HStack(spacing: 10) {
                                         Image(systemName: "mappin.circle.fill")
                                             .foregroundColor(.green)
-                                            .font(.system(size: 16))
+                                            .font(FontManager.geist(size: 16, weight: .regular))
 
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(getCurrentAddress())
-                                                .font(.system(size: 14, weight: .semibold))
+                                                .font(FontManager.geist(size: 14, weight: .semibold))
                                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                                 .lineLimit(2)
                                         }
@@ -485,18 +485,18 @@ struct AllLocationsEditView: View {
                                         }) {
                                             HStack(spacing: 12) {
                                                 Image(systemName: "mappin")
-                                                    .font(.system(size: 14, weight: .semibold))
+                                                    .font(FontManager.geist(size: 14, weight: .semibold))
                                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                                     .frame(width: 24)
 
                                                 VStack(alignment: .leading, spacing: 3) {
                                                     Text(result.name)
-                                                        .font(.system(size: 14, weight: .semibold))
+                                                        .font(FontManager.geist(size: 14, weight: .semibold))
                                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                                         .lineLimit(1)
 
                                                     Text(result.address)
-                                                        .font(.system(size: 12, weight: .regular))
+                                                        .font(FontManager.geist(size: 12, weight: .regular))
                                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                                         .lineLimit(1)
                                                 }
@@ -543,7 +543,7 @@ struct AllLocationsEditView: View {
                                 .tint(colorScheme == .dark ? .black : .white)
                         } else {
                             Text("Save")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(FontManager.geist(size: 16, weight: .semibold))
                         }
                         Spacer()
                     }

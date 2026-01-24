@@ -167,9 +167,9 @@ struct EventStatsView: View {
             } label: {
                 HStack(spacing: 6) {
                     Text(yearFormatter.string(from: selectedMonth))
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(FontManager.geist(size: 12, weight: .semibold))
                 }
                 .foregroundColor(.white)
                 .padding(.horizontal, 14)
@@ -193,9 +193,9 @@ struct EventStatsView: View {
             } label: {
                 HStack(spacing: 6) {
                     Text(shortMonthFormatter.string(from: selectedMonth))
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(FontManager.geist(size: 12, weight: .semibold))
                 }
                 .foregroundColor(.white)
                 .padding(.horizontal, 14)
@@ -221,11 +221,11 @@ struct EventStatsView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Events Completed")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
 
                         Text(monthFormatter.string(from: selectedMonth))
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
 
@@ -236,11 +236,11 @@ struct EventStatsView: View {
                 HStack(spacing: 24) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(breakdown.completed)")
-                            .font(.system(size: 36, weight: .bold))
+                            .font(FontManager.geist(size: 36, weight: .bold))
                             .foregroundColor(.green)
 
                         Text("Completed")
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
 
@@ -249,11 +249,11 @@ struct EventStatsView: View {
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(breakdown.total)")
-                            .font(.system(size: 36, weight: .bold))
+                            .font(FontManager.geist(size: 36, weight: .bold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
 
                         Text("Total")
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
                 }
@@ -265,7 +265,7 @@ struct EventStatsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text("\(percentage)% Complete")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7))
 
                             Spacer()
@@ -301,7 +301,7 @@ struct EventStatsView: View {
                 // Section header
                 HStack {
                     Text("Recurring Events Breakdown")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Spacer()

@@ -22,13 +22,13 @@ struct StatsCard: View {
         VStack(alignment: .leading, spacing: 16) {
             // Card title
             Text(title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(FontManager.geist(size: 15, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
             // Main metric
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(mainValue)")
-                    .font(.system(size: 36, weight: .bold))
+                    .font(FontManager.geist(size: 36, weight: .bold))
                     .foregroundColor(
                         colorScheme == .dark ?
                             Color.white :
@@ -36,7 +36,7 @@ struct StatsCard: View {
                     )
 
                 Text(mainLabel)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
             }
 
@@ -66,17 +66,17 @@ struct StatsCard: View {
                             .rotationEffect(.degrees(-90))
 
                         Text("\(completionPercentage)%")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(FontManager.geist(size: 11, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Completion Rate")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(FontManager.geist(size: 12, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                         Text("\(completionPercentage)% of events completed")
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
 
@@ -94,13 +94,13 @@ struct StatsCard: View {
                             .frame(width: 8, height: 8)
 
                         Text(stat.label)
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
 
                         Spacer()
 
                         Text("\(stat.value)")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     }
                 }

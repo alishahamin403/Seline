@@ -5,9 +5,18 @@ struct NoteRow: View {
     let onPinToggle: (Note) -> Void
     let onTap: (Note) -> Void
     let onDelete: ((Note) -> Void)?
+    let onSetReminder: ((Note) -> Void)?
     @StateObject private var notesManager = NotesManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var showDeleteConfirmation = false
+    
+    init(note: Note, onPinToggle: @escaping (Note) -> Void, onTap: @escaping (Note) -> Void, onDelete: ((Note) -> Void)? = nil, onSetReminder: ((Note) -> Void)? = nil) {
+        self.note = note
+        self.onPinToggle = onPinToggle
+        self.onTap = onTap
+        self.onDelete = onDelete
+        self.onSetReminder = onSetReminder
+    }
 
     var body: some View {
         Button(action: {
@@ -15,22 +24,29 @@ struct NoteRow: View {
         }) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    // Note title with lock icon and attachment indicator
+                    // Note title with lock icon, reminder icon, and attachment indicator
                     HStack(spacing: 6) {
                         if note.isLocked {
                             Image(systemName: "lock.fill")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(FontManager.geist(size: 12, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         }
 
                         if !note.imageUrls.isEmpty {
                             Image(systemName: "paperclip")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(FontManager.geist(size: 12, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        }
+                        
+                        // Reminder icon - shows if note has a reminder
+                        if note.reminderDate != nil {
+                            Image(systemName: note.isReminderDue ? "bell.badge.fill" : "bell.fill")
+                                .font(FontManager.geist(size: 12, weight: .medium))
+                                .foregroundColor(note.isReminderDue ? .orange : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
                         }
 
                         Text(note.title)
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
@@ -40,17 +56,28 @@ struct NoteRow: View {
                     // Note preview or date/folder info
                     HStack(spacing: 8) {
                         Text(note.formattedDateModified)
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                         if let folderId = note.folderId {
                             Text("•")
-                                .font(.system(size: 11, weight: .regular))
+                                .font(FontManager.geist(size: 11, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                             Text(notesManager.getFolderName(for: folderId))
-                                .font(.system(size: 11, weight: .regular))
+                                .font(FontManager.geist(size: 11, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                        }
+                        
+                        // Show reminder date if set
+                        if let reminderDate = note.reminderDate {
+                            Text("•")
+                                .font(FontManager.geist(size: 11, weight: .regular))
+                                .foregroundColor(note.isReminderDue ? .orange : .white.opacity(0.7))
+                            
+                            Text(formatReminderDate(reminderDate))
+                                .font(FontManager.geist(size: 11, weight: .regular))
+                                .foregroundColor(note.isReminderDue ? .orange : .white.opacity(0.7))
                         }
 
                         Spacer()
@@ -64,7 +91,7 @@ struct NoteRow: View {
                     onPinToggle(note)
                 }) {
                     Image(systemName: note.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(
                             note.isPinned ?
                                 (colorScheme == .dark ? Color.white : Color.black) :
@@ -87,6 +114,18 @@ struct NoteRow: View {
                 Label(note.isPinned ? "Unpin" : "Pin", systemImage: note.isPinned ? "pin.slash" : "pin")
             }
             
+            // Set Reminder option
+            Button {
+                HapticManager.shared.selection()
+                onSetReminder?(note)
+            } label: {
+                if note.reminderDate != nil {
+                    Label("Edit Reminder", systemImage: "bell.badge")
+                } else {
+                    Label("Set Reminder", systemImage: "bell")
+                }
+            }
+            
             if onDelete != nil {
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
@@ -102,6 +141,26 @@ struct NoteRow: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Are you sure you want to delete \"\(note.title)\"?")
+        }
+    }
+    
+    private func formatReminderDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let now = Date()
+        
+        if calendar.isDate(date, inSameDayAs: now) {
+            let formatter = DateFormatter()
+            formatter.timeStyle = .short
+            return "Today \(formatter.string(from: date))"
+        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
+                  calendar.isDate(date, inSameDayAs: tomorrow) {
+            let formatter = DateFormatter()
+            formatter.timeStyle = .short
+            return "Tomorrow \(formatter.string(from: date))"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: date)
         }
     }
 }

@@ -124,7 +124,7 @@ struct AISummaryCard: View {
     private var noContentView: some View {
         HStack(spacing: 12) {
             Image(systemName: "doc.text")
-                .font(.system(size: 14, weight: .medium))
+                .font(FontManager.geist(size: 14, weight: .medium))
                 .foregroundColor(Color.shadcnMuted(colorScheme))
 
             Text("No content available")
@@ -174,7 +174,7 @@ struct AISummaryCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: errorMessage.contains("Rate limit") ? "clock" : "exclamationmark.triangle")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(errorMessage.contains("Rate limit") ? .orange : .red)
 
                 Text(errorMessage.contains("Rate limit") ? "Rate limit reached" : "Failed to generate summary")
@@ -352,6 +352,176 @@ struct ZoomableHTMLContentView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             print("❌ WebView provisional navigation failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - External Link HTML View (opens links in Safari)
+
+struct ExternalLinkHTMLView: UIViewRepresentable {
+    let htmlContent: String
+    @Environment(\.colorScheme) var colorScheme
+    
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        
+        // Enable JavaScript for better rendering
+        let preferences = WKWebpagePreferences()
+        preferences.allowsContentJavaScript = true
+        configuration.defaultWebpagePreferences = preferences
+        configuration.suppressesIncrementalRendering = false
+        
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        
+        // Set navigation delegate to intercept link clicks
+        webView.navigationDelegate = context.coordinator
+        
+        // Enable zooming and scrolling
+        webView.scrollView.isScrollEnabled = true
+        webView.scrollView.minimumZoomScale = 0.5
+        webView.scrollView.maximumZoomScale = 3.0
+        webView.scrollView.bouncesZoom = true
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+        
+        return webView
+    }
+    
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        guard !htmlContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            webView.loadHTMLString("<html><body></body></html>", baseURL: nil)
+            return
+        }
+        
+        webView.loadHTMLString(htmlContent, baseURL: nil)
+    }
+    
+    func makeCoordinator() -> ExternalLinkCoordinator {
+        ExternalLinkCoordinator()
+    }
+    
+    // MARK: - Coordinator that opens links in Safari
+    
+    class ExternalLinkCoordinator: NSObject, WKNavigationDelegate {
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            // If it's a link click (not initial page load)
+            if navigationAction.navigationType == .linkActivated {
+                if let url = navigationAction.request.url {
+                    // Open in Safari
+                    UIApplication.shared.open(url)
+                }
+                decisionHandler(.cancel) // Don't navigate in WebView
+            } else {
+                decisionHandler(.allow) // Allow initial page load
+            }
+        }
+        
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("❌ ExternalLinkHTMLView failed to load: \(error.localizedDescription)")
+        }
+        
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            print("❌ ExternalLinkHTMLView provisional navigation failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - Auto-Height HTML View (inline scrollable, auto-sizes to content)
+
+struct AutoHeightHTMLView: UIViewRepresentable {
+    let htmlContent: String
+    @Environment(\.colorScheme) var colorScheme
+    
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        
+        // Enable JavaScript for better rendering
+        let preferences = WKWebpagePreferences()
+        preferences.allowsContentJavaScript = true
+        configuration.defaultWebpagePreferences = preferences
+        configuration.suppressesIncrementalRendering = false
+        
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        
+        // Set navigation delegate to intercept link clicks
+        webView.navigationDelegate = context.coordinator
+        
+        // Disable scrolling - let parent ScrollView handle it
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+        
+        return webView
+    }
+    
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        guard !htmlContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            webView.loadHTMLString("<html><body></body></html>", baseURL: nil)
+            return
+        }
+        
+        // Add script to calculate content height
+        let htmlWithHeightScript = htmlContent.replacingOccurrences(
+            of: "</body>",
+            with: """
+            <script>
+                function notifyHeight() {
+                    var height = document.body.scrollHeight;
+                    window.webkit.messageHandlers.heightHandler.postMessage(height);
+                }
+                window.onload = notifyHeight;
+                setTimeout(notifyHeight, 100);
+                setTimeout(notifyHeight, 500);
+            </script>
+            </body>
+            """
+        )
+        
+        webView.loadHTMLString(htmlWithHeightScript, baseURL: nil)
+    }
+    
+    func makeCoordinator() -> AutoHeightCoordinator {
+        AutoHeightCoordinator()
+    }
+    
+    // MARK: - Coordinator that opens links in Safari and tracks height
+    
+    class AutoHeightCoordinator: NSObject, WKNavigationDelegate {
+        var contentHeight: CGFloat = 400
+        
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            // If it's a link click (not initial page load)
+            if navigationAction.navigationType == .linkActivated {
+                if let url = navigationAction.request.url {
+                    // Open in Safari
+                    UIApplication.shared.open(url)
+                }
+                decisionHandler(.cancel) // Don't navigate in WebView
+            } else {
+                decisionHandler(.allow) // Allow initial page load
+            }
+        }
+        
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // Update height after load
+            webView.evaluateJavaScript("document.body.scrollHeight") { result, error in
+                if let height = result as? CGFloat {
+                    self.contentHeight = height
+                    // Force layout update
+                    webView.invalidateIntrinsicContentSize()
+                }
+            }
+        }
+        
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("❌ AutoHeightHTMLView failed to load: \(error.localizedDescription)")
+        }
+        
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            print("❌ AutoHeightHTMLView provisional navigation failed: \(error.localizedDescription)")
         }
     }
 }

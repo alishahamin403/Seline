@@ -231,7 +231,8 @@ class NotificationService: ObservableObject {
         locationName: String,
         unreadEmailCount: Int,
         upcomingEventsCount: Int,
-        weatherInfo: String? = nil
+        weatherInfo: String? = nil,
+        sessionId: UUID? = nil
     ) async {
         guard isAuthorized else {
             print("Notification authorization not granted")
@@ -258,15 +259,19 @@ class NotificationService: ObservableObject {
         content.categoryIdentifier = "location_arrival"
         content.userInfo = ["type": "location_arrival", "locationName": locationName]
 
+        // Use sessionId in identifier for deduplication - if same session triggers multiple times,
+        // the notification will replace the previous one instead of creating duplicates
+        let identifier = sessionId != nil ? "arrival-\(sessionId!.uuidString)" : "arrival-\(Date().timeIntervalSince1970)"
+        
         let request = UNNotificationRequest(
-            identifier: "arrival-\(Date().timeIntervalSince1970)",
+            identifier: identifier,
             content: content,
             trigger: nil
         )
 
         do {
             try await UNUserNotificationCenter.current().add(request)
-            print("📍 Scheduled arrival notification for \(locationName)")
+            print("📍 Scheduled arrival notification for \(locationName) (session: \(sessionId?.uuidString.prefix(8) ?? "none"))")
         } catch {
             print("Failed to schedule arrival notification: \(error)")
         }
@@ -497,6 +502,58 @@ class NotificationService: ObservableObject {
         } catch {
             print("Failed to schedule spending alert: \(error)")
         }
+    }
+
+    // MARK: - Expense Reminders
+
+    func scheduleExpenseReminder(reminder: ExpenseReminder) async {
+        guard isAuthorized else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Spending Reminder"
+        content.body = "Check your \(reminder.expenseName) spending"
+        content.sound = .default
+        content.categoryIdentifier = "expense_reminder"
+        content.userInfo = [
+            "type": "expense_reminder",
+            "expenseName": reminder.expenseName
+        ]
+
+        var dateComponents = DateComponents()
+        dateComponents.hour = reminder.hour
+        dateComponents.minute = reminder.minute
+
+        switch reminder.frequency {
+        case .daily:
+            break
+        case .weekly:
+            dateComponents.weekday = reminder.weekday ?? Calendar.current.component(.weekday, from: Date())
+        case .monthly:
+            dateComponents.day = reminder.dayOfMonth ?? Calendar.current.component(.day, from: Date())
+        }
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
+        let identifier = expenseReminderIdentifier(for: reminder)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("🔔 Scheduled expense reminder for \(reminder.expenseName)")
+        } catch {
+            print("Failed to schedule expense reminder: \(error)")
+        }
+    }
+
+    func cancelExpenseReminder(for reminder: ExpenseReminder) {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [expenseReminderIdentifier(for: reminder)])
+    }
+
+    private func expenseReminderIdentifier(for reminder: ExpenseReminder) -> String {
+        let normalized = reminder.expenseName
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+        return "expense-reminder-\(normalized)"
     }
 
     // MARK: - Utility Methods

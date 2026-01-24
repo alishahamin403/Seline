@@ -90,6 +90,7 @@ class LocationVisitAnalytics: ObservableObject {
     }
 
     /// Get visit history for a specific place
+    /// CRITICAL: Handles midnight-spanning visits by splitting them and deduplicating
     func fetchVisitHistory(for placeId: UUID, limit: Int = 20) async -> [VisitHistoryItem] {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             errorMessage = "User not authenticated"
@@ -100,8 +101,63 @@ class LocationVisitAnalytics: ObservableObject {
             let visits = try await fetchVisits(for: placeId, userId: userId)
             let place = LocationsManager.shared.savedPlaces.first { $0.id == placeId }
 
+            // CRITICAL FIX: Process visits to handle midnight splits properly
+            var processedVisits: [LocationVisitRecord] = []
+            var hasMidnightSpanningVisits = false
+
+            // Track which time ranges have split visits to avoid duplicates
+            var splitVisitTimeRanges: Set<String> = []
+
+            // First pass: identify all split visits and their time ranges
+            for visit in visits {
+                if visit.mergeReason?.contains("midnight_split") == true {
+                    // Create a key for this split's original time range
+                    // Use the session_id to group related splits
+                    if let sessionId = visit.sessionId {
+                        splitVisitTimeRanges.insert(sessionId.uuidString)
+                    }
+                }
+            }
+
+            // Second pass: process visits
+            for visit in visits {
+                // Skip unsplit visits that have corresponding split versions
+                // These are "orphaned" original visits that weren't deleted after splitting
+                if visit.spansMidnight() && visit.exitTime != nil && visit.mergeReason?.contains("midnight_split") != true {
+                    // Check if this visit has split versions by looking for visits with same session_id
+                    if let sessionId = visit.sessionId, splitVisitTimeRanges.contains(sessionId.uuidString) {
+                        print("🔄 fetchVisitHistory: Skipping orphaned unsplit visit \(visit.id) (has split versions)")
+                        hasMidnightSpanningVisits = true
+                        continue
+                    }
+
+                    // No split versions exist - split on the fly for display
+                    hasMidnightSpanningVisits = true
+                    let splitVisits = visit.splitAtMidnightIfNeeded()
+                    processedVisits.append(contentsOf: splitVisits)
+                    print("🌙 fetchVisitHistory: Split midnight-spanning visit \(visit.id) into \(splitVisits.count) parts for display")
+                } else {
+                    // Normal visit or already split - add as-is
+                    processedVisits.append(visit)
+                }
+            }
+
+            // Trigger background fix if we found midnight-spanning visits
+            if hasMidnightSpanningVisits {
+                Task.detached(priority: .background) {
+                    print("🌙 AUTO-FIX: Detected midnight-spanning visits in history, running fix...")
+                    let result = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
+                    if result.fixed > 0 {
+                        print("✅ AUTO-FIX: Fixed \(result.fixed) midnight-spanning visits")
+                        await MainActor.run {
+                            LocationVisitAnalytics.shared.invalidateAllCache()
+                        }
+                    }
+                }
+            }
+
             // Sort by entry time (most recent first) and limit
-            let sortedVisits = visits
+            let sortedVisits = processedVisits
                 .sorted { $0.entryTime > $1.entryTime }
                 .prefix(limit)
 
@@ -154,6 +210,7 @@ class LocationVisitAnalytics: ObservableObject {
     }
 
     /// Fetch visits for a specific place within a date range
+    /// CRITICAL: This now handles midnight-spanning visits by splitting them for display
     func getVisitsInDateRange(for placeId: UUID, startDate: Date, endDate: Date) async -> [LocationVisitRecord] {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             return []
@@ -162,12 +219,52 @@ class LocationVisitAnalytics: ObservableObject {
         do {
             let visits = try await fetchVisits(for: placeId, userId: userId)
 
-            // Filter visits within the specified date range
-            let filteredVisits = visits.filter { visit in
-                return visit.entryTime >= startDate && visit.entryTime <= endDate
+            // Process visits - split any that span midnight for proper display
+            var processedVisits: [LocationVisitRecord] = []
+            var hasMidnightSpanningVisits = false
+
+            for visit in visits {
+                // Check if this visit spans midnight
+                if visit.spansMidnight(), visit.exitTime != nil {
+                    hasMidnightSpanningVisits = true
+                    
+                    // Split the visit into parts for each day
+                    let splitVisits = visit.splitAtMidnightIfNeeded()
+                    
+                    // Add splits that fall within our date range
+                    for splitVisit in splitVisits {
+                        if splitVisit.entryTime >= startDate && splitVisit.entryTime <= endDate {
+                            processedVisits.append(splitVisit)
+                        }
+                    }
+                } else {
+                    // Normal visit - just check if it's in range
+                    if visit.entryTime >= startDate && visit.entryTime <= endDate {
+                        processedVisits.append(visit)
+                    }
+                }
             }
 
-            return filteredVisits
+            // CRITICAL: If we found midnight-spanning visits, trigger a background fix
+            // This ensures the database gets cleaned up over time
+            if hasMidnightSpanningVisits {
+                Task.detached(priority: .background) {
+                    print("🌙 AUTO-FIX: Detected midnight-spanning visits, running fix in background...")
+                    let result = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
+                    if result.fixed > 0 {
+                        print("✅ AUTO-FIX: Fixed \(result.fixed) midnight-spanning visits")
+                        // Invalidate cache to show corrected data
+                        await MainActor.run {
+                            LocationVisitAnalytics.shared.invalidateAllCache()
+                        }
+                    }
+                }
+            }
+
+            return processedVisits
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // Task was cancelled (e.g., view refreshed) - this is expected, don't log as error
+            return []
         } catch {
             print("❌ Error fetching visits in date range: \(error)")
             return []
@@ -292,13 +389,23 @@ class LocationVisitAnalytics: ObservableObject {
 
             let visits = await getVisitsInDateRange(for: place.id, startDate: startOfDay, endDate: endOfDay)
             if !visits.isEmpty {
-                // Calculate total duration for today
+                // Calculate total duration for today ONLY (clip to today's boundaries)
                 var totalMinutes = 0
                 var latestVisitTime: Date = .distantPast
 
                 for visit in visits {
-                    if let duration = visit.durationMinutes {
-                        totalMinutes += duration
+                    // Calculate how much of this visit occurred TODAY
+                    let visitStart = visit.entryTime
+                    let visitEnd = visit.exitTime ?? Date()
+                    
+                    // Clip visit to today's boundaries
+                    let effectiveStart = max(visitStart, startOfDay)
+                    let effectiveEnd = min(visitEnd, endOfDay)
+                    
+                    // Only count if there's overlap with today
+                    if effectiveStart < effectiveEnd {
+                        let minutesInToday = Int(effectiveEnd.timeIntervalSince(effectiveStart) / 60)
+                        totalMinutes += minutesInToday
                     }
 
                     // Track latest visit time for sorting
@@ -375,7 +482,134 @@ class LocationVisitAnalytics: ObservableObject {
         }
     }
 
-    /// Merge consecutive visits with gaps <= 10 minutes
+    /// Manually merge two visits together
+    /// Uses the entry time of the first visit and exit time of the second visit
+    /// The second visit is deleted after merging
+    /// - Parameters:
+    ///   - firstVisitId: UUID of the first visit (will keep its entry time)
+    ///   - secondVisitId: UUID of the second visit (will be deleted, its exit time is used)
+    /// - Returns: True if merge was successful
+    func manualMergeVisits(firstVisitId: UUID, secondVisitId: UUID) async -> Bool {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            errorMessage = "User not authenticated"
+            print("❌ LocationVisitAnalytics: User not authenticated when merging visits")
+            return false
+        }
+
+        let client = await SupabaseManager.shared.getPostgrestClient()
+
+        do {
+            // Fetch both visits
+            print("🔍 LocationVisitAnalytics: Looking for visits with IDs:")
+            print("   First: \(firstVisitId.uuidString)")
+            print("   Second: \(secondVisitId.uuidString)")
+            
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .in("id", values: [firstVisitId.uuidString, secondVisitId.uuidString])
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            
+            print("🔍 LocationVisitAnalytics: Found \(visits.count) visits in database")
+            for visit in visits {
+                print("   - ID: \(visit.id), Entry: \(visit.entryTime), PlaceID: \(visit.savedPlaceId)")
+            }
+
+            guard visits.count == 2 else {
+                print("❌ LocationVisitAnalytics: Could not find both visits to merge (found \(visits.count))")
+                errorMessage = "Could not find both visits (found \(visits.count) of 2)"
+                return false
+            }
+
+            // Find the first and second visits by ID
+            guard let firstVisit = visits.first(where: { $0.id == firstVisitId }),
+                  let secondVisit = visits.first(where: { $0.id == secondVisitId }) else {
+                print("❌ LocationVisitAnalytics: Could not identify visits by ID")
+                return false
+            }
+
+            // Verify both visits are at the same place
+            guard firstVisit.savedPlaceId == secondVisit.savedPlaceId else {
+                print("❌ LocationVisitAnalytics: Cannot merge visits at different locations")
+                errorMessage = "Cannot merge visits at different locations"
+                return false
+            }
+
+            // Get the exit time from the second visit (use current time if no exit time)
+            let newExitTime = secondVisit.exitTime ?? Date()
+
+            // Calculate new duration
+            let newDurationMinutes = max(1, Int(newExitTime.timeIntervalSince(firstVisit.entryTime) / 60))
+
+            // Preserve visit notes from either visit (prefer first visit's notes, but use second's if first is empty)
+            let mergedNotes: String? = {
+                let firstNotes = firstVisit.visitNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let secondNotes = secondVisit.visitNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+                if !firstNotes.isEmpty && !secondNotes.isEmpty {
+                    // Both have notes - combine them
+                    return "\(firstNotes); \(secondNotes)"
+                } else if !firstNotes.isEmpty {
+                    return firstNotes
+                } else if !secondNotes.isEmpty {
+                    return secondNotes
+                }
+                return nil
+            }()
+
+            // Update first visit with new exit time, duration, and preserved notes
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+            var updateData: [String: PostgREST.AnyJSON] = [
+                "exit_time": .string(formatter.string(from: newExitTime)),
+                "duration_minutes": .double(Double(newDurationMinutes)),
+                "merge_reason": .string("manual_merge"),
+                "updated_at": .string(formatter.string(from: Date()))
+            ]
+
+            // Add visit_notes to update if we have any notes to preserve
+            if let notes = mergedNotes {
+                updateData["visit_notes"] = .string(notes)
+                print("📝 Preserving visit notes in merged visit: \(notes)")
+            }
+
+            try await client
+                .from("location_visits")
+                .update(updateData)
+                .eq("id", value: firstVisitId.uuidString)
+                .execute()
+
+            print("✅ Updated first visit with merged data")
+
+            // Delete the second visit
+            try await client
+                .from("location_visits")
+                .delete()
+                .eq("id", value: secondVisitId.uuidString)
+                .execute()
+
+            print("✅ Deleted second visit after merge")
+
+            // Invalidate caches
+            invalidateCache(for: firstVisit.savedPlaceId)
+            invalidateAllCache()
+
+            print("✅ Successfully merged visits: \(firstVisit.entryTime) to \(newExitTime) (duration: \(newDurationMinutes) min)")
+
+            return true
+        } catch {
+            errorMessage = "Failed to merge visits: \(error.localizedDescription)"
+            print("❌ LocationVisitAnalytics: Failed to merge visits: \(error)")
+            return false
+        }
+    }
+
+    /// Merge consecutive visits with gaps <= 5 minutes
     /// Returns (mergedCount, deletedCount)
     func mergeAndCleanupVisits() async -> (merged: Int, deleted: Int) {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
@@ -443,27 +677,18 @@ class LocationVisitAnalytics: ObservableObject {
 
                             // BLOCK merge if on different days OR if it's a midnight split
                             if areDifferentDays || isMidnightSplit {
-                                if areDifferentDays {
-                                    print("🚫 MERGE BLOCKED: Visits are on different calendar days")
-                                    print("   Current exit: \(currentExit) (day: \(currentExitDay.year ?? 0)-\(currentExitDay.month ?? 0)-\(currentExitDay.day ?? 0))")
-                                    print("   Next entry: \(nextVisit.entryTime) (day: \(nextEntryDay.year ?? 0)-\(nextEntryDay.month ?? 0)-\(nextEntryDay.day ?? 0))")
-                                }
-                                if isMidnightSplit {
-                                    print("🚫 MERGE BLOCKED: One or both visits were split at midnight")
-                                    print("   Current merge_reason: \(currentVisit.mergeReason ?? "nil")")
-                                    print("   Next merge_reason: \(nextVisit.mergeReason ?? "nil")")
-                                }
+                                // Skip merging - visits should remain separate
                                 i += 1
                                 continue
                             }
 
-                            // Merge if gap is 10 minutes or less AND on same day
-                            if gapMinutes <= 10 && gapMinutes >= 0 {
+                            // Merge if gap is 5 minutes or less AND on same day
+                            if gapMinutes <= 5 && gapMinutes >= 0 {
                                 print("🔄 Merging visits: \(currentVisit.id) and \(nextVisit.id) (gap: \(gapMinutes) min)")
 
                                 // Merge: update first visit to have exit time of second visit
                                 if let nextExit = nextVisit.exitTime {
-                                    let newDuration = Int(nextExit.timeIntervalSince(currentVisit.entryTime) / 60)
+                                    let newDuration = max(Int(nextExit.timeIntervalSince(currentVisit.entryTime) / 60), 1)
 
                                     let formatter = ISO8601DateFormatter()
                                     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -585,6 +810,7 @@ class LocationVisitAnalytics: ObservableObject {
             
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            formatter.timeZone = TimeZone(identifier: "UTC") // CRITICAL: Ensure UTC for Supabase compatibility
 
             for visit in midnightSpanningVisits {
                 let calendar = Calendar.current
@@ -616,35 +842,60 @@ class LocationVisitAnalytics: ObservableObject {
                 
                 print("   Split 1: \(visit.entryTime) to \(endOfEntryDay) (\(duration1) min)")
                 print("   Split 2: \(startOfExitDay) to \(visit.exitTime!) (\(duration2) min)")
+                print("   DEBUG: startOfExitDay formatted = \(formatter.string(from: startOfExitDay))")
 
                 do {
                     // IDEMPOTENCY CHECK: Check if split visits already exist
+                    // NOTE: We check for ANY visit starting at midnight with midnight_split merge_reason
+                    let searchStartTime = formatter.string(from: startOfExitDay)
+                    print("   DEBUG: Searching for existing splits at entry_time = \(searchStartTime)")
+                    
                     let response = try await client
                         .from("location_visits")
                         .select()
                         .eq("user_id", value: userId.uuidString)
                         .eq("saved_place_id", value: visit.savedPlaceId.uuidString)
-                        .eq("entry_time", value: formatter.string(from: startOfExitDay))
+                        .eq("entry_time", value: searchStartTime)
                         .execute()
                     
                     let decoder = JSONDecoder.supabaseDecoder()
                     let existingVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
-                    let existingSplits = existingVisits.filter { $0.mergeReason?.contains("midnight_split") == true }
                     
-                    if !existingSplits.isEmpty {
-                        print("   ⚠️ IDEMPOTENCY: Split visits already exist, skipping")
-                        skippedCount += 1
-                        continue
+                    print("   DEBUG: Found \(existingVisits.count) existing visits at that time")
+                    for ev in existingVisits {
+                        print("     - ID: \(ev.id), merge_reason: \(ev.mergeReason ?? "nil")")
                     }
                     
-                    // Step 1: Delete the original visit
-                    try await client
-                        .from("location_visits")
-                        .delete()
-                        .eq("id", value: visit.id.uuidString)
-                        .execute()
-                    
-                    print("   ✅ Deleted original visit")
+                    let existingSplits = existingVisits.filter { $0.mergeReason?.contains("midnight_split") == true }
+
+                    if !existingSplits.isEmpty {
+                        // Verify splits are complete (should have 2 parts covering full duration)
+                        let expectedDuration = visit.durationMinutes ?? 0
+                        let splitsDuration = existingSplits.compactMap { $0.durationMinutes }.reduce(0, +)
+                        let hasBothParts = existingSplits.contains { $0.mergeReason?.contains("part1") == true } &&
+                                          existingSplits.contains { $0.mergeReason?.contains("part2") == true }
+
+                        if hasBothParts && abs(expectedDuration - splitsDuration) < 5 {
+                            print("   ⚠️ IDEMPOTENCY: Complete split visits already exist")
+                            print("   🧹 CLEANUP: Deleting orphaned original visit...")
+
+                            try await client
+                                .from("location_visits")
+                                .delete()
+                                .eq("id", value: visit.id.uuidString)
+                                .execute()
+
+                            print("   ✅ Deleted orphaned original visit: \(visit.id)")
+                            fixedCount += 1
+                        } else {
+                            print("   ⚠️ Incomplete splits found, keeping original for safety")
+                            skippedCount += 1
+                        }
+                        continue
+                    }
+
+                    // CRITICAL FIX: Create BOTH splits FIRST, then delete original
+                    print("   📝 Creating split visits BEFORE deleting original...")
 
                     // Step 2: Create visit 1 (entry day, ends at 11:59:59 PM)
                     let visit1Id = UUID()
@@ -700,11 +951,20 @@ class LocationVisitAnalytics: ObservableObject {
                         .from("location_visits")
                         .insert(visit2Data)
                         .execute()
-                    
+
                     print("   ✅ Created split visit 2: starts at 12:00:00 AM")
-                    
+
+                    // CRITICAL: Only delete original AFTER both splits are confirmed saved
+                    try await client
+                        .from("location_visits")
+                        .delete()
+                        .eq("id", value: visit.id.uuidString)
+                        .execute()
+
+                    print("   ✅ Deleted original visit after successful split creation")
+
                     fixedCount += 1
-                    
+
                     // Invalidate cache for this location
                     invalidateCache(for: visit.savedPlaceId)
                     
@@ -795,13 +1055,36 @@ class LocationVisitAnalytics: ObservableObject {
                             continue
                         }
 
+                        // CRITICAL: Skip midnight split pairs - they are NOT duplicates!
+                        // Split pairs have complementary merge reasons (part1/part2) and adjacent times
+                        let visit1IsSplit = visit1.mergeReason?.contains("midnight_split") == true
+                        let visit2IsSplit = visit2.mergeReason?.contains("midnight_split") == true
+
+                        if visit1IsSplit && visit2IsSplit {
+                            // Check if they're a valid split pair (part1 ends at midnight, part2 starts at midnight)
+                            let calendar = Calendar.current
+                            if let exit1 = visit1.exitTime {
+                                let hour1 = calendar.component(.hour, from: exit1)
+                                let minute1 = calendar.component(.minute, from: exit1)
+                                let hour2 = calendar.component(.hour, from: visit2.entryTime)
+                                let minute2 = calendar.component(.minute, from: visit2.entryTime)
+
+                                // Part1 ends at 23:59, Part2 starts at 00:00 = valid split pair
+                                let isValidSplitPair = (hour1 == 23 && minute1 >= 59 && hour2 == 0 && minute2 == 0)
+                                if isValidSplitPair {
+                                    print("   ⏭️ Skipping valid midnight split pair")
+                                    continue
+                                }
+                            }
+                        }
+
                         // Check if these visits overlap significantly
                         let overlap = visitsOverlap(visit1, visit2)
 
                         if overlap {
                             print("\n🧹 Found duplicate visits:")
-                            print("   Visit 1: \(visit1.entryTime) to \(visit1.exitTime?.description ?? "nil") (\(visit1.durationMinutes ?? 0) min)")
-                            print("   Visit 2: \(visit2.entryTime) to \(visit2.exitTime?.description ?? "nil") (\(visit2.durationMinutes ?? 0) min)")
+                            print("   Visit 1: \(visit1.entryTime) to \(visit1.exitTime?.description ?? "nil") (\(visit1.durationMinutes ?? 0) min) [merge: \(visit1.mergeReason ?? "none")]")
+                            print("   Visit 2: \(visit2.entryTime) to \(visit2.exitTime?.description ?? "nil") (\(visit2.durationMinutes ?? 0) min) [merge: \(visit2.mergeReason ?? "none")]")
 
                             // Keep the one with earlier creation date (original), delete the duplicate
                             let toDelete = visit1.createdAt > visit2.createdAt ? visit1 : visit2
@@ -880,6 +1163,139 @@ class LocationVisitAnalytics: ObservableObject {
         return overlapPercentage >= 0.8
     }
 
+    /// CLEANUP: Deletes orphaned unsplit visits that have corresponding split versions
+    /// This handles the case where a midnight-spanning visit was split but the original wasn't deleted
+    /// Returns (deleted count, error count)
+    func cleanupOrphanedUnsplitVisits() async -> (deleted: Int, errors: Int) {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("❌ LocationVisitAnalytics: User not authenticated")
+            return (0, 0)
+        }
+
+        let client = await SupabaseManager.shared.getPostgrestClient()
+
+        do {
+            print("\n🧹 ===== CLEANING UP ORPHANED UNSPLIT VISITS =====")
+
+            // Fetch all visits
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .order("entry_time", ascending: false)
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            print("🧹 Total visits: \(allVisits.count)")
+
+            var deletedCount = 0
+            var errorCount = 0
+
+            // Find unsplit visits that span midnight
+            let unsplitMidnightVisits = allVisits.filter { visit in
+                // Must have exit time, span midnight, and NOT have merge_reason set
+                visit.exitTime != nil &&
+                visit.spansMidnight() &&
+                (visit.mergeReason == nil || !visit.mergeReason!.contains("midnight_split"))
+            }
+
+            print("🧹 Found \(unsplitMidnightVisits.count) unsplit midnight-spanning visits")
+
+            // Find all split visits (with midnight_split merge_reason)
+            let splitVisits = allVisits.filter { $0.mergeReason?.contains("midnight_split") == true }
+
+            for unsplitVisit in unsplitMidnightVisits {
+                // Check if corresponding split visits exist
+                // They would have the same session_id and merge_reason containing "midnight_split"
+                let correspondingSplits = splitVisits.filter { splitVisit in
+                    // Match by session_id
+                    if let unsplitSession = unsplitVisit.sessionId, let splitSession = splitVisit.sessionId {
+                        return unsplitSession == splitSession
+                    }
+                    // Or match by overlapping time range (same place, times overlap)
+                    return splitVisit.savedPlaceId == unsplitVisit.savedPlaceId &&
+                           splitVisit.entryTime >= unsplitVisit.entryTime &&
+                           (splitVisit.exitTime ?? Date()) <= (unsplitVisit.exitTime ?? Date())
+                }
+
+                if correspondingSplits.count >= 2 {
+                    // Verify splits cover the expected time range
+                    let hasPart1 = correspondingSplits.contains { $0.mergeReason?.contains("part1") == true }
+                    let hasPart2 = correspondingSplits.contains { $0.mergeReason?.contains("part2") == true }
+
+                    if hasPart1 && hasPart2 {
+                        print("🧹 Found orphaned unsplit visit: \(unsplitVisit.id)")
+                        print("   Entry: \(unsplitVisit.entryTime), Exit: \(unsplitVisit.exitTime?.description ?? "nil")")
+                        print("   Has \(correspondingSplits.count) corresponding split visits")
+
+                        // Delete the orphaned unsplit visit
+                        do {
+                            try await client
+                                .from("location_visits")
+                                .delete()
+                                .eq("id", value: unsplitVisit.id.uuidString)
+                                .execute()
+
+                            deletedCount += 1
+                            print("   ✅ Deleted orphaned visit: \(unsplitVisit.id)")
+                        } catch {
+                            errorCount += 1
+                            print("   ❌ Failed to delete: \(error)")
+                        }
+                    }
+                }
+            }
+
+            print("\n🧹 ===== ORPHANED CLEANUP COMPLETE =====")
+            print("🧹 Deleted: \(deletedCount) orphaned visits")
+            print("🧹 Errors: \(errorCount)")
+            print("🧹 ========================================\n")
+
+            // Invalidate caches
+            invalidateAllCache()
+
+            return (deletedCount, errorCount)
+        } catch {
+            print("❌ LocationVisitAnalytics: Failed to cleanup orphaned visits: \(error)")
+            return (0, 1)
+        }
+    }
+
+    /// Run all visit cleanup operations: fix midnight spans, remove duplicates, cleanup orphans
+    /// This is a comprehensive cleanup that should be run periodically or on user request
+    func runFullVisitCleanup() async -> (midnightFixed: Int, duplicatesRemoved: Int, orphansDeleted: Int, errors: Int) {
+        print("\n🧹🧹🧹 ===== RUNNING FULL VISIT CLEANUP ===== 🧹🧹🧹\n")
+
+        // Step 1: Fix midnight-spanning visits
+        let midnightResult = await fixMidnightSpanningVisits()
+
+        // Step 2: Cleanup orphaned unsplit visits
+        let orphanResult = await cleanupOrphanedUnsplitVisits()
+
+        // Step 3: Remove any remaining duplicates
+        let duplicateResult = await removeDuplicateVisits()
+
+        // Step 4: Merge close visits (optional cleanup)
+        let mergeResult = await mergeAndCleanupVisits()
+
+        print("\n🧹🧹🧹 ===== FULL CLEANUP COMPLETE ===== 🧹🧹🧹")
+        print("   Midnight splits fixed: \(midnightResult.fixed)")
+        print("   Orphaned visits deleted: \(orphanResult.deleted)")
+        print("   Duplicates removed: \(duplicateResult.removed)")
+        print("   Visits merged: \(mergeResult.merged)")
+        print("   Total errors: \(midnightResult.errors + orphanResult.errors + duplicateResult.errors)")
+        print("🧹🧹🧹 ========================================= 🧹🧹🧹\n")
+
+        return (
+            midnightFixed: midnightResult.fixed,
+            duplicatesRemoved: duplicateResult.removed,
+            orphansDeleted: orphanResult.deleted,
+            errors: midnightResult.errors + orphanResult.errors + duplicateResult.errors
+        )
+    }
+
     // MARK: - Private Methods
 
     private func fetchVisits(for placeId: UUID, userId: UUID) async throws -> [LocationVisitRecord] {
@@ -897,7 +1313,32 @@ class LocationVisitAnalytics: ObservableObject {
                 .execute()
                 .value
 
-            return response
+            // DATA INTEGRITY FIX: Sanitize visits with invalid timestamps or negative durations
+            return response.map { visit in
+                var sanitized = visit
+                
+                // Case 1: Exit time is before entry time (impossible)
+                if let exit = sanitized.exitTime, exit < sanitized.entryTime {
+                    print("⚠️ LocationVisitAnalytics: Found invalid visit timestamps (exit < entry): \(visit.id)")
+                    // Fix: Set exit to entry + 1 minute
+                    let newExit = sanitized.entryTime.addingTimeInterval(60)
+                    sanitized.exitTime = newExit
+                    sanitized.durationMinutes = 1
+                }
+                
+                // Case 2: Negative duration (but timestamps might be okay)
+                else if let duration = sanitized.durationMinutes, duration <= 0, let exit = sanitized.exitTime {
+                    print("⚠️ LocationVisitAnalytics: Found invalid visit duration (\(duration)m): \(visit.id)")
+                    // Recalculate duration from timestamps
+                    let calculatedData = Int(exit.timeIntervalSince(sanitized.entryTime) / 60)
+                    sanitized.durationMinutes = max(calculatedData, 1)
+                }
+                
+            return sanitized
+            }
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // Task was cancelled (e.g., view refreshed) - this is expected, don't log as error
+            throw urlError
         } catch {
             print("❌ LocationVisitAnalytics.fetchVisits: Query failed with error: \(error)")
             throw error

@@ -29,14 +29,14 @@ struct LocationSetupView: View {
                     // Header
                     VStack(spacing: 8) {
                         Image(systemName: "house.fill")
-                            .font(.system(size: 48))
+                            .font(FontManager.geist(size: 48, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .gray : .gray.opacity(0.8))
 
                         Text("Set Up Your Locations")
-                            .font(.system(size: 24, weight: .bold))
+                            .font(FontManager.geist(size: 24, weight: .bold))
 
                         Text("We'll show you travel times to your frequent destinations")
-                            .font(.system(size: 14))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 32)
@@ -75,7 +75,7 @@ struct LocationSetupView: View {
                     // Error Message
                     if let errorMessage = errorMessage {
                         Text(errorMessage)
-                            .font(.system(size: 13))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(.red)
                             .padding(.horizontal, 20)
                     }
@@ -88,7 +88,7 @@ struct LocationSetupView: View {
                                     ShadcnSpinner(size: .medium, color: .white)
                                 } else {
                                     Text("Save & Continue")
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
                                 }
                             }
                             .frame(maxWidth: .infinity)
@@ -101,7 +101,7 @@ struct LocationSetupView: View {
 
                         Button(action: skipSetup) {
                             Text("Skip for now")
-                                .font(.system(size: 14))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -113,7 +113,7 @@ struct LocationSetupView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Welcome")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                 }
             }
         }
@@ -242,10 +242,10 @@ struct LocationInput: View {
             // Title
             HStack {
                 Image(systemName: icon)
-                    .font(.system(size: 16))
+                    .font(FontManager.geist(size: 16, weight: .regular))
                     .foregroundColor(.gray)
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
             }
 
             // Search Field or Selected Location
@@ -254,9 +254,9 @@ struct LocationInput: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(selected.name)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 14, weight: .medium))
                         Text(selected.address)
-                            .font(.system(size: 12))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(.secondary)
                             .lineLimit(2)
                     }
@@ -269,7 +269,7 @@ struct LocationInput: View {
                         searchResults = []
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20))
+                            .font(FontManager.geist(size: 20, weight: .regular))
                             .foregroundColor(.gray)
                     }
                 }
@@ -281,11 +281,11 @@ struct LocationInput: View {
                 VStack(spacing: 0) {
                     HStack {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 14))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(.gray)
 
                         TextField("Search for \(title.lowercased()) address", text: $searchQuery)
-                            .font(.system(size: 14))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .onChange(of: searchQuery) { newValue in
                                 // Debounce search
                                 searchTask?.cancel()
@@ -316,15 +316,15 @@ struct LocationInput: View {
                                 }) {
                                     HStack(alignment: .top, spacing: 12) {
                                         Image(systemName: "mappin.circle.fill")
-                                            .font(.system(size: 16))
+                                            .font(FontManager.geist(size: 16, weight: .regular))
                                             .foregroundColor(.gray)
 
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(result.name)
-                                                .font(.system(size: 13, weight: .medium))
+                                                .font(FontManager.geist(size: 13, weight: .medium))
                                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                             Text(result.address)
-                                                .font(.system(size: 11))
+                                                .font(FontManager.geist(size: 11, weight: .regular))
                                                 .foregroundColor(.secondary)
                                                 .lineLimit(2)
                                         }

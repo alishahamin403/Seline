@@ -384,8 +384,8 @@ struct TimelineView: View {
         let hours = totalMinutes / 60
         let minutes = totalMinutes % 60
 
-        // Round to nearest 30 minutes
-        let roundedMinutes = (minutes / 30) * 30
+        // Round to nearest 15 minutes
+        let roundedMinutes = (minutes / 15) * 15
 
         // Create date with selected time
         var components = Calendar.current.dateComponents([.year, .month, .day], from: date)
@@ -404,7 +404,7 @@ struct TimelineView: View {
                 HStack(alignment: .top, spacing: 0) {
                     // Hour label
                     Text(formatHour(hour))
-                        .font(.system(size: 11, weight: .medium))
+                        .font(FontManager.geist(size: 11, weight: .medium))
                         .foregroundColor(
                             colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)
                         )
@@ -430,17 +430,17 @@ struct TimelineView: View {
         VStack(spacing: 0) {
             ForEach(0..<24, id: \.self) { hour in
                 VStack(spacing: 0) {
-                    ForEach(0..<2, id: \.self) { half in
-                        timeSlotButton(hour: hour, half: half)
+                    ForEach(0..<4, id: \.self) { quarter in
+                        timeSlotButton(hour: hour, quarter: quarter)
                     }
                 }
             }
         }
     }
 
-    private func timeSlotButton(hour: Int, half: Int) -> some View {
+    private func timeSlotButton(hour: Int, quarter: Int) -> some View {
         Button(action: {
-            let minutes = (half == 0 ? 0 : 30)
+            let minutes = quarter * 15
             if let timeSlot = Calendar.current.date(bySettingHour: hour, minute: minutes, second: 0, of: date) {
                 handleTimelineTap(at: timeSlot)
             }
@@ -448,7 +448,7 @@ struct TimelineView: View {
             Rectangle()
                 .fill(Color.clear)
         }
-        .frame(height: hourHeight / 2)
+        .frame(height: hourHeight / 4)
     }
 
     // MARK: - Events Layer
@@ -464,6 +464,9 @@ struct TimelineView: View {
                         let columnWidth = (availableWidth - totalGaps) / CGFloat(layout.totalColumns)
                         let xOffset = (columnWidth + gapWidth) * CGFloat(layout.column)
                         let yPos = yPosition(for: scheduledTime)
+                        
+                        // Calculate the event height based on duration
+                        let eventHeight = calculateEventHeight(for: layout.task)
 
                         TimelineEventBlock(
                             task: layout.task,
@@ -481,13 +484,24 @@ struct TimelineView: View {
                                 onDeleteEvent?(layout.task)
                             } : nil
                         )
-                        .frame(width: columnWidth, height: nil, alignment: .leading)
-                        .fixedSize(horizontal: true, vertical: false)
+                        .frame(width: columnWidth, height: eventHeight, alignment: .topLeading)
+                        .clipped()
                         .offset(x: xOffset, y: yPos)
                     }
                 }
             }
         }
+    }
+    
+    /// Calculate the visual height for an event block based on its duration
+    private func calculateEventHeight(for task: TaskItem) -> CGFloat {
+        guard let start = task.scheduledTime else { return hourHeight } // Default 1 hour
+        guard let end = task.endTime, end > start else {
+            return hourHeight // Default 1 hour if no valid end time
+        }
+        let durationMinutes = Int(end.timeIntervalSince(start) / 60)
+        let clampedMinutes = max(durationMinutes, 15) // Minimum 15 minutes for display
+        return CGFloat(clampedMinutes) / 60.0 * hourHeight
     }
 
     // MARK: - Current Time Indicator
@@ -496,7 +510,7 @@ struct TimelineView: View {
         HStack(spacing: 0) {
             // Current time label
             Text(formatCurrentTime())
-                .font(.system(size: 9, weight: .bold))
+                .font(FontManager.geist(size: 9, weight: .bold))
                 .foregroundColor(accentColor)
                 .frame(width: 50, alignment: .trailing)
                 .padding(.trailing, 4)
@@ -576,11 +590,11 @@ struct TimelineView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("New Event")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(FontManager.geist(size: 18, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
                             Text(formatTime(time))
-                                .font(.system(size: 13, weight: .regular))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         }
 
@@ -594,11 +608,11 @@ struct TimelineView: View {
                 // Input field
                 HStack(spacing: 12) {
                     Image(systemName: "pencil.circle.fill")
-                        .font(.system(size: 20))
+                        .font(FontManager.geist(size: 20, weight: .regular))
                         .foregroundColor(accentColor)
 
                     TextField("Event name", text: $newEventTitle)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(FontManager.geist(size: 16, weight: .medium))
                         .focused($isTextFieldFocused)
                 }
                 .padding(.horizontal, 20)
@@ -616,7 +630,7 @@ struct TimelineView: View {
                 HStack(spacing: 12) {
                     Button(action: { cancelEventCreation() }) {
                         Text("Cancel")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(FontManager.geist(size: 15, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
@@ -633,7 +647,7 @@ struct TimelineView: View {
                                 nil,
                                 date,
                                 time,
-                                nil,
+                                time.addingTimeInterval(3600), // Default to 1 hour instead of nil
                                 .none,
                                 false,
                                 nil,
@@ -644,10 +658,10 @@ struct TimelineView: View {
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "plus")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(FontManager.geist(size: 14, weight: .semibold))
 
                             Text("Create")
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(FontManager.geist(size: 15, weight: .semibold))
                         }
                         .foregroundColor(
                             newEventTitle.isEmpty
@@ -697,7 +711,7 @@ struct TimelineView: View {
     private func plusIndicator(at time: Date) -> some View {
         VStack(spacing: 0) {
             Image(systemName: "plus")
-                .font(.system(size: 13, weight: .semibold))
+                .font(FontManager.geist(size: 13, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .black : .white)
                 .frame(width: 32, height: 32)
                 .background(

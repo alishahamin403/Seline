@@ -64,7 +64,7 @@ struct EventCardCompact: View {
                 onToggleCompletion?()
             }) {
                 Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(accentColor)
             }
             .buttonStyle(PlainButtonStyle())
@@ -72,7 +72,7 @@ struct EventCardCompact: View {
             // Title and time
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(FontManager.geist(size: 13, weight: .semibold))
                     .foregroundColor(textColor)
                     .strikethrough(isCompleted, color: textColor.opacity(0.5))
                     .lineLimit(1)
@@ -80,11 +80,11 @@ struct EventCardCompact: View {
 
                 HStack(spacing: 4) {
                     Image(systemName: "clock.fill")
-                        .font(.system(size: 10))
+                        .font(FontManager.geist(size: 10, weight: .regular))
                         .foregroundColor(accentColor)
 
                     Text(timeDisplay)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(FontManager.geist(size: 11, weight: .medium))
                         .foregroundColor(textColor.opacity(0.7))
                 }
             }

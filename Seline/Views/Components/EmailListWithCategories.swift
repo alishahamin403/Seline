@@ -7,7 +7,7 @@ struct EmailListWithCategories: View {
     let onDeleteEmail: (Email) -> Void
     let onMarkAsUnread: (Email) -> Void
 
-    @State private var expandedSections: Set<String> = Set(TimePeriod.allCases.map { $0.rawValue })
+    @State private var expandedSections: Set<String> = Set(EmailTimePeriod.allCases.map { $0.rawValue })
     @State private var selectedEmail: Email?
     @Environment(\.colorScheme) var colorScheme
 
@@ -20,7 +20,7 @@ struct EmailListWithCategories: View {
 
                 case .loading:
                     VStack(spacing: 12) {
-                        ForEach(TimePeriod.allCases, id: \.self) { period in
+                        ForEach(EmailTimePeriod.allCases, id: \.self) { period in
                             CategoryLoadingPlaceholder(timePeriod: period)
                         }
                     }
@@ -68,15 +68,27 @@ struct EmailListWithCategories: View {
         .refreshable {
             await onRefresh()
         }
-        .sheet(item: $selectedEmail) { email in
-            EmailDetailView(email: email)
-        }
-    .presentationBg()
+        .background(
+            NavigationLink(
+                destination: Group {
+                    if let email = selectedEmail {
+                        EmailDetailView(email: email)
+                    }
+                },
+                isActive: Binding(
+                    get: { selectedEmail != nil },
+                    set: { if !$0 { selectedEmail = nil } }
+                )
+            ) {
+                EmptyView()
+            }
+            .hidden()
+        )
     }
 }
 
 struct CategoryLoadingPlaceholder: View {
-    let timePeriod: TimePeriod
+    let timePeriod: EmailTimePeriod
     @Environment(\.colorScheme) var colorScheme
 
     private var cardBackground: Color {
@@ -203,7 +215,7 @@ struct ErrorView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 48, weight: .light))
+                .font(FontManager.geist(size: 48, weight: .light))
                 .foregroundColor(Color.red)
 
             VStack(spacing: 8) {
@@ -239,7 +251,7 @@ struct ErrorView: View {
         EmailSection(timePeriod: .night, emails: [Email.sampleEmails[3]])
     ]
 
-    return VStack {
+    VStack {
         EmailListWithCategories(
             sections: sampleSections,
             loadingState: .loaded(Email.sampleEmails),

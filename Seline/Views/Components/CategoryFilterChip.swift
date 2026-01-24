@@ -33,7 +33,7 @@ struct CategoryFilterChip: View {
     var body: some View {
         Button(action: onTap) {
             Text(category)
-                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                .font(FontManager.geist(size: 14, systemWeight: isSelected ? .semibold : .medium))
                 .foregroundColor(textColor)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)

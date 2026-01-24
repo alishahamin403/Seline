@@ -72,7 +72,7 @@ struct AddEventFromEmailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: "envelope.fill")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(
                         colorScheme == .dark ?
                             Color(red: 0.29, green: 0.29, blue: 0.29) :
@@ -80,7 +80,7 @@ struct AddEventFromEmailView: View {
                     )
 
                 Text("Attached Email")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 Spacer()
@@ -88,22 +88,22 @@ struct AddEventFromEmailView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(email.subject)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(FontManager.geist(size: 15, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(2)
 
                 HStack(spacing: 4) {
                     Text("From:")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(Color.gray)
 
                     Text(email.sender.displayName)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(FontManager.geist(size: 13, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7))
                 }
 
                 Text(email.snippet)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(Color.gray)
                     .lineLimit(2)
             }
@@ -122,11 +122,11 @@ struct AddEventFromEmailView: View {
             // Event Title
             VStack(alignment: .leading, spacing: 8) {
                 Text("Event Title")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 TextField("Enter event title", text: $eventTitle)
-                    .font(.system(size: 15, weight: .regular))
+                    .font(FontManager.geist(size: 15, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .padding(12)
                     .background(
@@ -138,7 +138,7 @@ struct AddEventFromEmailView: View {
             // Date Picker
             VStack(alignment: .leading, spacing: 8) {
                 Text("Date")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 DatePicker("", selection: $selectedDate, displayedComponents: .date)
@@ -154,7 +154,7 @@ struct AddEventFromEmailView: View {
             // Time Toggle
             Toggle(isOn: $hasScheduledTime) {
                 Text("Add Time")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
             .tint(Color(red: 0.29, green: 0.29, blue: 0.29))
@@ -163,7 +163,7 @@ struct AddEventFromEmailView: View {
             if hasScheduledTime {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Time")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     DatePicker("", selection: $selectedTime, displayedComponents: .hourAndMinute)
@@ -175,14 +175,14 @@ struct AddEventFromEmailView: View {
                 // Reminder Time
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Reminder")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Picker("Reminder", selection: $reminderTime) {
                         ForEach(ReminderTime.allCases, id: \.self) { reminder in
                             HStack(spacing: 6) {
                                 Image(systemName: reminder.icon)
-                                    .font(.system(size: 12))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                 Text(reminder.displayName)
                             }
                             .tag(reminder)

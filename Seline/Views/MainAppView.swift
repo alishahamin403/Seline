@@ -36,7 +36,6 @@ struct MainAppView: View {
     @State private var notificationEmailId: String? = nil
     @State private var notificationTaskId: String? = nil
     @FocusState private var isSearchFocused: Bool
-    @State private var showConversationModal = false
     @Namespace private var noteTransitionNamespace
     @State private var showReceiptStats = false
     @State private var searchDebounceTask: Task<Void, Never>? = nil  // Track debounce task
@@ -61,6 +60,7 @@ struct MainAppView: View {
     @State private var showingReceiptCameraPicker = false
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var showingSettings = false
+    @State private var profilePictureUrl: String? = nil
     @State private var hasAppeared = false
     @State private var dismissedVisitReasonIds: Set<UUID> = [] // Track visits where user dismissed the reason popup
 
@@ -282,17 +282,78 @@ struct MainAppView: View {
             ))
         }
 
+        // Search receipts (from Receipts folder notes)
+        let receiptStatistics = notesManager.getReceiptStatistics()
+        let allReceipts = receiptStatistics.flatMap { yearSummary in
+            yearSummary.monthlySummaries.flatMap { $0.receipts }
+        }
+        
+        let matchingReceipts = allReceipts.filter {
+            $0.title.lowercased().contains(lowercasedSearch) ||
+            $0.category.lowercased().contains(lowercasedSearch)
+        }
+        
+        for receipt in matchingReceipts.prefix(5) {
+            // Find the note for this receipt
+            if let note = notesManager.notes.first(where: { $0.id == receipt.noteId }) {
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateStyle = .medium
+                let dateString = dateFormatter.string(from: receipt.date)
+                
+                results.append(OverlaySearchResult(
+                    type: .receipt,
+                    title: receipt.title,
+                    subtitle: "\(CurrencyParser.formatAmount(receipt.amount)) • \(dateString)",
+                    icon: "doc.text",
+                    task: nil,
+                    email: nil,
+                    note: note,
+                    location: nil,
+                    category: receipt.category
+                ))
+            }
+        }
+        
+        // Search recurring expenses (from cache - will be empty if not loaded yet)
+        if let cachedExpenses: [RecurringExpense] = CacheManager.shared.get(forKey: CacheManager.CacheKey.allRecurringExpenses) {
+            let matchingExpenses = cachedExpenses.filter {
+                $0.title.lowercased().contains(lowercasedSearch) ||
+                ($0.category?.lowercased().contains(lowercasedSearch) ?? false) ||
+                ($0.description?.lowercased().contains(lowercasedSearch) ?? false)
+            }
+            
+            for expense in matchingExpenses.prefix(5) {
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateStyle = .medium
+                let nextDateString = dateFormatter.string(from: expense.nextOccurrence)
+                
+                results.append(OverlaySearchResult(
+                    type: .recurringExpense,
+                    title: expense.title,
+                    subtitle: "\(expense.formattedAmount) • Next: \(nextDateString)",
+                    icon: "repeat.circle",
+                    task: nil,
+                    email: nil,
+                    note: nil,
+                    location: nil,
+                    category: expense.category
+                ))
+            }
+        }
+
         return results
     }
 
     // MARK: - Helper Methods for onChange Consolidation
 
     private func activateConversationModalIfNeeded() {
+        // Navigate to chat tab if there's a pending action
         if (searchService.pendingEventCreation != nil ||
             searchService.pendingNoteCreation != nil ||
             searchService.pendingNoteUpdate != nil) &&
            !searchService.isInConversationMode {
             searchService.isInConversationMode = true
+            selectedTab = .email
         }
     }
 
@@ -307,7 +368,7 @@ struct MainAppView: View {
         case "search":
             isSearchFocused = true
         case "chat":
-            showConversationModal = true
+            selectedTab = .email // Navigate to email tab which now has chat
         default:
             break
         }
@@ -605,17 +666,21 @@ struct MainAppView: View {
             }
         case .location:
             if let location = result.location {
-                GoogleMapsService.shared.openInGoogleMaps(place: location)
+                selectedLocationPlace = location
             }
-            // Dismiss search for locations
-            isSearchFocused = false
-            searchText = ""
-            return
         case .folder:
             if let category = result.category {
                 selectedTab = .maps
                 searchSelectedFolder = category
             }
+        case .receipt:
+            // Receipts are notes - open the note
+            if let note = result.note {
+                searchSelectedNote = note
+            }
+        case .recurringExpense:
+            // Navigate to receipt stats view which shows recurring expenses
+            showReceiptStats = true
         }
 
         // Dismiss search after setting the state
@@ -657,9 +722,6 @@ struct MainAppView: View {
             .onChange(of: searchService.pendingNoteUpdate) { _ in
                 activateConversationModalIfNeeded()
             }
-            .onChange(of: searchService.isInConversationMode) { newValue in
-                showConversationModal = newValue
-            }
             .onChange(of: deepLinkHandler.shouldShowNoteCreation) { newValue in
                 if newValue { handleDeepLinkAction(type: "noteCreation") }
             }
@@ -690,15 +752,6 @@ struct MainAppView: View {
                 // The onChange itself triggers a view update cycle
             }
             .id(colorScheme) // Force complete view recreation on theme change
-            .fullScreenCover(isPresented: $showConversationModal) {
-                ConversationSearchView()
-                    .onAppear {
-                        // Focus the input field when the modal appears
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            // The ConversationSearchView will handle focusing automatically
-                        }
-                    }
-            }
     }
 
     private var mainContent: some View {
@@ -1071,28 +1124,7 @@ struct MainAppView: View {
             ZStack {
                 // Home tab - no transition for instant switching
                 if selectedTab == .home {
-                    ZStack(alignment: .bottom) {
-                        homeContentWithoutHeader
-                        
-                        // Floating AI Bar (Moved here for perfect sync with Home tab)
-                        if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup && !notesManager.isViewingNoteInNavigation && !searchService.isInConversationMode {
-                            FloatingAIBar(
-                                onTap: {
-                                    searchService.clearConversation()
-                                    Task {
-                                        searchService.conversationHistory = []
-                                        searchService.conversationTitle = "New Conversation"
-                                        searchService.isInConversationMode = true
-                                        showConversationModal = true
-                                    }
-                                },
-                                onProfileTap: {
-                                    showingSettings = true
-                                }
-                            )
-                            // It has internal bottom padding of 20, matching the previous layout
-                        }
-                    }
+                    homeContentWithoutHeader
                         .task {
                             // Only load if not already loaded (defer heavy operations)
                             if emailService.inboxEmails.isEmpty {
@@ -1582,12 +1614,12 @@ struct MainAppView: View {
 
     // MARK: - Search Bar Components
 
+    // LLM Search Bar Button (navigates to chat tab)
     private var searchBarView: some View {
         Button(action: {
-            // Open LLM chat view when search bar is tapped
+            // Navigate to chat tab
             HapticManager.shared.selection()
-            searchService.isInConversationMode = true
-            showConversationModal = true
+            selectedTab = .email
         }) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
@@ -1613,99 +1645,240 @@ struct MainAppView: View {
         }
         .buttonStyle(PlainButtonStyle())
     }
-
-    private var searchResultsDropdown: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    if searchResults.isEmpty {
-                        Text("No results found")
-                            .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                            .padding(.vertical, 20)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    } else {
-                        ForEach(searchResults) { result in
-                            searchResultRow(for: result)
+    
+    // Profile avatar button (opens settings)
+    private var profileAvatarButton: some View {
+        Button(action: {
+            HapticManager.shared.selection()
+            showingSettings = true
+        }) {
+            Group {
+                if let profilePictureUrl = profilePictureUrl, let url = URL(string: profilePictureUrl) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure(_), .empty:
+                            // Fallback to initials or default icon
+                            Image(systemName: "person.circle.fill")
+                                .font(FontManager.geist(size: 36, weight: .medium))
+                        @unknown default:
+                            Image(systemName: "person.circle.fill")
+                                .font(FontManager.geist(size: 36, weight: .medium))
                         }
                     }
+                    .frame(width: 36, height: 36)
+                    .clipShape(Circle())
+                } else {
+                    // Show initials or default icon
+                    if let user = authManager.currentUser,
+                       let name = user.profile?.name,
+                       let firstChar = name.first {
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1))
+                            .frame(width: 36, height: 36)
+                            .overlay(
+                                Text(String(firstChar).uppercased())
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.85) : Color.black.opacity(0.7))
+                            )
+                    } else {
+                        Image(systemName: "person.circle.fill")
+                            .font(FontManager.geist(size: 36, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.85) : Color.black.opacity(0.7))
+                    }
                 }
-                .padding(8)
             }
-            .frame(maxHeight: 300)
         }
+        .buttonStyle(PlainButtonStyle())
+        .task {
+            await fetchUserProfilePicture()
+        }
+    }
+
+    // NEW: App-wide search bar for searching emails, events, notes, receipts, etc.
+    private var appSearchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(FontManager.geist(size: 14, weight: .medium))
+                .foregroundColor(.gray)
+
+            TextField("Search", text: $searchText)
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .focused($isSearchFocused)
+                .submitLabel(.search)
+
+            // Clear button
+            if !searchText.isEmpty {
+                Button(action: {
+                    searchText = ""
+                    searchResults = []
+                    isSearchFocused = false
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background(
-            colorScheme == .dark ?
-                Color(red: 0.15, green: 0.15, blue: 0.15) :
-                Color(red: 0.95, green: 0.95, blue: 0.95)
+            RoundedRectangle(cornerRadius: 20)
+                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
         )
-        .cornerRadius(10)
-        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+    }
+
+    // Search results dropdown (used when not in overlay mode - kept for compatibility)
+    private var searchResultsDropdown: some View {
+        let screenHeight = UIScreen.main.bounds.height
+        // Calculate available height: screen height minus keyboard minus search bar area (top safe area + search bar height ~160px) minus small gap
+        let availableHeight = screenHeight - keyboardHeight - 160 - 16
+
+        return ScrollView(showsIndicators: false) {
+            LazyVStack(spacing: 4) {
+                if searchResults.isEmpty {
+                    Text("No results found")
+                        .font(FontManager.geist(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                        .padding(.vertical, 40)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                } else {
+                    ForEach(searchResults) { result in
+                        searchResultRow(for: result)
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
+        }
+        .frame(height: max(400, availableHeight))
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(colorScheme == .dark ?
+                      Color(red: 0.11, green: 0.11, blue: 0.12) :
+                      Color(red: 0.98, green: 0.98, blue: 0.99))
+                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.4 : 0.1), radius: 20, x: 0, y: 8)
+        )
     }
 
     private func searchResultRow(for result: OverlaySearchResult) -> some View {
         Button(action: {
             handleSearchResultTap(result)
         }) {
-            HStack(spacing: 12) {
-                // Icon
-                Image(systemName: result.icon)
-                    .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                    .frame(width: 24)
+            HStack(spacing: 10) {
+                // Modern icon container with gradient background - smaller size
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            colorScheme == .dark ?
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.12),
+                                        Color.white.opacity(0.06)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ) :
+                                LinearGradient(
+                                    colors: [
+                                        Color.black.opacity(0.06),
+                                        Color.black.opacity(0.02)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                        )
+                        .frame(width: 28, height: 28)
+                    
+                    Image(systemName: result.icon)
+                        .font(FontManager.geist(size: 13, weight: .medium))
+                        .foregroundColor(
+                            colorScheme == .dark ?
+                                Color.white.opacity(0.9) :
+                                Color.black.opacity(0.8)
+                        )
+                }
 
-                // Content
+                // Content - smaller fonts
                 VStack(alignment: .leading, spacing: 2) {
                     Text(result.title)
-                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 13, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .lineLimit(1)
 
                     Text(result.subtitle)
-                        .font(FontManager.geist(size: 12, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .font(FontManager.geist(size: 11, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.55))
                         .lineLimit(1)
                 }
 
                 Spacer()
 
-                // Type badge
+                // Modern type badge with better styling - smaller
                 Text(result.type.rawValue.capitalized)
                     .font(FontManager.geist(size: 10, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(
+                    .foregroundColor(
                         colorScheme == .dark ?
-                            Color.white.opacity(0.1) :
-                            Color.black.opacity(0.05)
+                            Color.white.opacity(0.85) :
+                            Color.black.opacity(0.7)
                     )
-                    .cornerRadius(4)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(
+                                colorScheme == .dark ?
+                                    Color.white.opacity(0.15) :
+                                    Color.black.opacity(0.08)
+                            )
+                    )
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
-                colorScheme == .dark ?
-                    Color.white.opacity(0.03) :
-                    Color.black.opacity(0.02)
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(
+                        colorScheme == .dark ?
+                            Color.white.opacity(0.05) :
+                            Color.black.opacity(0.02)
+                    )
             )
-            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(
+                        colorScheme == .dark ?
+                            Color.white.opacity(0.08) :
+                            Color.black.opacity(0.05),
+                        lineWidth: 0.5
+                    )
+            )
         }
         .buttonStyle(PlainButtonStyle())
     }
 
+    // Container for app-wide search bar and results
     private var searchBarContainer: some View {
         VStack(spacing: 0) {
-            searchBarView
+            HStack(spacing: 12) {
+                // Profile avatar button
+                profileAvatarButton
+
+                // Search bar
+                appSearchBar
+            }
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
 
             if !searchText.isEmpty {
                 searchResultsDropdown
+                    .padding(.top, 8)
+                    .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             }
         }
-        .cornerRadius(10)
-        .shadow(color: Color.black.opacity(!searchText.isEmpty ? 0.15 : 0.05), radius: !searchText.isEmpty ? 12 : 4, x: 0, y: !searchText.isEmpty ? 6 : 2)
-        .padding(.horizontal, 12)
-        .zIndex(100)
     }
 
     private var mainContentWidgets: some View {
@@ -1715,6 +1888,7 @@ struct MainAppView: View {
                     // NEW: Location suggestion card (shows when at unsaved location for 5+ min)
                     if locationSuggestionService.hasPendingSuggestion {
                         NewLocationSuggestionCard()
+                            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .top).combined(with: .opacity),
                                 removal: .move(edge: .top).combined(with: .opacity)
@@ -1728,7 +1902,7 @@ struct MainAppView: View {
                     }
                 }
                 .padding(.top, 12)
-                .padding(.bottom, 100) // Increased padding for FloatingAIBar
+                .padding(.bottom, 20)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scrollDismissesKeyboard(.interactively)
@@ -1807,7 +1981,7 @@ struct MainAppView: View {
                     }
                 )
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .zIndex(isDailyOverviewExpanded ? 10 : 1)
             
         case .spending:
@@ -1822,7 +1996,7 @@ struct MainAppView: View {
                     }
                 )
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .currentLocation:
@@ -1839,21 +2013,21 @@ struct MainAppView: View {
                     showAllLocationsSheet: $showAllLocationsSheet
                 )
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .events:
             ReorderableWidgetContainer(widgetManager: widgetManager, type: .events) {
                 EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .weather:
             ReorderableWidgetContainer(widgetManager: widgetManager, type: .weather) {
                 HomeWeatherWidget(isVisible: selectedTab == .home)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .unreadEmails:
@@ -1865,7 +2039,7 @@ struct MainAppView: View {
                     }
                 )
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .pinnedNotes:
@@ -1878,7 +2052,7 @@ struct MainAppView: View {
                     }
                 )
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .favoriteLocations:
@@ -1889,7 +2063,7 @@ struct MainAppView: View {
                     }
                 )
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .allowsHitTesting(!isDailyOverviewExpanded)
         }
     }
@@ -1919,11 +2093,35 @@ struct MainAppView: View {
 
     // MARK: - Home Content
     private var homeContentWithoutHeader: some View {
-        VStack(spacing: 0) {
-            visitReasonPopupSection
-            mainContentWidgets
+        ZStack(alignment: .top) {
+            // Blurred background when in search mode (overlay)
+            if isSearchFocused || !searchText.isEmpty {
+                ZStack {
+                    Color.black.opacity(0.4)
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                }
+                .ignoresSafeArea()
+                .onTapGesture {
+                    isSearchFocused = false
+                    searchText = ""
+                }
+                .zIndex(99)
+            }
+            
+            // Main content with search bar fixed at top
+            VStack(spacing: 0) {
+                // Search bar fixed at top
+                searchBarContainer
+                    .padding(.top, 8)
+                
+                // Main content widgets below search bar
+                visitReasonPopupSection
+                mainContentWidgets
+            }
+            .background(colorScheme == .dark ? Color.black : Color.white)
+            .zIndex(100)
         }
-        .background(colorScheme == .dark ? Color.black : Color.white)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -2093,6 +2291,21 @@ struct MainAppView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - User Profile
+
+    private func fetchUserProfilePicture() async {
+        do {
+            if let picUrl = try await GmailAPIClient.shared.fetchCurrentUserProfilePicture() {
+                await MainActor.run {
+                    self.profilePictureUrl = picUrl
+                }
+            }
+        } catch {
+            // Silently fail - will show initials fallback
+            print("Failed to fetch current user profile picture: \(error)")
         }
     }
 

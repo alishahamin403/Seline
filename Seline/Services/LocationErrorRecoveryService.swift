@@ -358,10 +358,17 @@ class LocationErrorRecoveryService {
 
                 if visitsToSave.count > 1 {
                     print("🌙 MIDNIGHT SPLIT: Visit spans 2 days, splitting into \(visitsToSave.count) records")
-                    // Delete the original visit before saving split visits
-                    await deleteVisitFromSupabase(originalVisit)
+                    // CRITICAL FIX: Save splits FIRST, then delete original
+                    var savedCount = 0
                     for part in visitsToSave {
                         await saveVisitToSupabase(part)
+                        savedCount += 1
+                    }
+                    // Only delete original after all splits are saved
+                    if savedCount == visitsToSave.count {
+                        await deleteVisitFromSupabase(originalVisit)
+                    } else {
+                        print("⚠️ Only \(savedCount)/\(visitsToSave.count) splits saved, keeping original")
                     }
                 } else {
                     await updateVisitInSupabase(staleVisits[i])
@@ -397,7 +404,8 @@ class LocationErrorRecoveryService {
         mergedVisit.sessionId = sessionId
         mergedVisit.confidenceScore = confidence
         mergedVisit.mergeReason = reason
-        mergedVisit.entryTime = Date()
+        // KEEP original entryTime - don't overwrite with Date()
+        // This preserves the true start time when visits are merged within 10 minutes
         mergedVisit.exitTime = nil
         mergedVisit.durationMinutes = nil
 
@@ -428,10 +436,16 @@ class LocationErrorRecoveryService {
         let visitsToSave = closedVisit.splitAtMidnightIfNeeded()
         if visitsToSave.count > 1 {
             print("🌙 MIDNIGHT SPLIT: Visit spans 2 days, splitting into \(visitsToSave.count) records")
-            // Delete the original visit before saving split visits
-            await deleteVisitFromSupabase(visit)
+            // CRITICAL FIX: Save splits FIRST, then delete original
+            var savedCount = 0
             for part in visitsToSave {
                 await saveVisitToSupabase(part)
+                savedCount += 1
+            }
+            if savedCount == visitsToSave.count {
+                await deleteVisitFromSupabase(visit)
+            } else {
+                print("⚠️ Only \(savedCount)/\(visitsToSave.count) splits saved, keeping original")
             }
         } else {
             await updateVisitInSupabase(closedVisit)
@@ -447,13 +461,15 @@ class LocationErrorRecoveryService {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
+        // NOTE: We intentionally don't update entry_time here to preserve the original start time
+        // When merging visits, we want to keep when the user first arrived, not when they returned
         let updateData: [String: PostgREST.AnyJSON] = [
             "session_id": .string((visit.sessionId ?? UUID()).uuidString),
             "exit_time": .null,
             "duration_minutes": .null,
             "confidence_score": .double(visit.confidenceScore ?? 1.0),
             "merge_reason": .string(visit.mergeReason ?? "unknown"),
-            "entry_time": .string(formatter.string(from: visit.entryTime)),
+            // entry_time is NOT updated - preserving original start time
             "updated_at": .string(formatter.string(from: Date()))
         ]
 
@@ -486,11 +502,25 @@ class LocationErrorRecoveryService {
 
         if visitsToSave.count > 1 {
             print("🌙 MIDNIGHT SPLIT in ErrorRecovery updateVisit: Splitting into \(visitsToSave.count) records")
-            // Delete the original visit and save the split parts
-            await deleteVisitFromSupabase(visit)
+            // CRITICAL FIX: Save split parts FIRST, then delete original
+            var savedCount = 0
             for part in visitsToSave {
                 await saveVisitToSupabase(part)
+                savedCount += 1
             }
+            if savedCount == visitsToSave.count {
+                await deleteVisitFromSupabase(visit)
+            } else {
+                print("⚠️ Only \(savedCount)/\(visitsToSave.count) splits saved, keeping original")
+            }
+            return
+        }
+
+        // AUTO-DELETE: Delete visits under 2 minutes instead of updating them
+        // Only check if visit is complete (has exit_time and duration)
+        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
+            print("🗑️ Auto-deleting short visit in ErrorRecovery instead of updating: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
+            await deleteVisitFromSupabase(visit)
             return
         }
 
@@ -571,6 +601,13 @@ class LocationErrorRecoveryService {
             return
         }
 
+        // AUTO-DELETE: Skip saving visits under 2 minutes (likely false positives)
+        // Only check if visit is complete (has exit_time and duration)
+        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
+            print("🗑️ Skipping save for short visit in ErrorRecovery: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
+            return
+        }
+
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
@@ -641,6 +678,171 @@ class LocationErrorRecoveryService {
         } catch {
             print("❌ Error verifying session integrity: \(error)")
             return -1
+        }
+    }
+    
+    // MARK: - Historical Visit Merge (One-time cleanup)
+    
+    /// Merge all existing visits that have less than 10 minutes gap between them
+    /// This is a one-time cleanup operation for historical data
+    /// Returns the number of visits that were merged (deleted)
+    func mergeHistoricalVisits() async -> Int {
+        print("\n🔄 ===== MERGING HISTORICAL VISITS =====")
+        
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("⚠️ No user ID, cannot merge historical visits")
+            return 0
+        }
+        
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            
+            // Fetch ALL visits for the user, ordered by entry time
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .order("entry_time", ascending: true)
+                .execute()
+            
+            let decoder = JSONDecoder.supabaseDecoder()
+            let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            
+            print("📊 Found \(allVisits.count) total visits to analyze")
+            
+            // Group visits by saved_place_id (location)
+            var visitsByLocation: [UUID: [LocationVisitRecord]] = [:]
+            for visit in allVisits {
+                visitsByLocation[visit.savedPlaceId, default: []].append(visit)
+            }
+            
+            print("📍 Analyzing \(visitsByLocation.count) unique locations")
+            
+            var totalMerged = 0
+            var totalDeleted = 0
+            
+            // Process each location
+            for (placeId, visits) in visitsByLocation {
+                // Sort by entry time (should already be sorted, but ensure)
+                let sortedVisits = visits.sorted { $0.entryTime < $1.entryTime }
+                
+                // Find chains of visits that should be merged
+                var mergeChains: [[LocationVisitRecord]] = []
+                var currentChain: [LocationVisitRecord] = []
+                
+                for visit in sortedVisits {
+                    // Skip visits that don't have an exit time (still active)
+                    guard let exitTime = visit.exitTime else {
+                        // If we have a chain, save it first
+                        if currentChain.count > 1 {
+                            mergeChains.append(currentChain)
+                        }
+                        currentChain = []
+                        continue
+                    }
+                    
+                    if currentChain.isEmpty {
+                        currentChain = [visit]
+                    } else {
+                        // Check gap between last visit's exit and this visit's entry
+                        if let lastVisit = currentChain.last,
+                           let lastExit = lastVisit.exitTime {
+                            let gapMinutes = visit.entryTime.timeIntervalSince(lastExit) / 60
+                            
+                            // Same calendar day check
+                            let calendar = Calendar.current
+                            let lastExitDay = calendar.dateComponents([.year, .month, .day], from: lastExit)
+                            let thisEntryDay = calendar.dateComponents([.year, .month, .day], from: visit.entryTime)
+                            let sameDay = lastExitDay == thisEntryDay
+                            
+                            if gapMinutes >= 0 && gapMinutes < 10 && sameDay {
+                                // Add to current merge chain
+                                currentChain.append(visit)
+                            } else {
+                                // Gap too large or different days - save current chain if mergeable
+                                if currentChain.count > 1 {
+                                    mergeChains.append(currentChain)
+                                }
+                                currentChain = [visit]
+                            }
+                        }
+                    }
+                }
+                
+                // Don't forget the last chain
+                if currentChain.count > 1 {
+                    mergeChains.append(currentChain)
+                }
+                
+                // Process merge chains for this location
+                for chain in mergeChains {
+                    guard chain.count > 1 else { continue }
+                    
+                    let firstVisit = chain.first!
+                    let lastVisit = chain.last!
+                    
+                    // Get place name for logging
+                    let placeName = LocationsManager.shared.savedPlaces.first(where: { $0.id == placeId })?.displayName ?? placeId.uuidString
+                    
+                    print("\n🔄 Merging \(chain.count) visits at \(placeName)")
+                    print("   First: \(firstVisit.entryTime) - \(firstVisit.exitTime?.description ?? "nil")")
+                    print("   Last:  \(lastVisit.entryTime) - \(lastVisit.exitTime?.description ?? "nil")")
+                    
+                    // Calculate merged visit data
+                    let mergedEntryTime = firstVisit.entryTime
+                    let mergedExitTime = lastVisit.exitTime
+                    let mergedDuration = mergedExitTime != nil 
+                        ? Int(mergedExitTime!.timeIntervalSince(mergedEntryTime) / 60)
+                        : nil
+                    
+                    print("   → Merged: \(mergedEntryTime) - \(mergedExitTime?.description ?? "nil") (\(mergedDuration ?? 0) min)")
+                    
+                    // Update the FIRST visit with merged data
+                    let formatter = ISO8601DateFormatter()
+                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    
+                    let updateData: [String: PostgREST.AnyJSON] = [
+                        "exit_time": mergedExitTime != nil ? .string(formatter.string(from: mergedExitTime!)) : .null,
+                        "duration_minutes": mergedDuration != nil ? .double(Double(mergedDuration!)) : .null,
+                        "merge_reason": .string("historical_merge"),
+                        "updated_at": .string(formatter.string(from: Date()))
+                    ]
+                    
+                    try await client
+                        .from("location_visits")
+                        .update(updateData)
+                        .eq("id", value: firstVisit.id.uuidString)
+                        .execute()
+                    
+                    // Delete all OTHER visits in the chain (not the first one)
+                    for i in 1..<chain.count {
+                        let visitToDelete = chain[i]
+                        try await client
+                            .from("location_visits")
+                            .delete()
+                            .eq("id", value: visitToDelete.id.uuidString)
+                            .execute()
+                        totalDeleted += 1
+                    }
+                    
+                    totalMerged += 1
+                }
+                
+                // Invalidate cache for this location
+                LocationVisitAnalytics.shared.invalidateCache(for: placeId)
+            }
+            
+            print("\n📊 ===== MERGE SUMMARY =====")
+            print("   Merge operations: \(totalMerged)")
+            print("   Visits deleted: \(totalDeleted)")
+            print("   Remaining visits: \(allVisits.count - totalDeleted)")
+            print("🔄 ===== MERGE COMPLETE =====\n")
+            
+            return totalDeleted
+            
+        } catch {
+            print("❌ Error merging historical visits: \(error)")
+            return 0
         }
     }
 }

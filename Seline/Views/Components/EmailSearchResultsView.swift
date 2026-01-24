@@ -18,7 +18,7 @@ struct EmailSearchResultsView: View {
                         ProgressView()
                             .scaleEffect(1.2)
                         Text("Searching...")
-                            .font(.system(size: 14))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
                         Spacer()
                     }
@@ -27,13 +27,13 @@ struct EmailSearchResultsView: View {
                     VStack(spacing: 16) {
                         Spacer()
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 50))
+                            .font(FontManager.geist(size: 50, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.gray)
                         Text("No results found")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(FontManager.geist(size: 18, weight: .semibold))
                             .foregroundColor(Color.shadcnForeground(colorScheme))
                         Text("Try different keywords or check your spelling")
-                            .font(.system(size: 14))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
                             .multilineTextAlignment(.center)
                         Spacer()
@@ -45,7 +45,7 @@ struct EmailSearchResultsView: View {
                         // Results header
                         HStack {
                             Text("\(searchResults.count) result\(searchResults.count == 1 ? "" : "s")")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(FontManager.geist(size: 14, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
                             Spacer()
                         }

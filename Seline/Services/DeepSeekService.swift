@@ -96,30 +96,44 @@ class DeepSeekService: ObservableObject {
         print("📧 ===========================================")
 
         let prompt = """
-        You must analyze the email below and create exactly 4 bullet points summarizing ONLY the information found in this specific email.
+        Read this email and extract what actually matters to the reader. Be their smart assistant.
 
-        Subject: \(subject)
-
-        Body:
+        EMAIL CONTENT:
         \(body.prefix(8000))
 
-        CRITICAL RULES - NEVER HALLUCINATE:
-        1. Extract information ONLY from the email content above - NEVER make up or assume any details
-        2. If you cannot find specific information (stock symbols, amounts, account types) in the email, DO NOT mention them
-        3. Create exactly 4 bullet points using the • symbol
-        4. Each bullet point must be 15 words or less
-        5. Include ONLY the specific numbers, dates, amounts, stock symbols, account names that are explicitly stated in the email
-        6. Be direct - no prefixes like "Main purpose:" or "Action:"
-        7. For financial emails: Include ONLY the exact account type, stock symbol, and dollar amount FROM THE EMAIL TEXT
-        8. If the email is too short or lacks detail, summarize what IS there - don't add details
+        YOUR TASK: Create 2-4 bullet points that answer "What do I need to know?" and "What should I do?"
 
-        EXAMPLE - If the email says "You earned $1.44 from MSFT in your TFSA account":
-        • You earned a dividend from your investment in MSFT (Microsoft).
-        • The dividend amount is $1.44.
-        • The dividend will be deposited into your TFSA account.
-        • The email is from Wealthsimple regarding your investment activity.
+        CRITICAL RULES:
+        1. Write like a helpful friend, NOT a robot. Never say "this email", "the email states", "the sender"
+        2. NEVER repeat the subject line or sender name - the user already sees those
+        3. Focus on: amounts, dates, deadlines, action items, important details
+        4. If there's something to DO, start with an action verb (Review, Confirm, Pay, Check, etc.)
+        5. Include specific numbers: $amounts, dates, percentages, quantities
+        6. Skip fluff - no "Thank you for your business" type content
+        7. If it's a receipt/transaction: state the key numbers (amount, what it's for)
+        8. If it's a request: state what they're asking and any deadline
+        9. If it's informational: state the key takeaway
 
-        Return only the 4 bullet points, nothing else.
+        EXAMPLES OF GOOD SUMMARIES:
+
+        For a deposit notification:
+        • $500 deposited to your TFSA
+        • New balance: $12,450.32
+
+        For a meeting request:
+        • Wants to schedule a 30-min call next week
+        • Discussing the Q4 marketing budget
+        • Reply to confirm your availability
+
+        For a bill/invoice:
+        • $89.99 due by Jan 25th
+        • Pay at: account.example.com
+
+        For a newsletter/promo:
+        • 30% off sale ends Sunday
+        • Code: WINTER30
+
+        Return ONLY the bullet points using • symbol. Be concise and useful.
         """
 
         let messages = [Message(role: "user", content: prompt)]
@@ -154,7 +168,7 @@ class DeepSeekService: ObservableObject {
                 // Use daily quota if available, fallback to monthly for backward compatibility
                 self.quotaUsed = status.quota_used ?? status.quota_used_this_month ?? 0
                 self.quotaLimit = status.quota_tokens ?? status.monthly_quota_tokens ?? 1000000
-                self.quotaPercentage = (Double(quotaUsed) / Double(quotaLimit)) * 100
+                // self.quotaPercentage = (Double(quotaUsed) / Double(quotaLimit)) * 100 // Don't overwrite daily specific percentage
             }
         } catch {
             print("Error loading quota status: \(error)")
@@ -215,8 +229,11 @@ class DeepSeekService: ObservableObject {
             dailyTokensUsed = UserDefaults.standard.integer(forKey: tokensKey)
             dailyQueryCount = UserDefaults.standard.integer(forKey: queryCountKey)
         }
+        
+        // Update quota percentage immediately for real-time UI display
+        quotaPercentage = (Double(dailyTokensUsed) / Double(dailyTokenLimit)) * 100
 
-        print("📊 Daily Usage Loaded: \(dailyTokensUsed) tokens, \(dailyQueryCount) queries")
+        print("📊 Daily Usage Loaded: \(dailyTokensUsed) tokens, \(dailyQueryCount) queries, \(String(format: "%.1f", quotaPercentage))% used")
     }
 
     /// Save daily usage to UserDefaults
@@ -241,12 +258,20 @@ class DeepSeekService: ObservableObject {
         // Update average tokens per query
         averageTokensPerQuery = dailyTokensUsed / max(dailyQueryCount, 1)
 
+        // Update quota percentage immediately for real-time UI feedback
+        quotaPercentage = (Double(dailyTokensUsed) / Double(dailyTokenLimit)) * 100
+
         saveDailyUsage()
     }
 
     /// Get remaining tokens for today
     var dailyTokensRemaining: Int {
         max(0, dailyTokenLimit - dailyTokensUsed)
+    }
+    
+    /// Get daily usage percentage (0-100) for real-time display
+    var dailyUsagePercentage: Double {
+        min(100.0, (Double(dailyTokensUsed) / Double(dailyTokenLimit)) * 100)
     }
 
     /// Get estimated queries remaining
@@ -758,7 +783,6 @@ class DeepSeekService: ObservableObject {
         ✓ Remove extra whitespace, blank lines, and formatting clutter
         ✓ Remove duplicate content or repeated text
         ✓ Clean up inconsistent spacing and formatting
-        ✓ Fix malformed tables and convert to clean pipe-delimited format if needed
         ✓ Remove unwanted characters, emojis, or symbols
         ✓ Use markdown formatting for structure and emphasis
 
@@ -769,14 +793,27 @@ class DeepSeekService: ObservableObject {
         ✓ Use *italic* for subtle emphasis
         ✓ Use - item for bullet lists
         ✓ Use 1. item for numbered lists
-        ✓ Use | column1 | column2 | for tables (pipe-delimited)
         ✓ Add blank lines between major sections for readability
+
+        CRITICAL - TABLE CONVERSION:
+        If you encounter pipe-delimited tables (| column | column |):
+        ✗ Do NOT keep the pipe-delimited table format
+        ✓ Convert each table row into a structured section:
+          - Use ## for each row header (first column becomes the heading)
+          - Use bullet points with **bold labels** for remaining columns
+        ✓ Example conversion:
+          FROM: | Day | Activity | Duration |
+                | Monday | Cardio | 45 min |
+          TO:   ## Monday
+                - **Activity:** Cardio
+                - **Duration:** 45 min
 
         DO NOT:
         ✗ Summarize, condense, or omit any information
         ✗ Add new information not in the original
         ✗ Change the meaning or structure of content
         ✗ Add explanations or commentary
+        ✗ Keep pipe-delimited table syntax
 
         Return the cleaned text with proper markdown formatting, nothing else.
         """
@@ -825,6 +862,7 @@ class DeepSeekService: ObservableObject {
         ✗ Add information not present in the original text
         ✗ Change facts or numbers
         ✗ Use HTML or other formatting (only markdown)
+        ✗ Use pipe-delimited markdown table syntax (| column | column |)
 
         Return the summary text with proper markdown formatting for structure, nothing else.
         """
@@ -877,9 +915,30 @@ class DeepSeekService: ObservableObject {
         ✓ Use 1. item for numbered lists
         ✓ Add blank lines between major sections for readability
 
+        CRITICAL - TABLE FORMATTING:
+        When the user requests a TABLE, SCHEDULE, TRACKER, or any TABULAR DATA:
+        ✗ Do NOT use pipe-delimited markdown table syntax (| column | column |)
+        ✗ Do NOT use horizontal lines (|---|---|)
+        ✓ Instead, format each row as a structured section with clear labels
+        ✓ Use ## for each row header (e.g., ## Monday, ## Week 1)
+        ✓ Use bullet points with **bold labels** for columns
+        ✓ Example format for a weekly schedule:
+          ## Monday
+          - **Planned Activity:** Cardio
+          - **Duration:** 45 min
+          - **Completed:** [ ]
+          - **Notes:** 
+          
+          ## Tuesday
+          - **Planned Activity:** Strength training
+          - **Duration:** 60 min
+          - **Completed:** [ ]
+          - **Notes:**
+
         IMPORTANT CONSTRAINTS:
         ✗ Do NOT mention images, photos, or visual content
         ✗ Do NOT add placeholders for images
+        ✗ Do NOT use markdown table syntax (pipes and dashes)
         ✗ Only add text-based information
         ✗ Preserve all original content and formatting
 

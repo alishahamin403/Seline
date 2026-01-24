@@ -24,7 +24,7 @@ struct EmailFolderSidebarView: View {
             // Header
             HStack(spacing: 12) {
                 Text("Email Folders")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 Spacer()
@@ -35,7 +35,7 @@ struct EmailFolderSidebarView: View {
                         ProgressView()
                             .scaleEffect(0.8, anchor: .center)
                         Text("Syncing...")
-                            .font(.system(size: 12))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                     }
                     .padding(.horizontal, 10)
@@ -47,7 +47,7 @@ struct EmailFolderSidebarView: View {
                 } else {
                     Button(action: { viewModel.syncLabelsManually(with: syncProgress) }) {
                         Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -55,7 +55,7 @@ struct EmailFolderSidebarView: View {
 
                 Button(action: { showCreateFolderSheet = true }) {
                     Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 18))
+                        .font(FontManager.geist(size: 18, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -73,15 +73,15 @@ struct EmailFolderSidebarView: View {
                     } else if viewModel.folders.isEmpty {
                         VStack(spacing: 12) {
                             Image(systemName: "folder")
-                                .font(.system(size: 28))
+                                .font(FontManager.geist(size: 28, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
                             Text("No Folders")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(FontManager.geist(size: 14, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
 
                             Text("Create your first folder")
-                                .font(.system(size: 12))
+                                .font(FontManager.geist(size: 12, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                         }
                         .frame(maxWidth: .infinity)
@@ -92,14 +92,14 @@ struct EmailFolderSidebarView: View {
                                 HStack(spacing: 12) {
                                     // Folder icon with different colors for imported vs user-created
                                     Image(systemName: "folder")
-                                        .font(.system(size: 16, weight: .medium))
+                                        .font(FontManager.geist(size: 16, weight: .medium))
                                         .foregroundColor(folder.isImported ? Color(hex: "#FF9500") ?? .orange : (colorScheme == .dark ? .white : .black))
                                         .frame(width: 20, height: 20)
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack(spacing: 6) {
                                             Text(folder.name)
-                                                .font(.system(size: 14, weight: .medium))
+                                                .font(FontManager.geist(size: 14, weight: .medium))
                                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                                 .lineLimit(1)
 
@@ -108,7 +108,7 @@ struct EmailFolderSidebarView: View {
                                                 if let lastSynced = folder.lastSyncedAt {
                                                     let timeAgo = formatTimeAgo(since: lastSynced)
                                                     Text(timeAgo)
-                                                        .font(.system(size: 9))
+                                                        .font(FontManager.geist(size: 9, weight: .regular))
                                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                                 }
                                             }
@@ -116,7 +116,7 @@ struct EmailFolderSidebarView: View {
 
                                         if let count = viewModel.folderEmailCounts[folder.id] {
                                             Text("\(count) email\(count != 1 ? "s" : "")")
-                                                .font(.system(size: 11))
+                                                .font(FontManager.geist(size: 11, weight: .regular))
                                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                         }
                                     }
@@ -478,15 +478,13 @@ struct SyncProgressOverlay: View {
 
                         VStack(spacing: 2) {
                             Text("\(Int(progress.progressPercentage * 100))%")
-                                .font(.system(.title3, design: .rounded))
-                                .fontWeight(.semibold)
+                                .font(FontManager.geist(size: .title3, weight: .semibold))
                                 .foregroundColor(.blue)
                         }
                     }
 
                     Text(progress.status)
-                        .font(.system(.body, design: .rounded))
-                        .fontWeight(.medium)
+                        .font(FontManager.geist(size: .body, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
@@ -530,14 +528,13 @@ struct SyncResultBanner: View {
                         .frame(width: 36, height: 36)
 
                     Image(systemName: progress.isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(FontManager.geist(size: 20, weight: .semibold))
                         .foregroundColor(progress.isSuccess ? .green : .red)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(progress.isSuccess ? "Sync Successful" : "Sync Failed")
-                        .font(.system(.subheadline, design: .rounded))
-                        .fontWeight(.semibold)
+                        .font(FontManager.geist(size: 15, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     if !progress.message.isEmpty {
@@ -552,7 +549,7 @@ struct SyncResultBanner: View {
 
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(FontManager.geist(size: 12, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         .padding(8)
                 }

@@ -87,44 +87,78 @@ struct RankingView: View {
             if let userCuisine = restaurant.userCuisine {
                 cuisines.insert(userCuisine)
             } else {
-                if restaurant.name.contains("Italian") || restaurant.category.contains("Italian") {
+                // Auto-detect cuisine from name/category
+                let name = restaurant.name.lowercased()
+                let category = restaurant.category.lowercased()
+                
+                if name.contains("italian") || category.contains("italian") || name.contains("pasta") {
                     cuisines.insert("Italian")
                 }
-                if restaurant.name.contains("Chinese") || restaurant.category.contains("Chinese") {
+                if name.contains("chinese") || category.contains("chinese") {
                     cuisines.insert("Chinese")
                 }
-                if restaurant.name.contains("Japanese") || restaurant.category.contains("Japanese") {
+                if name.contains("japanese") || category.contains("japanese") || name.contains("sushi") || name.contains("ramen") {
                     cuisines.insert("Japanese")
                 }
-                if restaurant.name.contains("Thai") || restaurant.category.contains("Thai") {
+                if name.contains("thai") || category.contains("thai") {
                     cuisines.insert("Thai")
                 }
-                if restaurant.name.contains("Indian") || restaurant.category.contains("Indian") {
+                if name.contains("indian") || category.contains("indian") || name.contains("curry") {
                     cuisines.insert("Indian")
                 }
-                if restaurant.name.contains("Mexican") || restaurant.category.contains("Mexican") {
+                if name.contains("pakistani") || category.contains("pakistani") || name.contains("biryani") {
+                    cuisines.insert("Pakistani")
+                }
+                if name.contains("mexican") || category.contains("mexican") || name.contains("taco") || name.contains("burrito") {
                     cuisines.insert("Mexican")
                 }
-                if restaurant.name.contains("French") || restaurant.category.contains("French") {
+                if name.contains("french") || category.contains("french") || name.contains("bistro") {
                     cuisines.insert("French")
                 }
-                if restaurant.name.contains("Korean") || restaurant.category.contains("Korean") {
+                if name.contains("korean") || category.contains("korean") || name.contains("bbq") {
                     cuisines.insert("Korean")
                 }
-                if restaurant.name.contains("Shawarma") || restaurant.category.contains("Shawarma") {
-                    cuisines.insert("Shawarma")
+                if name.contains("shawarma") || name.contains("kebab") || name.contains("falafel") || name.contains("middle eastern") || name.contains("lebanese") || name.contains("persian") {
+                    cuisines.insert("Middle Eastern")
                 }
-                if restaurant.name.contains("Jamaican") || restaurant.category.contains("Jamaican") {
+                if name.contains("jamaican") || category.contains("jamaican") || name.contains("jerk") {
                     cuisines.insert("Jamaican")
                 }
-                if restaurant.name.contains("Pizza") || restaurant.category.contains("Pizza") {
+                if name.contains("pizza") || category.contains("pizza") {
                     cuisines.insert("Pizza")
                 }
-                if restaurant.name.contains("Burger") || restaurant.category.contains("Burger") {
+                if name.contains("burger") || category.contains("burger") {
                     cuisines.insert("Burger")
                 }
-                if restaurant.name.contains("Coffee") || restaurant.category.contains("Coffee") {
+                if name.contains("coffee") || category.contains("coffee") || name.contains("cafe") {
                     cuisines.insert("Cafe")
+                }
+                if name.contains("vietnamese") || category.contains("vietnamese") || name.contains("pho") || name.contains("banh mi") {
+                    cuisines.insert("Vietnamese")
+                }
+                if name.contains("greek") || category.contains("greek") || name.contains("gyro") || name.contains("souvlaki") {
+                    cuisines.insert("Greek")
+                }
+                if name.contains("mediterranean") || category.contains("mediterranean") {
+                    cuisines.insert("Mediterranean")
+                }
+                if name.contains("turkish") || category.contains("turkish") || name.contains("doner") {
+                    cuisines.insert("Turkish")
+                }
+                if name.contains("seafood") || category.contains("seafood") || name.contains("fish") || name.contains("lobster") || name.contains("oyster") {
+                    cuisines.insert("Seafood")
+                }
+                if name.contains("american") || name.contains("diner") {
+                    cuisines.insert("American")
+                }
+                if name.contains("bbq") || name.contains("barbecue") || name.contains("smokehouse") {
+                    cuisines.insert("BBQ")
+                }
+                if name.contains("caribbean") || category.contains("caribbean") {
+                    cuisines.insert("Caribbean")
+                }
+                if name.contains("vegan") || name.contains("vegetarian") || name.contains("plant-based") {
+                    cuisines.insert("Vegetarian")
                 }
             }
         }
@@ -216,7 +250,7 @@ struct RankingView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                     .padding(.top, 20)
                     .padding(.bottom, 100)
                 }
@@ -251,7 +285,7 @@ struct RankingView: View {
             }
         }) {
             Text(cuisine)
-                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                .font(FontManager.geist(size: 13, systemWeight: isSelected ? .semibold : .medium))
                 .foregroundColor(pillForegroundColor(isSelected: isSelected))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
@@ -300,11 +334,11 @@ struct RankingView: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title)
-                            .font(.system(size: 16, weight: .regular))
+                            .font(FontManager.geist(size: 16, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         
                         Text(subtitle)
-                            .font(.system(size: 12, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
                     }
                     
@@ -312,7 +346,7 @@ struct RankingView: View {
                     
                     // Count Badge - Oval shaped circle matching all locations widget
                     Text("\(count)")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(FontManager.geist(size: 12, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(minWidth: 24, minHeight: 24)
                         .padding(.horizontal, 6)
@@ -357,15 +391,15 @@ struct RankingView: View {
     private var emptyStateView: some View {
         VStack(spacing: 16) {
             Image(systemName: "fork.knife")
-                .font(.system(size: 56, weight: .light))
+                .font(FontManager.geist(size: 56, weight: .light))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
 
             Text("No restaurants saved")
-                .font(.system(size: 18, weight: .semibold))
+                .font(FontManager.geist(size: 18, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
             Text(restaurants.isEmpty ? "Search and save restaurants to rate them" : "No restaurants match this cuisine")
-                .font(.system(size: 14, weight: .regular))
+                .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)

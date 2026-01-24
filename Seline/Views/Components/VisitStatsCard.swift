@@ -12,7 +12,7 @@ struct VisitStatsCard: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Visits")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                 if isLoading {
@@ -20,14 +20,14 @@ struct VisitStatsCard: View {
                         ProgressView()
                             .scaleEffect(0.8)
                         Text("Loading stats...")
-                            .font(.system(size: 14, weight: .regular))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                     }
                 } else if let stats = stats {
                     // Summary text removed - detailed stats shown in cards below
                 } else {
                     Text("No visits tracked yet")
-                        .font(.system(size: 14, weight: .regular))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                 }
             }
@@ -65,11 +65,11 @@ struct VisitStatsCard: View {
                         HStack(spacing: 0) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Peak Time")
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(FontManager.geist(size: 11, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                                 Text("\(peakDay) • \(peakTime)")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(FontManager.geist(size: 13, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
                             .padding(.leading, 12)
@@ -79,11 +79,11 @@ struct VisitStatsCard: View {
                             if let lastVisit = stats.lastVisitDate {
                                 VStack(alignment: .trailing, spacing: 2) {
                                     Text("Last Visit")
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(FontManager.geist(size: 11, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                                     Text(stats.formattedLastVisit)
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(FontManager.geist(size: 13, weight: .semibold))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                 }
                             }
@@ -135,7 +135,7 @@ struct StatTile: View {
     var body: some View {
         VStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 16))
+                .font(FontManager.geist(size: 16, weight: .regular))
                 .foregroundColor(
                     colorScheme == .dark ?
                         Color.white.opacity(0.7) :
@@ -143,13 +143,13 @@ struct StatTile: View {
                 )
 
             Text(value)
-                .font(.system(size: 14, weight: .semibold))
+                .font(FontManager.geist(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
 
             Text(label)
-                .font(.system(size: 10, weight: .medium))
+                .font(FontManager.geist(size: 10, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                 .lineLimit(1)
         }

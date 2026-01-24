@@ -85,7 +85,7 @@ struct IconDisplayView: View {
                 .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.white)
 
             Image(systemName: icon)
-                .font(.system(size: iconSize, weight: .semibold))
+                .font(FontManager.geist(size: iconSize, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
         }
         .frame(width: size, height: size)
@@ -118,7 +118,7 @@ struct InitialsView: View {
                 )
 
             Text(initials)
-                .font(.system(size: fontSize, weight: .bold))
+                .font(FontManager.geist(size: fontSize, weight: .bold))
                 .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
         }
         .frame(width: size, height: size)

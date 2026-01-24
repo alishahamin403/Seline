@@ -39,12 +39,29 @@ struct AddEventPopupView: View {
         self.initialTime = initialTime
 
         let date = initialDate ?? Date()
-        let time = initialTime ?? Date()
+        let time = AddEventPopupView.snapTo15Minutes(initialTime ?? Date())
         _selectedDate = State(initialValue: date)
         _selectedEndDate = State(initialValue: date)
         _hasTime = State(initialValue: initialTime != nil)
         _selectedTime = State(initialValue: time)
         _selectedEndTime = State(initialValue: time.addingTimeInterval(3600))
+    }
+
+    private static func snapTo15Minutes(_ date: Date) -> Date {
+        let calendar = Calendar.current
+        let minutes = calendar.component(.minute, from: date)
+        let roundedMinutes = ((minutes + 7) / 15) * 15
+        
+        var components = calendar.dateComponents([.year, .month, .day, .hour], from: date)
+        components.minute = roundedMinutes
+        
+        // Handle cases where rounding goes to 60
+        if roundedMinutes == 60 {
+            components.hour = (components.hour ?? 0) + 1
+            components.minute = 0
+        }
+        
+        return calendar.date(from: components) ?? date
     }
 
     private var isValidInput: Bool {
@@ -55,7 +72,7 @@ struct AddEventPopupView: View {
         HStack(spacing: 12) {
             Button(action: { isPresented = false }) {
                 Text("Cancel")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(FontManager.geist(size: 15, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -148,7 +165,7 @@ struct AddEventPopupView: View {
                 }
             }) {
                 Text("Create Event")
-                .font(.system(size: 15, weight: .semibold))
+                .font(FontManager.geist(size: 15, weight: .semibold))
                 .foregroundColor(isValidInput ? (colorScheme == .dark ? Color.black : Color.white) : Color.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -189,7 +206,7 @@ struct AddEventPopupView: View {
                 // Create Another Toggle
                 HStack {
                     Toggle("Create Another", isOn: $createAnother)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     Spacer()
                 }

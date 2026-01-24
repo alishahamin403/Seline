@@ -111,7 +111,7 @@ struct DailyOverviewWidget: View {
             let receiptsFolder = notesManager.folders.first { $0.name == "Receipts" }
 
             return notesManager.notes.filter { note in
-                // CRITICAL FIX: Only include notes that are in the Receipts folder hierarchy
+                // Only include notes that are in the Receipts folder hierarchy
                 guard let folderId = note.folderId,
                       let receiptsFolderId = receiptsFolder?.id else {
                     return false
@@ -135,10 +135,6 @@ struct DailyOverviewWidget: View {
                 let amount = CurrencyParser.extractAmount(from: content)
                 guard amount > 0 else { return false }
 
-                // CRITICAL: Only include notes with bullet point structure (receipt format)
-                // Receipt notes must have bullet points (lines starting with "- ")
-                guard content.contains("- ") else { return false }
-
                 // Extract the actual receipt transaction date from the title
                 // Try to extract date from title first (e.g., "Store Name - November 08, 2025")
                 // Fall back to dateModified if no date found in title
@@ -156,6 +152,28 @@ struct DailyOverviewWidget: View {
                 let date2 = notesManager.extractFullDateFromTitle(note2.title) ?? note2.dateModified
                 return date1 > date2
             }
+        }
+    }
+    
+    private var upcomingNoteReminders: [Note] {
+        // Use refreshTrigger to cache invalidation
+        let _ = refreshTrigger
+        
+        return CacheManager.shared.getOrCompute(
+            forKey: CacheManager.CacheKey.upcomingNoteReminders,
+            ttl: CacheManager.TTL.short
+        ) {
+            let calendar = Calendar.current
+            let now = Date()
+            let sevenDaysFromNow = calendar.date(byAdding: .day, value: 7, to: now)!
+            
+            return notesManager.notes.filter { note in
+                guard let reminderDate = note.reminderDate else { return false }
+                
+                // Show if due in next 7 days or is overdue (past)
+                return reminderDate < sevenDaysFromNow
+            }
+            .sorted { ($0.reminderDate ?? Date()) < ($1.reminderDate ?? Date()) }
         }
     }
 
@@ -256,6 +274,10 @@ struct DailyOverviewWidget: View {
                             birthdaysSection
                         }
 
+                        if !upcomingNoteReminders.isEmpty {
+                            noteRemindersSection
+                        }
+
                         // Quick Notes section - always show at bottom
                         quickNotesSection
                     }
@@ -267,6 +289,7 @@ struct DailyOverviewWidget: View {
                 // Invalidate cache to ensure fresh data when widget appears
                 CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysReceipts)
                 CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysSpending)
+                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.upcomingNoteReminders)
                 
                 loadData()
                 Task {
@@ -281,6 +304,7 @@ struct DailyOverviewWidget: View {
                 // Invalidate cache when notes change (new receipt added)
                 CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysReceipts)
                 CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysSpending)
+                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.upcomingNoteReminders)
                 // Force view refresh by updating refreshTrigger
                 refreshTrigger = UUID()
             }
@@ -305,12 +329,14 @@ struct DailyOverviewWidget: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Quick Access")
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                            .textCase(.uppercase)
+                            .tracking(0.5)
 
                         if !isExpanded {
                             Text(summaryText)
-                                .font(.system(size: 12, weight: .regular))
+                                .font(FontManager.geist(size: 12, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                         }
                     }
@@ -329,7 +355,7 @@ struct DailyOverviewWidget: View {
                     widgetManager.enterEditMode()
                 }) {
                     Text("Edit")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(FontManager.geist(size: 13, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .black : .white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 6)
@@ -347,9 +373,11 @@ struct DailyOverviewWidget: View {
 
     private var todaysSpendingSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Total Spend Today: \(CurrencyParser.formatAmount(todaysTotalSpending))")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+            Text("Spent Today: \(CurrencyParser.formatAmount(todaysTotalSpending))")
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .textCase(.uppercase)
+                .tracking(0.5)
 
             // Show all receipts from today, not just 5
             ForEach(todaysReceipts, id: \.id) { note in
@@ -361,8 +389,10 @@ struct DailyOverviewWidget: View {
     private var expensesDueTodaySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Due Today")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .textCase(.uppercase)
+                .tracking(0.5)
 
             ForEach(expensesDueToday.prefix(5), id: \.instance.id) { item in
                 expenseRow(item.expense, instance: item.instance)
@@ -373,8 +403,10 @@ struct DailyOverviewWidget: View {
     private var expensesDueTomorrowSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Due Tomorrow")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .textCase(.uppercase)
+                .tracking(0.5)
 
             ForEach(expensesDueTomorrow.prefix(5), id: \.instance.id) { item in
                 expenseRow(item.expense, instance: item.instance)
@@ -385,8 +417,10 @@ struct DailyOverviewWidget: View {
     private var upcomingExpensesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Upcoming (Next 7 Days)")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .textCase(.uppercase)
+                .tracking(0.5)
 
             ForEach(upcomingExpenses.prefix(10), id: \.instance.id) { item in
                 upcomingExpenseRow(item.expense, instance: item.instance)
@@ -397,7 +431,7 @@ struct DailyOverviewWidget: View {
     private var importantEmailsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Important Emails")
-                .font(.system(size: 13, weight: .regular))
+                .font(FontManager.geist(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ForEach(importantUnreadEmails.prefix(3), id: \.id) { email in
@@ -409,8 +443,10 @@ struct DailyOverviewWidget: View {
     private var birthdaysSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Birthdays This Week")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .textCase(.uppercase)
+                .tracking(0.5)
 
             ForEach(birthdaysThisWeek.prefix(3), id: \.id) { birthday in
                 birthdayRow(birthday)
@@ -418,13 +454,27 @@ struct DailyOverviewWidget: View {
         }
     }
 
+    private var noteRemindersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Note Reminders")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+            
+            ForEach(upcomingNoteReminders.prefix(5), id: \.id) { note in
+                noteReminderRow(note)
+            }
+        }
+    }
+    
     private var quickNotesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Header with Quick Notes text and + button
             HStack(spacing: 12) {
                 Text("Quick Notes")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
 
                 Spacer()
 
@@ -436,7 +486,7 @@ struct DailyOverviewWidget: View {
                         isQuickNoteFocused = true
                     }) {
                         Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 16))
+                            .font(FontManager.geist(size: 16, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -446,7 +496,7 @@ struct DailyOverviewWidget: View {
 
             if quickNoteManager.quickNotes.isEmpty && !showingAddQuickNote {
                 Text("Tap + to add a quick note")
-                    .font(.system(size: 11))
+                    .font(FontManager.geist(size: 11, weight: .regular))
                     .foregroundColor(.gray)
                     .italic()
             }
@@ -485,7 +535,7 @@ struct DailyOverviewWidget: View {
                     editingQuickNote = nil
                     quickNoteText = ""
                 }
-                .font(.system(size: 12))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(.gray)
                 .buttonStyle(PlainButtonStyle())
         .allowsParentScrolling()
@@ -506,7 +556,7 @@ struct DailyOverviewWidget: View {
                         }
                     }
                 }
-                .font(.system(size: 12, weight: .semibold))
+                .font(FontManager.geist(size: 12, weight: .semibold))
                 .foregroundColor(.blue)
                 .buttonStyle(PlainButtonStyle())
         .allowsParentScrolling()
@@ -518,7 +568,7 @@ struct DailyOverviewWidget: View {
     private func quickNoteRow(_ note: QuickNote) -> some View {
         HStack(spacing: 8) {
             Text(note.content)
-                .font(.system(size: 12))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
                 .lineLimit(2)
 
@@ -547,7 +597,7 @@ struct DailyOverviewWidget: View {
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 14))
+                    .font(FontManager.geist(size: 14, weight: .regular))
                     .foregroundColor(.gray)
             }
             .buttonStyle(PlainButtonStyle())
@@ -561,13 +611,13 @@ struct DailyOverviewWidget: View {
     private func expenseRow(_ expense: RecurringExpense, instance: RecurringInstance) -> some View {
         HStack(spacing: 8) {
             Text(expense.title)
-                .font(.system(size: 12))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
 
             Spacer()
 
             Text(instance.formattedAmount)
-                .font(.system(size: 12))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         }
     }
@@ -575,17 +625,17 @@ struct DailyOverviewWidget: View {
     private func upcomingExpenseRow(_ expense: RecurringExpense, instance: RecurringInstance) -> some View {
         HStack(spacing: 8) {
             Text(expense.title)
-                .font(.system(size: 12))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
 
             Spacer()
 
             Text(formatUpcomingDate(instance.occurrenceDate))
-                .font(.system(size: 11))
+                .font(FontManager.geist(size: 11, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
 
             Text(instance.formattedAmount)
-                .font(.system(size: 12))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         }
     }
@@ -598,12 +648,12 @@ struct DailyOverviewWidget: View {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(email.subject)
-                        .font(.system(size: 12))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
                         .lineLimit(1)
 
                     Text(email.sender.displayName)
-                        .font(.system(size: 10))
+                        .font(FontManager.geist(size: 10, weight: .regular))
                         .foregroundColor(.gray)
                         .lineLimit(1)
                 }
@@ -623,7 +673,7 @@ struct DailyOverviewWidget: View {
         }) {
             HStack(spacing: 8) {
                 Text(birthday.title)
-                    .font(.system(size: 12))
+                    .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
                     .lineLimit(1)
 
@@ -631,7 +681,7 @@ struct DailyOverviewWidget: View {
 
                 if let targetDate = birthday.targetDate {
                     Text(formatBirthdayDate(targetDate))
-                        .font(.system(size: 10))
+                        .font(FontManager.geist(size: 10, weight: .regular))
                         .foregroundColor(.gray)
                 }
             }
@@ -648,7 +698,7 @@ struct DailyOverviewWidget: View {
         }) {
             HStack(spacing: 8) {
                 Text(note.title)
-                    .font(.system(size: 12))
+                    .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
                     .lineLimit(1)
 
@@ -657,7 +707,7 @@ struct DailyOverviewWidget: View {
                 let amount = CurrencyParser.extractAmount(from: note.content ?? "")
                 if amount > 0 {
                     Text(CurrencyParser.formatAmount(amount))
-                        .font(.system(size: 12))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
             }
@@ -667,6 +717,46 @@ struct DailyOverviewWidget: View {
         .allowsParentScrolling()
     }
 
+    private func noteReminderRow(_ note: Note) -> some View {
+        Button(action: {
+            onNoteSelected?(note)
+            HapticManager.shared.light()
+        }) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(note.title)
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
+                            .lineLimit(1)
+                        
+                        if let reminderNote = note.reminderNote {
+                            Text("• \(reminderNote)")
+                                .font(FontManager.geist(size: 11, weight: .regular))
+                                .foregroundColor(.gray)
+                                .lineLimit(1)
+                        }
+                    }
+                    
+                    if let reminderDate = note.reminderDate {
+                        Text(formatReminderDate(reminderDate))
+                            .font(FontManager.geist(size: 10, weight: .medium))
+                            .foregroundColor(note.isReminderDue ? .orange : .gray)
+                    }
+                }
+                
+                Spacer()
+                
+                Image(systemName: "bell.fill")
+                    .font(FontManager.geist(size: 10, weight: .medium))
+                    .foregroundColor(note.isReminderDue ? .orange : .gray)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
+    }
+    
     // MARK: - Helper Methods
 
     private func loadData() {
@@ -712,6 +802,26 @@ struct DailyOverviewWidget: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE, MMM d"
         return formatter.string(from: date)
+    }
+    
+    private func formatReminderDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let now = Date()
+        
+        if calendar.isDate(date, inSameDayAs: now) {
+            let formatter = DateFormatter()
+            formatter.timeStyle = .short
+            return "Today \(formatter.string(from: date))"
+        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
+                  calendar.isDate(date, inSameDayAs: tomorrow) {
+            let formatter = DateFormatter()
+            formatter.timeStyle = .short
+            return "Tomorrow \(formatter.string(from: date))"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d, h:mm a"
+            return formatter.string(from: date)
+        }
     }
 
 }

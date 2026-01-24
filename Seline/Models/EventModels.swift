@@ -2,6 +2,7 @@ import Foundation
 import PostgREST
 import SwiftUI
 import EventKit
+import WidgetKit
 
 // Color palette for tags - DEPRECATED: Now using TimelineEventColorManager.NeutralColorPalette
 // Keeping for backwards compatibility, but new code should use TimelineEventColorManager
@@ -33,7 +34,14 @@ struct Tag: Identifiable, Codable, Equatable {
     let colorIndex: Int // Index into TagColorPalette.colors
 
     var color: Color {
-        TagColorPalette.colorForIndex(colorIndex)
+        // Use NeutralColorPalette for consistency with TimelineEventColorManager
+        // Default to light mode color since this is used in contexts without colorScheme
+        TimelineEventColorManager.NeutralColorPalette.colorForIndex(colorIndex, colorScheme: .light)
+    }
+    
+    /// Returns the color for a specific color scheme - use this when colorScheme is available
+    func color(for colorScheme: ColorScheme) -> Color {
+        TimelineEventColorManager.NeutralColorPalette.colorForIndex(colorIndex, colorScheme: colorScheme)
     }
 
     init(id: String = UUID().uuidString, name: String, colorIndex: Int) {
@@ -564,6 +572,9 @@ class TaskManager: ObservableObject {
         invalidateAllCaches()
         saveTasks()
 
+        // Notify observers of change
+        objectWillChange.send()
+
         // Schedule notification if reminder is set
         if let reminderTime = reminderTime, reminderTime != .none, let scheduledTime = scheduledTime {
             // Combine target date with scheduled time to get the full event date/time
@@ -662,10 +673,8 @@ class TaskManager: ObservableObject {
         invalidateAllCaches()
         saveTasks()
 
-        // Trigger UI update to ensure views refresh with new completion status
-        DispatchQueue.main.async {
-            self.objectWillChange.send()
-        }
+        // Notify observers of change
+        objectWillChange.send()
 
         // Sync with Supabase
         if let updatedTask = tasks[task.weekday]?[index] {
@@ -701,11 +710,17 @@ class TaskManager: ObservableObject {
                     tasks[task.weekday]?.remove(at: index)
                     self.invalidateAllCaches()
                     saveTasks()
+                    // Notify observers of change
+                    self.objectWillChange.send()
+                    // Immediately update widgets to reflect deletion
+                    WidgetCenter.shared.reloadAllTimelines()
                 } else {
                     // Mark as deleted locally if Supabase deletion failed
                     tasks[task.weekday]?[index].isDeleted = true
                     self.invalidateAllCaches()
                     saveTasks()
+                    // Notify observers of change
+                    self.objectWillChange.send()
                     print("⚠️ Marked task as deleted locally, will retry Supabase deletion later")
                 }
             }
@@ -778,10 +793,8 @@ class TaskManager: ObservableObject {
 
         saveTasks()
 
-        // Trigger UI update
-        DispatchQueue.main.async {
-            self.objectWillChange.send()
-        }
+        // Notify observers of change
+        objectWillChange.send()
 
         // Sync with Supabase
         let taskToSync = newWeekday != task.weekday ?
@@ -900,6 +913,9 @@ class TaskManager: ObservableObject {
 
         invalidateAllCaches()
         saveTasks()
+        
+        // Immediately update widgets to reflect changes
+        WidgetCenter.shared.reloadAllTimelines()
 
         // Cancel old reminder and schedule new one if needed
         NotificationService.shared.cancelTaskReminder(taskId: finalTask.id)
@@ -918,10 +934,8 @@ class TaskManager: ObservableObject {
             }
         }
 
-        // Trigger UI update
-        DispatchQueue.main.async {
-            self.objectWillChange.send()
-        }
+        // Trigger UI update - removed DispatchQueue async since @Published handles this
+        objectWillChange.send()
 
         // Sync with Supabase
         Task {
@@ -992,10 +1006,8 @@ class TaskManager: ObservableObject {
         // Save changes locally
         saveTasks()
 
-        // Trigger UI update
-        DispatchQueue.main.async {
-            self.objectWillChange.send()
-        }
+        // Notify observers of change
+        objectWillChange.send()
 
         // Sync all updated tasks to Supabase
         Task {
@@ -1704,6 +1716,8 @@ class TaskManager: ObservableObject {
                         }
                     }
                     saveTasks()
+                    // Notify observers of change
+                    self.objectWillChange.send()
                 } else {
                     print("❌ Some deletions failed in Supabase, keeping tasks locally")
                 }
@@ -2934,26 +2948,38 @@ class TaskManager: ObservableObject {
     /// Sync calendar events from iPhone's native Calendar app
     /// Fetches all events every time app opens to catch new/modified events
     /// Duplicate detection prevents re-adding existing events
+    /// Only syncs events associated with the logged-in user's email
     @MainActor
     func syncCalendarEvents() async {
+        // Get user email for filtering
+        let userEmail = authManager.currentUser?.profile?.email
+        
         // Fetch ALL calendar events (not just new ones) so we catch modifications
-        let allCalendarEvents = await CalendarSyncService.shared.fetchCalendarEventsFromCurrentMonthOnwards()
+        // Filter by user email to only sync events associated with the logged-in user
+        let allCalendarEvents = await CalendarSyncService.shared.fetchCalendarEventsFromCurrentMonthOnwards(userEmail: userEmail)
         guard !allCalendarEvents.isEmpty else {
+            print("📅 [CalendarSync] No calendar events found (filtered by email: \(userEmail ?? "none"))")
             return
         }
 
         var addedEvents: [EKEvent] = []
+        var duplicateCount = 0
 
         // Convert EventKit events to TaskItems and add them
         for event in allCalendarEvents {
             let taskItem = CalendarSyncService.shared.convertEKEventToTaskItem(event)
-            let calendarEventId = "cal_\(event.eventIdentifier)"
+            
+            // Use the same unique occurrence ID format as CalendarSyncService
+            // For recurring events, we need to check by occurrence (eventIdentifier + timestamp)
+            let occurrenceTimestamp = Int((event.startDate ?? Date()).timeIntervalSince1970)
+            let calendarEventId = "cal_\(event.eventIdentifier)_\(occurrenceTimestamp)"
 
-            // Check if this calendar event already exists by ID (most reliable method)
+            // Check if this calendar event occurrence already exists by ID
             let existingTaskIndex = findTaskByEventId(calendarEventId)
 
             if existingTaskIndex != nil {
-                // Event already imported - skip to preserve completion status
+                // Event occurrence already imported - skip to preserve completion status
+                duplicateCount += 1
                 continue
             }
 
@@ -2972,6 +2998,9 @@ class TaskManager: ObservableObject {
         // Only mark newly added events as synced
         if !addedEvents.isEmpty {
             CalendarSyncService.shared.markEventsAsSynced(addedEvents)
+            print("📅 [CalendarSync] Added \(addedEvents.count) new events, skipped \(duplicateCount) duplicates")
+        } else if duplicateCount > 0 {
+            print("📅 [CalendarSync] All \(duplicateCount) events were already synced (duplicates)")
         }
 
         // Save to local storage
@@ -3027,6 +3056,40 @@ class TaskManager: ObservableObject {
 
     /// Force a fresh calendar sync after resetting tracking
     /// Use this to re-sync calendar events and pick up any missing events
+    /// Also removes duplicate events that aren't in the iPhone calendar
+    @MainActor
+    func manualResyncCalendarEvents() async {
+        print("🔄 [CalendarSync] Manual resync started")
+        
+        // Get user email for filtering
+        let userEmail = authManager.currentUser?.profile?.email
+        
+        // First, remove all existing calendar events to start fresh
+        var removedCount = 0
+        for weekday in WeekDay.allCases {
+            if let taskList = tasks[weekday] {
+                let filteredTasks = taskList.filter { task in
+                    !task.id.hasPrefix("cal_")
+                }
+                removedCount += taskList.count - filteredTasks.count
+                tasks[weekday] = filteredTasks
+            }
+        }
+        
+        print("📅 [CalendarSync] Removed \(removedCount) existing calendar events")
+        
+        // Clear sync tracking so all events are treated as new
+        CalendarSyncService.shared.manualResync(userEmail: userEmail)
+        
+        // Now sync fresh events (filtered by user email)
+        await syncCalendarEvents()
+        
+        print("✅ [CalendarSync] Manual resync completed")
+    }
+    
+    /// Force a fresh calendar sync after resetting tracking
+    /// Use this to re-sync calendar events and pick up any missing events
+    /// Now uses email filtering to only sync events associated with the logged-in user
     @MainActor
     func forceRefreshCalendarSync() async {
         print("🔄 [TaskManager] Starting forced calendar sync...")
@@ -3113,8 +3176,8 @@ class TagManager: ObservableObject {
     func createTag(name: String) -> Tag? {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
-        // Get the next available color index
-        let nextColorIndex = tags.count % TagColorPalette.colors.count
+        // Get the next available color index - use NeutralColorPalette size (20 colors)
+        let nextColorIndex = tags.count % TimelineEventColorManager.NeutralColorPalette.colors.count
 
         let newTag = Tag(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),

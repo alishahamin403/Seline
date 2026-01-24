@@ -55,9 +55,10 @@ class AuthenticationManager: ObservableObject {
             // This prevents issues if app was used by multiple accounts
             await verifyAndCleanCacheIfNeeded(for: session.user.id.uuidString)
 
-            // Sync tasks and notes from Supabase
+            // Sync tasks, notes, people from Supabase
             await TaskManager.shared.syncTasksOnLogin()
             await NotesManager.shared.syncNotesOnLogin()
+            await PeopleManager.shared.syncPeopleOnLogin()
             await TagManager.shared.loadTagsFromSupabase()
 
             // Sync Gmail labels (ensures labels stay up-to-date on each app launch)
@@ -80,6 +81,7 @@ class AuthenticationManager: ObservableObject {
             TaskManager.shared.clearTasksOnLogout()
             NotesManager.shared.clearNotesOnLogout()
             LocationsManager.shared.clearPlacesOnLogout()
+            PeopleManager.shared.clearPeopleOnLogout()
             TagManager.shared.clearTagsOnLogout()
         }
 
@@ -146,16 +148,18 @@ class AuthenticationManager: ObservableObject {
                 TaskManager.shared.clearTasksOnLogout()
                 NotesManager.shared.clearNotesOnLogout()
                 LocationsManager.shared.clearPlacesOnLogout()
+                PeopleManager.shared.clearPeopleOnLogout()
                 TagManager.shared.clearTagsOnLogout()
             }
 
             // Track current user ID to detect account switches
             UserDefaults.standard.set(currentUserId, forKey: "LastCachedUserId")
 
-            // Sync tasks and notes from Supabase
+            // Sync tasks, notes, people, places from Supabase
             Task {
                 await TaskManager.shared.syncTasksOnLogin()
                 await NotesManager.shared.syncNotesOnLogin()
+                await PeopleManager.shared.syncPeopleOnLogin()
                 await LocationsManager.shared.syncPlacesOnLogin()
                 await TagManager.shared.loadTagsFromSupabase()
             }
@@ -254,6 +258,7 @@ class AuthenticationManager: ObservableObject {
             TaskManager.shared.clearTasksOnLogout()
             NotesManager.shared.clearNotesOnLogout()
             LocationsManager.shared.clearPlacesOnLogout()
+            PeopleManager.shared.clearPeopleOnLogout()
             TagManager.shared.clearTagsOnLogout()
 
             // 2. Clear email data
@@ -312,6 +317,7 @@ class AuthenticationManager: ObservableObject {
             "SavedNotes",
             "SavedNoteFolders",
             "SavedPlaces",
+            "SavedPeople",
             "MapsSearchHistory",
             "cached_inbox_emails",
             "cached_sent_emails",

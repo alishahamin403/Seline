@@ -65,7 +65,7 @@ class MetadataBuilderService {
             }
         }
 
-        let locations = buildLocationMetadata(from: locationsManager)
+        let locations = await buildLocationMetadata(from: locationsManager)
         let notes = buildNoteMetadata(from: notesManager)
         let emails = buildEmailMetadata(from: emailService)
         let recurringExpenses = await buildRecurringExpenseMetadata()
@@ -251,8 +251,23 @@ class MetadataBuilderService {
     // MARK: - Location Metadata Builder
 
     @MainActor
-    private static func buildLocationMetadata(from locationsManager: LocationsManager) -> [LocationMetadata] {
-        return locationsManager.savedPlaces.map { location in
+    private static func buildLocationMetadata(from locationsManager: LocationsManager) async -> [LocationMetadata] {
+        return await withTaskGroup(of: LocationMetadata.self, returning: [LocationMetadata].self) { group in
+            for location in locationsManager.savedPlaces {
+                group.addTask {
+                    await buildSingleLocationMetadata(location: location)
+                }
+            }
+            
+            var results: [LocationMetadata] = []
+            for await metadata in group {
+                results.append(metadata)
+            }
+            return results
+        }
+    }
+    
+    private static func buildSingleLocationMetadata(location: SavedPlace) async -> LocationMetadata {
             let (city, province, country) = extractLocationParts(from: location.address)
             let (folderCity, folderProvince, folderCountry) = extractLocationPartsFromFolder(from: location.category)
 
@@ -269,8 +284,12 @@ class MetadataBuilderService {
             var peakVisitTimes: [String]? = nil
             var mostVisitedDays: [String]? = nil
 
-            // Get cached stats if available
-            if let stats = LocationVisitAnalytics.shared.visitStats[location.id] {
+            // Get cached stats if available (need to await MainActor access)
+            let stats = await MainActor.run {
+                LocationVisitAnalytics.shared.visitStats[location.id]
+            }
+            
+            if let stats = stats {
                 visitCount = stats.totalVisits
                 averageVisitDuration = stats.averageDurationMinutes * 60 // Convert to seconds
                 lastVisited = stats.lastVisitDate
@@ -288,10 +307,57 @@ class MetadataBuilderService {
 
                 print("   📊 Visit Stats: \(visitCount ?? 0) visits, Peak: \(peakVisitTimes?.joined(separator: ", ") ?? "N/A"), Days: \(mostVisitedDays?.joined(separator: ", ") ?? "N/A")")
             } else {
+                let statsCount = await MainActor.run {
+                    LocationVisitAnalytics.shared.visitStats.keys.count
+                }
                 print("   📊 No geofence visit data found in cache for location: \(location.id)")
-                print("      Cache keys available: \(LocationVisitAnalytics.shared.visitStats.keys.count) location(s)")
+                print("      Cache keys available: \(statsCount) location(s)")
             }
 
+            // Fetch location memories (general reasons and usual items)
+            var locationMemories: LocationMemoriesInfo? = nil
+            var recentVisitNotes: [VisitNoteInfo]? = nil
+            
+            // Fetch location memories asynchronously
+            do {
+                let memories = try await LocationMemoryService.shared.getMemories(for: location.id)
+                let purposeMemory = memories.first(where: { $0.memoryType == .purpose })
+                let purchaseMemory = memories.first(where: { $0.memoryType == .purchase })
+                
+                if purposeMemory != nil || purchaseMemory != nil {
+                    locationMemories = LocationMemoriesInfo(
+                        purposeReason: purposeMemory?.content,
+                        usualItems: purchaseMemory?.items,
+                        purchaseFrequency: purchaseMemory?.frequency
+                    )
+                    print("   💭 Location Memory: purpose=\(purposeMemory?.content.prefix(30) ?? "none"), items=\(purchaseMemory?.items?.joined(separator: ", ") ?? "none")")
+                }
+                
+                // Fetch recent visits with notes (last 10 visits with notes)
+                let statsForNotes = await MainActor.run {
+                    LocationVisitAnalytics.shared.visitStats[location.id]
+                }
+                if let stats = statsForNotes, stats.totalVisits > 0 {
+                    let visitHistory = await LocationVisitAnalytics.shared.fetchVisitHistory(for: location.id, limit: 10)
+                    let notesWithVisits = visitHistory
+                        .filter { $0.visit.visitNotes != nil && !$0.visit.visitNotes!.isEmpty }
+                        .prefix(5)
+                        .map { item in
+                            VisitNoteInfo(
+                                visitDate: item.visit.entryTime,
+                                note: item.visit.visitNotes ?? "",
+                                timeOfDay: item.visit.timeOfDay
+                            )
+                        }
+                    recentVisitNotes = Array(notesWithVisits)
+                    if !notesWithVisits.isEmpty {
+                        print("   📝 Visit Notes: \(notesWithVisits.count) recent visit(s) with notes")
+                    }
+                }
+            } catch {
+                print("⚠️ Failed to load location memories for \(location.name): \(error)")
+            }
+            
             return LocationMetadata(
                 id: location.id,
                 name: location.name,
@@ -315,9 +381,10 @@ class MetadataBuilderService {
                 lastVisited: lastVisited,
                 isFrequent: isFrequent,
                 peakVisitTimes: peakVisitTimes,
-                mostVisitedDays: mostVisitedDays
+                mostVisitedDays: mostVisitedDays,
+                locationMemories: locationMemories,
+                recentVisitNotes: recentVisitNotes
             )
-        }
     }
 
     /// Extract city, province/state, and country from an address string

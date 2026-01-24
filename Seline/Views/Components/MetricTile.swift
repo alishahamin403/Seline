@@ -12,13 +12,13 @@ struct MetricTile: View {
         VStack(spacing: 12) {
             // Icon - bigger size
             Image(systemName: icon)
-                .font(.system(size: 26, weight: .medium))
+                .font(FontManager.geist(size: 26, weight: .medium))
                 .foregroundColor(Color.shadcnForeground(colorScheme))
 
             // Only show the number value
             if !value.isEmpty {
                 Text(value)
-                    .font(.system(size: 19, weight: .regular))
+                    .font(FontManager.geist(size: 19, weight: .regular))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
                     .multilineTextAlignment(.center)
             }

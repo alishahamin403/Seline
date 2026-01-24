@@ -20,7 +20,7 @@ struct RecurringTaskSheet: View {
                     HStack {
                         Image(systemName: "repeat")
                             .foregroundColor(blueColor)
-                            .font(.system(size: 20, weight: .medium))
+                            .font(FontManager.geist(size: 20, weight: .medium))
 
                         Text("Make Recurring")
                             .font(.shadcnTextLgSemibold)
@@ -107,7 +107,7 @@ struct FrequencyTile: View {
                 // Icon
                 Image(systemName: frequency.icon)
                     .foregroundColor(blueColor)
-                    .font(.system(size: 28, weight: .medium))
+                    .font(FontManager.geist(size: 28, weight: .medium))
 
                 // Title
                 Text(frequency.displayName)

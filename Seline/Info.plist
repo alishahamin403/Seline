@@ -124,6 +124,8 @@
     <key>UIBackgroundModes</key>
     <array>
         <string>fetch</string>
+        <string>processing</string>
+        <string>remote-notification</string>
         <string>location</string>
     </array>
 
@@ -131,6 +133,9 @@
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
         <string>com.seline.emailRefresh</string>
+        <string>com.seline.emailProcessing</string>
+        <string>com.seline.locationRefresh</string>
+        <string>com.seline.locationProcessing</string>
     </array>
 </dict>
 </plist>

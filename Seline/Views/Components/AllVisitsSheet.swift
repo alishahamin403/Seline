@@ -19,14 +19,14 @@ struct AllVisitsSheet: View {
                     // Header
                     HStack {
                         Text("All Visits")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
 
                         Spacer()
 
                         Button(action: { dismiss() }) {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 18))
+                                .font(FontManager.geist(size: 18, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                     }
@@ -38,15 +38,15 @@ struct AllVisitsSheet: View {
                 if visitedLocations.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "map.circle")
-                            .font(.system(size: 48))
+                            .font(FontManager.geist(size: 48, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
 
                         Text("No visits yet")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 14, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                         Text("Start exploring to see your visited places here")
-                            .font(.system(size: 12, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .multilineTextAlignment(.center)
                     }
@@ -65,19 +65,19 @@ struct AllVisitsSheet: View {
                                         HStack(spacing: 12) {
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(location.displayName)
-                                                    .font(.system(size: 14, weight: .medium))
+                                                    .font(FontManager.geist(size: 14, weight: .medium))
                                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                                     .lineLimit(2)
 
                                                 Text("\(location.visitCount) visit\(location.visitCount == 1 ? "" : "s")")
-                                                    .font(.system(size: 12, weight: .regular))
+                                                    .font(FontManager.geist(size: 12, weight: .regular))
                                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                                             }
 
                                             Spacer()
 
                                             Image(systemName: "chevron.right")
-                                                .font(.system(size: 12, weight: .semibold))
+                                                .font(FontManager.geist(size: 12, weight: .semibold))
                                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
                                         }
                                         .padding(.horizontal, 16)

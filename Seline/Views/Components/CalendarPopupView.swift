@@ -12,12 +12,17 @@ struct CalendarPopupView: View {
     // Filter support - passed from parent, but we use local state to allow changes within calendar
     var selectedTagId: String?
     @State private var localSelectedTagId: String? = nil
-    @State private var tasksForDate: [TaskItem] = []
     @State private var selectedTaskForEditing: TaskItem?
     @State private var showingViewTaskSheet = false
     @State private var showingEditTaskSheet = false
     @State private var isTransitioningToEdit = false
     @State private var isAnimating = false
+
+    // Computed property for filtered tasks - automatically updates when tasks, date, or filter changes
+    private var tasksForDate: [TaskItem] {
+        let allTasks = taskManager.getAllTasks(for: selectedDate)
+        return applyFilter(to: allTasks)
+    }
 
     private var sortedTasksByTime: [TaskItem] {
         tasksForDate.sorted { task1, task2 in
@@ -56,8 +61,8 @@ struct CalendarPopupView: View {
                     taskManager: taskManager,
                     colorScheme: colorScheme,
                     selectedTagId: localSelectedTagId,
-                    onDateChange: { newDate in
-                        updateTasksForDate(for: newDate)
+                    onDateChange: { _ in
+                        // No manual refresh needed - tasksForDate is now a computed property
                     }
                 )
                 .padding(.top, 12)
@@ -69,10 +74,9 @@ struct CalendarPopupView: View {
                         // "All" button (neutral black/white, no color impact)
                         Button(action: {
                             localSelectedTagId = nil
-                            updateTasksForDate(for: selectedDate)
                         }) {
                             Text("All")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(localSelectedTagId == nil ? Color.shadcnForeground(colorScheme) : Color.shadcnForeground(colorScheme).opacity(0.7))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
@@ -98,10 +102,9 @@ struct CalendarPopupView: View {
                         // Personal (default) button - using special marker ""
                         Button(action: {
                             localSelectedTagId = "" // Empty string to filter for personal events (nil tagId)
-                            updateTasksForDate(for: selectedDate)
                         }) {
                             Text("Personal")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(localSelectedTagId == "" ? Color.shadcnForeground(colorScheme) : Color.shadcnForeground(colorScheme).opacity(0.7))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
@@ -127,10 +130,9 @@ struct CalendarPopupView: View {
                         // Personal - Sync button (Calendar synced events)
                         Button(action: {
                             localSelectedTagId = "cal_sync" // Special marker for synced calendar events
-                            updateTasksForDate(for: selectedDate)
                         }) {
                             Text("Personal - Sync")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(localSelectedTagId == "cal_sync" ? Color.shadcnForeground(colorScheme) : Color.shadcnForeground(colorScheme).opacity(0.7))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
@@ -157,10 +159,9 @@ struct CalendarPopupView: View {
                         ForEach(tagManager.tags, id: \.id) { tag in
                             Button(action: {
                                 localSelectedTagId = tag.id
-                                updateTasksForDate(for: selectedDate)
                             }) {
                                 Text(tag.name)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(FontManager.geist(size: 13, weight: .medium))
                                     .foregroundColor(localSelectedTagId == tag.id ? Color.shadcnForeground(colorScheme) : Color.shadcnForeground(colorScheme).opacity(0.7))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 6)
@@ -196,7 +197,7 @@ struct CalendarPopupView: View {
                         // Empty state
                         VStack(spacing: 8) {
                             Image(systemName: "checkmark.circle")
-                                .font(.system(size: 24))
+                                .font(FontManager.geist(size: 24, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
 
                             Text("No events")
@@ -221,7 +222,6 @@ struct CalendarPopupView: View {
                                         },
                                         onToggleCompletion: {
                                             taskManager.toggleTaskCompletion(task, forDate: selectedDate)
-                                            updateTasksForDate(for: selectedDate)
                                         }
                                     )
                                     .transition(.scale.combined(with: .opacity))
@@ -245,7 +245,6 @@ struct CalendarPopupView: View {
         .onAppear {
             // Initialize local filter state with passed value (if any)
             localSelectedTagId = selectedTagId
-            updateTasksForDate(for: selectedDate)
 
             // Trigger slide-up animation
             withAnimation(.easeOut(duration: 0.4)) {
@@ -268,12 +267,10 @@ struct CalendarPopupView: View {
                         onDelete: { taskToDelete in
                             taskManager.deleteTask(taskToDelete)
                             showingViewTaskSheet = false
-                            updateTasksForDate(for: selectedDate)
                         },
                         onDeleteRecurringSeries: { taskToDelete in
                             taskManager.deleteRecurringTask(taskToDelete)
                             showingViewTaskSheet = false
-                            updateTasksForDate(for: selectedDate)
                         }
                     )
                 }
@@ -288,7 +285,6 @@ struct CalendarPopupView: View {
                         onSave: { updatedTask in
                             taskManager.editTask(updatedTask)
                             showingEditTaskSheet = false
-                            updateTasksForDate(for: selectedDate)
                         },
                         onCancel: {
                             showingEditTaskSheet = false
@@ -296,12 +292,10 @@ struct CalendarPopupView: View {
                         onDelete: { taskToDelete in
                             taskManager.deleteTask(taskToDelete)
                             showingEditTaskSheet = false
-                            updateTasksForDate(for: selectedDate)
                         },
                         onDeleteRecurringSeries: { taskToDelete in
                             taskManager.deleteRecurringTask(taskToDelete)
                             showingEditTaskSheet = false
-                            updateTasksForDate(for: selectedDate)
                         }
                     )
                 }
@@ -330,11 +324,6 @@ struct CalendarPopupView: View {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         return formatter.string(from: selectedDate)
-    }
-
-    private func updateTasksForDate(for date: Date) {
-        let allTasks = taskManager.getAllTasks(for: date)
-        tasksForDate = applyFilter(to: allTasks)
     }
 
     /// Apply the current filter to tasks
@@ -425,7 +414,7 @@ struct TaskRowCalendar: View {
             // Only make interactive for non-iPhone calendar events
             Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
                 .foregroundColor(isIPhoneCalendarEvent ? accentColor.opacity(0.5) : accentColor)
-                .font(.system(size: 18, weight: .medium))
+                .font(FontManager.geist(size: 18, weight: .medium))
                 .onTapGesture {
                     // Toggle completion only if NOT an iPhone calendar event
                     if !isIPhoneCalendarEvent {
@@ -454,7 +443,7 @@ struct TaskRowCalendar: View {
             // Recurring indicator
             if task.isRecurring {
                 Image(systemName: "repeat")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             }
         }
@@ -519,7 +508,7 @@ struct FrequencyOptionButton: View {
             VStack(spacing: 8) {
                 Image(systemName: frequency.icon)
                     .foregroundColor(isSelected ? Color.shadcnPrimary : Color.shadcnMutedForeground(colorScheme))
-                    .font(.system(size: 20, weight: .medium))
+                    .font(FontManager.geist(size: 20, weight: .medium))
 
                 Text(frequency.displayName)
                     .font(.shadcnTextXs)
@@ -610,7 +599,7 @@ struct ShadcnCalendar: View {
                 // Previous month button
                 Button(action: previousMonth) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(FontManager.geist(size: 16, weight: .medium))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
                         .frame(width: 28, height: 28)
                         .background(
@@ -622,7 +611,7 @@ struct ShadcnCalendar: View {
 
                 // Month and year
                 Text(monthYearFormatter.string(from: currentMonth))
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
                     .frame(maxWidth: .infinity)
 
@@ -633,7 +622,7 @@ struct ShadcnCalendar: View {
                     onDateChange(Date())
                 }) {
                     Text("Today")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
@@ -647,7 +636,7 @@ struct ShadcnCalendar: View {
                 // Next month button
                 Button(action: nextMonth) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(FontManager.geist(size: 16, weight: .medium))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
                         .frame(width: 28, height: 28)
                         .background(
@@ -664,7 +653,7 @@ struct ShadcnCalendar: View {
             HStack(spacing: 0) {
                 ForEach(weekdaySymbols, id: \.self) { symbol in
                     Text(symbol)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(FontManager.geist(size: 11, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .frame(maxWidth: .infinity)
                 }
@@ -780,7 +769,7 @@ struct ShadcnDayCell: View {
         Button(action: onTap) {
             VStack(spacing: 4) {
                 Text(dayNumber)
-                    .font(.system(size: 13, weight: isToday ? .semibold : .regular))
+                    .font(FontManager.geist(size: 13, systemWeight: isToday ? .semibold : .regular))
                     .foregroundColor(textColor)
 
                 // Show dots if there are events

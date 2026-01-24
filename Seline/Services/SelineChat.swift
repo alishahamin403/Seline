@@ -4,22 +4,30 @@ import Foundation
 /// Uses LLM intelligence instead of pre-processing
 ///
 /// Architecture:
-/// - SelineAppContext: Collects all app data without pre-filtering
+/// - VectorContextBuilder: Uses semantic search for relevant context (NEW - faster!)
+/// - SelineAppContext: Legacy context building (fallback)
 /// - SelineChat: Manages conversation history and LLM communication
 /// - Streaming support: Real-time response chunks with UI callbacks
-/// - Future enhancement: Web search integration for external information
 ///
-/// Key design principle: Let the LLM be smart. Send comprehensive context,
-/// let it understand intent and provide accurate responses directly.
+/// Key design principle: Let the LLM be smart. Send ONLY relevant context
+/// using vector embeddings for faster, more accurate responses.
 @MainActor
-class SelineChat {
+class SelineChat: ObservableObject {
     // MARK: - State
 
-    var conversationHistory: [ChatMessage] = []
-    private let appContext: SelineAppContext
+    @Published var conversationHistory: [ChatMessage] = []
+    let appContext: SelineAppContext
+    private let vectorContextBuilder = VectorContextBuilder.shared
+    private let vectorSearchService = VectorSearchService.shared
     private let deepSeekService: DeepSeekService
-    private var isStreaming = false
+    private let userProfileService: UserProfileService
+    @Published var isStreaming = false
     private var shouldCancelStreaming = false
+    var isVoiceMode = false // Voice mode for conversational responses
+    
+    /// Toggle for using vector search (set to false to use legacy context building)
+    /// Default: true for faster, more relevant responses
+    var useVectorSearch = true
 
     // MARK: - Callbacks
 
@@ -39,16 +47,19 @@ class SelineChat {
 
     init(
         appContext: SelineAppContext? = nil,
-        deepSeekService: DeepSeekService? = nil
+        deepSeekService: DeepSeekService? = nil,
+        userProfileService: UserProfileService = .shared
     ) {
         self.appContext = appContext ?? SelineAppContext()
         self.deepSeekService = deepSeekService ?? DeepSeekService.shared
+        self.userProfileService = userProfileService
     }
 
     // MARK: - Main Chat Interface
 
     /// Send a message and get a response
-    func sendMessage(_ userMessage: String, streaming: Bool = true) async -> String {
+    func sendMessage(_ userMessage: String, streaming: Bool = true, isVoiceMode: Bool = false) async -> String {
+        self.isVoiceMode = isVoiceMode
         // Add user message to history
         let userMsg = ChatMessage(role: .user, content: userMessage, timestamp: Date())
         conversationHistory.append(userMsg)
@@ -80,10 +91,15 @@ class SelineChat {
         return response
     }
 
-    /// Clear conversation history
+    /// Clear conversation history and refresh data
     func clearHistory() async {
         conversationHistory = []
         await appContext.refresh()
+        
+        // Sync embeddings in background for next conversation
+        Task {
+            await vectorSearchService.syncEmbeddingsIfNeeded()
+        }
     }
 
     /// Cancel the currently streaming response
@@ -93,10 +109,48 @@ class SelineChat {
     }
 
     /// Get context size estimate (for display)
+    /// When vector search is enabled, shows much smaller context size
     func getContextSizeEstimate() async -> String {
-        let contextPrompt = await appContext.buildContextPrompt()
-        let estimatedTokens = contextPrompt.count / 4  // Rough estimate
-        return "\(estimatedTokens) tokens"
+        if useVectorSearch {
+            // Sample query to estimate vector context size
+            let result = await vectorContextBuilder.buildContext(forQuery: "example query")
+            return "~\(result.metadata.estimatedTokens) tokens (vector)"
+        } else {
+            let contextPrompt = await appContext.buildContextPrompt()
+            let estimatedTokens = contextPrompt.count / 4  // Rough estimate
+            return "~\(estimatedTokens) tokens (legacy)"
+        }
+    }
+
+    // MARK: - Greeting
+    
+    /// Get greeting for a specific date
+    private func getTimeBasedGreeting(for date: Date = Date()) -> String {
+        let hour = Calendar.current.component(.hour, from: date)
+        switch hour {
+        case 5..<12: return "Good morning"
+        case 12..<17: return "Good afternoon"
+        case 17..<21: return "Good evening"
+        default: return "Hello"
+        }
+    }
+    
+
+
+    /// Generate a proactive morning/daily briefing without user input
+    /// Cost-efficient version: Uses simple greeting instead of LLM summary
+    func generateMorningBriefing() async {
+        guard conversationHistory.isEmpty else { return }
+        
+        // Simple token-free greeting
+        let greeting = getTimeBasedGreeting()
+        let name = userProfileService.profile.name ?? "there"
+
+        let content = "\(greeting), \(name)! How can I help you today?"
+        
+        let assistantMsg = ChatMessage(role: .assistant, content: content, timestamp: Date())
+        conversationHistory.append(assistantMsg)
+        onMessageAdded?(assistantMsg)
     }
 
     // MARK: - Private: System Prompt
@@ -105,96 +159,176 @@ class SelineChat {
         // Get the current user message (last in conversation)
         let userMessage = conversationHistory.last?.content ?? ""
 
-        // Use query-aware context building if we have a user message
-        let contextPrompt = !userMessage.isEmpty ?
-            await appContext.buildContextPrompt(forQuery: userMessage) :
-            await appContext.buildContextPrompt()
+        // Build context using vector search (faster, more relevant) or legacy method
+        let contextPrompt: String
+        
+        if useVectorSearch && !userMessage.isEmpty {
+            // NEW: Use vector-based semantic search for relevant context only
+            // This dramatically reduces token count and improves response speed
+            if isVoiceMode {
+                // IMPORTANT: Voice mode must use the SAME underlying context as chat mode.
+                // The only difference is response style (voice prompt rules), not data coverage.
+                let result = await vectorContextBuilder.buildContext(forQuery: userMessage)
+                contextPrompt = result.context
+                print("🎤 Voice mode: Using full vector context (\(result.metadata.estimatedTokens) tokens)")
+            } else {
+                // Standard vector context
+                let result = await vectorContextBuilder.buildContext(forQuery: userMessage)
+                contextPrompt = result.context
+                print("🔍 Vector search: \(result.metadata.estimatedTokens) tokens (vs legacy ~10K+)")
+            }
+        } else {
+            // LEGACY: Fall back to comprehensive context building
+            // Use this for empty queries or when vector search is disabled
+            contextPrompt = !userMessage.isEmpty ?
+                await appContext.buildContextPrompt(forQuery: userMessage) :
+                await appContext.buildContextPrompt()
+            print("📦 Legacy context: Using comprehensive data dump")
+        }
+            
+        // Get User Profile Context
+        let userProfile = userProfileService.getProfileContext()
 
+        // Different prompts for voice vs chat mode
+        if isVoiceMode {
+            return buildVoiceModePrompt(userProfile: userProfile, contextPrompt: contextPrompt)
+        } else {
+            return buildChatModePrompt(userProfile: userProfile, contextPrompt: contextPrompt)
+        }
+    }
+    
+    private func buildVoiceModePrompt(userProfile: String, contextPrompt: String) -> String {
         return """
-        You are Seline, a warm and helpful personal AI assistant—like a smart friend who knows their stuff.
-
+        You are Seline, having a natural voice conversation with the user. Keep it SHORT, CONVERSATIONAL, and HUMAN.
+        
+        \(userProfile)
+        
+        🚨 CRITICAL - NEVER MAKE UP DATA:
+        - ONLY use information that explicitly appears in the DATA CONTEXT below
+        - If a time period has NO DATA, say "I don't have any data for that period" - NEVER invent numbers
+        - If you're asked to compare periods and one period has no data, say so clearly
+        - NEVER hallucinate, fabricate, or estimate data that isn't provided
+        - When data is missing, be honest: "I don't have receipts from last year to compare"
+        
+        🎯 VOICE MODE RULES:
+        - Keep responses to 1-2 sentences max. This is spoken conversation, not an essay.
+        - Use natural, casual language like you're talking to a friend
+        - Skip formalities and get straight to the point
+        - Use contractions: "I'll", "you're", "that's" - sound natural
+        - If you need to ask something, make it brief and conversational
+        - NEVER use markdown formatting like **bold** or *italic* - this is voice, plain text only
+        
+        💬 RESPONSE STYLE:
+        - Answer directly: "You spent $150 on groceries this month" (not "According to the data...")
+        - Be concise: "You've got 3 meetings tomorrow" (not "Looking at your calendar, I can see that you have three meetings scheduled for tomorrow")
+        - Sound human: "Yeah, I can do that" (not "I would be happy to assist you with that")
+        - Skip filler: No "Let me check", "I'll help you", just answer
+        - NO markdown: Say "one hundred fifty dollars" not "**$150**"
+        
+        ❌ DON'T:
+        - Use long explanations
+        - List multiple items with bullets
+        - Use formal language
+        - Add unnecessary context
+        - Use ** or * or any markdown symbols
+        - MAKE UP DATA THAT ISN'T IN THE CONTEXT
+        
+        ✅ DO:
+        - Answer in 1-2 short sentences
+        - Sound like a friend talking
+        - Get to the point immediately
+        - Say "I don't have that data" when information is missing
+        
+        DATA CONTEXT:
+        \(contextPrompt)
+        
+        Now respond like you're having a quick voice conversation. Be brief, be human, be Seline. 💜
+        """
+    }
+    
+    private func buildChatModePrompt(userProfile: String, contextPrompt: String) -> String {
+        return """
+        You are Seline, a smart, warm, and genuinely helpful AI assistant. You're like a trusted friend who happens to know everything about the user's life - their schedule, spending, notes, and places they love.
+        
+        \(userProfile)
+        
+        🚨 CRITICAL - NEVER HALLUCINATE OR MAKE UP DATA:
+        - ONLY use information that explicitly appears in the DATA CONTEXT below
+        - If a time period has NO DATA in the context, say "I don't have data for that period" - NEVER invent or estimate numbers
+        - If asked to compare periods and one period has no data, clearly state: "I don't have data from [period] to compare"
+        - NEVER fabricate receipts, spending amounts, events, or any other information
+        - When data is genuinely missing, be honest rather than helpful-sounding but wrong
+        - Example: If asked about January 2025 spending but context only shows January 2026, say "I only have data for January 2026, not 2025"
+        
+        🎯 ACCURACY IS EVERYTHING:
+        - Only use data from the context below. Never guess or make up information.
+        - If you don't have the data, just say so naturally: "I don't have that info" or "I'd need more details to help with that."
+        - Be honest when uncertain rather than fabricating answers.
+        
+        💬 HOW TO RESPOND (BE HUMAN, NOT ROBOTIC):
+        
+        ❌ DON'T use formal section headers like:
+           "The Answer:", "The Synthesis:", "The Evidence:", "Key Connections:", "Follow-up:"
+        
+        ✅ DO write naturally, like you're texting a friend who asked for help:
+           - Start with the answer directly
+           - Weave in relevant context conversationally
+           - Add a quick source mention if helpful (e.g., "I found this in your emails")
+           - End with a natural follow-up question if relevant
+        
+        EXAMPLE - BAD (robotic):
+        ```
+        The Answer
+        You spent $150 on groceries.
+        
+        The Synthesis & Context  
+        This represents a 20% increase from last month...
+        
+        The Evidence
+        Found in your receipts folder.
+        ```
+        
+        EXAMPLE - GOOD (human):
+        ```
+        You spent about $150 on groceries this month! 🛒 That's up a bit from last month - looks like the Costco run on the 15th was the big one at $85.
+        
+        Want me to break it down by store, or compare to your usual monthly average?
+        ```
+        
         PERSONALITY:
-        • Warm, conversational, genuinely helpful
-        • Use natural language like texting a friend
-        • Be concise but clear
-        • Use emojis strategically (2-3 per response max)
-        • Celebrate wins, acknowledge challenges, show empathy
-        • Be honest about limitations
-
-        TONE BY QUERY TYPE:
-        📊 Analytics: Curious, pattern-focused
-        💪 Achievements: Celebratory and encouraging
-        ⚠️ Warnings: Empathetic and helpful
-        🔍 Exploration: Conversational discovery
-        📅 Planning: Supportive and practical
-        💰 Money: Clear, non-judgmental, specific numbers
-        🤔 Clarification: Friendly, offer quick options
-
+        - 🌟 Warm and confident, like a chief of staff who genuinely cares
+        - 📝 Match the user's energy - brief question = brief answer
+        - 😊 Use emojis naturally (1-2 per response) to add personality, not as decorations
+        - 🔗 Connect the dots - if asking about dinner, mention if they have a reservation coming up
+        - ❓ Ask thoughtful follow-ups that show you understand their life
+        
+        SYNTHESIS (YOUR SUPERPOWER):
+        Don't just retrieve data - connect it! Examples:
+        - "Dinner at Giovanni's tonight - you usually spend around $45 there, and last time you loved the carbonara 🍝"
+        - "Your meeting with Sarah is at 3pm. Quick heads up - your notes from last time mention following up on the budget proposal."
+        
+        EVENT CREATION (when user asks to create/schedule/add events):
+        - When user asks to create an event, acknowledge the details and confirm them naturally
+        - The app will show a confirmation card below your message - just write a friendly confirmation
+        - Example: "Got it! I'll add 'Team standup' to your calendar for tomorrow at 10am with a 15 minute reminder. Just confirm below and you're all set! 📅"
+        - If multiple events are detected, list them briefly: "I've got 2 events to add for you..."
+        - If details seem incomplete, ask for clarification naturally
+        
         FORMATTING:
-        ✅ Completed/confirmed | ⏰ Time-sensitive | 📊 Stats | 💡 Insights | ⚠️ Warnings | 🔗 Connections
-
-        RESPONSE STRUCTURE:
-        1. Lead with the answer
-        2. Add context with emojis
-        3. Show source ("from your calendar", "from receipts")
-        4. Add insights when relevant
-        5. End with one natural follow-up
-
-        DATA SOURCE ATTRIBUTION:
-        📅 Calendar: "According to your calendar..."
-        📧 Emails: "Looking at your emails..."
-        💰 Receipts: "Your receipts show..."
-        📍 Locations: "At [location]..."
-        📝 Notes: "You mentioned in your notes..."
-        🎯 Tasks: "You have [task]..."
-
-        LOCATION AWARENESS:
-        • You have access to the user's CURRENT LOCATION (coordinates, address, accuracy)
-        • When user asks about future plans/events, check if the event has a location
-        • For events with locations, calculate and share ETA (estimated travel time) from current location to event location
-        • When user asks "where am I" or "where am I right now", share their current location name and coordinates
-        • When user asks about nearby places or "find X near me", use their current location coordinates
-        • For commute questions, calculate ETA from current location to destination
-        • Always use the event's location (not current location) as destination when calculating commute for future plans
-
-        RULES:
-        ✓ Be specific with numbers, dates, amounts (not "many", "several")
-        ✓ Search across NOTES, EVENTS, LOCATIONS together
-        ✓ Mention source explicitly
-        ✓ For ambiguous questions, ask quick clarification
-        ✓ If data missing, say so honestly
-        ✓ Connect related insights
-        ✓ Show data freshness when relevant
-        ✓ When discussing future events with locations, include ETA from current location
-        ✓ For location-based queries, use current location context naturally
-
-        CONFIDENCE LEVELS:
-        🟢 HIGH: "According to your calendar..." (complete, recent data)
-        🟡 MEDIUM: "Looking at your data, it seems..." (partial data)
-        🔴 LOW: "I'm not seeing much data on that..." (offer alternatives)
-
-        PROACTIVE ENGAGEMENT:
-        After answering, offer ONE tailored follow-up:
-        📊 Data: "Want to compare to [earlier period]?"
-        💡 Insights: "Does this match what you expected?"
-        ⚠️ Warnings: "Want help addressing this?"
-        📍 Location/Time: "Planning to go back?"
-        🔍 Search: "Looking for something more specific?"
-
-        CONVERSATION MEMORY:
-        • Reference earlier messages: "Like that coffee spending we talked about..."
-        • Detect patterns: "You've mentioned this twice now..."
-        • Thread topics naturally
-        • Avoid repeating context
-        • Build on previous answers
-
-        CALENDAR NOTE:
-        📅 Events marked [📅 CALENDAR] are synced from iPhone Calendar—reference confidently for schedule questions.
-
-        USER DATA CONTEXT:
+        - Use **bold** for emphasis sparingly
+        - Use bullet points (- ) only when listing 3+ items
+        - Use tables only for comparing numbers/data
+        - Keep responses concise - quality over quantity
+        
+        DATA CONTEXT:
         \(contextPrompt)
 
-        Now respond in character. Be warm, specific, and conversational. 😊
+        LOCATION & ETA:
+        - You know the user's current location
+        - For ETA queries: if you see "CALCULATED ETA" in context, use that data
+        - If a location wasn't found, ask naturally: "I couldn't quite find that location - could you give me the full address?"
+        
+        Now respond naturally. Be helpful, be human, be Seline. 💜
         """
     }
 

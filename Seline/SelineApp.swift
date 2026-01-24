@@ -4,6 +4,7 @@ import GoogleSignIn
 import UserNotifications
 import EventKit
 import BackgroundTasks
+import WidgetKit
 
 @main
 struct SelineApp: App {
@@ -33,6 +34,10 @@ struct SelineApp: App {
         // Sync calendar events on launch to ensure calendar permission is granted and events are fetched
         syncCalendarEventsOnFirstLaunch()
         migrateReceiptCategoriesIfNeeded()
+        
+        // Refresh widget spending data on app launch
+        // This ensures the widget shows current data even if the app was killed
+        refreshWidgetDataOnLaunch()
 
         // DISABLED: Nuclear reset was causing app to hang on startup
         // DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -67,7 +72,15 @@ struct SelineApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     // Handle app becoming active
                     Task {
-                        // Perform background refresh check
+                        // LOCATION FIX: Immediately refresh widgets when app becomes active
+                        // This ensures widget shows current location state
+                        WidgetCenter.shared.reloadAllTimelines()
+                        print("🔄 Widget refresh on app active")
+                        
+                        // LOCATION FIX: Ensure geofences are up to date
+                        GeofenceManager.shared.setupGeofences(for: LocationsManager.shared.savedPlaces)
+                        
+                        // Perform background refresh check for emails
                         await EmailService.shared.handleBackgroundRefresh()
 
                         // Update app badge with current unread count
@@ -93,6 +106,22 @@ struct SelineApp: App {
 
                             // Warm up today's visits cache
                             _ = await LocationVisitAnalytics.shared.getTodaysVisitsWithDuration()
+
+                            // Refresh widget spending data to ensure it's up-to-date
+                            await MainActor.run {
+                                SpendingAndETAWidget.refreshWidgetSpendingData()
+                            }
+
+                            // CRITICAL: Run visit cleanup to fix any midnight-spanning issues
+                            // This runs in the background and won't block the UI
+                            let midnightResult = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
+                            if midnightResult.fixed > 0 {
+                                print("🌙 Startup cleanup: Fixed \(midnightResult.fixed) midnight-spanning visits")
+                            }
+                            
+                            // NEW: Sync vector embeddings for semantic search
+                            // This keeps embeddings up-to-date for fast, relevant LLM context
+                            await VectorSearchService.shared.syncEmbeddingsIfNeeded()
 
                             print("🔥 Cache warming complete")
                         }
@@ -148,22 +177,57 @@ struct SelineApp: App {
     }
 
     private func configureBackgroundRefresh() {
-        // Register Background App Refresh task for email notifications
+        // Register Background App Refresh task for email notifications (lightweight, runs every 15+ mins)
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.seline.emailRefresh", using: nil) { task in
             Task {
                 print("📧 Background refresh task started")
                 await EmailService.shared.handleBackgroundRefresh()
 
                 // Schedule the next background refresh
-                scheduleBackgroundRefresh()
+                self.scheduleBackgroundRefresh()
 
                 // Mark task as completed
                 task.setTaskCompleted(success: true)
             }
         }
+        
+        // Register Background Processing task for more reliable email checking (runs when device is charging)
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.seline.emailProcessing", using: nil) { task in
+            guard let processingTask = task as? BGProcessingTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            
+            Task {
+                print("📧 Background processing task started (device likely charging)")
+                
+                // Set up expiration handler
+                processingTask.expirationHandler = {
+                    print("📧 Background processing task expired")
+                    processingTask.setTaskCompleted(success: false)
+                }
+                
+                await EmailService.shared.handleBackgroundRefresh()
 
-        // Schedule the first background refresh
+                // Schedule the next background processing
+                self.scheduleBackgroundProcessing()
+
+                // Mark task as completed
+                processingTask.setTaskCompleted(success: true)
+            }
+        }
+
+        // CRITICAL: Register location background tasks for reliable geofence detection
+        // iOS geofencing can be delayed by 10-20 minutes - these tasks provide additional checks
+        LocationBackgroundTaskService.shared.registerBackgroundTasks()
+
+        // Schedule background tasks
         scheduleBackgroundRefresh()
+        scheduleBackgroundProcessing()
+        
+        // Schedule location background tasks
+        LocationBackgroundTaskService.shared.scheduleLocationRefresh()
+        LocationBackgroundTaskService.shared.scheduleLocationProcessing()
     }
 
     private func scheduleBackgroundRefresh() {
@@ -173,10 +237,24 @@ struct SelineApp: App {
 
         do {
             try BGTaskScheduler.shared.submit(request)
-            // DEBUG: Commented out to reduce console spam
-            // print("📅 Background refresh scheduled for 15 minutes from now")
+            print("📅 Background refresh scheduled for 15 minutes from now")
         } catch {
             print("⚠️ Failed to schedule background refresh: \(error)")
+        }
+    }
+    
+    private func scheduleBackgroundProcessing() {
+        let request = BGProcessingTaskRequest(identifier: "com.seline.emailProcessing")
+        // Schedule processing in 5 minutes (more frequent when device is charging)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 5 * 60)
+        request.requiresNetworkConnectivity = true
+        request.requiresExternalPower = false // Can run on battery too
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            print("📅 Background processing scheduled for 5 minutes from now")
+        } catch {
+            print("⚠️ Failed to schedule background processing: \(error)")
         }
     }
 
@@ -232,10 +310,34 @@ struct SelineApp: App {
             // If permission is already granted, this immediately sets up geofences
             // If not granted yet, geofences will be set up when permission is granted
             geofenceManager.requestLocationPermission()
+            
+            // CRITICAL FIX: Force enable background location immediately
+            // This ensures location updates continue even when app is backgrounded
+            SharedLocationManager.shared.enableBackgroundLocationTracking(true)
+            
+            // Start significant location change monitoring immediately
+            // This provides faster detection than geofences alone (triggers on 500m+ movement)
+            SharedLocationManager.shared.startSignificantLocationChangeMonitoring()
+            
+            // Start CLVisit monitoring for accurate arrival/departure detection
+            SharedLocationManager.shared.startVisitMonitoring()
 
             // Load incomplete visits from Supabase to resume tracking
             // This is important for cases where the app was killed mid-visit
             await geofenceManager.loadIncompleteVisitsFromSupabase()
+            
+            // CRITICAL: Start background validation timer immediately
+            // This checks every 30 seconds if user entered/exited locations
+            // even if iOS geofence events are delayed
+            let savedPlaces = locationsManager.savedPlaces
+            if !savedPlaces.isEmpty {
+                // Start the continuous location monitoring
+                LocationBackgroundValidationService.shared.startContinuousMonitoring(
+                    geofenceManager: geofenceManager,
+                    locationManager: SharedLocationManager.shared,
+                    savedPlaces: savedPlaces
+                )
+            }
 
             // Fix historical visits that span midnight
             // CRITICAL: Run this fix on app launch to process any visits that span midnight
@@ -251,6 +353,25 @@ struct SelineApp: App {
             }
 
             print("✅ [SelineApp] Location services configured")
+        }
+    }
+    
+    private func refreshWidgetDataOnLaunch() {
+        // Refresh widget data asynchronously after a small delay
+        // This allows notes to load first from local storage/Supabase
+        Task {
+            // Wait for notes to load (give time for local storage + potential Supabase sync)
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            
+            await MainActor.run {
+                // Refresh spending data for widget
+                SpendingAndETAWidget.refreshWidgetSpendingData()
+                
+                // Also sync today's tasks to widget  
+                TaskManager.shared.syncTodaysTasksToWidget(tags: TagManager.shared.tags)
+                
+                print("📱 [SelineApp] Widget data refreshed on launch")
+            }
         }
     }
 }

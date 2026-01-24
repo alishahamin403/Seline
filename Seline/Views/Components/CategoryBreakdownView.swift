@@ -10,11 +10,11 @@ struct CategoryBreakdownView: View {
             // Header
             VStack(alignment: .leading, spacing: 8) {
                 Text("Spending by Category")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
                     .foregroundColor(.primary)
 
                 Text("Year: \(categoryBreakdown.year)")
-                    .font(.system(size: 12, weight: .regular))
+                    .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(.gray)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -47,7 +47,7 @@ struct CompactCategoryCard: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(category.category)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(FontManager.geist(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
 
                 ProgressView(value: category.percentage / 100)
@@ -59,11 +59,11 @@ struct CompactCategoryCard: View {
 
             VStack(alignment: .trailing, spacing: 2) {
                 Text(category.formattedAmount)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(.primary)
 
                 Text(category.formattedPercentage)
-                    .font(.system(size: 11, weight: .regular))
+                    .font(FontManager.geist(size: 11, weight: .regular))
                     .foregroundColor(.gray)
             }
         }

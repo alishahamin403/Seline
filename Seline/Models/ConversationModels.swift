@@ -1,6 +1,15 @@
 import Foundation
 import SwiftUI
 
+// MARK: - Proactive Question Info (defined early for use in ConversationMessage)
+
+struct ProactiveQuestionInfo: Codable {
+    let locationId: UUID
+    let locationName: String
+    let question: String
+    let isFirstVisit: Bool
+}
+
 // MARK: - Conversation Models
 
 struct ConversationMessage: Identifiable, Codable {
@@ -13,8 +22,12 @@ struct ConversationMessage: Identifiable, Codable {
     let timeStarted: Date?      // When LLM started thinking
     let timeFinished: Date?     // When LLM finished thinking
     let followUpSuggestions: [FollowUpSuggestion]?  // Suggested follow-up questions/actions
+    let locationInfo: ETALocationInfo?  // For ETA/directions queries - shows map card
+    var eventCreationInfo: [EventCreationInfo]?  // For event creation - shows confirmation card
+    var relevantContent: [RelevantContentInfo]?  // For displaying inline email/note/event cards
+    var proactiveQuestion: ProactiveQuestionInfo?  // For proactive questions after location visits
 
-    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil, followUpSuggestions: [FollowUpSuggestion]? = nil) {
+    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil, followUpSuggestions: [FollowUpSuggestion]? = nil, locationInfo: ETALocationInfo? = nil, eventCreationInfo: [EventCreationInfo]? = nil, relevantContent: [RelevantContentInfo]? = nil, proactiveQuestion: ProactiveQuestionInfo? = nil) {
         self.id = id
         self.isUser = isUser
         self.text = text
@@ -24,6 +37,10 @@ struct ConversationMessage: Identifiable, Codable {
         self.timeStarted = timeStarted
         self.timeFinished = timeFinished
         self.followUpSuggestions = followUpSuggestions
+        self.locationInfo = locationInfo
+        self.eventCreationInfo = eventCreationInfo
+        self.relevantContent = relevantContent
+        self.proactiveQuestion = proactiveQuestion
     }
 
     var formattedTime: String {
@@ -51,6 +68,216 @@ struct ConversationMessage: Identifiable, Codable {
             } else {
                 return "\(minutes) minute\(minutes == 1 ? "" : "s") \(remainingSeconds) second\(remainingSeconds == 1 ? "" : "s")"
             }
+        }
+    }
+}
+
+// MARK: - ETA Location Info (for Map Card display)
+
+struct ETALocationInfo: Codable {
+    let originName: String?
+    let originAddress: String?
+    let originLatitude: Double?
+    let originLongitude: Double?
+    let destinationName: String
+    let destinationAddress: String
+    let destinationLatitude: Double
+    let destinationLongitude: Double
+    let driveTime: String?
+    let distance: String?
+    
+    /// Opens directions in Apple Maps or Google Maps
+    func openInMaps(preferGoogleMaps: Bool = false) {
+        let destLat = destinationLatitude
+        let destLon = destinationLongitude
+        
+        if preferGoogleMaps {
+            // Try Google Maps first
+            var urlString = "comgooglemaps://?daddr=\(destLat),\(destLon)&directionsmode=driving"
+            if let originLat = originLatitude, let originLon = originLongitude {
+                urlString = "comgooglemaps://?saddr=\(originLat),\(originLon)&daddr=\(destLat),\(destLon)&directionsmode=driving"
+            }
+            if let url = URL(string: urlString), UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url)
+                return
+            }
+        }
+        
+        // Fall back to Apple Maps
+        var urlString = "http://maps.apple.com/?daddr=\(destLat),\(destLon)&dirflg=d"
+        if let originLat = originLatitude, let originLon = originLongitude {
+            urlString = "http://maps.apple.com/?saddr=\(originLat),\(originLon)&daddr=\(destLat),\(destLon)&dirflg=d"
+        }
+        if let url = URL(string: urlString) {
+            UIApplication.shared.open(url)
+        }
+    }
+}
+
+// MARK: - Relevant Content Info (for displaying emails, notes, events inline)
+
+struct RelevantContentInfo: Codable, Identifiable {
+    let id: UUID
+    let contentType: ContentType
+    
+    // For emails
+    let emailId: String?
+    let emailSubject: String?
+    let emailSender: String?
+    let emailSnippet: String?
+    let emailDate: Date?
+    
+    // For notes
+    let noteId: UUID?
+    let noteTitle: String?
+    let noteSnippet: String?
+    let noteFolder: String?
+    
+    // For events
+    let eventId: UUID?
+    let eventTitle: String?
+    let eventDate: Date?
+    let eventCategory: String?
+    
+    // For locations
+    let locationId: UUID?
+    let locationName: String?
+    let locationAddress: String?
+    let locationCategory: String?
+    
+    enum ContentType: String, Codable {
+        case email
+        case note
+        case event
+        case location
+    }
+    
+    // Convenience initializers
+    static func email(id: String, subject: String, sender: String, snippet: String, date: Date) -> RelevantContentInfo {
+        RelevantContentInfo(
+            id: UUID(),
+            contentType: .email,
+            emailId: id,
+            emailSubject: subject,
+            emailSender: sender,
+            emailSnippet: snippet,
+            emailDate: date,
+            noteId: nil, noteTitle: nil, noteSnippet: nil, noteFolder: nil,
+            eventId: nil, eventTitle: nil, eventDate: nil, eventCategory: nil,
+            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil
+        )
+    }
+    
+    static func note(id: UUID, title: String, snippet: String, folder: String) -> RelevantContentInfo {
+        RelevantContentInfo(
+            id: UUID(),
+            contentType: .note,
+            emailId: nil, emailSubject: nil, emailSender: nil, emailSnippet: nil, emailDate: nil,
+            noteId: id,
+            noteTitle: title,
+            noteSnippet: snippet,
+            noteFolder: folder,
+            eventId: nil, eventTitle: nil, eventDate: nil, eventCategory: nil,
+            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil
+        )
+    }
+    
+    static func event(id: UUID, title: String, date: Date, category: String) -> RelevantContentInfo {
+        RelevantContentInfo(
+            id: UUID(),
+            contentType: .event,
+            emailId: nil, emailSubject: nil, emailSender: nil, emailSnippet: nil, emailDate: nil,
+            noteId: nil, noteTitle: nil, noteSnippet: nil, noteFolder: nil,
+            eventId: id,
+            eventTitle: title,
+            eventDate: date,
+            eventCategory: category,
+            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil
+        )
+    }
+    
+    static func location(id: UUID, name: String, address: String, category: String) -> RelevantContentInfo {
+        RelevantContentInfo(
+            id: UUID(),
+            contentType: .location,
+            emailId: nil, emailSubject: nil, emailSender: nil, emailSnippet: nil, emailDate: nil,
+            noteId: nil, noteTitle: nil, noteSnippet: nil, noteFolder: nil,
+            eventId: nil, eventTitle: nil, eventDate: nil, eventCategory: nil,
+            locationId: id,
+            locationName: name,
+            locationAddress: address,
+            locationCategory: category
+        )
+    }
+}
+
+// MARK: - Event Creation Info (for Event Card display in chat)
+
+struct EventCreationInfo: Codable, Identifiable {
+    let id: UUID
+    let title: String
+    let date: Date
+    let hasTime: Bool
+    let reminderMinutes: Int?  // nil = no reminder, 0 = at time, 5/10/15/30/60 = before
+    let category: String
+    let location: String?
+    let notes: String?
+    var isConfirmed: Bool
+    
+    init(
+        id: UUID = UUID(),
+        title: String,
+        date: Date,
+        hasTime: Bool = true,
+        reminderMinutes: Int? = nil,
+        category: String = "Personal",
+        location: String? = nil,
+        notes: String? = nil,
+        isConfirmed: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.date = date
+        self.hasTime = hasTime
+        self.reminderMinutes = reminderMinutes
+        self.category = category
+        self.location = location
+        self.notes = notes
+        self.isConfirmed = isConfirmed
+    }
+    
+    var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter.string(from: date)
+    }
+    
+    var formattedTime: String {
+        guard hasTime else { return "All day" }
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+    
+    var formattedDateTime: String {
+        if hasTime {
+            return "\(formattedDate) at \(formattedTime)"
+        } else {
+            return "\(formattedDate) (All day)"
+        }
+    }
+    
+    var reminderText: String {
+        guard let minutes = reminderMinutes else { return "No reminder" }
+        switch minutes {
+        case 0: return "At time of event"
+        case 5: return "5 minutes before"
+        case 10: return "10 minutes before"
+        case 15: return "15 minutes before"
+        case 30: return "30 minutes before"
+        case 60: return "1 hour before"
+        case 1440: return "1 day before"
+        default: return "\(minutes) minutes before"
         }
     }
 }

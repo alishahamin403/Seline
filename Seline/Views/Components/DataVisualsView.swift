@@ -30,10 +30,10 @@ struct ProgressBarView: View {
             // Percentage text
             HStack {
                 Text("\(completed)/\(total)")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(FontManager.geist(size: 11, weight: .semibold))
                 Spacer()
                 Text("\(Int(percentage * 100))%")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(FontManager.geist(size: 11, weight: .semibold))
             }
             .foregroundColor(fillColor)
         }
@@ -112,11 +112,11 @@ struct StatBoxView: View {
             HStack(spacing: 6) {
                 if let emoji = emoji {
                     Text(emoji)
-                        .font(.system(size: 16))
+                        .font(FontManager.geist(size: 16, weight: .regular))
                 }
 
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(FontManager.geist(size: 11, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                 Spacer()
@@ -124,12 +124,12 @@ struct StatBoxView: View {
 
             HStack(alignment: .bottom, spacing: 6) {
                 Text(value)
-                    .font(.system(size: 18, weight: .bold))
+                    .font(FontManager.geist(size: 18, weight: .bold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 if let trend = trendIndicator {
                     Text(trend)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(FontManager.geist(size: 11, weight: .semibold))
                         .foregroundColor(trend.contains("📈") ? .green : trend.contains("📉") ? .red : .orange)
                 }
             }
@@ -168,13 +168,13 @@ struct CategoryBreakdownBarView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(category.emoji)
-                            .font(.system(size: 12))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                         Text(category.name)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(FontManager.geist(size: 12, weight: .semibold))
                         Spacer()
                         let percentage = (category.amount / total) * 100
                         Text(String(format: "%.0f%%", percentage))
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(FontManager.geist(size: 11, weight: .semibold))
                             .foregroundColor(category.color)
                     }
 
@@ -199,10 +199,10 @@ struct CategoryBreakdownBarView: View {
 
             HStack {
                 Text("Total")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(FontManager.geist(size: 12, weight: .semibold))
                 Spacer()
                 Text(String(format: "$%.2f", total))
-                    .font(.system(size: 12, weight: .bold))
+                    .font(FontManager.geist(size: 12, weight: .bold))
                     .foregroundColor(.blue)
             }
         }

@@ -202,7 +202,7 @@ struct CalendarMonthView: View {
                 HapticManager.shared.selection()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(primaryTextColor)
                     .frame(width: 32, height: 32)
                     .background(
@@ -216,7 +216,7 @@ struct CalendarMonthView: View {
             
             // Month name
             Text(monthYearString)
-                .font(.system(size: 18, weight: .semibold))
+                .font(FontManager.geist(size: 18, weight: .semibold))
                 .foregroundColor(primaryTextColor)
             
             Spacer()
@@ -232,7 +232,7 @@ struct CalendarMonthView: View {
                 HapticManager.shared.selection()
             }) {
                 Text("Today")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(FontManager.geist(size: 13, weight: .medium))
                     .foregroundColor(isCurrentMonth ? primaryTextColor : primaryTextColor.opacity(0.7))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -251,7 +251,7 @@ struct CalendarMonthView: View {
                 HapticManager.shared.selection()
             }) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(primaryTextColor)
                     .frame(width: 32, height: 32)
                     .background(
@@ -277,7 +277,7 @@ struct CalendarMonthView: View {
         HStack(spacing: 0) {
             ForEach(["S", "M", "T", "W", "T", "F", "S"], id: \.self) { day in
                 Text(day)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(FontManager.geist(size: 12, weight: .semibold))
                     .foregroundColor(secondaryTextColor)
                     .frame(maxWidth: .infinity)
             }
@@ -331,7 +331,7 @@ struct CalendarMonthView: View {
                     if isToday {
                         // Today: white circle outline (no fill), outline color = camera icon color
                         Text(dayNumber(date))
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(FontManager.geist(size: 12, weight: .semibold))
                             .foregroundColor(primaryTextColor)
                             .frame(width: 24, height: 24)
                             .background(
@@ -341,14 +341,14 @@ struct CalendarMonthView: View {
                     } else if isSelected {
                         // Selected (not today): filled circle with camera icon color
                         Text(dayNumber(date))
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(FontManager.geist(size: 12, weight: .semibold))
                             .foregroundColor(Color.white)
                             .frame(width: 24, height: 24)
                             .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
                     } else {
                         // Not selected, not today
                         Text(dayNumber(date))
-                            .font(.system(size: 12, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(primaryTextColor)
                             .frame(width: 24, height: 24)
                     }
@@ -365,7 +365,7 @@ struct CalendarMonthView: View {
                     // More indicator if there are more events than displayed
                     if events.count > maxEventsPerCell {
                         Text("+\(events.count - maxEventsPerCell) more")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(FontManager.geist(size: 9, weight: .medium))
                             .foregroundColor(secondaryTextColor)
                             .padding(.horizontal, 4)
                     }
@@ -420,7 +420,7 @@ struct CalendarMonthView: View {
         
         // Fixed size chip - no button, just display
         return Text(event.title)
-            .font(.system(size: 10, weight: .medium))
+            .font(FontManager.geist(size: 10, weight: .medium))
             .foregroundColor(textColor)
             .lineLimit(1)
             .padding(.vertical, 4)

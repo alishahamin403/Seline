@@ -201,7 +201,7 @@ struct EmailCardWidget: View {
         VStack(alignment: .leading, spacing: 8) {
             // Header
             Text("Unread Emails")
-                .font(.system(size: 13, weight: .semibold))
+                .font(FontManager.geist(size: 13, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -210,7 +210,7 @@ struct EmailCardWidget: View {
                 VStack(alignment: .leading, spacing: 6) {
                     if unreadEmails.isEmpty {
                         Text("No unread emails")
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 4)
                             .frame(maxWidth: .infinity, alignment: .leading)

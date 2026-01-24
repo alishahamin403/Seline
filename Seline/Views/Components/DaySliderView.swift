@@ -75,7 +75,7 @@ struct DaySliderView: View {
         }) {
             VStack(spacing: 2) {
                 Text(dayName(date))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(FontManager.geist(size: 11, weight: .semibold))
                     .foregroundColor(
                         isSelected(date) ? Color.white :
                         isToday(date) ? accentColor :
@@ -83,7 +83,7 @@ struct DaySliderView: View {
                     )
 
                 Text(dayNumber(date))
-                    .font(.system(size: 16, weight: isSelected(date) ? .semibold : .regular))
+                    .font(FontManager.geist(size: 16, systemWeight: isSelected(date) ? .semibold : .regular))
                     .foregroundColor(
                         isSelected(date) ? Color.white :
                         isToday(date) ? accentColor :

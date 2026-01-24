@@ -169,6 +169,8 @@ struct LocationMetadata: Codable, Identifiable {
     let isFrequent: Bool? // True if visited more than once
     let peakVisitTimes: [String]? // most common times of day (e.g., ["lunch", "evening"])
     let mostVisitedDays: [String]? // most frequently visited days of week
+    let locationMemories: LocationMemoriesInfo? // User's general reasons for visiting and what they usually get
+    let recentVisitNotes: [VisitNoteInfo]? // Recent visit-specific notes (why they visited at specific times)
 
     var displayName: String {
         customName ?? name
@@ -193,6 +195,29 @@ struct LocationMetadata: Codable, Identifiable {
         guard let lastVisited = lastVisited else { return nil }
         let calendar = Calendar.current
         return calendar.dateComponents([.day], from: lastVisited, to: Date()).day
+    }
+}
+
+// MARK: - Location Memories Info
+
+struct LocationMemoriesInfo: Codable {
+    let purposeReason: String? // General reasons user visits this location
+    let usualItems: [String]? // What user usually gets/purchases
+    let purchaseFrequency: String? // How often user buys items (weekly, monthly, etc.)
+}
+
+// MARK: - Visit Note Info
+
+struct VisitNoteInfo: Codable {
+    let visitDate: Date // When the visit occurred
+    let note: String // User's reason for that specific visit (what they got, why they visited)
+    let timeOfDay: String? // Morning, afternoon, evening
+    
+    var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: visitDate)
     }
 }
 

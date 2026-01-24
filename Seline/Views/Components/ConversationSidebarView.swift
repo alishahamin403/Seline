@@ -40,9 +40,9 @@ struct ConversationSidebarView: View {
                 }) {
                     HStack(spacing: 10) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 18, weight: .medium))
+                            .font(FontManager.geist(size: 18, weight: .medium))
                         Text("New Chat")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                     }
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
@@ -78,28 +78,28 @@ struct ConversationSidebarView: View {
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(searchService.savedConversations.count)")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(FontManager.geist(size: 18, weight: .bold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         Text("Total Chats")
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(getTodayConversationCount())")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(FontManager.geist(size: 18, weight: .bold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         Text("Today")
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(getTotalMessages())")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(FontManager.geist(size: 18, weight: .bold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         Text("Messages")
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
 
@@ -124,12 +124,12 @@ struct ConversationSidebarView: View {
                         }
                     }) {
                         Text(selectedConversationIds.count == searchService.savedConversations.count ? "Deselect All" : "Select All")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(FontManager.geist(size: 12, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                 } else {
                     Text("Chats")
-                        .font(.system(size: 18, weight: .bold))
+                        .font(FontManager.geist(size: 18, weight: .bold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
@@ -145,7 +145,7 @@ struct ConversationSidebarView: View {
                         isEditMode = false
                     }) {
                         Image(systemName: "trash")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -162,7 +162,7 @@ struct ConversationSidebarView: View {
                     isEditMode.toggle()
                 }) {
                     Text(isEditMode ? "Done" : "Edit")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(FontManager.geist(size: 12, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
             }
@@ -178,15 +178,15 @@ struct ConversationSidebarView: View {
             if searchService.savedConversations.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "bubble.left")
-                        .font(.system(size: 48, weight: .light))
+                        .font(FontManager.geist(size: 48, weight: .light))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.2) : .black.opacity(0.2))
 
                     Text("No chats yet")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(FontManager.geist(size: 15, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
 
                     Text("Start a new conversation to begin")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
@@ -198,7 +198,7 @@ struct ConversationSidebarView: View {
                     // Recent Conversations section header
                     HStack {
                         Text("RECENT CONVERSATIONS")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(FontManager.geist(size: 11, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                         Spacer()
                     }
@@ -238,25 +238,25 @@ struct ConversationSidebarView: View {
             HStack(spacing: 8) {
                 if isEditMode {
                     Image(systemName: selectedConversationIds.contains(conversation.id) ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(selectedConversationIds.contains(conversation.id) ? .white : .gray)
                         .frame(width: 20)
                         .animation(.easeInOut(duration: 0.2), value: selectedConversationIds)
                 }
 
                 Image(systemName: "bubble.left")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(selectedConversationIds.contains(conversation.id) ? .white : (colorScheme == .dark ? .white : .black))
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(conversation.title)
-                        .font(.system(size: 14, weight: selectedConversationIds.contains(conversation.id) ? .semibold : .medium))
+                        .font(FontManager.geist(size: 14, systemWeight: selectedConversationIds.contains(conversation.id) ? .semibold : .medium))
                         .foregroundColor(selectedConversationIds.contains(conversation.id) ? .white : (colorScheme == .dark ? .white : .black))
                         .lineLimit(1)
 
                     Text(conversation.formattedDate)
-                        .font(.system(size: 10, weight: .regular))
+                        .font(FontManager.geist(size: 10, weight: .regular))
                         .foregroundColor(selectedConversationIds.contains(conversation.id) ? .white.opacity(0.8) : (colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)))
                         .lineLimit(1)
                 }
@@ -265,7 +265,7 @@ struct ConversationSidebarView: View {
 
                 if !isEditMode {
                     Text("\(conversation.messages.count)")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(FontManager.geist(size: 11, weight: .medium))
                         .foregroundColor(selectedConversationIds.contains(conversation.id) ? .white.opacity(0.8) : (colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)))
                 }
             }

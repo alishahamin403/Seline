@@ -25,12 +25,12 @@ struct ShadcnAccordionItem<Content: View>: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(title)
-                            .font(.system(size: 15, weight: .medium))
+                            .font(FontManager.geist(size: 15, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
 
                         if let subtitle = subtitle {
                             Text(subtitle)
-                                .font(.system(size: 13, weight: .regular))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                     }
@@ -38,7 +38,7 @@ struct ShadcnAccordionItem<Content: View>: View {
                     Spacer()
 
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }

@@ -24,7 +24,7 @@ struct NoteUpdateConfirmationView: View {
                 // Header - Minimal
                 HStack {
                     Text("Update Note")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(FontManager.geist(size: 20, weight: .semibold))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
 
                     Spacer()
@@ -38,16 +38,16 @@ struct NoteUpdateConfirmationView: View {
                         // Target note title
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Updating")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(FontManager.geist(size: 12, weight: .semibold))
                                 .foregroundColor(Color.shadcnMuted(colorScheme))
 
                             HStack(spacing: 8) {
                                 Image(systemName: "doc.text.fill")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
                                     .foregroundColor(.gray)
 
                                 Text(updateData.noteTitle)
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
                                     .foregroundColor(Color.shadcnForeground(colorScheme))
 
                                 Spacer()
@@ -66,11 +66,11 @@ struct NoteUpdateConfirmationView: View {
                         // Content to add
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Adding to note")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(FontManager.geist(size: 12, weight: .semibold))
                                 .foregroundColor(Color.shadcnMuted(colorScheme))
 
                             TextEditor(text: $contentToAdd)
-                                .font(.system(size: 14, weight: .regular))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(Color.shadcnForeground(colorScheme))
                                 .frame(minHeight: 120)
                                 .padding(12)
@@ -84,7 +84,7 @@ struct NoteUpdateConfirmationView: View {
                                 )
 
                             Text("Modify if needed before confirming")
-                                .font(.system(size: 12, weight: .regular))
+                                .font(FontManager.geist(size: 12, weight: .regular))
                                 .foregroundColor(Color.shadcnMuted(colorScheme))
                         }
 
@@ -104,7 +104,7 @@ struct NoteUpdateConfirmationView: View {
                         isPresented = false
                     }) {
                         Text("Cancel")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(FontManager.geist(size: 16, weight: .medium))
                             .foregroundColor(Color.shadcnMuted(colorScheme))
                             .frame(maxWidth: .infinity)
                             .contentShape(Rectangle())
@@ -115,7 +115,7 @@ struct NoteUpdateConfirmationView: View {
                         isPresented = false
                     }) {
                         Text("Update")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)

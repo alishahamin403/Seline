@@ -15,6 +15,7 @@ class GeofenceRadiusManager {
     private let defaultRadius: CLLocationDistance = 300
 
     // Smart auto-detected radiuses by category
+    // IMPORTANT: Large venues like malls need much larger radii (500m+)
     private let radiusByCategory: [String: CLLocationDistance] = [
         // Residential
         "Home": 500,
@@ -27,72 +28,98 @@ class GeofenceRadiusManager {
         "Workplace": 200,
         "Corporate Office": 200,
 
-        // Food & Dining
-        "Restaurant": 75,
-        "Cafe": 75,
-        "Coffee": 75,
-        "Bakery": 75,
-        "Diner": 75,
-        "Fast Food": 75,
-        "Pub": 75,
-        "Bar": 75,
-        "Bistro": 75,
-        "Grill": 75,
-        "Burger": 75,
-        "Steak": 75,
+        // Food & Dining (smaller radii to distinguish adjacent restaurants)
+        "Restaurant": 60,
+        "Cafe": 60,
+        "Coffee": 60,
+        "Bakery": 60,
+        "Diner": 60,
+        "Fast Food": 60,
+        "Pub": 60,
+        "Bar": 60,
+        "Bistro": 60,
+        "Grill": 60,
+        "Burger": 60,
+        "Steak": 60,
 
         // Personal Services
-        "Salon": 75,
-        "Haircut": 75,
-        "Barber": 75,
+        "Salon": 60,
+        "Haircut": 60,
+        "Barber": 60,
         "Spa": 75,
-        "Beauty": 75,
+        "Beauty": 60,
 
-        // Shopping
+        // Shopping - LARGE VENUES get much bigger radii
         "Shop": 75,
-        "Store": 75,
-        "Retail": 75,
-        "Mall": 200,
-        "Shopping Center": 200,
-        "Market": 75,
-        "Grocery": 100,
-        "Supermarket": 100,
-        "Essential": 300,  // Large stores like Walmart with metal roofs
+        "Store": 100,
+        "Retail": 100,
+        "Mall": 500,             // Malls are large - 500m radius
+        "Shopping Mall": 500,    // Malls are large
+        "Shopping Center": 500,  // Shopping centers are large
+        "Shopping Centre": 500,  // UK/Canadian spelling
+        "Plaza": 300,            // Plazas can be medium-large
+        "Outlet": 400,           // Outlet malls are large
+        "Market": 150,
+        "Grocery": 150,
+        "Supermarket": 200,
+        "Department Store": 300, // Large stores
+        "Walmart": 400,          // Very large stores
+        "Costco": 400,           // Very large stores
+        "Essential": 400,        // Large stores like Walmart with metal roofs
+        "Big Box": 400,          // Big box retailers
 
-        // Entertainment & Leisure
+        // Entertainment & Leisure - LARGE VENUES
         "Park": 800,
         "Recreation": 800,
-        "Gym": 75,
-        "Fitness": 75,
-        "Sports": 200,
-        "Movie": 75,
-        "Theater": 75,
-        "Library": 100,
-        "Museum": 200,
+        "Gym": 100,
+        "Fitness": 100,
+        "Sports": 300,
+        "Stadium": 500,          // Stadiums are very large
+        "Arena": 500,            // Arenas are very large
+        "Movie": 150,
+        "Theater": 150,
+        "Theatre": 150,
+        "Cinema": 150,
+        "Library": 150,
+        "Museum": 300,
+        "Convention Center": 500,
+        "Convention Centre": 500,
+        "Exhibition": 400,
+        "Theme Park": 800,
+        "Amusement Park": 800,
+        "Zoo": 600,
+        "Aquarium": 400,
 
-        // Healthcare
-        "Hospital": 200,
-        "Clinic": 75,
-        "Medical": 75,
+        // Healthcare - LARGE FACILITIES
+        "Hospital": 400,         // Hospitals are large
+        "Medical Center": 350,
+        "Medical Centre": 350,
+        "Clinic": 100,
+        "Medical": 100,
         "Pharmacy": 75,
         "Doctor": 75,
 
-        // Education
-        "School": 300,
-        "University": 500,
-        "College": 500,
+        // Education - LARGE CAMPUSES
+        "School": 400,
+        "University": 800,       // University campuses are very large
+        "College": 600,
+        "Campus": 600,
 
         // Accommodation
-        "Hotel": 150,
+        "Hotel": 200,
         "Motel": 150,
-        "Resort": 200,
+        "Resort": 400,           // Resorts are large
         "Lodging": 150,
 
-        // Transportation
-        "Airport": 300,
-        "Train Station": 200,
+        // Transportation - LARGE FACILITIES
+        "Airport": 800,          // Airports are very large
+        "Train Station": 300,
         "Bus Station": 200,
-        "Parking": 150,
+        "Parking": 200,
+        "Parking Lot": 200,
+        "Parking Garage": 200,
+        "Supercharger": 150,     // Tesla Superchargers
+        "Charging Station": 150,
 
         // Religious
         "Mosque": 200,
@@ -107,9 +134,47 @@ class GeofenceRadiusManager {
     private init() {}
 
     // MARK: - Auto-Detection
+    
+    // Keywords that indicate LARGE venues needing bigger radii
+    private let largeVenueKeywords: [(keyword: String, radius: CLLocationDistance)] = [
+        // Very large venues (500m+)
+        ("mall", 500),
+        ("shopping center", 500),
+        ("shopping centre", 500),
+        ("airport", 800),
+        ("university", 800),
+        ("stadium", 500),
+        ("arena", 500),
+        ("convention", 500),
+        ("theme park", 800),
+        ("amusement", 600),
+        
+        // Large venues (300-500m)
+        ("college", 600),
+        ("campus", 600),
+        ("hospital", 400),
+        ("medical center", 350),
+        ("medical centre", 350),
+        ("outlet", 400),
+        ("walmart", 400),
+        ("costco", 400),
+        ("target", 300),
+        ("ikea", 400),
+        ("depot", 350),
+        ("resort", 400),
+        ("zoo", 600),
+        ("aquarium", 400),
+        ("museum", 300),
+        ("plaza", 300),
+        
+        // Medium-large venues (200-300m)
+        ("supermarket", 200),
+        ("grocery", 150),
+        ("hotel", 200),
+    ]
 
     /// Get geofence radius for a saved place
-    /// Priority: User custom radius > Smart auto-detect > Default (200m)
+    /// Priority: User custom radius > Name-based detection > Category auto-detect > Default
     func getRadius(for place: SavedPlace) -> CLLocationDistance {
         // 1. User override (highest priority)
         if let customRadius = place.customGeofenceRadius,
@@ -117,8 +182,22 @@ class GeofenceRadiusManager {
             print("📍 Using custom radius for \(place.displayName): \(customRadius)m")
             return customRadius
         }
+        
+        // 2. Check place NAME for large venue keywords (catches "Lake Ridge Mall" etc.)
+        let nameLower = place.displayName.lowercased()
+        for (keyword, radius) in largeVenueKeywords {
+            if nameLower.contains(keyword) {
+                // Only use if larger than category-based radius
+                let categoryRadius = autoDetectRadius(from: place.category)
+                if radius > categoryRadius {
+                    // DEBUG: Uncomment to debug radius selection
+                    // print("📍 Using name-based radius for \(place.displayName): \(radius)m (contains '\(keyword)')")
+                    return radius
+                }
+            }
+        }
 
-        // 2. Smart auto-detect from category
+        // 3. Smart auto-detect from category
         let autoRadius = autoDetectRadius(from: place.category)
         // DEBUG: Commented out to reduce console spam
         // print("📍 Using smart radius for \(place.displayName): \(autoRadius)m (category: \(place.category))")

@@ -21,15 +21,15 @@ struct CategoryBreakdownModal: View {
             // Header
             VStack(alignment: .leading, spacing: 8) {
                 Text(monthName)
-                    .font(.system(size: 22, weight: .bold))
+                    .font(FontManager.geist(size: 22, weight: .bold))
                     .foregroundColor(.primary)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Total Spending")
-                        .font(.system(size: 12, weight: .regular))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(.gray)
                     Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(FontManager.geist(size: 18, weight: .semibold))
                         .foregroundColor(.primary)
                 }
             }
@@ -76,7 +76,7 @@ struct CategoryBreakdownItem: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(category)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                             .foregroundColor(.primary)
 
                         ProgressView(value: percentage / 100)
@@ -88,11 +88,11 @@ struct CategoryBreakdownItem: View {
 
                     VStack(alignment: .trailing, spacing: 4) {
                         Text(CurrencyParser.formatAmount(total))
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                             .foregroundColor(.primary)
 
                         Text(String(format: "%.1f%%", percentage))
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(.gray)
                     }
                 }
@@ -112,19 +112,19 @@ struct CategoryBreakdownItem: View {
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(receipt.title)
-                                    .font(.system(size: 12, weight: .regular))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(.primary)
                                     .lineLimit(1)
 
                                 Text(formatDate(receipt.date))
-                                    .font(.system(size: 10, weight: .regular))
+                                    .font(FontManager.geist(size: 10, weight: .regular))
                                     .foregroundColor(.gray)
                             }
 
                             Spacer()
 
                             Text(CurrencyParser.formatAmount(receipt.amount))
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(FontManager.geist(size: 12, weight: .semibold))
                                 .foregroundColor(.primary)
                         }
                         .padding(.vertical, 4)

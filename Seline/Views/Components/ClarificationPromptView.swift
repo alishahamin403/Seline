@@ -21,7 +21,7 @@ struct ClarificationPromptView: View {
 
     private var questionView: some View {
         Text(question)
-            .font(.system(size: 13, weight: .semibold))
+            .font(FontManager.geist(size: 13, weight: .semibold))
             .foregroundColor(colorScheme == .dark ? .white : .black)
     }
 
@@ -38,14 +38,14 @@ struct ClarificationPromptView: View {
         Button(action: { onSelect(option.action) }) {
             HStack(spacing: 10) {
                 if let emoji = option.emoji {
-                    Text(emoji).font(.system(size: 14))
+                    Text(emoji).font(FontManager.geist(size: 14, weight: .regular))
                 }
 
                 optionText(option)
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(FontManager.geist(size: 11, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
             }
             .padding(.horizontal, 12)
@@ -59,12 +59,12 @@ struct ClarificationPromptView: View {
     private func optionText(_ option: ClarificationOption) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(option.text)
-                .font(.system(size: 13, weight: .medium))
+                .font(FontManager.geist(size: 13, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             if let subtitle = option.subtitle {
                 Text(subtitle)
-                    .font(.system(size: 11, weight: .regular))
+                    .font(FontManager.geist(size: 11, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
             }
         }

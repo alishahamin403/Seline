@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import WidgetKit
 
 /// Shared CLLocationManager to consolidate multiple location tracking services
 /// This prevents redundant location manager instances and reduces battery drain
@@ -232,6 +233,54 @@ class SharedLocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         Task { @MainActor in
             self.currentLocation = latestLocation
             self.notifyLocationDelegates(latestLocation)
+            
+            // CRITICAL FIX: On every location update, check if user entered/exited any saved locations
+            // This helps catch geofence events that iOS may have delayed
+            await self.checkLocationAgainstSavedPlaces(latestLocation)
+        }
+    }
+    
+    /// Check current location against saved places to catch missed geofence events
+    /// This runs on every location update to provide faster detection than iOS geofencing alone
+    private func checkLocationAgainstSavedPlaces(_ location: CLLocation) async {
+        let savedPlaces = LocationsManager.shared.savedPlaces
+        guard !savedPlaces.isEmpty else { return }
+        
+        // Only check if accuracy is reasonable
+        guard location.horizontalAccuracy > 0 && location.horizontalAccuracy < 100 else {
+            return
+        }
+        
+        let geofenceManager = GeofenceManager.shared
+        
+        for place in savedPlaces {
+            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+            let distance = location.distance(from: placeLocation)
+            let radius = GeofenceRadiusManager.shared.getRadius(for: place)
+            
+            let isInside = distance <= radius
+            let hasActiveVisit = geofenceManager.getActiveVisit(for: place.id) != nil
+            
+            // Detect missed entry
+            if isInside && !hasActiveVisit {
+                // Check speed - ignore if moving fast (passing by)
+                if location.speed > 0 && location.speed > 5.5 { // > 20 km/h
+                    continue
+                }
+                
+                print("📍 Location update detected user inside \(place.displayName) - triggering entry check")
+                
+                // Create a synthetic geofence entry
+                let region = CLCircularRegion(
+                    center: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude),
+                    radius: radius,
+                    identifier: place.id.uuidString
+                )
+                await geofenceManager.handleGeofenceEntry(region: region)
+                
+                // Only handle one at a time
+                break
+            }
         }
     }
 
@@ -258,6 +307,12 @@ class SharedLocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         print("🚨🚨🚨 GEOFENCE ENTRY DETECTED BY iOS 🚨🚨🚨")
         print("   Region: \(region.identifier)")
         print("   App was woken in background!")
+        
+        // IMMEDIATE: Refresh widgets as soon as iOS detects location change
+        // This ensures widget updates even before full visit processing completes
+        WidgetCenter.shared.reloadAllTimelines()
+        print("   🔄 Widget refresh triggered immediately!")
+        
         guard let circularRegion = region as? CLCircularRegion else { return }
         Task { @MainActor in
             self.notifyGeofenceEntry(region: circularRegion)
@@ -271,6 +326,12 @@ class SharedLocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         print("🚨🚨🚨 GEOFENCE EXIT DETECTED BY iOS 🚨🚨🚨")
         print("   Region: \(region.identifier)")
         print("   App was woken in background!")
+        
+        // IMMEDIATE: Refresh widgets as soon as iOS detects location change
+        // This clears the current location from widget ASAP
+        WidgetCenter.shared.reloadAllTimelines()
+        print("   🔄 Widget refresh triggered immediately!")
+        
         guard let circularRegion = region as? CLCircularRegion else { return }
         Task { @MainActor in
             self.notifyGeofenceExit(region: circularRegion)

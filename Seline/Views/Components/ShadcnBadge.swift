@@ -80,7 +80,7 @@ struct ShadcnBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 12, weight: .medium))
+            .font(FontManager.geist(size: 12, weight: .medium))
             .foregroundColor(variant.foregroundColor(colorScheme: colorScheme))
             .padding(.horizontal, 10)
             .padding(.vertical, 4)

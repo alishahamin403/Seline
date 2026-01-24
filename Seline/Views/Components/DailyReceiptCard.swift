@@ -28,13 +28,13 @@ struct DailyReceiptCard: View {
             // Header
             HStack {
                 Text(dailySummary.dayString) // E.g. "Fri, Dec 26"
-                    .font(.system(size: 15, weight: .semibold)) // 15pt Semi-Bold
+                    .font(FontManager.geist(size: 15, weight: .semibold)) // 15pt Semi-Bold
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 Spacer()
 
                 Text(CurrencyParser.formatAmount(dailySummary.dailyTotal))
-                    .font(.system(size: 15, weight: .bold)) // 15pt Bold
+                    .font(FontManager.geist(size: 15, weight: .bold)) // 15pt Bold
                     .foregroundColor(.primary)
             }
             .padding(.horizontal, 16)

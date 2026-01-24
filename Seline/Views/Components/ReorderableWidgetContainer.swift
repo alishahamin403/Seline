@@ -52,7 +52,7 @@ struct ReorderableWidgetContainer<Content: View>: View {
                         moveWidgetUp()
                     }) {
                         Image(systemName: "chevron.up.circle.fill")
-                            .font(.system(size: 24))
+                            .font(FontManager.geist(size: 24, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color(white: 0.7) : Color(white: 0.3))
                             .background(
                                 Circle()
@@ -69,7 +69,7 @@ struct ReorderableWidgetContainer<Content: View>: View {
                         moveWidgetDown()
                     }) {
                         Image(systemName: "chevron.down.circle.fill")
-                            .font(.system(size: 24))
+                            .font(FontManager.geist(size: 24, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color(white: 0.7) : Color(white: 0.3))
                             .background(
                                 Circle()
@@ -90,7 +90,7 @@ struct ReorderableWidgetContainer<Content: View>: View {
                         }
                     }) {
                         Image(systemName: "minus.circle.fill")
-                            .font(.system(size: 24))
+                            .font(FontManager.geist(size: 24, weight: .regular))
                             .foregroundColor(.red)
                             .background(
                                 Circle()
@@ -184,18 +184,18 @@ struct AddWidgetButton: View {
         }) {
             HStack(spacing: 10) {
                 Image(systemName: widgetType.icon)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 24)
 
                 Text(widgetType.displayName)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 Spacer()
 
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 20))
+                    .font(FontManager.geist(size: 20, weight: .regular))
                     .foregroundColor(.green)
             }
             .padding(.horizontal, 12)
@@ -225,7 +225,7 @@ struct WidgetEditModeOverlay: View {
 
 
                     Text("Edit Mode")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
@@ -241,11 +241,11 @@ struct WidgetEditModeOverlay: View {
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 16))
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(.green)
 
                             Text("Add")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(FontManager.geist(size: 14, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
                         .padding(.horizontal, 12)
@@ -263,7 +263,7 @@ struct WidgetEditModeOverlay: View {
                     widgetManager.exitEditMode()
                     showAddWidgets = false
                 }
-                .font(.system(size: 15, weight: .semibold))
+                .font(FontManager.geist(size: 15, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color(white: 0.9) : Color(white: 0.2))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
@@ -280,14 +280,14 @@ struct WidgetEditModeOverlay: View {
                     .fill(colorScheme == .dark ? Color(white: 0.12) : Color.white)
                     .shadow(color: .black.opacity(0.15), radius: 10, y: 3)
             )
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .padding(.top, 8)
 
             // Hidden widgets section (dropdown from top bar)
             if showAddWidgets && !widgetManager.hiddenWidgets.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Available Widgets")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
@@ -305,7 +305,7 @@ struct WidgetEditModeOverlay: View {
                         .fill(colorScheme == .dark ? Color(white: 0.12) : Color.white)
                         .shadow(color: .black.opacity(0.15), radius: 10, y: 3)
                 )
-                .padding(.horizontal, 12)
+                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                 .padding(.top, 4)
                 .transition(.asymmetric(
                     insertion: .move(edge: .top).combined(with: .opacity),

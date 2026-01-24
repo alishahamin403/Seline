@@ -17,7 +17,7 @@ struct NoteSectionHeader: View {
             HStack {
                 // Section title - matching email page font and size
                 Text(title.lowercased().capitalized)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(FontManager.geist(size: 15, weight: .semibold))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
 
                 Spacer()
@@ -25,7 +25,7 @@ struct NoteSectionHeader: View {
                 // Count badge - black/white styling
                 if count > 0 {
                     Text("\(count)")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(FontManager.geist(size: 12, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(minWidth: 24, minHeight: 24)
                         .padding(.horizontal, 6)

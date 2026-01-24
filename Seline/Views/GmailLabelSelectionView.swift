@@ -16,11 +16,11 @@ struct GmailLabelSelectionView: View {
                     // Header
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Select Gmail Labels")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(FontManager.geist(size: 18, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
 
                         Text("Choose which labels you want to sync to Seline as folders")
-                            .font(.system(size: 13))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -39,13 +39,13 @@ struct GmailLabelSelectionView: View {
                         VStack(spacing: 12) {
                             Spacer()
                             Image(systemName: "envelope")
-                                .font(.system(size: 40))
+                                .font(FontManager.geist(size: 40, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.gray)
                             Text("No Labels Found")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(FontManager.geist(size: 16, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                             Text("You don't have any custom labels in Gmail")
-                                .font(.system(size: 13))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
                             Spacer()
                         }
@@ -57,13 +57,13 @@ struct GmailLabelSelectionView: View {
                                 HStack(spacing: 12) {
                                     Button(action: { viewModel.selectAll() }) {
                                         Label("All", systemImage: "checkmark.circle.fill")
-                                            .font(.system(size: 12, weight: .semibold))
+                                            .font(FontManager.geist(size: 12, weight: .semibold))
                                     }
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                                     Button(action: { viewModel.deselectAll() }) {
                                         Label("None", systemImage: "circle")
-                                            .font(.system(size: 12, weight: .semibold))
+                                            .font(FontManager.geist(size: 12, weight: .semibold))
                                     }
                                     .foregroundColor(.gray)
 
@@ -83,13 +83,13 @@ struct GmailLabelSelectionView: View {
                                         // Label name with email count
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(label.name)
-                                                .font(.system(size: 14, weight: .medium))
+                                                .font(FontManager.geist(size: 14, weight: .medium))
                                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                                 .lineLimit(1)
 
                                             let emailCount = viewModel.labelEmailCounts[label.id] ?? 0
                                             Text("\(emailCount) email\(emailCount == 1 ? "" : "s")")
-                                                .font(.system(size: 12, weight: .regular))
+                                                .font(FontManager.geist(size: 12, weight: .regular))
                                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
                                         }
 
@@ -97,7 +97,7 @@ struct GmailLabelSelectionView: View {
 
                                         // Checkbox
                                         Image(systemName: viewModel.isLabelSelected(label.id) ? "checkmark.square.fill" : "square")
-                                            .font(.system(size: 18, weight: .semibold))
+                                            .font(FontManager.geist(size: 18, weight: .semibold))
                                             .foregroundColor(colorScheme == .dark ? .white : .black)
                                     }
                                     .padding(.horizontal, 16)
@@ -131,7 +131,7 @@ struct GmailLabelSelectionView: View {
                                     Image(systemName: "arrow.down.doc")
                                 }
                                 Text(viewModel.isImporting ? "Importing..." : "Import Selected Labels")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
                             }
                             .frame(maxWidth: .infinity)
                             .padding(12)
@@ -152,7 +152,7 @@ struct GmailLabelSelectionView: View {
                             dismiss()
                         }) {
                             Text("Skip for Now")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(FontManager.geist(size: 14, weight: .medium))
                                 .frame(maxWidth: .infinity)
                                 .padding(12)
                                 .background(

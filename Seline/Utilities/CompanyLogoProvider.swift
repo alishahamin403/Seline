@@ -38,7 +38,7 @@ struct CompanyLogoView: View {
         Group {
             if useFallback || url == nil {
                 Text(fallbackIcon)
-                    .font(.system(size: 16))
+                    .font(FontManager.geist(size: 16, weight: .regular))
             } else {
                 AsyncImage(url: url) { phase in
                     if let image = phase.image {

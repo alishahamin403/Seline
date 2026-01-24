@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-enum TimePeriod: String, CaseIterable {
+enum EmailTimePeriod: String, CaseIterable {
     case morning = "Morning"
     case afternoon = "Afternoon"
     case night = "Night"
@@ -22,7 +22,7 @@ enum TimePeriod: String, CaseIterable {
         }
     }
 
-    static func from(date: Date) -> TimePeriod {
+    static func from(date: Date) -> EmailTimePeriod {
         let calendar = Calendar.current
         let hour = calendar.component(.hour, from: date)
 
@@ -38,9 +38,9 @@ enum TimePeriod: String, CaseIterable {
         }
     }
 
-    static func categorizeEmails(_ emails: [Email], for targetDate: Date = Date()) -> [TimePeriod: [Email]] {
+    static func categorizeEmails(_ emails: [Email], for targetDate: Date = Date()) -> [EmailTimePeriod: [Email]] {
         let calendar = Calendar.current
-        var categorized: [TimePeriod: [Email]] = [
+        var categorized: [EmailTimePeriod: [Email]] = [
             .morning: [],
             .afternoon: [],
             .night: []
@@ -73,7 +73,7 @@ enum TimePeriod: String, CaseIterable {
         }
 
         // Sort emails within each category by timestamp (newest first)
-        for period in TimePeriod.allCases {
+        for period in EmailTimePeriod.allCases {
             categorized[period]?.sort { $0.timestamp > $1.timestamp }
         }
 
@@ -81,7 +81,7 @@ enum TimePeriod: String, CaseIterable {
     }
 }
 
-struct EmailAttachment: Identifiable, Codable, Equatable {
+struct EmailAttachment: Identifiable, Codable, Equatable, Hashable {
     let id: String
     let name: String
     let size: Int64
@@ -121,7 +121,23 @@ struct EmailAttachment: Identifiable, Codable, Equatable {
     }
 }
 
-struct Email: Identifiable, Codable, Equatable {
+/// Represents unsubscribe information extracted from email headers
+struct UnsubscribeInfo: Codable, Equatable, Hashable {
+    let url: String?       // HTTP/HTTPS URL for one-click unsubscribe
+    let email: String?     // mailto: address for unsubscribe
+    let oneClick: Bool     // Whether List-Unsubscribe-Post header exists (one-click supported)
+
+    var hasUnsubscribeOption: Bool {
+        return url != nil || email != nil
+    }
+
+    /// Returns the preferred unsubscribe method (URL preferred over email)
+    var preferredMethod: String? {
+        return url ?? email
+    }
+}
+
+struct Email: Identifiable, Codable, Equatable, Hashable {
     let id: String
     let threadId: String?  // Made optional as Gmail API may not always return it
     let sender: EmailAddress
@@ -139,6 +155,7 @@ struct Email: Identifiable, Codable, Equatable {
     let aiSummary: String?
     let gmailMessageId: String?
     let gmailThreadId: String?
+    let unsubscribeInfo: UnsubscribeInfo? // Unsubscribe info from List-Unsubscribe header
 
     var formattedTime: String {
         let formatter = DateFormatter()
@@ -159,8 +176,8 @@ struct Email: Identifiable, Codable, Equatable {
         return snippet.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    var timePeriod: TimePeriod {
-        return TimePeriod.from(date: timestamp)
+    var timePeriod: EmailTimePeriod {
+        return EmailTimePeriod.from(date: timestamp)
     }
 }
 
@@ -413,8 +430,8 @@ struct EmailSearchQuery {
 }
 
 struct EmailSection: Identifiable {
-    let id = UUID()
-    let timePeriod: TimePeriod
+    var id: String { timePeriod.rawValue }
+    let timePeriod: EmailTimePeriod
     let emails: [Email]
     var isExpanded: Bool = true
 
@@ -438,7 +455,11 @@ struct EmailSection: Identifiable {
 // MARK: - Day-based Email Section for 7-day rolling view
 
 struct EmailDaySection: Identifiable {
-    let id = UUID()
+    var id: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
     let date: Date
     let emails: [Email]
     var isExpanded: Bool = true
@@ -563,7 +584,8 @@ extension Email {
                 labels: ["Important"],
                 aiSummary: "Q4 marketing campaign exceeded targets by 23%, generating $2.4M in revenue. Social media engagement increased 45% with video content performing best. Budget allocation for Q1 needs approval by December 15th. Team recommends doubling investment in video marketing for next quarter.",
                 gmailMessageId: "1784d63938119544",
-                gmailThreadId: "1784d63938119544"
+                gmailThreadId: "1784d63938119544",
+                unsubscribeInfo: nil
             ),
             Email(
                 id: "2",
@@ -582,7 +604,8 @@ extension Email {
                 labels: ["Work"],
                 aiSummary: nil,
                 gmailMessageId: "1784d63938119545",
-                gmailThreadId: "1784d63938119545"
+                gmailThreadId: "1784d63938119545",
+                unsubscribeInfo: nil
             ),
             Email(
                 id: "3",
@@ -601,7 +624,8 @@ extension Email {
                 labels: ["GitHub", "Notifications"],
                 aiSummary: nil,
                 gmailMessageId: "1784d63938119546",
-                gmailThreadId: "1784d63938119546"
+                gmailThreadId: "1784d63938119546",
+                unsubscribeInfo: nil
             ),
             Email(
                 id: "4",
@@ -628,7 +652,8 @@ extension Email {
                 labels: ["Work", "Daily"],
                 aiSummary: nil,
                 gmailMessageId: "1784d63938119547",
-                gmailThreadId: "1784d63938119547"
+                gmailThreadId: "1784d63938119547",
+                unsubscribeInfo: nil
             )
         ]
     }

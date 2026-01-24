@@ -57,6 +57,55 @@ class ReceiptCategorizationService: ObservableObject {
     }
 
     // MARK: - Categorization
+    
+    /// Fast categorization without network calls.
+    /// - Returns: cached category if available, otherwise a lightweight heuristic guess, otherwise nil.
+    func quickCategorizeReceipt(title: String, content: String? = nil) -> String? {
+        // Cache hit (fast path)
+        if let cached = categoryCache[title] as? String {
+            let mappedCategory = legacyCategoryMapping[cached] ?? cached
+            return validCategories.contains(mappedCategory) ? mappedCategory : "Other"
+        }
+        
+        // Heuristic fallback (best-effort). Keep conservative; return nil if unsure.
+        let text = (title + " " + (content ?? "")).lowercased()
+        
+        // Software & subscriptions
+        if text.contains("subscription") || text.contains("cursor") || text.contains("openai") ||
+           text.contains("netflix") || text.contains("spotify") || text.contains("youtube") ||
+           text.contains("icloud") || text.contains("google one") || text.contains("adobe") {
+            return "Software & Subscriptions"
+        }
+        
+        // Food & dining
+        if text.contains("restaurant") || text.contains("cafe") || text.contains("coffee") ||
+           text.contains("pizza") || text.contains("burger") || text.contains("shawarma") ||
+           text.contains("dine") || text.contains("grill") || text.contains("kitchen") {
+            return "Food & Dining"
+        }
+        
+        // Transportation
+        if text.contains("uber") || text.contains("lyft") || text.contains("taxi") ||
+           text.contains("gas") || text.contains("fuel") || text.contains("parking") ||
+           text.contains("transit") || text.contains("ttc") {
+            return "Transportation"
+        }
+        
+        // Memberships
+        if text.contains("gym") || text.contains("fitness") || text.contains("membership") ||
+           text.contains("la fitness") {
+            return "Memberships"
+        }
+        
+        // Shopping
+        if text.contains("uniqlo") || text.contains("amazon") || text.contains("walmart") ||
+           text.contains("shopper") || text.contains("shoppers") || text.contains("drug mart") ||
+           text.contains("mall") {
+            return "Shopping"
+        }
+        
+        return nil
+    }
 
     /// Categorize a receipt and cache the result
     func categorizeReceipt(_ title: String) async -> String {

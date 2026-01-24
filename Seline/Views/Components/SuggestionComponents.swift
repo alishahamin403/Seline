@@ -11,11 +11,11 @@ struct LocationSearchBar: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .medium))
+                .font(FontManager.geist(size: 14, weight: .medium))
                 .foregroundColor(.gray)
 
             TextField(placeholder, text: $searchText)
-                .font(.system(size: 14, weight: .regular))
+                .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
@@ -27,7 +27,7 @@ struct LocationSearchBar: View {
                     }
                 }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(.gray)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -72,14 +72,14 @@ struct CompactDropdown: View {
         } label: {
             HStack(spacing: 6) {
                 Text(label)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(FontManager.geist(size: 13, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(FontManager.geist(size: 11, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
             }
             .padding(.horizontal, 11)
@@ -176,7 +176,7 @@ struct FilterPillButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                .font(FontManager.geist(size: 12, systemWeight: isSelected ? .semibold : .medium))
                 .foregroundColor(textColor)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)

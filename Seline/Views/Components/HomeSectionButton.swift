@@ -43,7 +43,7 @@ struct HomeSectionButton: View {
                         titleContent()
                     } else {
                         Text(title)
-                            .font(.system(size: 24, weight: .regular))
+                            .font(FontManager.geist(size: 24, weight: .regular))
                             .foregroundColor(Color.shadcnForeground(colorScheme))
                     }
 
@@ -52,7 +52,7 @@ struct HomeSectionButton: View {
                     HStack(spacing: 8) {
                         if let unreadCount = unreadCount, unreadCount > 0 {
                             Text("\(unreadCount)")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(FontManager.geist(size: 12, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .frame(width: 20, height: 20)
                                 .background(
@@ -67,7 +67,7 @@ struct HomeSectionButton: View {
                                 onAddAction()
                             }) {
                                 Image(systemName: "plus")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .frame(width: 24, height: 24)
                             }

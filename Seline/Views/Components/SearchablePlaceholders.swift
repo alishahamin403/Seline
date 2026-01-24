@@ -9,10 +9,10 @@ struct NotesPlaceholderView: View, Searchable {
         VStack {
             Spacer()
             Text("Notes")
-                .font(.system(size: 24, weight: .bold, design: .default))
+                .font(FontManager.geist(size: 24, weight: .bold))
                 .foregroundColor(Color.shadcnMutedForeground(colorScheme))
             Text("Coming Soon")
-                .font(.system(size: 12, weight: .regular, design: .default))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(Color.shadcnMutedForeground(colorScheme))
             Spacer()
         }
@@ -57,10 +57,10 @@ struct MapsPlaceholderView: View, Searchable {
         VStack {
             Spacer()
             Text("Maps")
-                .font(.system(size: 24, weight: .bold, design: .default))
+                .font(FontManager.geist(size: 24, weight: .bold))
                 .foregroundColor(Color.shadcnMutedForeground(colorScheme))
             Text("Coming Soon")
-                .font(.system(size: 12, weight: .regular, design: .default))
+                .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(Color.shadcnMutedForeground(colorScheme))
             Spacer()
         }

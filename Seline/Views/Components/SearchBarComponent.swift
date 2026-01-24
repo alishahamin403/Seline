@@ -15,12 +15,12 @@ struct SearchBarComponent: View {
             HStack(spacing: 8) {
                 // Search icon
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(.gray)
 
                 // Search text field
                 TextField("Search emails, events, notes, maps...", text: $searchService.searchQuery)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(FontManager.geist(size: 14, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 // Clear button
@@ -29,7 +29,7 @@ struct SearchBarComponent: View {
                         searchService.clearSearch()
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(FontManager.geist(size: 14, weight: .medium))
                             .foregroundColor(.gray)
                     }
                     .buttonStyle(PlainButtonStyle())

@@ -199,6 +199,7 @@ struct PlaceSearchResult: Identifiable, Codable {
     let latitude: Double
     let longitude: Double
     let types: [String]
+    let photoURL: String? // First photo URL if available
     var isSaved: Bool = false
 }
 
@@ -301,6 +302,14 @@ class LocationsManager: ObservableObject {
                     migratedPlaces[i].country = country
                     needsSave = true
                 }
+                
+                // Auto-assign cuisine for restaurants that don't have one
+                if migratedPlaces[i].userCuisine == nil && migratedPlaces[i].category.lowercased().contains("restaurant") {
+                    if let detectedCuisine = LocationsManager.detectCuisineStatic(name: migratedPlaces[i].name, category: migratedPlaces[i].category) {
+                        migratedPlaces[i].userCuisine = detectedCuisine
+                        needsSave = true
+                    }
+                }
             }
 
             self.savedPlaces = migratedPlaces
@@ -315,24 +324,148 @@ class LocationsManager: ObservableObject {
             }
         }
     }
+    
+    /// Static cuisine detection helper (for use during initialization)
+    private static func detectCuisineStatic(name: String, category: String) -> String? {
+        let nameLower = name.lowercased()
+        let categoryLower = category.lowercased()
+        
+        if nameLower.contains("italian") || categoryLower.contains("italian") || nameLower.contains("pasta") || nameLower.contains("pizzeria") { return "Italian" }
+        if nameLower.contains("chinese") || categoryLower.contains("chinese") || nameLower.contains("szechuan") || nameLower.contains("cantonese") { return "Chinese" }
+        if nameLower.contains("japanese") || categoryLower.contains("japanese") || nameLower.contains("sushi") || nameLower.contains("ramen") { return "Japanese" }
+        if nameLower.contains("thai") || categoryLower.contains("thai") { return "Thai" }
+        if nameLower.contains("vietnamese") || categoryLower.contains("vietnamese") || nameLower.contains("pho") { return "Vietnamese" }
+        if nameLower.contains("indian") || categoryLower.contains("indian") || nameLower.contains("tandoori") { return "Indian" }
+        if nameLower.contains("pakistani") || categoryLower.contains("pakistani") || nameLower.contains("biryani") { return "Pakistani" }
+        if nameLower.contains("mexican") || categoryLower.contains("mexican") || nameLower.contains("taco") || nameLower.contains("burrito") { return "Mexican" }
+        if nameLower.contains("french") || categoryLower.contains("french") || nameLower.contains("bistro") { return "French" }
+        if nameLower.contains("korean") || categoryLower.contains("korean") { return "Korean" }
+        if nameLower.contains("shawarma") || nameLower.contains("kebab") || nameLower.contains("falafel") || nameLower.contains("middle eastern") || nameLower.contains("lebanese") || nameLower.contains("persian") || nameLower.contains("halal") { return "Middle Eastern" }
+        if nameLower.contains("turkish") || categoryLower.contains("turkish") || nameLower.contains("doner") { return "Turkish" }
+        if nameLower.contains("greek") || categoryLower.contains("greek") || nameLower.contains("gyro") { return "Greek" }
+        if nameLower.contains("mediterranean") || categoryLower.contains("mediterranean") { return "Mediterranean" }
+        if nameLower.contains("jamaican") || categoryLower.contains("jamaican") || nameLower.contains("jerk") { return "Jamaican" }
+        if nameLower.contains("caribbean") || categoryLower.contains("caribbean") { return "Caribbean" }
+        if nameLower.contains("seafood") || categoryLower.contains("seafood") { return "Seafood" }
+        if nameLower.contains("pizza") || categoryLower.contains("pizza") { return "Pizza" }
+        if nameLower.contains("burger") || categoryLower.contains("burger") { return "Burger" }
+        if nameLower.contains("bbq") || nameLower.contains("barbecue") || nameLower.contains("grill") { return "BBQ" }
+        if nameLower.contains("american") || nameLower.contains("diner") { return "American" }
+        if nameLower.contains("coffee") || categoryLower.contains("coffee") || nameLower.contains("cafe") { return "Cafe" }
+        if nameLower.contains("vegan") || nameLower.contains("vegetarian") { return "Vegetarian" }
+        
+        return nil
+    }
 
     // MARK: - Place Operations
 
     func addPlace(_ place: SavedPlace) {
+        var placeToAdd = place
+        
+        // Auto-assign cuisine for restaurants if not already set
+        if placeToAdd.userCuisine == nil && placeToAdd.category.lowercased().contains("restaurant") {
+            placeToAdd.userCuisine = detectCuisine(name: place.name, category: place.category)
+        }
+        
         // Update on main thread for immediate UI refresh
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.savedPlaces.append(place)
+            self.savedPlaces.append(placeToAdd)
             self.savePlacesToStorage()
-            
+
+            // Notify observers of change
+            self.objectWillChange.send()
+
             // OPTIMIZATION: Invalidate affected caches
-            self.invalidateLocationCaches(for: place.id)
+            self.invalidateLocationCaches(for: placeToAdd.id)
+
+            // CRITICAL: Update geofences and continuous monitoring when places change
+            self.notifyLocationServicesOfPlaceChange()
         }
 
         // Sync with Supabase
         Task {
-            await savePlaceToSupabase(place)
+            await savePlaceToSupabase(placeToAdd)
         }
+    }
+    
+    /// Detect cuisine from restaurant name and category
+    private func detectCuisine(name: String, category: String) -> String? {
+        let nameLower = name.lowercased()
+        let categoryLower = category.lowercased()
+        
+        // Check for specific cuisine keywords
+        if nameLower.contains("italian") || categoryLower.contains("italian") || nameLower.contains("pasta") || nameLower.contains("pizzeria") {
+            return "Italian"
+        }
+        if nameLower.contains("chinese") || categoryLower.contains("chinese") || nameLower.contains("szechuan") || nameLower.contains("cantonese") {
+            return "Chinese"
+        }
+        if nameLower.contains("japanese") || categoryLower.contains("japanese") || nameLower.contains("sushi") || nameLower.contains("ramen") || nameLower.contains("izakaya") {
+            return "Japanese"
+        }
+        if nameLower.contains("thai") || categoryLower.contains("thai") {
+            return "Thai"
+        }
+        if nameLower.contains("vietnamese") || categoryLower.contains("vietnamese") || nameLower.contains("pho") || nameLower.contains("banh mi") {
+            return "Vietnamese"
+        }
+        if nameLower.contains("indian") || categoryLower.contains("indian") || nameLower.contains("curry house") || nameLower.contains("tandoori") {
+            return "Indian"
+        }
+        if nameLower.contains("pakistani") || categoryLower.contains("pakistani") || nameLower.contains("biryani") {
+            return "Pakistani"
+        }
+        if nameLower.contains("mexican") || categoryLower.contains("mexican") || nameLower.contains("taco") || nameLower.contains("burrito") || nameLower.contains("taqueria") {
+            return "Mexican"
+        }
+        if nameLower.contains("french") || categoryLower.contains("french") || nameLower.contains("bistro") || nameLower.contains("brasserie") {
+            return "French"
+        }
+        if nameLower.contains("korean") || categoryLower.contains("korean") {
+            return "Korean"
+        }
+        if nameLower.contains("shawarma") || nameLower.contains("kebab") || nameLower.contains("falafel") || nameLower.contains("middle eastern") || nameLower.contains("lebanese") || nameLower.contains("persian") || nameLower.contains("halal") {
+            return "Middle Eastern"
+        }
+        if nameLower.contains("turkish") || categoryLower.contains("turkish") || nameLower.contains("doner") {
+            return "Turkish"
+        }
+        if nameLower.contains("greek") || categoryLower.contains("greek") || nameLower.contains("gyro") || nameLower.contains("souvlaki") {
+            return "Greek"
+        }
+        if nameLower.contains("mediterranean") || categoryLower.contains("mediterranean") {
+            return "Mediterranean"
+        }
+        if nameLower.contains("jamaican") || categoryLower.contains("jamaican") || nameLower.contains("jerk") {
+            return "Jamaican"
+        }
+        if nameLower.contains("caribbean") || categoryLower.contains("caribbean") {
+            return "Caribbean"
+        }
+        if nameLower.contains("seafood") || categoryLower.contains("seafood") || nameLower.contains("fish") || nameLower.contains("lobster") || nameLower.contains("oyster") {
+            return "Seafood"
+        }
+        if nameLower.contains("pizza") || categoryLower.contains("pizza") {
+            return "Pizza"
+        }
+        if nameLower.contains("burger") || categoryLower.contains("burger") {
+            return "Burger"
+        }
+        if nameLower.contains("bbq") || nameLower.contains("barbecue") || nameLower.contains("smokehouse") || nameLower.contains("grill") {
+            return "BBQ"
+        }
+        if nameLower.contains("american") || nameLower.contains("diner") {
+            return "American"
+        }
+        if nameLower.contains("coffee") || categoryLower.contains("coffee") || nameLower.contains("cafe") || nameLower.contains("café") {
+            return "Cafe"
+        }
+        if nameLower.contains("vegan") || nameLower.contains("vegetarian") || nameLower.contains("plant-based") {
+            return "Vegetarian"
+        }
+        
+        return nil // No cuisine detected
     }
 
     func updatePlace(_ place: SavedPlace) {
@@ -344,7 +477,10 @@ class LocationsManager: ObservableObject {
                 updatedPlace.dateModified = Date()
                 self.savedPlaces[index] = updatedPlace
                 self.savePlacesToStorage()
-                
+
+                // Notify observers of change
+                self.objectWillChange.send()
+
                 // OPTIMIZATION: Invalidate affected caches
                 self.invalidateLocationCaches(for: place.id)
             }
@@ -362,12 +498,18 @@ class LocationsManager: ObservableObject {
             guard let self = self else { return }
             self.savedPlaces.removeAll { $0.id == place.id }
             self.savePlacesToStorage()
-            
+
+            // Notify observers of change
+            self.objectWillChange.send()
+
             // OPTIMIZATION: Invalidate affected caches
             self.invalidateLocationCaches(for: place.id)
-            
+
             // Clear from Google Maps cache
             GoogleMapsService.shared.clearLocationCache(for: place.googlePlaceId)
+
+            // CRITICAL: Update geofences and continuous monitoring when places change
+            self.notifyLocationServicesOfPlaceChange()
         }
 
         // Sync with Supabase
@@ -530,6 +672,9 @@ class LocationsManager: ObservableObject {
             savedPlaces[index].dateModified = Date()
             savePlacesToStorage()
 
+            // Notify observers of change
+            objectWillChange.send()
+
             // Sync with Supabase
             Task {
                 await updatePlaceInSupabase(savedPlaces[index])
@@ -602,6 +747,7 @@ class LocationsManager: ObservableObject {
         // Add user rating and notes
         placeData["user_rating"] = place.userRating != nil ? .double(Double(place.userRating!)) : .null
         placeData["user_notes"] = place.userNotes != nil ? .string(place.userNotes!) : .null
+        placeData["user_cuisine"] = place.userCuisine != nil ? .string(place.userCuisine!) : .null
 
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
@@ -645,6 +791,7 @@ class LocationsManager: ObservableObject {
         // Add user rating and notes
         placeData["user_rating"] = place.userRating != nil ? .double(Double(place.userRating!)) : .null
         placeData["user_notes"] = place.userNotes != nil ? .string(place.userNotes!) : .null
+        placeData["user_cuisine"] = place.userCuisine != nil ? .string(place.userCuisine!) : .null
 
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
@@ -693,6 +840,12 @@ class LocationsManager: ObservableObject {
 
         // Invalidate today's visits cache
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
+        
+        // Invalidate maps-related caches
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.topLocations)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.recentlyVisitedPlaces)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.allLocationsRanking)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.weeklyVisitsSummary)
 
         // If specific place ID provided, invalidate its stats
         if let placeId = placeId {
@@ -700,6 +853,20 @@ class LocationsManager: ObservableObject {
         } else {
             // Otherwise invalidate all location stats
             CacheManager.shared.invalidate(keysWithPrefix: "cache.location")
+        }
+    }
+    
+    /// Notify location services when saved places change
+    /// This ensures geofences and background monitoring are updated
+    private func notifyLocationServicesOfPlaceChange() {
+        Task { @MainActor in
+            // Update geofences with the new list of places
+            GeofenceManager.shared.setupGeofences(for: self.savedPlaces)
+            
+            // Update continuous monitoring with new places
+            LocationBackgroundValidationService.shared.updateSavedPlaces(self.savedPlaces)
+            
+            print("📍 Location services notified of place change (\(self.savedPlaces.count) places)")
         }
     }
 
@@ -835,6 +1002,7 @@ class LocationsManager: ObservableObject {
         place.isFavourite = data.is_favourite
         place.userRating = data.user_rating
         place.userNotes = data.user_notes
+        place.userCuisine = data.user_cuisine
         place.dateCreated = dateCreated
         place.dateModified = dateModified
 
@@ -931,6 +1099,7 @@ struct PlaceSupabaseData: Codable {
     let is_favourite: Bool
     let user_rating: Int?
     let user_notes: String?
+    let user_cuisine: String?
     let date_created: String
     let date_modified: String
 }

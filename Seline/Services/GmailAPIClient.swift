@@ -1,5 +1,6 @@
 import Foundation
 import GoogleSignIn
+import CryptoKit
 
 class GmailAPIClient {
     static let shared = GmailAPIClient()
@@ -86,23 +87,84 @@ class GmailAPIClient {
         }
     }
 
+
+
     func fetchProfilePicture(for email: String) async throws -> String? {
-        // Check cache first
+        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email)
+        
+        // Check CacheManager first (persists across tab switches)
+        if let cachedUrl: String = CacheManager.shared.get(forKey: cacheKey) {
+            return cachedUrl.isEmpty ? nil : cachedUrl
+        }
+        
+        // Also check in-memory cache for faster access
         if let cachedUrl = profilePictureCache[email] {
             return cachedUrl.isEmpty ? nil : cachedUrl
         }
 
         try await refreshAccessTokenIfNeeded()
 
-        // Try to fetch from Google People API
-        if let profilePicUrl = try await fetchContactProfilePicture(email: email) {
+        // 1. Try to fetch from Google People API (Authentic user photo)
+        if let profilePicUrl = try? await fetchContactProfilePicture(email: email) {
+            // Cache in both places
             profilePictureCache[email] = profilePicUrl
+            CacheManager.shared.set(profilePicUrl, forKey: cacheKey, ttl: CacheManager.TTL.veryLong) // 24 hours
             return profilePicUrl
         }
+        
+        // 2. Fallback: Try Gravatar (Public avatar service)
+        if let gravatarUrl = generateGravatarUrl(email) {
+            profilePictureCache[email] = gravatarUrl
+            CacheManager.shared.set(gravatarUrl, forKey: cacheKey, ttl: CacheManager.TTL.veryLong)
+            return gravatarUrl
+        }
+        
+        // 3. Fallback: Try Domain Favicon (Company Logo)
+        // Useful for transactional emails like "receipts@uber.com"
+        if let domainLogoUrl = fetchDomainLogo(for: email) {
+            profilePictureCache[email] = domainLogoUrl
+            CacheManager.shared.set(domainLogoUrl, forKey: cacheKey, ttl: CacheManager.TTL.veryLong)
+            return domainLogoUrl
+        }
 
-        // Cache empty result to avoid repeated API calls
+        // Cache empty result to avoid repeated lookups
         profilePictureCache[email] = ""
+        CacheManager.shared.set("", forKey: cacheKey, ttl: CacheManager.TTL.long) // 1 hour for empty results
         return nil
+    }
+    
+    private func fetchDomainLogo(for email: String) -> String? {
+        let components = email.components(separatedBy: "@")
+        guard components.count == 2 else { return nil }
+        let domain = components[1].lowercased()
+        
+        // Skip generic email providers - we don't want Gmail logo for gmail users
+        let genericDomains = [
+            "gmail.com", "googlemail.com",
+            "yahoo.com", "ymail.com",
+            "hotmail.com", "outlook.com", "live.com", "msn.com",
+            "icloud.com", "me.com", "mac.com",
+            "aol.com", "protonmail.com", "zoho.com"
+        ]
+        
+        if genericDomains.contains(domain) {
+            return nil
+        }
+        
+        // Use Google's reliable favicon service (128px)
+        return "https://www.google.com/s2/favicons?domain=\(domain)&sz=128"
+    }
+    
+    // Gravatar URL generator using MD5 hash
+    private func generateGravatarUrl(_ email: String) -> String? {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let data = trimmedEmail.data(using: .utf8) else { return nil }
+        
+        let digest = Insecure.MD5.hash(data: data)
+        let hash = digest.map { String(format: "%02hhx", $0) }.joined()
+        
+        // d=404 tells Gravatar to return 404 if no image exists
+        return "https://www.gravatar.com/avatar/\(hash)?s=128&d=404"
     }
     
     /// Fetches the current user's own profile picture
@@ -254,6 +316,354 @@ class GmailAPIClient {
                 throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
             }
         }
+    }
+    
+    // MARK: - Send Email
+    
+    /// Send a new email
+    /// - Parameters:
+    ///   - to: Recipient email addresses
+    ///   - cc: CC email addresses (optional)
+    ///   - bcc: BCC email addresses (optional)
+    ///   - subject: Email subject
+    ///   - body: Email body (plain text)
+    ///   - htmlBody: Email body (HTML, optional)
+    /// - Returns: The sent message ID
+    @discardableResult
+    func sendEmail(
+        to: [String],
+        cc: [String] = [],
+        bcc: [String] = [],
+        subject: String,
+        body: String,
+        htmlBody: String? = nil
+    ) async throws -> String {
+        try await refreshAccessTokenIfNeeded()
+        
+        return try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser,
+                  let fromEmail = user.profile?.email else {
+                throw GmailAPIError.notAuthenticated
+            }
+            
+            let accessToken = user.accessToken.tokenString
+            
+            // Build RFC 5322 MIME message
+            let rawMessage = self.buildMimeMessage(
+                from: fromEmail,
+                to: to,
+                cc: cc,
+                bcc: bcc,
+                subject: subject,
+                body: body,
+                htmlBody: htmlBody,
+                threadId: nil,
+                inReplyTo: nil,
+                references: nil
+            )
+            
+            return try await self.sendRawMessage(rawMessage: rawMessage, threadId: nil, accessToken: accessToken)
+        }
+    }
+    
+    /// Reply to an email (maintains thread)
+    /// - Parameters:
+    ///   - originalEmail: The email being replied to
+    ///   - body: Reply body (plain text)
+    ///   - htmlBody: Reply body (HTML, optional)
+    ///   - replyAll: Whether to reply to all recipients
+    /// - Returns: The sent message ID
+    @discardableResult
+    func replyToEmail(
+        originalEmail: Email,
+        body: String,
+        htmlBody: String? = nil,
+        replyAll: Bool = false
+    ) async throws -> String {
+        try await refreshAccessTokenIfNeeded()
+        
+        return try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser,
+                  let fromEmail = user.profile?.email else {
+                throw GmailAPIError.notAuthenticated
+            }
+            
+            let accessToken = user.accessToken.tokenString
+            
+            // Determine recipients
+            var toRecipients = [originalEmail.sender.email]
+            var ccRecipients: [String] = []
+            
+            if replyAll {
+                // Add other recipients (excluding self)
+                let otherRecipients = originalEmail.recipients
+                    .map { $0.email }
+                    .filter { $0.lowercased() != fromEmail.lowercased() }
+                toRecipients.append(contentsOf: otherRecipients)
+                
+                // Add CC recipients
+                ccRecipients = originalEmail.ccRecipients
+                    .map { $0.email }
+                    .filter { $0.lowercased() != fromEmail.lowercased() }
+            }
+            
+            // Build reply subject
+            let replySubject = originalEmail.subject.hasPrefix("Re: ") 
+                ? originalEmail.subject 
+                : "Re: \(originalEmail.subject)"
+            
+            // Build message ID references for threading
+            let inReplyTo = originalEmail.gmailMessageId.map { "<\($0)@mail.gmail.com>" }
+            let references = inReplyTo
+            
+            // Build RFC 5322 MIME message with threading headers
+            let rawMessage = self.buildMimeMessage(
+                from: fromEmail,
+                to: toRecipients,
+                cc: ccRecipients,
+                bcc: [],
+                subject: replySubject,
+                body: body,
+                htmlBody: htmlBody,
+                threadId: originalEmail.gmailThreadId,
+                inReplyTo: inReplyTo,
+                references: references
+            )
+            
+            return try await self.sendRawMessage(
+                rawMessage: rawMessage, 
+                threadId: originalEmail.gmailThreadId, 
+                accessToken: accessToken
+            )
+        }
+    }
+    
+    /// Forward an email
+    /// - Parameters:
+    ///   - originalEmail: The email being forwarded
+    ///   - to: Forward recipients
+    ///   - additionalMessage: Optional message to prepend
+    ///   - htmlBody: Optional HTML body content
+    /// - Returns: The sent message ID
+    @discardableResult
+    func forwardEmail(
+        originalEmail: Email,
+        to: [String],
+        additionalMessage: String? = nil,
+        htmlBody: String? = nil
+    ) async throws -> String {
+        try await refreshAccessTokenIfNeeded()
+        
+        return try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser,
+                  let fromEmail = user.profile?.email else {
+                throw GmailAPIError.notAuthenticated
+            }
+            
+            let accessToken = user.accessToken.tokenString
+            
+            // Build forward subject
+            let forwardSubject = originalEmail.subject.hasPrefix("Fwd: ") 
+                ? originalEmail.subject 
+                : "Fwd: \(originalEmail.subject)"
+            
+            // Build forwarded message body (Plain Text)
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .full
+            dateFormatter.timeStyle = .short
+            
+            var forwardBody = ""
+            if let additionalMsg = additionalMessage, !additionalMsg.isEmpty {
+                forwardBody += "\(additionalMsg)\n\n"
+            }
+            
+            forwardBody += """
+            ---------- Forwarded message ---------
+            From: \(originalEmail.sender.displayName) <\(originalEmail.sender.email)>
+            Date: \(dateFormatter.string(from: originalEmail.timestamp))
+            Subject: \(originalEmail.subject)
+            To: \(originalEmail.recipients.map { $0.email }.joined(separator: ", "))
+            
+            \(originalEmail.body ?? originalEmail.snippet)
+            """
+            
+            // Build forwarded HTML body (if available)
+            var finalHtmlBody: String? = nil
+            if let htmlContent = htmlBody {
+                var htmlBuilder = ""
+                if let additionalMsg = additionalMessage, !additionalMsg.isEmpty {
+                    // Convert additional message newlines to <br>
+                    let formattedMsg = additionalMsg.replacingOccurrences(of: "\n", with: "<br>")
+                    htmlBuilder += "<div>\(formattedMsg)</div><br><br>"
+                }
+                htmlBuilder += htmlContent
+                finalHtmlBody = htmlBuilder
+            }
+            
+            // Build RFC 5322 MIME message
+            let rawMessage = self.buildMimeMessage(
+                from: fromEmail,
+                to: to,
+                cc: [],
+                bcc: [],
+                subject: forwardSubject,
+                body: forwardBody,
+                htmlBody: finalHtmlBody,
+                threadId: nil, // Forwarding creates a new thread usually, or we can keep it nil
+                inReplyTo: nil,
+                references: nil
+            )
+            
+            return try await self.sendRawMessage(rawMessage: rawMessage, threadId: nil, accessToken: accessToken)
+        }
+    }
+    
+    // MARK: - Private Send Helpers
+    
+    private func buildMimeMessage(
+        from: String,
+        to: [String],
+        cc: [String],
+        bcc: [String],
+        subject: String,
+        body: String,
+        htmlBody: String?,
+        threadId: String?,
+        inReplyTo: String?,
+        references: String?
+    ) -> String {
+        var message = ""
+        
+        // Headers
+        message += "From: \(from)\r\n"
+        message += "To: \(to.joined(separator: ", "))\r\n"
+        
+        if !cc.isEmpty {
+            message += "Cc: \(cc.joined(separator: ", "))\r\n"
+        }
+        
+        if !bcc.isEmpty {
+            message += "Bcc: \(bcc.joined(separator: ", "))\r\n"
+        }
+        
+        // Encode subject with UTF-8 for special characters
+        let encodedSubject = encodeRFC2047(subject)
+        message += "Subject: \(encodedSubject)\r\n"
+        
+        // Threading headers
+        if let inReplyTo = inReplyTo {
+            message += "In-Reply-To: \(inReplyTo)\r\n"
+        }
+        
+        if let references = references {
+            message += "References: \(references)\r\n"
+        }
+        
+        // MIME version and content type
+        message += "MIME-Version: 1.0\r\n"
+        
+        if let htmlBody = htmlBody {
+            // Multipart message with both plain text and HTML
+            let boundary = "boundary_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+            message += "Content-Type: multipart/alternative; boundary=\"\(boundary)\"\r\n"
+            message += "\r\n"
+            
+            // Plain text part
+            message += "--\(boundary)\r\n"
+            message += "Content-Type: text/plain; charset=\"UTF-8\"\r\n"
+            message += "Content-Transfer-Encoding: quoted-printable\r\n"
+            message += "\r\n"
+            message += body
+            message += "\r\n"
+            
+            // HTML part
+            message += "--\(boundary)\r\n"
+            message += "Content-Type: text/html; charset=\"UTF-8\"\r\n"
+            message += "Content-Transfer-Encoding: quoted-printable\r\n"
+            message += "\r\n"
+            message += htmlBody
+            message += "\r\n"
+            
+            message += "--\(boundary)--\r\n"
+        } else {
+            // Plain text only
+            message += "Content-Type: text/plain; charset=\"UTF-8\"\r\n"
+            message += "Content-Transfer-Encoding: quoted-printable\r\n"
+            message += "\r\n"
+            message += body
+        }
+        
+        return message
+    }
+    
+    private func encodeRFC2047(_ text: String) -> String {
+        // Check if encoding is needed (non-ASCII characters)
+        guard text.unicodeScalars.contains(where: { $0.value > 127 }) else {
+            return text
+        }
+        
+        // Base64 encode for UTF-8
+        guard let data = text.data(using: .utf8) else {
+            return text
+        }
+        
+        let base64 = data.base64EncodedString()
+        return "=?UTF-8?B?\(base64)?="
+    }
+    
+    private func sendRawMessage(rawMessage: String, threadId: String?, accessToken: String) async throws -> String {
+        guard let url = URL(string: "\(baseURL)/messages/send") else {
+            throw GmailAPIError.invalidURL
+        }
+        
+        // Convert message to base64url encoding
+        guard let messageData = rawMessage.data(using: .utf8) else {
+            throw GmailAPIError.invalidResponse
+        }
+        
+        let base64Raw = messageData.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        
+        // Build request body
+        var requestBody: [String: Any] = ["raw": base64Raw]
+        if let threadId = threadId {
+            requestBody["threadId"] = threadId
+        }
+        
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
+            throw GmailAPIError.invalidResponse
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GmailAPIError.invalidResponse
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+            print("❌ Gmail send failed: \(errorBody)")
+            throw GmailAPIError.apiError(httpResponse.statusCode, "Failed to send email: \(errorBody)")
+        }
+        
+        // Parse response to get message ID
+        struct SendResponse: Codable {
+            let id: String
+            let threadId: String?
+        }
+        
+        let sendResponse = try JSONDecoder().decode(SendResponse.self, from: data)
+        print("✅ Email sent successfully. Message ID: \(sendResponse.id)")
+        
+        return sendResponse.id
     }
 
     /// Download an attachment from a Gmail message
@@ -514,6 +924,82 @@ class GmailAPIClient {
             return nil
         }
     }
+    
+    // MARK: - Contact Search
+    
+    /// Search for contacts in user's Google contacts
+    /// - Parameter query: Search query (name or email)
+    /// - Returns: Array of matching contacts with name and email
+    func searchGmailContacts(query: String) async throws -> [(name: String, email: String)] {
+        guard !query.isEmpty, query.count >= 2 else { return [] }
+        
+        try await refreshAccessTokenIfNeeded()
+        
+        guard let user = GIDSignIn.sharedInstance.currentUser else {
+            throw GmailAPIError.notAuthenticated
+        }
+        
+        let accessToken = user.accessToken.tokenString
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        
+        // Search contacts using People API
+        let searchURLString = "\(peopleAPIURL)/people:searchContacts?query=\(encodedQuery)&readMask=names,emailAddresses&pageSize=20"
+        
+        guard let url = URL(string: searchURLString) else {
+            throw GmailAPIError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.addValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return []
+            }
+            
+            if httpResponse.statusCode == 200 {
+                // Parse the response
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let results = json["results"] as? [[String: Any]] {
+                    
+                    var contacts: [(name: String, email: String)] = []
+                    
+                    for result in results {
+                        if let person = result["person"] as? [String: Any] {
+                            // Get name
+                            var name = ""
+                            if let names = person["names"] as? [[String: Any]],
+                               let firstN = names.first,
+                               let displayName = firstN["displayName"] as? String {
+                                name = displayName
+                            }
+                            
+                            // Get email
+                            if let emails = person["emailAddresses"] as? [[String: Any]] {
+                                for emailObj in emails {
+                                    if let email = emailObj["value"] as? String, !email.isEmpty {
+                                        contacts.append((
+                                            name: name.isEmpty ? email : name,
+                                            email: email
+                                        ))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    return contacts
+                }
+            }
+            
+            return []
+        } catch {
+            print("❌ Contact search error: \(error)")
+            return []
+        }
+    }
 
     // CRITICAL FIX: Made public so EmailService can check for new emails without fetching full content
     func fetchMessagesList(query: String, maxResults: Int = 50) async throws -> GmailMessagesList {
@@ -607,7 +1093,9 @@ class GmailAPIClient {
             URLQueryItem(name: "metadataHeaders", value: "From"),
             URLQueryItem(name: "metadataHeaders", value: "To"),
             URLQueryItem(name: "metadataHeaders", value: "Subject"),
-            URLQueryItem(name: "metadataHeaders", value: "Date")
+            URLQueryItem(name: "metadataHeaders", value: "Date"),
+            URLQueryItem(name: "metadataHeaders", value: "List-Unsubscribe"),
+            URLQueryItem(name: "metadataHeaders", value: "List-Unsubscribe-Post")
         ]
 
         guard let url = urlComponents.url else {
@@ -686,6 +1174,8 @@ class GmailAPIClient {
         var fromHeader = ""
         var toHeader = ""
         var dateHeader = ""
+        var listUnsubscribeHeader = ""
+        var listUnsubscribePostHeader = ""
 
         for header in headers {
             switch header.name?.lowercased() {
@@ -697,10 +1187,17 @@ class GmailAPIClient {
                 toHeader = header.value ?? ""
             case "date":
                 dateHeader = header.value ?? ""
+            case "list-unsubscribe":
+                listUnsubscribeHeader = header.value ?? ""
+            case "list-unsubscribe-post":
+                listUnsubscribePostHeader = header.value ?? ""
             default:
                 break
             }
         }
+
+        // Parse unsubscribe info
+        let unsubscribeInfo = parseUnsubscribeHeader(listUnsubscribeHeader, hasOneClickPost: !listUnsubscribePostHeader.isEmpty)
 
         // Parse sender
         let sender = parseEmailAddress(fromHeader)
@@ -746,8 +1243,58 @@ class GmailAPIClient {
             labels: gmailMessage.labelIds ?? [],
             aiSummary: nil, // TODO: Add AI summary generation
             gmailMessageId: gmailMessage.id,
-            gmailThreadId: gmailMessage.threadId
+            gmailThreadId: gmailMessage.threadId,
+            unsubscribeInfo: unsubscribeInfo
         )
+    }
+
+    /// Parse List-Unsubscribe header to extract URL and email options
+    /// Header format examples:
+    /// - <https://example.com/unsubscribe>, <mailto:unsubscribe@example.com>
+    /// - <mailto:unsubscribe@example.com?subject=Unsubscribe>
+    /// - <https://example.com/unsubscribe?token=abc123>
+    private func parseUnsubscribeHeader(_ header: String, hasOneClickPost: Bool) -> UnsubscribeInfo? {
+        guard !header.isEmpty else { return nil }
+
+        var url: String? = nil
+        var email: String? = nil
+
+        // Extract URLs and mailto addresses from the header
+        // Format: <url1>, <url2>, ...
+        let pattern = "<([^>]+)>"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return nil
+        }
+
+        let nsString = header as NSString
+        let matches = regex.matches(in: header, options: [], range: NSRange(location: 0, length: nsString.length))
+
+        for match in matches {
+            if match.numberOfRanges >= 2 {
+                let valueRange = match.range(at: 1)
+                let value = nsString.substring(with: valueRange).trimmingCharacters(in: .whitespaces)
+
+                if value.lowercased().hasPrefix("mailto:") {
+                    // Extract email address from mailto: URL
+                    let emailPart = String(value.dropFirst(7)) // Remove "mailto:"
+                    // Handle query parameters (e.g., mailto:email@example.com?subject=Unsubscribe)
+                    if let questionIndex = emailPart.firstIndex(of: "?") {
+                        email = String(emailPart[..<questionIndex])
+                    } else {
+                        email = emailPart
+                    }
+                } else if value.lowercased().hasPrefix("http://") || value.lowercased().hasPrefix("https://") {
+                    url = value
+                }
+            }
+        }
+
+        // Only return info if we found at least one unsubscribe method
+        if url != nil || email != nil {
+            return UnsubscribeInfo(url: url, email: email, oneClick: hasOneClickPost)
+        }
+
+        return nil
     }
 
     private func parseEmailAddress(_ emailString: String) -> EmailAddress {
@@ -766,11 +1313,7 @@ class GmailAPIClient {
         }
     }
 
-    private func generateGravatarUrl(_ email: String) -> String? {
-        // Return nil - profile pictures are fetched on-demand in EmailRow
-        // using the fetchProfilePicture(for:) method which queries Google People API
-        return nil
-    }
+
 
     private func parseEmailAddresses(_ emailString: String) -> [EmailAddress] {
         let addresses = emailString.components(separatedBy: ",")

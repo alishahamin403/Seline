@@ -5,7 +5,7 @@ import PostgREST
 // MARK: - MergeDetectionService
 //
 // Simple instant merge for location visits:
-// - Any visit (open or closed) with gap < 10 minutes is automatically merged
+// - Any visit (open or closed) with gap < 5 minutes is automatically merged
 // - Happens instantly and invisibly before creating new visit
 // - No complicated scoring, just simple time-based merge
 
@@ -46,6 +46,7 @@ class MergeDetectionService {
     /// Simple merge logic: If gap < 10 minutes, always merge
     /// No complicated scoring - just instant merge for quick returns
     /// CRITICAL: Never merge visits on different calendar days (preserves midnight splits)
+    /// ENHANCED: Handles continuous visits (zero or negative gap due to clock drift)
     private func checkForMerge(
         _ visit: LocationVisitRecord
     ) -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
@@ -59,7 +60,8 @@ class MergeDetectionService {
         // Check closed visits
         guard let exitTime = visit.exitTime else { return nil }
 
-        let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
+        let secondsSinceExit = Date().timeIntervalSince(exitTime)
+        let minutesSinceExit = Int(secondsSinceExit / 60)
 
         // CRITICAL: Don't merge visits that are on different calendar days
         // This preserves midnight splits - even if gap is tiny (e.g., 11:59:59 PM → 12:00:00 AM)
@@ -73,9 +75,19 @@ class MergeDetectionService {
             return nil
         }
 
-        // Simple rule: Gap < 10 minutes = always merge (only within same calendar day)
-        if minutesSinceExit < 10 && minutesSinceExit >= 0 {
-            print("✅ MERGE: Gap is \(minutesSinceExit) min (< 10 min threshold)")
+        // CRITICAL FIX: Handle continuous visits (zero or near-zero gap)
+        // This catches cases where exit time == entry time or within a few seconds
+        // Also handles negative gaps due to clock drift (exit recorded slightly in future)
+        if secondsSinceExit < 30 && secondsSinceExit >= -30 {
+            print("✅ MERGE: Continuous visit detected (gap: \(String(format: "%.1f", secondsSinceExit))s)")
+            print("   → Keeping original start time: \(visit.entryTime)")
+            return (visit, 1.0, "continuous_visit")
+        }
+
+        // Simple rule: Gap < 5 minutes = always merge (only within same calendar day)
+        if minutesSinceExit < 5 && minutesSinceExit >= 0 {
+            print("✅ MERGE: Gap is \(minutesSinceExit) min (< 5 min threshold)")
+            print("   → Keeping original start time: \(visit.entryTime)")
             return (visit, 1.0, "quick_return")
         }
 
@@ -138,7 +150,7 @@ class MergeDetectionService {
                 return result
             }
 
-            print("ℹ️ Most recent visit doesn't meet merge criteria (gap >= 10 min)")
+            print("ℹ️ Most recent visit doesn't meet merge criteria (gap >= 5 min)")
             return nil
 
         } catch {
@@ -164,8 +176,9 @@ class MergeDetectionService {
         mergedVisit.confidenceScore = confidence
         mergedVisit.mergeReason = reason
 
-        // Reopen the visit
-        mergedVisit.entryTime = Date()
+        // Reopen the visit - KEEP the original entry time (don't overwrite with current time)
+        // This preserves the true start time when visits are merged within 10 minutes
+        // mergedVisit.entryTime remains unchanged (original start time)
         mergedVisit.exitTime = nil
         mergedVisit.durationMinutes = nil
         mergedVisit.updatedAt = Date()
@@ -194,13 +207,15 @@ class MergeDetectionService {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
+        // NOTE: We intentionally don't update entry_time here to preserve the original start time
+        // When merging visits, we want to keep when the user first arrived, not when they returned
         let updateData: [String: PostgREST.AnyJSON] = [
             "session_id": .string((visit.sessionId ?? UUID()).uuidString),
             "exit_time": .null, // Reopen visit
             "duration_minutes": .null,
             "confidence_score": .double(visit.confidenceScore ?? 1.0),
             "merge_reason": .string(visit.mergeReason ?? "unknown"),
-            "entry_time": .string(formatter.string(from: visit.entryTime)), // Update entry time
+            // entry_time is NOT updated - preserving original start time
             "updated_at": .string(formatter.string(from: Date()))
         ]
 

@@ -39,11 +39,11 @@ struct ReceiptsDashboard: View {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Text("Active Recurring Expenses")
-                                    .font(.system(size: 17, weight: .semibold))
+                                    .font(FontManager.geist(size: 17, weight: .semibold))
                                     .foregroundColor(Color.shadcnForeground(colorScheme))
                                 Spacer()
                                 Text("\(activeRecurringExpenses.count)")
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(FontManager.geist(size: 13, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                             }
                             .padding(.horizontal, 20)
@@ -71,20 +71,20 @@ struct ReceiptsDashboard: View {
                             .padding(.bottom, 16)
                         }
                         .shadcnTileStyle(colorScheme: colorScheme)
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                     }
 
                     // Empty State
                     if recurringExpenses.isEmpty && !isLoading {
                         VStack(spacing: 12) {
                             Image(systemName: "repeat.circle.dashed")
-                                .font(.system(size: 48, weight: .light))
+                                .font(FontManager.geist(size: 48, weight: .light))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
                             Text("No Recurring Expenses")
-                                .font(.system(size: 16, weight: .medium))
+                                .font(FontManager.geist(size: 16, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                             Text("Create your first recurring expense using the repeat icon")
-                                .font(.system(size: 13, weight: .regular))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                 .multilineTextAlignment(.center)
                         }
@@ -229,7 +229,7 @@ struct ReceiptsStatsView: View {
         }
         .padding(16)
         .shadcnTileStyle(colorScheme: colorScheme)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
     }
 }
 
@@ -243,15 +243,15 @@ struct StatCard: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 20))
+                .font(FontManager.geist(size: 20, weight: .regular))
                 .foregroundColor(Color.shadcnForeground(colorScheme).opacity(0.7))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                 Text(value)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(FontManager.geist(size: 17, weight: .semibold))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
             }
 
@@ -278,24 +278,24 @@ struct RecurringExpenseRow: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(expense.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
                     HStack(spacing: 8) {
                         Image(systemName: "calendar")
-                            .font(.system(size: 11))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         Text(formatDate(expense.nextOccurrence))
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         Text("•")
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                         Text(expense.frequency.displayName)
-                            .font(.system(size: 11, weight: .regular))
+                            .font(FontManager.geist(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         Text("•")
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                         Text(expense.statusBadge)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(FontManager.geist(size: 11, weight: .semibold))
                             .foregroundColor(expense.isActive ? .green : .orange)
                     }
                 }
@@ -304,10 +304,10 @@ struct RecurringExpenseRow: View {
 
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(expense.formattedAmount)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
                     Text(expense.formattedYearlyAmount)
-                        .font(.system(size: 11, weight: .regular))
+                        .font(FontManager.geist(size: 11, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                 }
             }
@@ -317,9 +317,9 @@ struct RecurringExpenseRow: View {
                 Button(action: onEdit) {
                     HStack(spacing: 4) {
                         Image(systemName: "pencil")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                         Text("Edit")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                     }
                     .foregroundColor(Color.shadcnForeground(colorScheme).opacity(0.7))
                 }
@@ -330,9 +330,9 @@ struct RecurringExpenseRow: View {
                 Button(action: onToggle) {
                     HStack(spacing: 4) {
                         Image(systemName: expense.isActive ? "pause" : "play.fill")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                         Text(expense.isActive ? "Pause" : "Resume")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                     }
                     .foregroundColor(Color.shadcnForeground(colorScheme).opacity(0.7))
                 }
@@ -343,9 +343,9 @@ struct RecurringExpenseRow: View {
                 Button(action: onDelete) {
                     HStack(spacing: 4) {
                         Image(systemName: "trash")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                         Text("Delete")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                     }
                     .foregroundColor(.red.opacity(0.8))
                 }

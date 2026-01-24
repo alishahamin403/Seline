@@ -14,10 +14,11 @@ struct TimelineEventBlock: View {
 
     // Calculate event duration in minutes
     private var durationMinutes: Int {
-        guard let start = task.scheduledTime, let end = task.endTime else {
-            return 60 // Default 1 hour if no end time
+        guard let start = task.scheduledTime else { return 60 }
+        guard let end = task.endTime, end > start else {
+            return 60 // Default 1 hour if no end time OR end time is same as start (common for point-events)
         }
-        let duration = Calendar.current.dateComponents([.minute], from: start, to: end).minute ?? 60
+        let duration = Int(end.timeIntervalSince(start) / 60)
         return max(duration, 15) // Minimum 15 minutes for display
     }
 
@@ -107,7 +108,7 @@ struct TimelineEventBlock: View {
                     }
                 }) {
                     Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(FontManager.geist(size: 13, weight: .medium))
                         .foregroundColor(circleColor)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -115,7 +116,7 @@ struct TimelineEventBlock: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(task.title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(FontManager.geist(size: 12, weight: .semibold))
                     .foregroundColor(textColor)
                     .strikethrough(isCompleted, color: textColor.opacity(0.5))
                     .lineLimit(2)
@@ -127,14 +128,14 @@ struct TimelineEventBlock: View {
             // Email indicator if attached
             if task.hasEmailAttachment {
                 Image(systemName: "envelope.fill")
-                    .font(.system(size: 9))
+                    .font(FontManager.geist(size: 9, weight: .regular))
                     .foregroundColor(circleColor.opacity(0.7))
             }
 
             // Recurring indicator
             if task.isRecurring {
                 Image(systemName: "repeat")
-                    .font(.system(size: 9))
+                    .font(FontManager.geist(size: 9, weight: .regular))
                     .foregroundColor(circleColor.opacity(0.7))
             }
         }

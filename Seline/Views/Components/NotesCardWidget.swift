@@ -16,11 +16,11 @@ struct NotesCardWidget: View {
             HStack {
                 HStack(spacing: 4) {
                     Image(systemName: "pin.fill")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(FontManager.geist(size: 9, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Text("Notes")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(FontManager.geist(size: 13, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
@@ -36,7 +36,7 @@ struct NotesCardWidget: View {
                             .frame(width: 24, height: 24)
 
                         Image(systemName: "plus")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(FontManager.geist(size: 11, weight: .medium))
                             .foregroundColor(.white)
                     }
                 }
@@ -48,7 +48,7 @@ struct NotesCardWidget: View {
                 VStack(alignment: .leading, spacing: 6) {
                     if pinnedNotes.isEmpty {
                         Text("No pinned notes")
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 4)
                     } else {

@@ -34,7 +34,7 @@ struct ReusableEmailBodyView: View {
                     Spacer()
 
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
                 .padding(.horizontal, 20)
@@ -82,7 +82,7 @@ struct ReusableEmailBodyView: View {
                                 if bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                     VStack(spacing: 12) {
                                         Image(systemName: "doc.text")
-                                            .font(.system(size: 40, weight: .light))
+                                            .font(FontManager.geist(size: 40, weight: .light))
                                             .foregroundColor(Color.shadcnMuted(colorScheme))
 
                                         Text("No content available")

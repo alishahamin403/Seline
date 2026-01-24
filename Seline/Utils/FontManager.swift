@@ -10,6 +10,7 @@ struct FontManager {
 
     // MARK: - Font Weights
     enum FontWeight {
+        case light
         case regular
         case medium
         case semibold
@@ -17,6 +18,7 @@ struct FontManager {
 
         var fontName: String {
             switch self {
+            case .light: return FontManager.geistSansRegular // Fallback to regular since light isn't defined
             case .regular: return FontManager.geistSansRegular
             case .medium: return FontManager.geistSansMedium
             case .semibold: return FontManager.geistSansSemibold
@@ -26,6 +28,7 @@ struct FontManager {
 
         var systemWeight: Font.Weight {
             switch self {
+            case .light: return .light
             case .regular: return .regular
             case .medium: return .medium
             case .semibold: return .semibold
@@ -65,6 +68,19 @@ struct FontManager {
             // Fallback to system font with similar characteristics
             return .system(size: size, weight: weight.systemWeight, design: .default)
         }
+    }
+    
+    // Overload that accepts Font.Weight directly for dynamic weight scenarios
+    static func geist(size: CGFloat, systemWeight: Font.Weight) -> Font {
+        let fontWeight: FontWeight
+        switch systemWeight {
+        case .bold: fontWeight = .bold
+        case .semibold: fontWeight = .semibold
+        case .medium: fontWeight = .medium
+        case .light: fontWeight = .light
+        default: fontWeight = .regular
+        }
+        return geist(size: size, weight: fontWeight)
     }
 }
 

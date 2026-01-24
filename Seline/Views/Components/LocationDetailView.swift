@@ -46,7 +46,7 @@ struct LocationDetailView: View {
                 .tint(colorScheme == .dark ? Color.white : Color.black)
 
             Text("Loading location details...")
-                .font(.system(size: 16, weight: .medium))
+                .font(FontManager.geist(size: 16, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -87,7 +87,7 @@ struct LocationDetailView: View {
                         .frame(height: 200)
                         .overlay(
                             Image(systemName: "photo")
-                                .font(.system(size: 40))
+                                .font(FontManager.geist(size: 40, weight: .regular))
                                 .foregroundColor(.gray)
                         )
                 }
@@ -98,14 +98,14 @@ struct LocationDetailView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text(placeDetails.name)
-                                .font(.system(size: 24, weight: .bold))
+                                .font(FontManager.geist(size: 24, weight: .bold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
                             Spacer()
 
                             if let isOpen = placeDetails.isOpenNow {
                                 Text(isOpen ? "Open" : "Closed")
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(FontManager.geist(size: 12, weight: .semibold))
                                     .foregroundColor(isOpen ? .green : .red)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
@@ -121,14 +121,14 @@ struct LocationDetailView: View {
                             HStack(spacing: 4) {
                                 ForEach(0..<5) { index in
                                     Image(systemName: index < Int(rating.rounded()) ? "star.fill" : "star")
-                                        .font(.system(size: 14))
+                                        .font(FontManager.geist(size: 14, weight: .regular))
                                         .foregroundColor(.yellow)
                                 }
                                 Text(String(format: "%.1f", rating))
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                 Text("(\(placeDetails.totalRatings) reviews)")
-                                    .font(.system(size: 12))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(.gray)
                             }
                         }
@@ -138,12 +138,12 @@ struct LocationDetailView: View {
                             HStack(spacing: 2) {
                                 ForEach(0..<priceLevel, id: \.self) { _ in
                                     Text("$")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(FontManager.geist(size: 14, weight: .medium))
                                         .foregroundColor(.green)
                                 }
                                 ForEach(0..<(4 - priceLevel), id: \.self) { _ in
                                     Text("$")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(FontManager.geist(size: 14, weight: .medium))
                                         .foregroundColor(.gray.opacity(0.3))
                                 }
                             }
@@ -185,7 +185,7 @@ struct LocationDetailView: View {
                         }) {
                             HStack(spacing: 12) {
                                 Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
-                                    .font(.system(size: 16))
+                                    .font(FontManager.geist(size: 16, weight: .regular))
                                     .foregroundColor(
                                         colorScheme == .dark ?
                                             Color.white :
@@ -194,7 +194,7 @@ struct LocationDetailView: View {
                                     .frame(width: 24)
 
                                 Text("Get Directions")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(FontManager.geist(size: 14, weight: .medium))
                                     .foregroundColor(
                                         colorScheme == .dark ?
                                             Color.white :
@@ -204,7 +204,7 @@ struct LocationDetailView: View {
                                 Spacer()
 
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(FontManager.geist(size: 12, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                             }
                         }
@@ -218,13 +218,13 @@ struct LocationDetailView: View {
 
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Opening Hours")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(FontManager.geist(size: 18, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
                             VStack(alignment: .leading, spacing: 8) {
                                 ForEach(placeDetails.openingHours, id: \.self) { hours in
                                     Text(hours)
-                                        .font(.system(size: 14))
+                                        .font(FontManager.geist(size: 14, weight: .regular))
                                         .foregroundColor(.gray)
                                 }
                             }
@@ -239,7 +239,7 @@ struct LocationDetailView: View {
 
                         VStack(alignment: .leading, spacing: 16) {
                             Text("Reviews")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(FontManager.geist(size: 18, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .padding(.horizontal, 20)
 
@@ -263,10 +263,10 @@ struct LocationDetailView: View {
                 if isSaved {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 20))
+                            .font(FontManager.geist(size: 20, weight: .regular))
                             .foregroundColor(.green)
                         Text("Saved to \(getSavedCategory())")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                     .frame(maxWidth: .infinity)
@@ -278,9 +278,9 @@ struct LocationDetailView: View {
                     }) {
                         HStack {
                             Image(systemName: "bookmark.fill")
-                                .font(.system(size: 18))
+                                .font(FontManager.geist(size: 18, weight: .regular))
                             Text(isSaving ? "Saving..." : "Save to Category")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(FontManager.geist(size: 16, weight: .semibold))
                         }
                         .foregroundColor(colorScheme == .dark ? .black : .white)
                         .frame(maxWidth: .infinity)
@@ -362,7 +362,7 @@ struct InfoRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 16))
+                .font(FontManager.geist(size: 16, weight: .regular))
                 .foregroundColor(
                     colorScheme == .dark ?
                         Color.white :
@@ -371,7 +371,7 @@ struct InfoRow: View {
                 .frame(width: 24)
 
             Text(text)
-                .font(.system(size: 14))
+                .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             Spacer()
@@ -406,33 +406,33 @@ struct ReviewCard: View {
                         .frame(width: 40, height: 40)
                         .overlay(
                             Text(String(review.authorName.prefix(1)))
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(FontManager.geist(size: 18, weight: .semibold))
                                 .foregroundColor(.gray)
                         )
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(review.authorName)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     HStack(spacing: 4) {
                         HStack(spacing: 2) {
                             ForEach(0..<review.rating, id: \.self) { _ in
                                 Image(systemName: "star.fill")
-                                    .font(.system(size: 10))
+                                    .font(FontManager.geist(size: 10, weight: .regular))
                                     .foregroundColor(.yellow)
                             }
                             ForEach(0..<(5 - review.rating), id: \.self) { _ in
                                 Image(systemName: "star")
-                                    .font(.system(size: 10))
+                                    .font(FontManager.geist(size: 10, weight: .regular))
                                     .foregroundColor(.gray)
                             }
                         }
 
                         if let time = review.relativeTime {
                             Text("• \(time)")
-                                .font(.system(size: 12))
+                                .font(FontManager.geist(size: 12, weight: .regular))
                                 .foregroundColor(.gray)
                         }
                     }
@@ -442,7 +442,7 @@ struct ReviewCard: View {
             }
 
             Text(review.text)
-                .font(.system(size: 14))
+                .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
                 .lineLimit(4)
         }
@@ -477,7 +477,7 @@ struct CategoryPickerView: View {
                         if !locationsManager.categories.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("Your Categories")
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(FontManager.geist(size: 12, weight: .semibold))
                                     .foregroundColor(.gray)
                                     .padding(.horizontal, 20)
 
@@ -497,7 +497,7 @@ struct CategoryPickerView: View {
                         // Predefined categories
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Suggested Categories")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(FontManager.geist(size: 12, weight: .semibold))
                                 .foregroundColor(.gray)
                                 .padding(.horizontal, 20)
 
@@ -521,9 +521,9 @@ struct CategoryPickerView: View {
                         }) {
                             HStack {
                                 Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 18))
+                                    .font(FontManager.geist(size: 18, weight: .regular))
                                 Text("Create New Category")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(FontManager.geist(size: 16, weight: .medium))
                                 Spacer()
                             }
                             .foregroundColor(
@@ -551,7 +551,7 @@ struct CategoryPickerView: View {
                         dismiss()
                     }) {
                         Text("Save to \(selectedCategory)")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .black : .white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
@@ -603,7 +603,7 @@ struct CategoryButton: View {
         Button(action: action) {
             HStack {
                 Text(title)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(
                         isSelected ?
                             (colorScheme == .dark ? .black : .white) :
@@ -614,7 +614,7 @@ struct CategoryButton: View {
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18))
+                        .font(FontManager.geist(size: 18, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .black : .white)
                 }
             }

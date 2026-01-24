@@ -11,12 +11,12 @@ struct EmailSearchBar: View {
         HStack(spacing: 8) {
             // Search icon
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .medium))
+                .font(FontManager.geist(size: 14, weight: .medium))
                 .foregroundColor(.gray)
 
             // Search text field
             TextField("Search emails...", text: $searchText)
-                .font(.system(size: 14, weight: .regular))
+                .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .focused($isSearchFocused)
                 .onChange(of: searchText) { newValue in
@@ -39,7 +39,7 @@ struct EmailSearchBar: View {
                     isSearchFocused = false
                 }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(.gray)
                 }
                 .buttonStyle(PlainButtonStyle())

@@ -27,7 +27,7 @@ struct EmailActionButtons: View {
             // Reply Button - Icon Only
             Button(action: onReply) {
                 Image(systemName: "arrowshape.turn.up.left.fill")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
                     .background(Circle().fill(Color(red: 0.2, green: 0.5, blue: 1.0)))
@@ -36,7 +36,7 @@ struct EmailActionButtons: View {
             // Forward Button - Icon Only
             Button(action: onForward) {
                 Image(systemName: "arrowshape.turn.up.right.fill")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
                     .background(Circle().fill(Color(red: 0.2, green: 0.5, blue: 1.0)))
@@ -46,7 +46,7 @@ struct EmailActionButtons: View {
             if let onAddEvent = onAddEvent {
                 Button(action: onAddEvent) {
                     Image(systemName: "calendar.badge.plus")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(width: 44, height: 44)
                         .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1)))
@@ -57,7 +57,7 @@ struct EmailActionButtons: View {
             if let onSave = onSave {
                 Button(action: onSave) {
                     Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(width: 44, height: 44)
                         .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1)))
@@ -67,7 +67,7 @@ struct EmailActionButtons: View {
             // Delete Button - Icon Only (Red)
             Button(action: onDelete) {
                 Image(systemName: "trash.fill")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
                     .background(Circle().fill(Color.red))
