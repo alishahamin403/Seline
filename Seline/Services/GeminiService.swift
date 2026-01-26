@@ -298,8 +298,8 @@ class GeminiService: ObservableObject {
     // MARK: - Private Methods
 
     private func makeDirectRequest(_ request: Request) async throws -> Response {
-        // Gemini API endpoint - using gemini-2.5-flash-lite for optimal cost/performance
-        let urlString = "https://generativelanguage.googleapis.com/v1/models/\(request.model):generateContent?key=\(apiKey)"
+        // Gemini API endpoint - using v1beta for Google Search grounding support
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(request.model):generateContent?key=\(apiKey)"
         
         guard let url = URL(string: urlString) else {
             throw GeminiError.invalidURL
