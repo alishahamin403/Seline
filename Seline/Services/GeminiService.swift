@@ -307,12 +307,19 @@ class GeminiService: ObservableObject {
 
         // Convert messages to Gemini format
         let geminiContents = convertMessagesToGeminiFormat(request.messages)
-        
-        let requestBody: [String: Any] = [
+
+        // Build request body with Google Search grounding enabled
+        var requestBody: [String: Any] = [
             "contents": geminiContents,
             "generationConfig": [
                 "temperature": request.temperature ?? 0.6,
                 "maxOutputTokens": request.max_tokens ?? 2048
+            ],
+            // Enable Google Search grounding for web queries
+            "tools": [
+                [
+                    "google_search": [:]
+                ]
             ]
         ]
 

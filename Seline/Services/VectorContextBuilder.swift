@@ -137,12 +137,6 @@ class VectorContextBuilder {
             context += "Location: \(weather.locationName)\n\n"
         }
 
-        // Knowledge & search guidance
-        context += "🔍 KNOWLEDGE & SEARCH:\n"
-        context += "- Use your knowledge cutoff (January 2025) for historical questions\n"
-        context += "- For current events, recent news, or live data, state what you know and when your knowledge was last updated\n"
-        context += "- Be transparent about knowledge limitations\n\n"
-
         // Data summary (quick counts)
         context += "=== DATA AVAILABLE ===\n"
         context += "Events: \(TaskManager.shared.tasks.values.flatMap { $0 }.count)\n"

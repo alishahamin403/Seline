@@ -498,21 +498,52 @@ struct MapsViewNew: View, Searchable {
 
     @ViewBuilder
     private var locationsTabContent: some View {
-        if locationsManager.categories.isEmpty {
-            VStack(spacing: 16) {
-                Image(systemName: "map").font(FontManager.geist(size: 48, weight: .light)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                Text("No saved places yet").font(FontManager.geist(size: 18, weight: .medium)).foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                Text("Search for places and save them to categories").font(FontManager.geist(size: 14, weight: .regular)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)).multilineTextAlignment(.center)
-            }.padding(.top, 60)
-        } else if selectedCategory == nil {
-            VStack(spacing: 16) {
-                miniMapSection
-                favoritesSection
-                expandableCategoriesSection
-            }
-        }
+        VStack(spacing: 0) {
+            // Header with "Saved Locations" title and Add button
+            HStack(spacing: 12) {
+                Text("Saved Locations")
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+                Spacer()
 
-        Spacer().frame(height: 100)
+                // Add button in top right
+                Button(action: {
+                    showSearchModal = true
+                }) {
+                    Text("Add")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
+
+            if locationsManager.categories.isEmpty {
+                VStack(spacing: 16) {
+                    Image(systemName: "map").font(FontManager.geist(size: 48, weight: .light)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                    Text("No saved places yet").font(FontManager.geist(size: 18, weight: .medium)).foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    Text("Search for places and save them to categories").font(FontManager.geist(size: 14, weight: .regular)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)).multilineTextAlignment(.center)
+                }.padding(.top, 60)
+            } else if selectedCategory == nil {
+                VStack(spacing: 16) {
+                    miniMapSection
+                    favoritesSection
+                    expandableCategoriesSection
+                }
+            }
+
+            Spacer().frame(height: 100)
+        }
     }
 
     @ViewBuilder
