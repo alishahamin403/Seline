@@ -1067,7 +1067,7 @@ struct MapsViewNew: View, Searchable {
             groupedPlaces = groupedPlaces.mapValues { places in
                 places.filter { place in
                     selectedCuisines.contains { cuisine in
-                        place.cuisine?.localizedCaseInsensitiveContains(cuisine) ?? false ||
+                        place.userCuisine?.localizedCaseInsensitiveContains(cuisine) ?? false ||
                         place.category.localizedCaseInsensitiveContains(cuisine)
                     }
                 }
