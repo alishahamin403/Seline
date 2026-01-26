@@ -5,8 +5,6 @@ struct EmailRow: View {
     let onDelete: (Email) -> Void
     let onMarkAsUnread: (Email) -> Void
     @Environment(\.colorScheme) var colorScheme
-    @State private var profilePictureUrl: String?
-    @State private var isLoadingProfilePicture = false
 
     // Avatar background color - Google brand colors
     private var avatarColor: Color {
@@ -25,40 +23,8 @@ struct EmailRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-                // Sender avatar - show Google profile picture if available
-                if let profilePictureUrl = profilePictureUrl, !profilePictureUrl.isEmpty {
-                    // Display actual Google profile picture
-                    AsyncImage(url: URL(string: profilePictureUrl)) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 32, height: 32)
-                                .clipShape(Circle())
-                        @unknown default:
-                            // Fallback to colored initials while loading
-                            Circle()
-                                .fill(avatarColor)
-                                .frame(width: 32, height: 32)
-                                .overlay(
-                                    Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                        .font(FontManager.geist(size: 13, weight: .semibold))
-                                        .foregroundColor(.white)
-                                )
-                        }
-                    }
-                } else {
-                    // Default colored avatar with initials
-                    Circle()
-                        .fill(avatarColor)
-                        .frame(width: 32, height: 32)
-                        .overlay(
-                            Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                .font(FontManager.geist(size: 13, weight: .semibold))
-                                .foregroundColor(.white)
-                        )
-                }
+                // Sender avatar - colored circle with initials
+                fallbackAvatarView
 
                 // Email content
                 VStack(alignment: .leading, spacing: 3) {
@@ -137,39 +103,45 @@ struct EmailRow: View {
                 Label("Delete", systemImage: "trash")
             }
         }
-        .task {
-            // Fetch the Google profile picture when view appears
-            await fetchProfilePicture()
-        }
     }
 
     // MARK: - Private Methods
 
-    private func fetchProfilePicture() async {
-        guard !isLoadingProfilePicture else { return }
+    private var fallbackAvatarView: some View {
+        // Generate initials from sender name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")
+        let initials = generateInitials(from: email.sender.shortDisplayName)
         
-        // Check CacheManager first for instant display
-        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
-        if let cachedUrl: String = CacheManager.shared.get(forKey: cacheKey), !cachedUrl.isEmpty {
-            await MainActor.run {
-                self.profilePictureUrl = cachedUrl
+        return Circle()
+            .fill(avatarColor)
+            .frame(width: 32, height: 32)
+            .overlay(
+                Text(initials)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+            )
+    }
+    
+    /// Generate initials from a name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")
+    private func generateInitials(from name: String) -> String {
+        let words = name.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+
+        if words.count >= 2 {
+            // Multiple words: take first letter of first two words
+            let first = String(words[0].prefix(1).uppercased())
+            let second = String(words[1].prefix(1).uppercased())
+            return first + second
+        } else if words.count == 1 {
+            // Single word: take first two letters if long enough, otherwise just first
+            let word = words[0]
+            if word.count >= 2 {
+                return String(word.prefix(2).uppercased())
+            } else {
+                return String(word.prefix(1).uppercased())
             }
-            return
+        } else {
+            // Fallback: use first character of email
+            return String(email.sender.email.prefix(1).uppercased())
         }
-
-        isLoadingProfilePicture = true
-
-        do {
-            if let picUrl = try await GmailAPIClient.shared.fetchProfilePicture(for: email.sender.email) {
-                await MainActor.run {
-                    self.profilePictureUrl = picUrl
-                }
-            }
-        } catch {
-            // Silently fail - will show colored avatar fallback
-        }
-
-        isLoadingProfilePicture = false
     }
 }
 

@@ -170,12 +170,10 @@ struct EmailRowWithSummary: View {
     let onMarkAsUnread: (Email) -> Void
     
     @Environment(\.colorScheme) var colorScheme
-    @State private var profilePictureUrl: String?
-    @State private var isLoadingProfilePicture = false
     @State private var isSummaryExpanded = false
     @State private var aiSummary: String?
     @State private var isLoadingSummary = false
-    @StateObject private var openAIService = DeepSeekService.shared
+    @StateObject private var openAIService = GeminiService.shared
     @StateObject private var emailService = EmailService.shared
     
 
@@ -304,8 +302,8 @@ struct EmailRowWithSummary: View {
                                             .frame(width: 5, height: 5)
                                             .padding(.top, 5)
                                         
-                                        // Bullet text
-                                        Text(bullet)
+                                        // Bullet text with clickable links
+                                        parseMarkdownText(bullet)
                                             .font(FontManager.geist(size: 12, weight: .regular))
                                             .foregroundColor(Color.shadcnForeground(colorScheme))
                                             .multilineTextAlignment(.leading)
@@ -365,35 +363,14 @@ struct EmailRowWithSummary: View {
                 Label("Delete", systemImage: "trash")
             }
         }
-        .task {
-            await fetchProfilePicture()
-        }
     }
     
     // MARK: - Avatar View
     
     @ViewBuilder
     private var avatarView: some View {
-        if let profilePictureUrl = profilePictureUrl, !profilePictureUrl.isEmpty {
-            AsyncImage(url: URL(string: profilePictureUrl)) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 40, height: 40)
-                        .clipShape(Circle())
-                case .failure(_), .empty:
-                    fallbackAvatar
-                @unknown default:
-                    fallbackAvatar
-                }
-            }
-        } else if isLoadingProfilePicture {
-            loadingAvatar
-        } else {
-            fallbackAvatar
-        }
+        // Sender avatar - colored circle with initials
+        fallbackAvatar
     }
     
     private var loadingAvatar: some View {
@@ -420,44 +397,39 @@ struct EmailRowWithSummary: View {
         let hash = abs(email.sender.email.hashValue)
         let color = neutralColors[hash % neutralColors.count]
         
+        // Generate initials from sender name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")
+        let initials = generateInitials(from: email.sender.shortDisplayName)
+        
         return Circle()
             .fill(color)
             .frame(width: 40, height: 40)
             .overlay(
-                Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                    .font(FontManager.geist(size: 16, weight: .semibold))
+                Text(initials)
+                    .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(.white)
             )
     }
     
-    // MARK: - Fetch Profile Picture
-    
-    private func fetchProfilePicture() async {
-        guard !isLoadingProfilePicture else { return }
+    /// Generate initials from a name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")
+    private func generateInitials(from name: String) -> String {
+        let words = name.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
         
-        // Check CacheManager first for instant display
-        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
-        if let cachedUrl: String = CacheManager.shared.get(forKey: cacheKey), !cachedUrl.isEmpty {
-            await MainActor.run {
-                self.profilePictureUrl = cachedUrl
+        if words.count >= 2 {
+            // Multiple words: take first letter of first two words
+            let first = String(words[0].prefix(1).uppercased())
+            let second = String(words[1].prefix(1).uppercased())
+            return first + second
+        } else if words.count == 1 {
+            // Single word: take first two letters if long enough, otherwise just first
+            let word = words[0]
+            if word.count >= 2 {
+                return String(word.prefix(2).uppercased())
+            } else {
+                return String(word.prefix(1).uppercased())
             }
-            return
-        }
-        
-        isLoadingProfilePicture = true
-        
-        do {
-            if let picUrl = try await GmailAPIClient.shared.fetchProfilePicture(for: email.sender.email) {
-                await MainActor.run {
-                    self.profilePictureUrl = picUrl
-                }
-            }
-        } catch {
-            // Silently fail
-        }
-        
-        await MainActor.run {
-            isLoadingProfilePicture = false
+        } else {
+            // Fallback: use first character of email
+            return String(email.sender.email.prefix(1).uppercased())
         }
     }
     
@@ -476,6 +448,81 @@ struct EmailRowWithSummary: View {
                 return cleaned
             }
             .filter { !$0.isEmpty }
+    }
+    
+    // MARK: - Parse Markdown Links and Bold
+    
+    /// Parse markdown links [text](url) and bold **text**, make them clickable/rendered properly
+    private func parseMarkdownText(_ text: String) -> some View {
+        // First, remove bold markers **text** -> text (we'll render as bold)
+        var processedText = text
+        let boldPattern = #"\*\*([^\*]+)\*\*"#
+        
+        // Remove bold markers for now (we can enhance later to actually render bold)
+        if let boldRegex = try? NSRegularExpression(pattern: boldPattern, options: []) {
+            let nsString = processedText as NSString
+            let boldMatches = boldRegex.matches(in: processedText, options: [], range: NSRange(location: 0, length: nsString.length))
+            
+            // Process in reverse to preserve indices
+            for match in boldMatches.reversed() {
+                if match.numberOfRanges >= 2 {
+                    let fullRange = match.range
+                    let textRange = match.range(at: 1)
+                    let boldText = nsString.substring(with: textRange)
+                    // Replace **text** with just text
+                    processedText = (processedText as NSString).replacingCharacters(in: fullRange, with: boldText)
+                }
+            }
+        }
+        
+        // Pattern: [text](url)
+        let linkPattern = #"\[([^\]]+)\]\(([^\)]+)\)"#
+        
+        guard let regex = try? NSRegularExpression(pattern: linkPattern, options: []) else {
+            return AnyView(Text(processedText))
+        }
+        
+        let nsString = processedText as NSString
+        let matches = regex.matches(in: processedText, options: [], range: NSRange(location: 0, length: nsString.length))
+        
+        if matches.isEmpty {
+            return AnyView(Text(processedText))
+        }
+        
+        // Build attributed string with clickable links
+        let attributedString = NSMutableAttributedString(string: processedText)
+        let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
+        attributedString.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: processedText.count))
+        
+        // Process matches in reverse to preserve indices
+        for match in matches.reversed() {
+            if match.numberOfRanges >= 3 {
+                let fullRange = match.range
+                let linkTextRange = match.range(at: 1)
+                let urlRange = match.range(at: 2)
+                
+                let linkText = nsString.substring(with: linkTextRange)
+                let urlString = nsString.substring(with: urlRange)
+                
+                // Replace [text](url) with just the link text
+                attributedString.replaceCharacters(in: fullRange, with: linkText)
+                
+                // Make the link text blue and clickable
+                let newRange = NSRange(location: fullRange.location, length: linkText.count)
+                if let url = URL(string: urlString) {
+                    attributedString.addAttribute(.link, value: url, range: newRange)
+                    attributedString.addAttribute(.foregroundColor, value: UIColor.systemBlue, range: newRange)
+                    attributedString.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: newRange)
+                }
+            }
+        }
+        
+        return AnyView(
+            Text(AttributedString(attributedString))
+                .onOpenURL { url in
+                    UIApplication.shared.open(url)
+                }
+        )
     }
     
     // MARK: - Load AI Summary
@@ -529,7 +576,7 @@ struct SmartReplySection: View {
     @State private var showConfirmation: Bool = false
     @State private var showSentSuccess: Bool = false
     @State private var errorMessage: String?
-    @StateObject private var openAIService = DeepSeekService.shared
+    @StateObject private var openAIService = GeminiService.shared
     @FocusState private var isInputFocused: Bool
     
     var body: some View {

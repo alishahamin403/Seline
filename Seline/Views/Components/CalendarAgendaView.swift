@@ -44,6 +44,7 @@ struct CalendarAgendaView: View {
     let onTapEvent: (TaskItem) -> Void
     let onToggleCompletion: (TaskItem) -> Void
     let onAddEvent: ((Date) -> Void)?
+    let onCameraAction: (() -> Void)?
     
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var tagManager = TagManager.shared
@@ -77,6 +78,7 @@ struct CalendarAgendaView: View {
     @State private var cachedEvents: [TaskItem] = []
     @State private var cachedDate: Date?
     @State private var cachedTagId: String?
+    @State private var refreshTrigger: Int = 0
     
     private var eventsForDate: [TaskItem] {
         let calendar = Calendar.current
@@ -152,7 +154,7 @@ struct CalendarAgendaView: View {
             }
         }
         .background(backgroundColor)
-        .id("\(selectedDate.timeIntervalSince1970)-\(selectedTagId ?? "nil")") // Force refresh when date or filter changes
+        .id("\(selectedDate.timeIntervalSince1970)-\(selectedTagId ?? "nil")-\(refreshTrigger)") // Force refresh when date, filter, or completion changes
         .onChange(of: selectedDate) { newDate in
             updateCache(for: newDate)
         }
@@ -171,30 +173,49 @@ struct CalendarAgendaView: View {
     
     private var headerView: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(isToday ? "Today" : formattedDate)
-                    .font(FontManager.geist(size: 16, weight: .semibold))
-                    .foregroundColor(primaryTextColor)
-                if isToday {
-                    Text(formattedDate)
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(secondaryTextColor)
-                }
-            }
+            // Event count on the left
+            Text("\(eventsForDate.count) event\(eventsForDate.count == 1 ? "" : "s")")
+                .font(FontManager.geist(size: 14, weight: .medium))
+                .foregroundColor(primaryTextColor)
+            
             Spacer()
+            
+            // Pill buttons on the right
             HStack(spacing: 8) {
-                Text("\(eventsForDate.count) event\(eventsForDate.count == 1 ? "" : "s")")
-                    .font(FontManager.geist(size: 13, weight: .regular))
-                    .foregroundColor(secondaryTextColor)
+                // Camera button
+                if let onCameraAction = onCameraAction {
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        onCameraAction()
+                    }) {
+                        Image(systemName: "camera.fill")
+                            .font(FontManager.geist(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .fill(colorScheme == .dark ? Color.white : Color.black)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
                 
+                // Add event button
                 if let onAddEvent = onAddEvent {
                     Button(action: {
                         HapticManager.shared.selection()
                         onAddEvent(selectedDate)
                     }) {
-                        Image(systemName: "plus")
-                            .font(FontManager.geist(size: 14, weight: .semibold))
-                            .foregroundColor(secondaryTextColor)
+                        Text("Add")
+                            .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -273,11 +294,6 @@ struct CalendarAgendaView: View {
         
         return Button(action: { onTapEvent(event) }) {
             HStack(spacing: 0) {
-                // Colored accent bar
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(tagColor)
-                    .frame(width: 4)
-                
                 VStack(alignment: .leading, spacing: 6) {
                     // Time row - horizontal format
                     HStack(spacing: 4) {
@@ -320,13 +336,9 @@ struct CalendarAgendaView: View {
                     
                     // Event title with icon
                     HStack(spacing: 8) {
-                        // Event type icon
+                        // Event type icon (only show email attachment icon, not recurring)
                         if event.hasEmailAttachment {
                             Image(systemName: "envelope.fill")
-                                .font(FontManager.geist(size: 12, weight: .medium))
-                                .foregroundColor(tagColor)
-                        } else if event.isRecurring {
-                            Image(systemName: "repeat")
                                 .font(FontManager.geist(size: 12, weight: .medium))
                                 .foregroundColor(tagColor)
                         }
@@ -347,15 +359,11 @@ struct CalendarAgendaView: View {
                             .lineLimit(1)
                     }
                     
-                    // Recurring indicator
+                    // Recurring frequency text only (no icon)
                     if event.isRecurring, let frequency = event.recurrenceFrequency {
-                        HStack(spacing: 4) {
-                            Image(systemName: "repeat")
-                                .font(FontManager.geist(size: 10, weight: .medium))
-                            Text(frequency.rawValue)
-                                .font(FontManager.geist(size: 10, weight: .medium))
-                        }
-                        .foregroundColor(tertiaryTextColor)
+                        Text(frequency.rawValue.lowercased())
+                            .font(FontManager.geist(size: 10, weight: .medium))
+                            .foregroundColor(tertiaryTextColor)
                     }
                 }
                 .padding(.horizontal, 12)
@@ -364,7 +372,12 @@ struct CalendarAgendaView: View {
                 Spacer(minLength: 0)
                 
                 // Completion checkbox
-                Button(action: { onToggleCompletion(event) }) {
+                Button(action: { 
+                    onToggleCompletion(event)
+                    // Force UI update
+                    refreshTrigger += 1
+                    cachedDate = nil
+                }) {
                     Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                         .font(FontManager.geist(size: 24, weight: .regular))
                         .foregroundColor(isCompleted ? tagColor : secondaryTextColor)
@@ -439,7 +452,8 @@ struct CalendarAgendaView: View {
         selectedTagId: nil,
         onTapEvent: { _ in },
         onToggleCompletion: { _ in },
-        onAddEvent: { _ in }
+        onAddEvent: { _ in },
+        onCameraAction: { }
     )
     .preferredColorScheme(.dark)
 }

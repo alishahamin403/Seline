@@ -109,9 +109,9 @@ struct FolderSidebarView: View {
                     if !notesManager.folders.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack {
-                                Text("FOLDERS")
-                                    .font(FontManager.geist(size: 11, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                                Text("Note Folders")
+                                    .font(FontManager.geist(size: 16, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
                                 Spacer()
                             }
                             .padding(.horizontal, 12)

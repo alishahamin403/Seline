@@ -8,7 +8,7 @@ struct EmailDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.presentationMode) private var presentationMode // Backup dismissal for fullScreenCover
     @StateObject private var emailService = EmailService.shared
-    @StateObject private var openAIService = DeepSeekService.shared
+    @StateObject private var openAIService = GeminiService.shared
     @State private var isOriginalEmailExpanded: Bool = true // Expand by default like Gmail
     @State private var fullEmail: Email? = nil
     @State private var isLoadingFullBody: Bool = false
@@ -36,9 +36,6 @@ struct EmailDetailView: View {
     @State private var isGeneratingSmartReply: Bool = false
     @State private var smartReplyPrompt: String = ""
     @State private var loadingChipLabel: String? = nil
-
-    // Profile picture
-    @State private var profilePictureUrl: String?
 
     // HTML content height for proper scrolling
     @State private var htmlContentHeight: CGFloat = 300
@@ -199,7 +196,6 @@ struct EmailDetailView: View {
             toRecipients = email.sender.email
             Task {
                 await fetchFullEmailBodyIfNeeded()
-                await fetchProfilePicture()
             }
         }
     }
@@ -261,7 +257,7 @@ struct EmailDetailView: View {
             }
             .buttonStyle(PlainButtonStyle())
             
-            // Expanded details - IN A BOX (matches AI Summary margins - end to end)
+            // Expanded details - matches AI Summary style exactly
             if isSenderInfoExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     gmailDetailRow(label: "From", name: email.sender.displayName, email: email.sender.email)
@@ -271,15 +267,8 @@ struct EmailDetailView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
-                )
-                .padding(.horizontal, -16) // Negative padding to extend background edge-to-edge
+                .shadcnTileStyle(colorScheme: colorScheme)
+                .padding(.horizontal, 16) // Same margins as AI Summary
                 .padding(.top, 8)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -316,22 +305,8 @@ struct EmailDetailView: View {
     
     @ViewBuilder
     private var gmailAvatarView: some View {
-        if let pictureUrl = profilePictureUrl, !pictureUrl.isEmpty {
-            AsyncImage(url: URL(string: pictureUrl)) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 40, height: 40)
-                        .clipShape(Circle())
-                default:
-                    fallbackAvatar
-                }
-            }
-        } else {
-            fallbackAvatar
-        }
+        // Sender avatar - colored circle with initials
+        fallbackAvatar
     }
     
     private var fallbackAvatar: some View {
@@ -346,14 +321,40 @@ struct EmailDetailView: View {
         let hash = HashUtils.deterministicHash(email.sender.email)
         let color = colors[abs(hash) % colors.count]
         
+        // Generate initials from sender name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")
+        let initials = generateInitials(from: email.sender.shortDisplayName)
+        
         return Circle()
             .fill(color)
             .frame(width: 40, height: 40)
             .overlay(
-                Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                    .font(FontManager.geist(size: 18, weight: .medium))
+                Text(initials)
+                    .font(FontManager.geist(size: 16, weight: .semibold))
                     .foregroundColor(.white)
             )
+    }
+    
+    /// Generate initials from a name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")
+    private func generateInitials(from name: String) -> String {
+        let words = name.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        
+        if words.count >= 2 {
+            // Multiple words: take first letter of first two words
+            let first = String(words[0].prefix(1).uppercased())
+            let second = String(words[1].prefix(1).uppercased())
+            return first + second
+        } else if words.count == 1 {
+            // Single word: take first two letters if long enough, otherwise just first
+            let word = words[0]
+            if word.count >= 2 {
+                return String(word.prefix(2).uppercased())
+            } else {
+                return String(word.prefix(1).uppercased())
+            }
+        } else {
+            // Fallback: use first character of email
+            return String(email.sender.email.prefix(1).uppercased())
+        }
     }
     
     // MARK: - Gmail Style Email Body Section
@@ -952,29 +953,6 @@ struct EmailDetailView: View {
         }
     }
     
-    // MARK: - Profile Picture Fetch
-    
-    private func fetchProfilePicture() async {
-        // Check CacheManager first for instant display
-        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
-        if let cachedUrl: String = CacheManager.shared.get(forKey: cacheKey), !cachedUrl.isEmpty {
-            await MainActor.run {
-                self.profilePictureUrl = cachedUrl
-            }
-            return
-        }
-        
-        do {
-            if let picUrl = try await GmailAPIClient.shared.fetchProfilePicture(for: email.sender.email) {
-                await MainActor.run {
-                    self.profilePictureUrl = picUrl
-                }
-            }
-        } catch {
-            // Silently fail
-        }
-    }
-
     // MARK: - Full Email Body Fetching
     private func fetchFullEmailBodyIfNeeded() async {
         guard fullEmail == nil else { return }

@@ -77,9 +77,34 @@ struct LocationTimelineView: View {
             loadVisitsForMonth()
             loadVisitsForSelectedDay()
         }
+        .task {
+            // CRITICAL: Run midnight fix on first load to ensure data consistency
+            // This ensures calendar and history views show matching data
+            let result = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
+            if result.fixed > 0 {
+                print("✅ Fixed \(result.fixed) midnight-spanning visits on timeline load")
+                // Invalidate all caches and reload
+                await MainActor.run {
+                    LocationVisitAnalytics.shared.invalidateAllVisitCaches()
+                }
+                loadVisitsForMonth()
+                loadVisitsForSelectedDay()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
             // CRITICAL: Update calendar view in real-time when visit is created
             // This ensures calendar view matches the accuracy of geofence tracking
+            loadVisitsForMonth()
+            loadVisitsForSelectedDay()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
+            // CRITICAL: Invalidate cache before reloading to ensure fresh data matches visit history
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "yyyy-MM-dd"
+            let dayKey = dayFormatter.string(from: selectedDate)
+            CacheManager.shared.invalidate(forKey: "cache.visits.day.\(dayKey)")
+            
+            // Refresh when visits are updated (e.g., after midnight split fixes)
             loadVisitsForMonth()
             loadVisitsForSelectedDay()
         }
@@ -302,14 +327,8 @@ struct LocationTimelineView: View {
     private var timelineSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Day summary - cleaner header
-            HStack {
-                Text(selectedDayString())
-                    .font(FontManager.geist(size: 17, weight: .semibold))
-                    .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                Spacer()
-
-                // Merge button
+            HStack(spacing: 0) {
+                // Merge button (left side)
                 if visitsForSelectedDay.count >= 2 {
                     Button(action: {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -336,9 +355,19 @@ struct LocationTimelineView: View {
                     .buttonStyle(PlainButtonStyle())
                 }
 
-                Text(visitSummary())
-                    .font(FontManager.geist(size: 13, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                Spacer()
+
+                // Visit count (center-left)
+                Text("\(visitsForSelectedDay.count) visit\(visitsForSelectedDay.count == 1 ? "" : "s")")
+                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+
+                Spacer()
+
+                // Total time (right side)
+                Text(totalTimeString())
+                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
@@ -440,39 +469,6 @@ struct LocationTimelineView: View {
                 }
             }) {
                 HStack(spacing: 12) {
-                    // Simplified timeline indicator - smaller and cleaner
-                    VStack(spacing: 0) {
-                        ZStack {
-                            Circle()
-                                .fill(categoryColor(for: place.category))
-                                .frame(width: 8, height: 8)
-                            
-                            // Selection indicator for merge mode
-                            if isSelectedForMerge {
-                                Circle()
-                                    .fill(colorScheme == .dark ? Color.white : Color.black)
-                                    .frame(width: 18, height: 18)
-                                    .overlay(
-                                        Circle()
-                                            .stroke(colorScheme == .dark ? Color.black : Color.white, lineWidth: 2)
-                                    )
-                                
-                                Text("\((selectionIndex ?? 0) + 1)")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(colorScheme == .dark ? .black : .white)
-                                    .offset(x: 10, y: -8)
-                            }
-                        }
-
-                        if visit.id != visitsForSelectedDay.sorted(by: { $0.entryTime < $1.entryTime }).last?.id {
-                            Rectangle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
-                                .frame(width: 1.5)
-                                .frame(minHeight: 40)
-                        }
-                    }
-                    .frame(width: 20)
-
                     // Visit card - cleaner design without stroke overlay
                     HStack(spacing: 12) {
                         PlaceImageView(place: place, size: 40, cornerRadius: ShadcnRadius.lg)
@@ -918,9 +914,22 @@ struct LocationTimelineView: View {
         }
     }
 
+    private func totalTimeString() -> String {
+        let totalMinutes = visitsForSelectedDay.compactMap { $0.durationMinutes }.reduce(0, +)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
+    }
+
     private func timeRangeString(from visit: LocationVisitRecord) -> String {
+        // Use same time formatting as VisitHistoryCard for consistency
         let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
+        formatter.timeStyle = .short  // Uses system locale format (same as VisitHistoryCard)
 
         let entryString = formatter.string(from: visit.entryTime)
 
@@ -928,7 +937,7 @@ struct LocationTimelineView: View {
             let exitString = formatter.string(from: exitTime)
             return "\(entryString) - \(exitString)"
         } else {
-            return "\(entryString) - ongoing"
+            return "Started at \(entryString)"  // Same format as VisitHistoryCard
         }
     }
 
@@ -1183,17 +1192,21 @@ struct LocationTimelineView: View {
                     .execute()
 
                 let decoder = JSONDecoder.supabaseDecoder()
-                let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+                let rawVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+                
+                // CRITICAL: Process visits using shared function to ensure consistency with visit history view
+                // This splits midnight-spanning visits and merges gaps
+                let processedVisits = LocationVisitAnalytics.shared.processVisitsForDisplay(rawVisits)
 
                 await MainActor.run {
-                    visitsForSelectedDay = visits
+                    visitsForSelectedDay = processedVisits
                     isLoading = false
                     // OPTIMIZATION: Cache for 2 minutes (shorter TTL for daily data that updates more often)
-                    CacheManager.shared.set(visits, forKey: cacheKey, ttl: 120) // 2 minutes
+                    CacheManager.shared.set(processedVisits, forKey: cacheKey, ttl: 120) // 2 minutes
                 }
                 
                 // Load people for each visit
-                await loadPeopleForVisits(visits)
+                await loadPeopleForVisits(processedVisits)
             } catch {
                 print("Error loading visits for day: \(error)")
                 await MainActor.run {

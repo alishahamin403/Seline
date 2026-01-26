@@ -13,10 +13,12 @@ struct MapsViewNew: View, Searchable {
     @Environment(\.scenePhase) var scenePhase
     @Namespace private var tabAnimation
 
-    @State private var selectedTab: String = "folders" // "folders", "ranking", or "timeline"
+    @State private var selectedTab: String = "folders" // "folders", "people", or "timeline"
     @State private var selectedCategory: String? = nil
     @State private var showSearchModal = false
     @State private var selectedPlace: SavedPlace? = nil
+    @State private var selectedPlaceForRating: SavedPlace? = nil
+    @State private var showRatingEditor = false
     @State private var locationSearchText: String = ""
     @State private var isLocationSearchActive: Bool = false
     @State private var currentLocationName: String = "Finding location..."
@@ -36,12 +38,14 @@ struct MapsViewNew: View, Searchable {
     @State private var lastLocationUpdateTime: Date = Date.distantPast  // Time debounce for location updates
     @State private var recentlyVisitedPlaces: [SavedPlace] = []
     @State private var expandedCategories: Set<String> = []  // Track which categories are expanded
+    @State private var selectedCuisines: Set<String> = []  // Track selected cuisine filters
     @State private var showFullMapView = false  // Controls full map view sheet
     @State private var showChangeFolderSheet = false  // Controls change folder sheet
     @State private var placeToMove: SavedPlace? = nil  // Place being moved to different folder
     @State private var showingRenameAlert = false  // Controls rename alert
     @State private var placeToRename: SavedPlace? = nil  // Place being renamed
     @State private var newPlaceName = ""  // New name for the place
+    @FocusState private var isSearchFocused: Bool  // For search bar focus
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
         self._externalSelectedFolder = externalSelectedFolder
@@ -56,10 +60,30 @@ struct MapsViewNew: View, Searchable {
             .sheet(item: $selectedPlace) { place in
                 PlaceDetailSheet(place: place, onDismiss: { 
                     selectedPlace = nil
-                }, isFromRanking: selectedTab == "ranking")
+                }, isFromRanking: false)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationBg()
+            }
+            .sheet(isPresented: $showRatingEditor) {
+                if let place = selectedPlaceForRating {
+                    RatingEditorSheet(
+                        place: place,
+                        colorScheme: colorScheme,
+                        onSave: { rating, notes, cuisine in
+                            locationsManager.updateRestaurantRating(place.id, rating: rating, notes: notes, cuisine: cuisine)
+                            showRatingEditor = false
+                            selectedPlaceForRating = nil
+                        },
+                        onDismiss: {
+                            showRatingEditor = false
+                            selectedPlaceForRating = nil
+                        }
+                    )
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    .presentationBg()
+                }
             }
             .sheet(isPresented: $showAllLocationsSheet) {
                 AllVisitsSheet(
@@ -178,11 +202,33 @@ struct MapsViewNew: View, Searchable {
     
     private var headerSection: some View {
         VStack(spacing: 0) {
-            // Tab bar
+            // Tab bar with search bar
             HStack(spacing: 12) {
+                // Empty spacer for balance
+                Color.clear.frame(width: 44, height: 44)
+                
                 Spacer()
                 tabBarView
                 Spacer()
+                
+                // Search icon on the right
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isLocationSearchActive = true
+                        isSearchFocused = true
+                    }
+                }) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -190,14 +236,72 @@ struct MapsViewNew: View, Searchable {
             .background(
                 colorScheme == .dark ? Color.black : Color.white
             )
+            
+            // Search bar (appears when active)
+            if isLocationSearchActive {
+                locationSearchBar
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+                    .background(
+                        colorScheme == .dark ? Color.black : Color.white
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
+    }
+    
+    private var locationSearchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(FontManager.geist(size: 14, weight: .medium))
+                .foregroundColor(.gray)
+
+            TextField("Search locations", text: $locationSearchText)
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .focused($isSearchFocused)
+                .submitLabel(.search)
+
+            // Clear button
+            if !locationSearchText.isEmpty {
+                Button(action: {
+                    locationSearchText = ""
+                    isSearchFocused = false
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            // Close button
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    locationSearchText = ""
+                    isLocationSearchActive = false
+                    isSearchFocused = false
+                }
+            }) {
+                Text("Cancel")
+                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+        )
     }
     
     // MARK: - Tab Bar View
     
     private var tabBarView: some View {
         HStack(spacing: 4) {
-            ForEach(["folders", "people", "ranking", "timeline"], id: \.self) { tab in
+            ForEach(["folders", "people", "timeline"], id: \.self) { tab in
                 tabButton(for: tab)
             }
         }
@@ -242,8 +346,6 @@ struct MapsViewNew: View, Searchable {
             return "folder.fill"
         } else if tab == "people" {
             return "person.2.fill"
-        } else if tab == "ranking" {
-            return "chart.bar.fill"
         } else {
             return "clock.fill"
         }
@@ -258,8 +360,6 @@ struct MapsViewNew: View, Searchable {
                     locationsTabContent
                 } else if selectedTab == "people" {
                     peopleTabContent
-                } else if selectedTab == "ranking" {
-                    rankingTabContent
                 } else {
                     timelineTabContent
                 }
@@ -407,7 +507,6 @@ struct MapsViewNew: View, Searchable {
         } else if selectedCategory == nil {
             VStack(spacing: 16) {
                 miniMapSection
-                recentlyVisitedSection
                 favoritesSection
                 expandableCategoriesSection
             }
@@ -439,8 +538,10 @@ struct MapsViewNew: View, Searchable {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     Text("Favorites")
-                        .font(FontManager.geist(size: 17, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .textCase(.uppercase)
+                        .tracking(0.5)
                     Spacer()
                 }
                 .padding(.horizontal, 20)
@@ -588,54 +689,43 @@ struct MapsViewNew: View, Searchable {
 
     @ViewBuilder
     private var expandableCategoriesSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Text("All Locations")
-                    .font(FontManager.geist(size: 17, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                Spacer()
-                if selectedCategory == nil {
-                    Button(action: {
-                        showSearchModal = true
-                    }) {
-                        Text("Add")
-                            .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .black : .white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .fill(colorScheme == .dark ? Color.white : Color.black)
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
+        VStack(spacing: 24) {
+            ForEach(LocationSuperCategory.allCases, id: \.self) { superCategory in
+                var groupedPlaces = getPlacesForSuperCategory(superCategory)
 
-            VStack(spacing: 0) {
-                ForEach(locationsManager.categories, id: \.self) { category in
-                    let filteredPlaces = getFilteredPlaces()
-                    let categoryPlaces = filteredPlaces.filter { $0.category == category }
-                    ExpandableCategoryRow(
-                        category: category,
-                        places: categoryPlaces,
-                        isExpanded: expandedCategories.contains(category),
-                        currentLocation: locationService.currentLocation,
-                        colorScheme: colorScheme,
-                        onToggle: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                if expandedCategories.contains(category) {
-                                    expandedCategories.remove(category)
-                                } else {
-                                    expandedCategories.insert(category)
-                                }
+                // Apply cuisine filter for Food & Dining
+                if superCategory == .foodAndDining && !selectedCuisines.isEmpty {
+                    groupedPlaces = groupedPlaces.mapValues { places in
+                        places.filter { place in
+                            selectedCuisines.contains { cuisine in
+                                place.cuisine?.localizedCaseInsensitiveContains(cuisine) ?? false ||
+                                place.category.localizedCaseInsensitiveContains(cuisine)
                             }
-                            HapticManager.shared.light()
-                        },
+                        }
+                    }.filter { !$0.value.isEmpty }
+                }
+
+                if !groupedPlaces.isEmpty {
+                    // Add cuisine filter for Food & Dining
+                    if superCategory == .foodAndDining {
+                        CuisineFilterView(
+                            selectedCuisines: $selectedCuisines,
+                            colorScheme: colorScheme
+                        )
+                    }
+
+                    SuperCategorySection(
+                        superCategory: superCategory,
+                        groupedPlaces: groupedPlaces,
+                        expandedCategories: $expandedCategories,
+                        colorScheme: colorScheme,
+                        currentLocation: locationService.currentLocation,
                         onPlaceTap: { place in
                             selectedPlace = place
+                        },
+                        onRatingTap: { place in
+                            selectedPlaceForRating = place
+                            showRatingEditor = true
                         },
                         onMoveToFolder: { place in
                             placeToMove = place
@@ -644,36 +734,9 @@ struct MapsViewNew: View, Searchable {
                     )
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 22)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .stroke(
-                    colorScheme == .dark 
-                        ? Color.white.opacity(0.08)
-                        : Color.clear,
-                    lineWidth: 1
-                )
-        )
-        .shadow(
-            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
-            radius: 20,
-            x: 0,
-            y: 4
-        )
-        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
     }
 
-    @ViewBuilder
-    private var rankingTabContent: some View {
-        RankingView(locationsManager: locationsManager, colorScheme: colorScheme, locationSearchText: locationSearchText)
-    }
-    
     @ViewBuilder
     private var peopleTabContent: some View {
         PeopleListView(
@@ -989,6 +1052,22 @@ struct MapsViewNew: View, Searchable {
             let nameMatch = place.displayName.lowercased().contains(searchLower)
             return countryMatch || provinceMatch || cityMatch || addressMatch || nameMatch
         }
+    }
+    
+    private func getPlacesForSuperCategory(_ superCategory: LocationSuperCategory) -> [String: [SavedPlace]] {
+        let filtered = getFilteredPlaces()
+        var result: [String: [SavedPlace]] = [:]
+        
+        for category in locationsManager.categories {
+            if locationsManager.getSuperCategory(for: category) == superCategory {
+                let categoryPlaces = filtered.filter { $0.category == category }
+                if !categoryPlaces.isEmpty {
+                    result[category] = categoryPlaces
+                }
+            }
+        }
+        
+        return result
     }
 
     // OPTIMIZATION: Cache sorted categories to avoid re-sorting on every render

@@ -15,10 +15,12 @@ struct NoteSectionHeader: View {
             }
         }) {
             HStack {
-                // Section title - matching email page font and size
-                Text(title.lowercased().capitalized)
-                    .font(FontManager.geist(size: 15, weight: .semibold))
-                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                // Section title - matching Quick Access styling
+                Text(title)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
 
                 Spacer()
 
