@@ -691,19 +691,7 @@ struct MapsViewNew: View, Searchable {
     private var expandableCategoriesSection: some View {
         VStack(spacing: 24) {
             ForEach(LocationSuperCategory.allCases, id: \.self) { superCategory in
-                var groupedPlaces = getPlacesForSuperCategory(superCategory)
-
-                // Apply cuisine filter for Food & Dining
-                if superCategory == .foodAndDining && !selectedCuisines.isEmpty {
-                    groupedPlaces = groupedPlaces.mapValues { places in
-                        places.filter { place in
-                            selectedCuisines.contains { cuisine in
-                                place.cuisine?.localizedCaseInsensitiveContains(cuisine) ?? false ||
-                                place.category.localizedCaseInsensitiveContains(cuisine)
-                            }
-                        }
-                    }.filter { !$0.value.isEmpty }
-                }
+                let groupedPlaces = getFilteredPlaces(for: superCategory)
 
                 if !groupedPlaces.isEmpty {
                     // Add cuisine filter for Food & Dining
@@ -1068,6 +1056,25 @@ struct MapsViewNew: View, Searchable {
         }
         
         return result
+    }
+
+    /// Get filtered places for a super-category with cuisine filtering applied
+    private func getFilteredPlaces(for superCategory: LocationSuperCategory) -> [String: [SavedPlace]] {
+        var groupedPlaces = getPlacesForSuperCategory(superCategory)
+
+        // Apply cuisine filter for Food & Dining
+        if superCategory == .foodAndDining && !selectedCuisines.isEmpty {
+            groupedPlaces = groupedPlaces.mapValues { places in
+                places.filter { place in
+                    selectedCuisines.contains { cuisine in
+                        place.cuisine?.localizedCaseInsensitiveContains(cuisine) ?? false ||
+                        place.category.localizedCaseInsensitiveContains(cuisine)
+                    }
+                }
+            }.filter { !$0.value.isEmpty }
+        }
+
+        return groupedPlaces
     }
 
     // OPTIMIZATION: Cache sorted categories to avoid re-sorting on every render
