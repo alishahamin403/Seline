@@ -37,9 +37,6 @@ struct ConversationSearchView: View {
     @State private var voiceModeState: VoiceModeState = .idle // State machine for voice mode
     @State private var voiceModeListeningPulse = false // Animation state for listening indicator
     @State private var lastMeaningfulTranscript = ""
-    @State private var showingEventCreationResult = false
-    @State private var eventCreationMessage = ""
-    @State private var eventCreationIsError = false
 
     private let voiceDraftScrollId = "voiceDraftScrollId"
 
@@ -167,13 +164,6 @@ struct ConversationSearchView: View {
                 EmailDetailView(email: email)
             }
             .presentationBg()
-        }
-        .alert(isPresented: $showingEventCreationResult) {
-            Alert(
-                title: Text(eventCreationIsError ? "Error" : "Success"),
-                message: Text(eventCreationMessage),
-                dismissButton: .default(Text("OK"))
-            )
         }
     }
 
@@ -1440,6 +1430,9 @@ struct ConversationMessageView: View {
     @StateObject private var searchService = SearchService.shared
     @StateObject private var emailService = EmailService.shared
     @Binding var selectedEmail: Email?
+    @State private var showingEventCreationResult = false
+    @State private var eventCreationMessage = ""
+    @State private var eventCreationIsError = false
 
     // Determine if message has complex formatting
     private var hasComplexFormatting: Bool {
@@ -1542,6 +1535,13 @@ struct ConversationMessageView: View {
                 .padding(.leading, message.isUser ? 16 : 0)
                 .padding(.trailing, 16)
             }
+        }
+        .alert(isPresented: $showingEventCreationResult) {
+            Alert(
+                title: Text(eventCreationIsError ? "Error" : "Success"),
+                message: Text(eventCreationMessage),
+                dismissButton: .default(Text("OK"))
+            )
         }
     }
 
