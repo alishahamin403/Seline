@@ -733,25 +733,36 @@ class SelineAppContext {
     /// Parse a single event from a query part
     private func parseSingleEvent(from query: String) -> EventCreationInfo? {
         let lowercaseQuery = query.lowercased()
-        
+        print("🔍 parseSingleEvent called with: '\(query)'")
+
         // Extract title - look for quoted text or text after creation keywords
         var title = extractEventTitle(from: lowercaseQuery)
-        guard !title.isEmpty else { return nil }
-        
+        print("🔍 Extracted title: '\(title)'")
+        guard !title.isEmpty else {
+            print("⚠️ Title extraction returned empty - aborting event creation")
+            return nil
+        }
+
         // Extract date and time
         let (date, hasTime) = extractEventDateTime(from: lowercaseQuery)
-        guard let eventDate = date else { return nil }
-        
+        print("🔍 Extracted date: \(String(describing: date)), hasTime: \(hasTime)")
+        guard let eventDate = date else {
+            print("⚠️ Date extraction returned nil - aborting event creation")
+            return nil
+        }
+
         // Extract reminder
         let reminderMinutes = extractReminderMinutes(from: lowercaseQuery)
-        
+
         // Extract category (default to "Personal")
         let category = extractEventCategory(from: lowercaseQuery)
-        
+        print("🔍 Extracted category: '\(category)'")
+
         // Clean up the title
         title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if title.count > 100 { title = String(title.prefix(100)) }
-        
+
+        print("✅ Successfully parsed event: '\(title)' on \(eventDate)")
         return EventCreationInfo(
             title: title.capitalized,
             date: eventDate,
@@ -1308,14 +1319,19 @@ class SelineAppContext {
         
         // Detect event creation queries and extract details
         let userAskedToCreateEvent = isEventCreationQuery(userQuery)
+        print("🔍 Event creation query detected: \(userAskedToCreateEvent) for query: '\(userQuery)'")
         if userAskedToCreateEvent {
             let extractedEvents = extractEventDetails(from: userQuery)
+            print("🔍 Extracted \(extractedEvents.count) events from query")
             if !extractedEvents.isEmpty {
                 self.lastEventCreationInfo = extractedEvents
-                print("📅 Detected event creation request: \(extractedEvents.count) event(s)")
+                print("📅✅ SET lastEventCreationInfo with \(extractedEvents.count) event(s)")
                 for event in extractedEvents {
-                    print("   • \(event.title) on \(event.formattedDateTime)")
+                    print("   • Title: '\(event.title)' on \(event.formattedDateTime)")
+                    print("   • Category: '\(event.category)', HasTime: \(event.hasTime)")
                 }
+            } else {
+                print("⚠️ Event keyword matched but extraction returned EMPTY array - check extractEventDetails()")
             }
         }
         
