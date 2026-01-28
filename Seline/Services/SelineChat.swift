@@ -218,6 +218,10 @@ class SelineChat: ObservableObject {
         let contextPrompt: String
 
         if !userMessage.isEmpty {
+            // CRITICAL: Prepare app context to detect event creation, ETA requests, etc.
+            // This populates appContext.lastEventCreationInfo which is used by the UI
+            await appContext.prepareContextForQuery(userMessage)
+
             // Use vector-based semantic search for relevant context only
             // This dramatically reduces token count and improves response speed
             let result = await vectorContextBuilder.buildContext(forQuery: userMessage)
