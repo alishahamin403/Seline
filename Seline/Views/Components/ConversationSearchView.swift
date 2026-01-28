@@ -37,7 +37,10 @@ struct ConversationSearchView: View {
     @State private var voiceModeState: VoiceModeState = .idle // State machine for voice mode
     @State private var voiceModeListeningPulse = false // Animation state for listening indicator
     @State private var lastMeaningfulTranscript = ""
-    
+    @State private var showingEventCreationResult = false
+    @State private var eventCreationMessage = ""
+    @State private var eventCreationIsError = false
+
     private let voiceDraftScrollId = "voiceDraftScrollId"
 
 
@@ -164,6 +167,13 @@ struct ConversationSearchView: View {
                 EmailDetailView(email: email)
             }
             .presentationBg()
+        }
+        .alert(isPresented: $showingEventCreationResult) {
+            Alert(
+                title: Text(eventCreationIsError ? "Error" : "Success"),
+                message: Text(eventCreationMessage),
+                dismissButton: .default(Text("OK"))
+            )
         }
     }
 
@@ -1581,15 +1591,39 @@ struct ConversationMessageView: View {
         }
     }
     
+    private func getOrCreateTagForCategory(_ category: String) -> String? {
+        let normalizedCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Personal is the default (nil tagId)
+        if normalizedCategory.lowercased() == "personal" {
+            return nil
+        }
+
+        // Check if tag already exists
+        let tagManager = TagManager.shared
+        if let existingTag = tagManager.tags.first(where: {
+            $0.name.lowercased() == normalizedCategory.lowercased()
+        }) {
+            return existingTag.id
+        }
+
+        // Create new tag for this category
+        if let newTag = tagManager.createTag(name: normalizedCategory) {
+            return newTag.id
+        }
+
+        return nil
+    }
+
     private func createEvents(_ events: [EventCreationInfo]) async {
         let taskManager = TaskManager.shared
         let calendar = Calendar.current
-        
+
         for event in events {
             // Determine the weekday from the event date
             let weekdayNum = calendar.component(.weekday, from: event.date)
             let weekday = weekdayFromNumber(weekdayNum)
-            
+
             // Convert reminder minutes to ReminderTime
             let reminderTime: ReminderTime? = {
                 guard let minutes = event.reminderMinutes else { return nil }
@@ -1601,7 +1635,10 @@ struct ConversationMessageView: View {
                 default: return .oneDay
                 }
             }()
-            
+
+            // Map category to tag ID
+            let tagId = getOrCreateTagForCategory(event.category)
+
             // Use TaskManager.addTask with correct parameters
             await MainActor.run {
                 taskManager.addTask(
@@ -1616,14 +1653,19 @@ struct ConversationMessageView: View {
                     isRecurring: false,
                     recurrenceFrequency: nil,
                     customRecurrenceDays: nil,
-                    tagId: nil
+                    tagId: tagId
                 )
             }
         }
-        
-        // Success feedback
+
+        // Show feedback to user
         await MainActor.run {
             HapticManager.shared.success()
+            eventCreationMessage = events.count == 1
+                ? "Event created successfully"
+                : "Successfully created \(events.count) events"
+            eventCreationIsError = false
+            showingEventCreationResult = true
         }
     }
     

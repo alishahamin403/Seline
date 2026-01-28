@@ -10,8 +10,15 @@ struct EventCreationCard: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedEvents: Set<UUID>
     @State private var isCreating = false
-    
-    init(events: [EventCreationInfo], onConfirm: @escaping ([EventCreationInfo]) -> Void, onCancel: @escaping () -> Void) {
+    @State private var editedEvents: [UUID: EventCreationInfo] = [:]
+    @State private var showingEditSheet = false
+    @State private var eventToEdit: EventCreationInfo?
+
+    init(
+        events: [EventCreationInfo],
+        onConfirm: @escaping ([EventCreationInfo]) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
         self.events = events
         self.onConfirm = onConfirm
         self.onCancel = onCancel
@@ -29,6 +36,37 @@ struct EventCreationCard: View {
         .cornerRadius(12)
         .overlay(borderView)
         .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
+        .sheet(isPresented: $showingEditSheet) {
+            if let event = eventToEdit {
+                AddEventPopupView(
+                    isPresented: $showingEditSheet,
+                    onSave: { title, description, date, endDate, time, reminder, isRecurring, frequency, customDays, location, tagId in
+                        // Create updated EventCreationInfo
+                        let reminderMins: Int? = {
+                            guard let reminder = reminder, reminder != .none else { return nil }
+                            return reminder.minutes
+                        }()
+
+                        let updatedEvent = EventCreationInfo(
+                            id: event.id,
+                            title: title,
+                            date: date,
+                            hasTime: time != nil,
+                            reminderMinutes: reminderMins,
+                            category: event.category, // Keep original category unless we add tag selector
+                            location: location,
+                            notes: description,
+                            isConfirmed: false
+                        )
+                        // Store the edited event
+                        editedEvents[event.id] = updatedEvent
+                        showingEditSheet = false
+                    },
+                    initialDate: event.date,
+                    initialTime: event.hasTime ? event.date : nil
+                )
+            }
+        }
     }
     
     private var headerView: some View {
@@ -54,7 +92,7 @@ struct EventCreationCard: View {
         VStack(spacing: 8) {
             ForEach(events) { event in
                 EventRowView(
-                    event: event,
+                    event: editedEvents[event.id] ?? event,
                     isSelected: selectedEvents.contains(event.id),
                     showCheckbox: events.count > 1,
                     colorScheme: colorScheme,
@@ -79,6 +117,9 @@ struct EventCreationCard: View {
     private var actionButtonsView: some View {
         HStack(spacing: 10) {
             cancelButton
+            if selectedEvents.count == 1 {
+                editButton
+            }
             confirmButton
         }
         .padding(.horizontal, 14)
@@ -99,12 +140,40 @@ struct EventCreationCard: View {
                 .cornerRadius(8)
         }
     }
-    
+
+    private var editButton: some View {
+        Button(action: {
+            HapticManager.shared.selection()
+            // Find the selected event to edit
+            if let selectedEventId = selectedEvents.first,
+               let event = events.first(where: { $0.id == selectedEventId }) {
+                // Get the current event (possibly edited version)
+                eventToEdit = editedEvents[event.id] ?? event
+                showingEditSheet = true
+            }
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: "pencil")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("Edit")
+                    .font(FontManager.geist(size: 13, weight: .medium))
+            }
+            .foregroundColor(Color.shadcnForeground(colorScheme).opacity(0.7))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.1))
+            .cornerRadius(8)
+        }
+    }
+
     private var confirmButton: some View {
         Button(action: {
             HapticManager.shared.medium()
             isCreating = true
-            let eventsToCreate = events.filter { selectedEvents.contains($0.id) }
+            // Use edited events if they exist, otherwise use original events
+            let eventsToCreate = events
+                .filter { selectedEvents.contains($0.id) }
+                .map { editedEvents[$0.id] ?? $0 }
             onConfirm(eventsToCreate)
         }) {
             HStack(spacing: 6) {

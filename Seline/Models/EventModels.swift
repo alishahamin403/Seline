@@ -4,6 +4,13 @@ import SwiftUI
 import EventKit
 import WidgetKit
 
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let taskSavedToSupabase = Notification.Name("taskSavedToSupabase")
+    static let taskFailedToSaveToSupabase = Notification.Name("taskFailedToSaveToSupabase")
+}
+
 // Color palette for tags - DEPRECATED: Now using TimelineEventColorManager.NeutralColorPalette
 // Keeping for backwards compatibility, but new code should use TimelineEventColorManager
 struct TagColorPalette {
@@ -2170,6 +2177,11 @@ class TaskManager: ObservableObject {
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
             print("⚠️ Cannot save task to Supabase: User not authenticated")
+            NotificationCenter.default.post(
+                name: .taskFailedToSaveToSupabase,
+                object: nil,
+                userInfo: ["taskId": task.id, "error": "User not authenticated"]
+            )
             return
         }
 
@@ -2185,8 +2197,18 @@ class TaskManager: ObservableObject {
                 .execute()
 
             print("✅ Saved encrypted task to Supabase: '\(task.title)'")
+            NotificationCenter.default.post(
+                name: .taskSavedToSupabase,
+                object: nil,
+                userInfo: ["taskId": task.id]
+            )
         } catch {
             print("❌ Failed to save task to Supabase: \(error)")
+            NotificationCenter.default.post(
+                name: .taskFailedToSaveToSupabase,
+                object: nil,
+                userInfo: ["taskId": task.id, "error": error.localizedDescription]
+            )
         }
     }
 
