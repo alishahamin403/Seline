@@ -45,7 +45,26 @@ class ConversationState: ObservableObject {
 
     func updateLastMessage(content: String) {
         guard !conversationHistory.isEmpty else { return }
-        conversationHistory[conversationHistory.count - 1].content = content
+        let lastIndex = conversationHistory.count - 1
+        let lastMessage = conversationHistory[lastIndex]
+        
+        // Create a new message with updated text, preserving all other properties
+        let updatedMessage = ConversationMessage(
+            id: lastMessage.id,
+            isUser: lastMessage.isUser,
+            text: content,
+            timestamp: lastMessage.timestamp,
+            intent: lastMessage.intent,
+            relatedData: lastMessage.relatedData,
+            timeStarted: lastMessage.timeStarted,
+            timeFinished: lastMessage.timeFinished,
+            followUpSuggestions: lastMessage.followUpSuggestions,
+            locationInfo: lastMessage.locationInfo,
+            eventCreationInfo: lastMessage.eventCreationInfo,
+            relevantContent: lastMessage.relevantContent,
+            proactiveQuestion: lastMessage.proactiveQuestion
+        )
+        conversationHistory[lastIndex] = updatedMessage
     }
 
     func clearHistory() {

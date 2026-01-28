@@ -134,10 +134,17 @@ class LocationErrorRecoveryService {
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let now = Date()
 
+            // CRITICAL: Deduplicate visits before processing to prevent duplicates
+            let dedupedVisits = deduplicateVisits(incompleteVisits)
+
+            if dedupedVisits.count < incompleteVisits.count {
+                print("🔄 Deduplication: Reduced from \(incompleteVisits.count) to \(dedupedVisits.count) visits")
+            }
+
             var restoredCount = 0
             var closedCount = 0
 
-            for visit in incompleteVisits {
+            for visit in dedupedVisits {
                 // Check if visit location exists
                 guard let place = savedPlaces.first(where: { $0.id == visit.savedPlaceId }) else {
                     print("⚠️ Location not found for visit: \(visit.id.uuidString) - closing")
@@ -251,6 +258,53 @@ class LocationErrorRecoveryService {
         } catch {
             print("❌ Failed to close visit \(visit.id.uuidString): \(error)")
         }
+    }
+
+    /// Deduplicates visits by removing duplicates with identical entry times
+    /// Keeps the visit with the most recent session ID (most likely to be current)
+    private func deduplicateVisits(_ visits: [LocationVisitRecord]) -> [LocationVisitRecord] {
+        guard !visits.isEmpty else { return visits }
+
+        var visitsByPlace: [UUID: [LocationVisitRecord]] = [:]
+
+        // Group visits by place
+        for visit in visits {
+            visitsByPlace[visit.savedPlaceId, default: []].append(visit)
+        }
+
+        var deduped: [LocationVisitRecord] = []
+
+        // For each place, keep only one visit per entry time
+        for (_, placeVisits) in visitsByPlace {
+            // Group by entry time (with 1-second tolerance for precision issues)
+            let grouped = Dictionary(grouping: placeVisits) { visit in
+                Int(visit.entryTime.timeIntervalSince1970)
+            }
+
+            for (_, sameTimeVisits) in grouped {
+                if sameTimeVisits.count > 1 {
+                    print("🔄 Deduplicating \(sameTimeVisits.count) visits with same entry time")
+                }
+
+                // Keep the visit with the latest session ID (most recent)
+                // Or if session IDs are same, keep the one with the latest created_at
+                if let latest = sameTimeVisits.max(by: { visit1, visit2 in
+                    // Compare by session ID first (handle optionals)
+                    let id1 = visit1.sessionId?.uuidString ?? ""
+                    let id2 = visit2.sessionId?.uuidString ?? ""
+
+                    if id1 != id2 {
+                        return id1 < id2
+                    }
+                    // If session IDs are same or both nil, keep first one
+                    return false
+                }) {
+                    deduped.append(latest)
+                }
+            }
+        }
+
+        return deduped
     }
 
     // MARK: - Unresolved Visit Check (SOLUTION 2)
@@ -542,7 +596,8 @@ class LocationErrorRecoveryService {
                 .eq("id", value: visit.id.uuidString)
                 .execute()
 
-            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
+            // CRITICAL: Use unified cache invalidation to keep all views in sync
+            LocationVisitAnalytics.shared.invalidateAllVisitCaches()
         } catch {
             print("❌ Error updating visit: \(error)")
         }
@@ -564,7 +619,8 @@ class LocationErrorRecoveryService {
                 .eq("id", value: visit.id.uuidString)
                 .execute()
 
-            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
+            // CRITICAL: Use unified cache invalidation to keep all views in sync
+            LocationVisitAnalytics.shared.invalidateAllVisitCaches()
         } catch {
             print("❌ Error deleting visit: \(error)")
         }
@@ -643,7 +699,8 @@ class LocationErrorRecoveryService {
                 .insert(visitData)
                 .execute()
 
-            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
+            // CRITICAL: Use unified cache invalidation to keep all views in sync
+            LocationVisitAnalytics.shared.invalidateAllVisitCaches()
         } catch {
             print("❌ Error saving visit: \(error)")
         }
@@ -828,8 +885,8 @@ class LocationErrorRecoveryService {
                     totalMerged += 1
                 }
                 
-                // Invalidate cache for this location
-                LocationVisitAnalytics.shared.invalidateCache(for: placeId)
+                // CRITICAL: Use unified cache invalidation to keep all views in sync
+                LocationVisitAnalytics.shared.invalidateAllVisitCaches()
             }
             
             print("\n📊 ===== MERGE SUMMARY =====")

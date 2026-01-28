@@ -99,6 +99,27 @@ struct VisitHistoryCard: View {
             }
         }
         .onAppear {
+            // CRITICAL: Always refresh on appear to ensure we show the latest data
+            loadVisitHistory()
+        }
+        .task {
+            // CRITICAL: Run midnight fix on first load to ensure data consistency with calendar view
+            let result = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
+            if result.fixed > 0 {
+                print("✅ Fixed \(result.fixed) midnight-spanning visits on history load")
+                // Invalidate all caches and reload
+                await MainActor.run {
+                    LocationVisitAnalytics.shared.invalidateAllVisitCaches()
+                }
+                loadVisitHistory()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
+            // Refresh when visits are updated (e.g., after midnight split fixes, visit creation, etc.)
+            loadVisitHistory()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
+            // Also refresh when a new visit is created
             loadVisitHistory()
         }
     }
@@ -107,10 +128,13 @@ struct VisitHistoryCard: View {
         isLoading = true
         Task {
             // Fetch with a high limit to get all visits (10000 should be enough for most cases)
-            visitHistory = await LocationVisitAnalytics.shared.fetchVisitHistory(for: place.id, limit: 10000)
-            // Group visits by date
-            groupVisitsByDate()
-            isLoading = false
+            let fetchedHistory = await LocationVisitAnalytics.shared.fetchVisitHistory(for: place.id, limit: 10000)
+            await MainActor.run {
+                visitHistory = fetchedHistory
+                // Group visits by date
+                groupVisitsByDate()
+                isLoading = false
+            }
         }
     }
 

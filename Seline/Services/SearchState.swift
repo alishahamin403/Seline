@@ -54,26 +54,3 @@ class SearchState: ObservableObject {
         streamingMessageID = nil
     }
 }
-
-// MARK: - Supporting Types
-
-enum QueryType {
-    case search
-    case question
-    case action
-}
-
-struct SearchResult: Identifiable {
-    let id = UUID()
-    let type: SearchResultType
-    let content: String
-    let metadata: [String: Any]
-
-    enum SearchResultType {
-        case note
-        case event
-        case email
-        case location
-        case other
-    }
-}

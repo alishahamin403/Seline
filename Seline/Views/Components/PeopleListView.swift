@@ -102,8 +102,10 @@ struct PeopleListView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     Text("Favorites")
-                        .font(FontManager.geist(size: 17, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .textCase(.uppercase)
+                        .tracking(0.5)
                     Spacer()
                 }
                 .padding(.horizontal, 20)
@@ -195,8 +197,10 @@ struct PeopleListView: View {
             // Header with "All People" title and Add button
             HStack(spacing: 12) {
                 Text("All People")
-                    .font(FontManager.geist(size: 17, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
                 Spacer()
                 
                 // Add button in top right

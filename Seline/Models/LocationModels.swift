@@ -6,6 +6,30 @@ import MapKit
 
 // MARK: - Location Models
 
+// MARK: - Location Super Category
+
+enum LocationSuperCategory: String, CaseIterable {
+    case foodAndDining = "Food & Dining"
+    case services = "Services"
+    case shopping = "Shopping"
+    case entertainment = "Entertainment"
+    case personal = "Personal"
+    
+    var icon: String {
+        switch self {
+        case .foodAndDining: return "fork.knife"
+        case .services: return "wrench.and.screwdriver"
+        case .shopping: return "bag"
+        case .entertainment: return "popcorn"
+        case .personal: return "house"
+        }
+    }
+    
+    var isRatable: Bool {
+        return self != .personal
+    }
+}
+
 struct SavedPlace: Identifiable, Codable, Hashable {
     var id: UUID
     var googlePlaceId: String
@@ -362,6 +386,76 @@ class LocationsManager: ObservableObject {
         return nil
     }
 
+    // MARK: - Super Category Helpers
+    
+    /// Get the super category for a given category string
+    func getSuperCategory(for category: String) -> LocationSuperCategory {
+        let lower = category.lowercased()
+        
+        // Food & Dining
+        if lower.contains("restaurant") || lower.contains("cafe") || lower.contains("coffee") ||
+           lower.contains("pizza") || lower.contains("burger") || lower.contains("food") ||
+           lower.contains("dining") || lower.contains("bakery") || lower.contains("deli") ||
+           lower.contains("bar") || lower.contains("pub") || lower.contains("brewery") ||
+           lower.contains("winery") || lower.contains("bistro") || lower.contains("eatery") {
+            return .foodAndDining
+        }
+        
+        // Services
+        if lower.contains("gym") || lower.contains("fitness") || lower.contains("salon") ||
+           lower.contains("barber") || lower.contains("spa") || lower.contains("clinic") ||
+           lower.contains("hospital") || lower.contains("doctor") || lower.contains("dentist") ||
+           lower.contains("repair") || lower.contains("service") || lower.contains("laundry") ||
+           lower.contains("cleaners") || lower.contains("mechanic") || lower.contains("garage") {
+            return .services
+        }
+        
+        // Shopping
+        if lower.contains("store") || lower.contains("shop") || lower.contains("mall") ||
+           lower.contains("market") || lower.contains("boutique") || lower.contains("outlet") ||
+           lower.contains("retail") || lower.contains("grocery") || lower.contains("supermarket") {
+            return .shopping
+        }
+        
+        // Entertainment
+        if lower.contains("cinema") || lower.contains("theater") || lower.contains("theatre") ||
+           lower.contains("club") || lower.contains("lounge") || lower.contains("entertainment") ||
+           lower.contains("arcade") || lower.contains("bowling") || lower.contains("museum") ||
+           lower.contains("gallery") || lower.contains("park") || lower.contains("recreation") {
+            return .entertainment
+        }
+        
+        // Personal (Home, Work, Office)
+        if lower.contains("home") || lower.contains("work") || lower.contains("office") ||
+           lower.contains("house") || lower.contains("residence") {
+            return .personal
+        }
+        
+        // Default to personal for unknown categories
+        return .personal
+    }
+    
+    /// Get all places grouped by super category, then by category
+    var categorizedPlaces: [LocationSuperCategory: [String: [SavedPlace]]] {
+        var result: [LocationSuperCategory: [String: [SavedPlace]]] = [:]
+        
+        // Initialize all super categories with empty dictionaries
+        for superCategory in LocationSuperCategory.allCases {
+            result[superCategory] = [:]
+        }
+        
+        // Group places by category first
+        let placesByCategory = Dictionary(grouping: savedPlaces) { $0.category }
+        
+        // Then organize by super category
+        for (category, places) in placesByCategory {
+            let superCategory = getSuperCategory(for: category)
+            result[superCategory]?[category] = places
+        }
+        
+        return result
+    }
+    
     // MARK: - Place Operations
 
     func addPlace(_ place: SavedPlace) {

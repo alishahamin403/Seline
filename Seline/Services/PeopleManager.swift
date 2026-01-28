@@ -54,6 +54,8 @@ class PeopleManager: ObservableObject {
         // Sync with Supabase
         Task {
             await savePersonToSupabase(person)
+            // Immediately embed the new person
+            await VectorSearchService.shared.syncEmbeddingsImmediately()
         }
     }
     
@@ -71,6 +73,8 @@ class PeopleManager: ObservableObject {
         // Sync with Supabase
         Task {
             await updatePersonInSupabase(person)
+            // Immediately embed the updated person
+            await VectorSearchService.shared.syncEmbeddingsImmediately()
         }
     }
     

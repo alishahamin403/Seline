@@ -107,7 +107,50 @@ class LocationVisitAnalytics: ObservableObject {
     }
 
     /// Get visit history for a specific place
+    /// Shared function to process visits for display (splits midnight-spanning, merges gaps)
+    /// This ensures all views show consistent, processed visit data
+    func processVisitsForDisplay(_ visits: [LocationVisitRecord]) -> [LocationVisitRecord] {
+        var processedVisits: [LocationVisitRecord] = []
+        
+        // Track which time ranges have split visits to avoid duplicates
+        var splitVisitTimeRanges: Set<String> = []
+        
+        // First pass: identify all split visits and their time ranges
+        for visit in visits {
+            if visit.mergeReason?.contains("midnight_split") == true {
+                if let sessionId = visit.sessionId {
+                    splitVisitTimeRanges.insert(sessionId.uuidString)
+                }
+            }
+        }
+        
+        // Second pass: process visits
+        for visit in visits {
+            // Skip unsplit visits that have corresponding split versions
+            if visit.spansMidnight() && visit.exitTime != nil && visit.mergeReason?.contains("midnight_split") != true {
+                // Check if this visit has split versions by looking for visits with same session_id
+                if let sessionId = visit.sessionId, splitVisitTimeRanges.contains(sessionId.uuidString) {
+                    continue
+                }
+                
+                // No split versions exist - split on the fly for display
+                let splitVisits = visit.splitAtMidnightIfNeeded()
+                processedVisits.append(contentsOf: splitVisits)
+            } else {
+                // Normal visit or already split - add as-is
+                processedVisits.append(visit)
+            }
+        }
+        
+        // Auto-merge visits with <5 minute gaps BEFORE displaying
+        let mergedVisits = autoMergeVisits(processedVisits)
+        
+        return mergedVisits
+    }
+    
     /// CRITICAL: Handles midnight-spanning visits by splitting them and deduplicating
+    /// Always fetches fresh data from database to ensure accuracy with calendar view and home widget
+    /// Uses the same query pattern as calendar view but filtered by location
     func fetchVisitHistory(for placeId: UUID, limit: Int = 20) async -> [VisitHistoryItem] {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             errorMessage = "User not authenticated"
@@ -115,64 +158,45 @@ class LocationVisitAnalytics: ObservableObject {
         }
 
         do {
-            let visits = try await fetchVisits(for: placeId, userId: userId)
+            // CRITICAL: Query database directly using the SAME pattern as calendar view
+            // This ensures we get the exact same data that calendar view sees
+            // NOTE: Do NOT invalidate cache here - that causes infinite loops when reading data
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .eq("saved_place_id", value: placeId.uuidString)
+                .order("entry_time", ascending: false)
+                .execute()
+            
+            let decoder = JSONDecoder.supabaseDecoder()
+            let rawVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            
             let place = LocationsManager.shared.savedPlaces.first { $0.id == placeId }
 
-            // CRITICAL FIX: Process visits to handle midnight splits properly
-            var processedVisits: [LocationVisitRecord] = []
-            var hasMidnightSpanningVisits = false
-
-            // Track which time ranges have split visits to avoid duplicates
-            var splitVisitTimeRanges: Set<String> = []
-
-            // First pass: identify all split visits and their time ranges
-            for visit in visits {
-                if visit.mergeReason?.contains("midnight_split") == true {
-                    // Create a key for this split's original time range
-                    // Use the session_id to group related splits
-                    if let sessionId = visit.sessionId {
-                        splitVisitTimeRanges.insert(sessionId.uuidString)
-                    }
-                }
+            // CRITICAL: Use shared processing function to ensure consistency across all views
+            // This applies the same midnight splitting and gap merging as calendar view
+            let processedVisits = processVisitsForDisplay(rawVisits)
+            
+            // Check if we found midnight-spanning visits that need fixing (background only, no notification)
+            let hasMidnightSpanningVisits = rawVisits.contains { visit in
+                visit.spansMidnight() && visit.exitTime != nil && visit.mergeReason?.contains("midnight_split") != true
             }
-
-            // Second pass: process visits
-            for visit in visits {
-                // Skip unsplit visits that have corresponding split versions
-                // These are "orphaned" original visits that weren't deleted after splitting
-                if visit.spansMidnight() && visit.exitTime != nil && visit.mergeReason?.contains("midnight_split") != true {
-                    // Check if this visit has split versions by looking for visits with same session_id
-                    if let sessionId = visit.sessionId, splitVisitTimeRanges.contains(sessionId.uuidString) {
-                        print("🔄 fetchVisitHistory: Skipping orphaned unsplit visit \(visit.id) (has split versions)")
-                        hasMidnightSpanningVisits = true
-                        continue
-                    }
-
-                    // No split versions exist - split on the fly for display
-                    hasMidnightSpanningVisits = true
-                    let splitVisits = visit.splitAtMidnightIfNeeded()
-                    processedVisits.append(contentsOf: splitVisits)
-                    print("🌙 fetchVisitHistory: Split midnight-spanning visit \(visit.id) into \(splitVisits.count) parts for display")
-                } else {
-                    // Normal visit or already split - add as-is
-                    processedVisits.append(visit)
-                }
-            }
-
+            
             // Trigger background fix if we found midnight-spanning visits
             if hasMidnightSpanningVisits {
                 Task.detached(priority: .background) {
-                    print("🌙 AUTO-FIX: Detected midnight-spanning visits in history, running fix...")
                     let result = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
                     if result.fixed > 0 {
-                        print("✅ AUTO-FIX: Fixed \(result.fixed) midnight-spanning visits")
+                        // Only invalidate cache if we actually fixed something
                         await MainActor.run {
-                            LocationVisitAnalytics.shared.invalidateAllCache()
+                            LocationVisitAnalytics.shared.invalidateAllVisitCaches()
                         }
                     }
                 }
             }
-
+            
             // Sort by entry time (most recent first) and limit
             let sortedVisits = processedVisits
                 .sorted { $0.entryTime > $1.entryTime }
@@ -236,30 +260,18 @@ class LocationVisitAnalytics: ObservableObject {
         do {
             let visits = try await fetchVisits(for: placeId, userId: userId)
 
-            // Process visits - split any that span midnight for proper display
-            var processedVisits: [LocationVisitRecord] = []
-            var hasMidnightSpanningVisits = false
-
-            for visit in visits {
-                // Check if this visit spans midnight
-                if visit.spansMidnight(), visit.exitTime != nil {
-                    hasMidnightSpanningVisits = true
-                    
-                    // Split the visit into parts for each day
-                    let splitVisits = visit.splitAtMidnightIfNeeded()
-                    
-                    // Add splits that fall within our date range
-                    for splitVisit in splitVisits {
-                        if splitVisit.entryTime >= startDate && splitVisit.entryTime <= endDate {
-                            processedVisits.append(splitVisit)
-                        }
-                    }
-                } else {
-                    // Normal visit - just check if it's in range
-                    if visit.entryTime >= startDate && visit.entryTime <= endDate {
-                        processedVisits.append(visit)
-                    }
-                }
+            // CRITICAL: Use shared processing function for consistency with calendar view and history
+            // This ensures midnight splits AND gap merging are applied consistently
+            let processedVisits = processVisitsForDisplay(visits)
+            
+            // Filter to date range after processing
+            let filteredVisits = processedVisits.filter { visit in
+                visit.entryTime >= startDate && visit.entryTime <= endDate
+            }
+            
+            // Check if we found midnight-spanning visits that need fixing
+            let hasMidnightSpanningVisits = visits.contains { visit in
+                visit.spansMidnight() && visit.exitTime != nil && visit.mergeReason?.contains("midnight_split") != true
             }
 
             // CRITICAL: If we found midnight-spanning visits, trigger a background fix
@@ -278,7 +290,7 @@ class LocationVisitAnalytics: ObservableObject {
                 }
             }
 
-            return processedVisits
+            return filteredVisits
         } catch let urlError as URLError where urlError.code == .cancelled {
             // Task was cancelled (e.g., view refreshed) - this is expected, don't log as error
             return []
@@ -343,8 +355,9 @@ class LocationVisitAnalytics: ObservableObject {
 
     /// Get today's visits with total duration per location
     /// Returns array of (placeId, displayName, totalDurationMinutes, isActive) sorted by most recent visit
+    /// CRITICAL: Queries database directly to ensure consistency with calendar view and history
     func getTodaysVisitsWithDuration() async -> [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)] {
-        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             return []
         }
 
@@ -356,101 +369,99 @@ class LocationVisitAnalytics: ObservableObject {
 
         let calendar = Calendar.current
         let today = Date()
+        let now = Date()
         let startOfDay = calendar.startOfDay(for: today)
-        let endOfDay = calendar.date(byAdding: .second, value: -1, to: calendar.startOfDay(for: calendar.date(byAdding: .day, value: 1, to: today)!))!
+        guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else { return [] }
 
-        var results: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool, lastVisitTime: Date)] = []
-        var processedPlaceIds: Set<UUID> = [] // Track which places we've already processed
-
-        // Get all saved places
-        let allPlaces = LocationsManager.shared.savedPlaces
-
-        // FIRST: Check for active visits from GeofenceManager (these might have started yesterday)
-        let activeVisits = GeofenceManager.shared.activeVisits
-
-        for (placeId, activeVisit) in activeVisits {
-            guard let place = allPlaces.first(where: { $0.id == placeId }) else { continue }
-
-            processedPlaceIds.insert(placeId)
-
-            // Calculate duration spent TODAY only
-            let visitEntryTime = activeVisit.entryTime
-
-            // If visit started before today, use start of today as the effective start time
-            let effectiveStartTime = visitEntryTime < startOfDay ? startOfDay : visitEntryTime
-
-            // Calculate minutes from effective start to now
-            let minutesToday = Int(Date().timeIntervalSince(effectiveStartTime) / 60)
-
-            // Also check for any completed visits today from the database
-            let visitsToday = await getVisitsInDateRange(for: placeId, startDate: startOfDay, endDate: endOfDay)
-            let completedMinutesToday = visitsToday.compactMap { $0.durationMinutes }.reduce(0, +)
-
-            let totalMinutes = minutesToday + completedMinutesToday
-
-            results.append((
-                id: placeId,
-                displayName: place.displayName,
-                totalDurationMinutes: totalMinutes,
-                isActive: true,
-                lastVisitTime: Date() // Active visit is always most recent
-            ))
-        }
-
-        // SECOND: Process places with completed visits today (that aren't already active)
-        for place in allPlaces {
-            // Skip if we already processed this place as an active visit
-            if processedPlaceIds.contains(place.id) {
-                continue
-            }
-
-            let visits = await getVisitsInDateRange(for: place.id, startDate: startOfDay, endDate: endOfDay)
-            if !visits.isEmpty {
-                // Calculate total duration for today ONLY (clip to today's boundaries)
-                var totalMinutes = 0
-                var latestVisitTime: Date = .distantPast
-
-                for visit in visits {
-                    // Calculate how much of this visit occurred TODAY
-                    let visitStart = visit.entryTime
-                    let visitEnd = visit.exitTime ?? Date()
-                    
-                    // Clip visit to today's boundaries
-                    let effectiveStart = max(visitStart, startOfDay)
-                    let effectiveEnd = min(visitEnd, endOfDay)
-                    
-                    // Only count if there's overlap with today
-                    if effectiveStart < effectiveEnd {
-                        let minutesInToday = Int(effectiveEnd.timeIntervalSince(effectiveStart) / 60)
-                        totalMinutes += minutesInToday
-                    }
-
-                    // Track latest visit time for sorting
-                    if visit.entryTime > latestVisitTime {
-                        latestVisitTime = visit.entryTime
-                    }
+        do {
+            // CRITICAL: Query database directly for ALL today's visits (including active ones)
+            // This ensures consistency with calendar view which also queries database directly
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .gte("entry_time", value: startOfDay.ISO8601Format())
+                .lt("entry_time", value: endOfDay.ISO8601Format())
+                .execute()
+            
+            let decoder = JSONDecoder.supabaseDecoder()
+            let rawVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            
+            // CRITICAL: Use shared processing function for consistency with calendar view
+            let processedVisits = processVisitsForDisplay(rawVisits)
+            
+            // Get all saved places for display names
+            let allPlaces = LocationsManager.shared.savedPlaces
+            
+            // Aggregate visits by place
+            var placeAggregates: [UUID: (displayName: String, totalMinutes: Int, isActive: Bool, lastVisitTime: Date)] = [:]
+            
+            for visit in processedVisits {
+                let placeId = visit.savedPlaceId
+                let displayName = allPlaces.first(where: { $0.id == placeId })?.displayName ?? "Unknown Location"
+                let isActive = visit.exitTime == nil
+                
+                // Calculate duration for today only
+                let visitStart = visit.entryTime
+                let visitEnd = visit.exitTime ?? now
+                
+                // Clip visit to today's boundaries
+                let effectiveStart = max(visitStart, startOfDay)
+                let effectiveEnd = min(visitEnd, now) // Use now for active visits
+                
+                // Calculate minutes in today
+                var minutesInToday = 0
+                if effectiveStart < effectiveEnd {
+                    minutesInToday = Int(effectiveEnd.timeIntervalSince(effectiveStart) / 60)
                 }
-
+                
+                // Aggregate by place
+                if var existing = placeAggregates[placeId] {
+                    existing.totalMinutes += minutesInToday
+                    existing.isActive = existing.isActive || isActive // If any visit is active, mark as active
+                    if visit.entryTime > existing.lastVisitTime {
+                        existing.lastVisitTime = visit.entryTime
+                    }
+                    placeAggregates[placeId] = existing
+                } else {
+                    placeAggregates[placeId] = (displayName, minutesInToday, isActive, visit.entryTime)
+                }
+            }
+            
+            // Convert to result array and sort by most recent visit
+            var results: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool, lastVisitTime: Date)] = []
+            for (placeId, aggregate) in placeAggregates {
                 results.append((
-                    id: place.id,
-                    displayName: place.displayName,
-                    totalDurationMinutes: totalMinutes,
-                    isActive: false,
-                    lastVisitTime: latestVisitTime
+                    id: placeId,
+                    displayName: aggregate.displayName,
+                    totalDurationMinutes: aggregate.totalMinutes,
+                    isActive: aggregate.isActive,
+                    lastVisitTime: aggregate.lastVisitTime
                 ))
             }
+            
+            // Sort by most recent visit first (active visits at top)
+            let sorted = results.sorted { visit1, visit2 in
+                // Active visits come first
+                if visit1.isActive != visit2.isActive {
+                    return visit1.isActive
+                }
+                // Then sort by most recent
+                return visit1.lastVisitTime > visit2.lastVisitTime
+            }
+
+            // Return without the lastVisitTime (internal sorting field)
+            let resultData = sorted.map { (id: $0.id, displayName: $0.displayName, totalDurationMinutes: $0.totalDurationMinutes, isActive: $0.isActive) }
+
+            // OPTIMIZATION: Cache for 1 minute
+            CacheManager.shared.set(resultData, forKey: cacheKey, ttl: CacheManager.TTL.short)
+
+            return resultData
+        } catch {
+            print("❌ Error fetching today's visits: \(error)")
+            return []
         }
-
-        // Sort by most recent visit first
-        let sorted = results.sorted { $0.lastVisitTime > $1.lastVisitTime }
-
-        // Return without the lastVisitTime (internal sorting field)
-        let resultData = sorted.map { (id: $0.id, displayName: $0.displayName, totalDurationMinutes: $0.totalDurationMinutes, isActive: $0.isActive) }
-
-        // OPTIMIZATION: Cache for 1 minute
-        CacheManager.shared.set(resultData, forKey: cacheKey, ttl: CacheManager.TTL.short)
-
-        return resultData
     }
 
     // MARK: - Cache Management
@@ -468,6 +479,30 @@ class LocationVisitAnalytics: ObservableObject {
         CacheManager.shared.invalidate(keysWithPrefix: "cache.location")
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
         print("🔄 Invalidated all stats caches")
+    }
+    
+    /// CRITICAL: Unified cache invalidation for all visit-related caches
+    /// Call this when visits are created, updated, or deleted to ensure all views stay in sync
+    func invalidateAllVisitCaches() {
+        // Invalidate today's visits cache (used by home page Today's Activity)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
+        
+        // Invalidate calendar day cache for today (used by LocationTimelineView)
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "yyyy-MM-dd"
+        let todayKey = dayFormatter.string(from: Date())
+        CacheManager.shared.invalidate(forKey: "cache.visits.day.\(todayKey)")
+        
+        // Invalidate all location stats caches
+        CacheManager.shared.invalidate(keysWithPrefix: "cache.location")
+        
+        // Invalidate all day caches (for calendar view)
+        CacheManager.shared.invalidate(keysWithPrefix: "cache.visits.day")
+        
+        print("🔄 Invalidated all visit caches (today's activity, calendar, location stats)")
+        
+        // Post notification to refresh UI
+        NotificationCenter.default.post(name: NSNotification.Name("VisitHistoryUpdated"), object: nil)
     }
 
     /// Delete a specific visit from history
@@ -772,6 +807,11 @@ class LocationVisitAnalytics: ObservableObject {
 
     /// Fix all visits that span midnight by splitting them into separate day records
     /// This cleans up any existing visits that weren't split at midnight
+    /// 
+    /// Handles both:
+    /// - Completed visits: Splits at 11:59:59 PM of entry day and 12:00:00 AM of exit day
+    /// - Active visits: Closes at 11:59:59 PM of entry day and creates new active visit at 12:00:00 AM of next day
+    /// 
     /// Returns (fixed count, error count, skipped count)
     /// CRITICAL: This function MUST be called to fix historical visits
     func fixMidnightSpanningVisits() async -> (fixed: Int, errors: Int, skipped: Int) {
@@ -799,21 +839,53 @@ class LocationVisitAnalytics: ObservableObject {
 
             print("🌙 Total visits fetched: \(allVisits.count)")
 
-            // Filter for completed visits (with exit_time set)
-            let completedVisits = allVisits.filter { $0.exitTime != nil }
-            print("🌙 Completed visits: \(completedVisits.count)")
+            let calendar = Calendar.current
+            let now = Date()
+            let currentDay = calendar.dateComponents([.year, .month, .day], from: now)
             
-            // Find visits that span midnight (entry and exit on different days)
-            let midnightSpanningVisits = completedVisits.filter { visit in
-                guard let exitTime = visit.exitTime else { return false }
-                let calendar = Calendar.current
-                let entryDay = calendar.component(.day, from: visit.entryTime)
-                let exitDay = calendar.component(.day, from: exitTime)
-                let entryMonth = calendar.component(.month, from: visit.entryTime)
-                let exitMonth = calendar.component(.month, from: exitTime)
-                return entryDay != exitDay || entryMonth != exitMonth
+            // Find visits that span midnight:
+            // 1. Completed visits (with exit_time) where entry and exit are on different days
+            // 2. Active visits (without exit_time) where entry was on a previous day
+            // CRITICAL: Include ALL visits that span midnight, even if they have merge_reason set
+            // (they might be incorrectly split or need re-splitting)
+            var midnightSpanningVisits: [LocationVisitRecord] = []
+            
+            for visit in allVisits {
+                // Skip visits that are already properly split (part1 or part2 of a midnight split)
+                // These should not be re-split
+                if let mergeReason = visit.mergeReason, 
+                   (mergeReason.contains("midnight_split_part1") || mergeReason.contains("midnight_split_part2")) {
+                    continue
+                }
+                
+                let entryDay = calendar.dateComponents([.year, .month, .day], from: visit.entryTime)
+                
+                if let exitTime = visit.exitTime {
+                    // Completed visit: check if entry and exit are on different days
+                    let exitDay = calendar.dateComponents([.year, .month, .day], from: exitTime)
+                    if entryDay != exitDay {
+                        print("🌙 Found midnight-spanning completed visit: ID=\(visit.id), Entry=\(visit.entryTime), Exit=\(exitTime)")
+                        midnightSpanningVisits.append(visit)
+                    }
+                } else {
+                    // Active visit: check if entry was on a previous day
+                    if entryDay != currentDay {
+                        // Also check if we've reached or passed 11:59 PM of entry day
+                        var endOfEntryDayComponents = calendar.dateComponents([.year, .month, .day], from: visit.entryTime)
+                        endOfEntryDayComponents.hour = 23
+                        endOfEntryDayComponents.minute = 59
+                        endOfEntryDayComponents.second = 59
+                        
+                        if let endOfEntryDay = calendar.date(from: endOfEntryDayComponents), now >= endOfEntryDay {
+                            print("🌙 Found midnight-spanning active visit: ID=\(visit.id), Entry=\(visit.entryTime), Current=\(now)")
+                            midnightSpanningVisits.append(visit)
+                        }
+                    }
+                }
             }
             
+            print("🌙 Completed visits: \(allVisits.filter { $0.exitTime != nil }.count)")
+            print("🌙 Active visits: \(allVisits.filter { $0.exitTime == nil }.count)")
             print("🌙 Found \(midnightSpanningVisits.count) visits that span midnight!")
             
             if midnightSpanningVisits.isEmpty {
@@ -831,12 +903,14 @@ class LocationVisitAnalytics: ObservableObject {
 
             for visit in midnightSpanningVisits {
                 let calendar = Calendar.current
+                let isActiveVisit = visit.exitTime == nil
                 
                 print("\n🌙 Processing visit:")
                 print("   ID: \(visit.id)")
                 print("   Entry: \(visit.entryTime)")
-                print("   Exit: \(visit.exitTime!)")
-                print("   Duration: \(visit.durationMinutes ?? 0) min")
+                print("   Exit: \(visit.exitTime?.description ?? "ACTIVE (no exit)")")
+                print("   Duration: \(visit.durationMinutes?.description ?? "N/A") min")
+                print("   Type: \(isActiveVisit ? "ACTIVE" : "COMPLETED")")
 
                 // Calculate the split times
                 // Visit 1: entry_time to 11:59:59 PM of entry day
@@ -851,20 +925,38 @@ class LocationVisitAnalytics: ObservableObject {
                     continue
                 }
                 
-                // Visit 2: 12:00:00 AM of exit day to exit_time
-                let startOfExitDay = calendar.startOfDay(for: visit.exitTime!)
+                // Visit 2: 12:00:00 AM of next day
+                guard let nextDay = calendar.date(byAdding: .day, value: 1, to: endOfEntryDay) else {
+                    print("   ❌ Failed to calculate next day")
+                    errorCount += 1
+                    continue
+                }
+                
+                var startOfNextDayComponents = calendar.dateComponents([.year, .month, .day], from: nextDay)
+                startOfNextDayComponents.hour = 0
+                startOfNextDayComponents.minute = 0
+                startOfNextDayComponents.second = 0
+                
+                guard let startOfNextDay = calendar.date(from: startOfNextDayComponents) else {
+                    print("   ❌ Failed to calculate start of next day")
+                    errorCount += 1
+                    continue
+                }
+                
+                // For active visits, use current time as exit; for completed, use actual exit time
+                let visit2ExitTime = isActiveVisit ? now : visit.exitTime!
                 
                 let duration1 = Int(endOfEntryDay.timeIntervalSince(visit.entryTime) / 60)
-                let duration2 = Int(visit.exitTime!.timeIntervalSince(startOfExitDay) / 60)
+                let duration2 = isActiveVisit ? nil : Int(visit2ExitTime.timeIntervalSince(startOfNextDay) / 60)
                 
                 print("   Split 1: \(visit.entryTime) to \(endOfEntryDay) (\(duration1) min)")
-                print("   Split 2: \(startOfExitDay) to \(visit.exitTime!) (\(duration2) min)")
-                print("   DEBUG: startOfExitDay formatted = \(formatter.string(from: startOfExitDay))")
+                print("   Split 2: \(startOfNextDay) to \(visit2ExitTime) (\(duration2?.description ?? "ACTIVE") min)")
+                print("   DEBUG: startOfNextDay formatted = \(formatter.string(from: startOfNextDay))")
 
                 do {
                     // IDEMPOTENCY CHECK: Check if split visits already exist
                     // NOTE: We check for ANY visit starting at midnight with midnight_split merge_reason
-                    let searchStartTime = formatter.string(from: startOfExitDay)
+                    let searchStartTime = formatter.string(from: startOfNextDay)
                     print("   DEBUG: Searching for existing splits at entry_time = \(searchStartTime)")
                     
                     let response = try await client
@@ -880,33 +972,54 @@ class LocationVisitAnalytics: ObservableObject {
                     
                     print("   DEBUG: Found \(existingVisits.count) existing visits at that time")
                     for ev in existingVisits {
-                        print("     - ID: \(ev.id), merge_reason: \(ev.mergeReason ?? "nil")")
+                        print("     - ID: \(ev.id), merge_reason: \(ev.mergeReason ?? "nil"), exit_time: \(ev.exitTime?.description ?? "ACTIVE")")
                     }
                     
                     let existingSplits = existingVisits.filter { $0.mergeReason?.contains("midnight_split") == true }
 
                     if !existingSplits.isEmpty {
-                        // Verify splits are complete (should have 2 parts covering full duration)
-                        let expectedDuration = visit.durationMinutes ?? 0
-                        let splitsDuration = existingSplits.compactMap { $0.durationMinutes }.reduce(0, +)
-                        let hasBothParts = existingSplits.contains { $0.mergeReason?.contains("part1") == true } &&
-                                          existingSplits.contains { $0.mergeReason?.contains("part2") == true }
+                        // For completed visits, verify splits are complete
+                        if !isActiveVisit {
+                            let expectedDuration = visit.durationMinutes ?? 0
+                            let splitsDuration = existingSplits.compactMap { $0.durationMinutes }.reduce(0, +)
+                            let hasBothParts = existingSplits.contains { $0.mergeReason?.contains("part1") == true } &&
+                                              existingSplits.contains { $0.mergeReason?.contains("part2") == true }
 
-                        if hasBothParts && abs(expectedDuration - splitsDuration) < 5 {
-                            print("   ⚠️ IDEMPOTENCY: Complete split visits already exist")
-                            print("   🧹 CLEANUP: Deleting orphaned original visit...")
+                            if hasBothParts && abs(expectedDuration - splitsDuration) < 5 {
+                                print("   ⚠️ IDEMPOTENCY: Complete split visits already exist")
+                                print("   🧹 CLEANUP: Deleting orphaned original visit...")
 
-                            try await client
-                                .from("location_visits")
-                                .delete()
-                                .eq("id", value: visit.id.uuidString)
-                                .execute()
+                                try await client
+                                    .from("location_visits")
+                                    .delete()
+                                    .eq("id", value: visit.id.uuidString)
+                                    .execute()
 
-                            print("   ✅ Deleted orphaned original visit: \(visit.id)")
-                            fixedCount += 1
+                                print("   ✅ Deleted orphaned original visit: \(visit.id)")
+                                fixedCount += 1
+                            } else {
+                                print("   ⚠️ Incomplete splits found, keeping original for safety")
+                                skippedCount += 1
+                            }
                         } else {
-                            print("   ⚠️ Incomplete splits found, keeping original for safety")
-                            skippedCount += 1
+                            // For active visits, check if part2 exists and is still active
+                            let part2Exists = existingSplits.contains { $0.mergeReason?.contains("part2") == true && $0.exitTime == nil }
+                            if part2Exists {
+                                print("   ⚠️ IDEMPOTENCY: Active split visit already exists")
+                                print("   🧹 CLEANUP: Deleting orphaned original visit...")
+
+                                try await client
+                                    .from("location_visits")
+                                    .delete()
+                                    .eq("id", value: visit.id.uuidString)
+                                    .execute()
+
+                                print("   ✅ Deleted orphaned original visit: \(visit.id)")
+                                fixedCount += 1
+                            } else {
+                                print("   ⚠️ Incomplete splits found, keeping original for safety")
+                                skippedCount += 1
+                            }
                         }
                         continue
                     }
@@ -941,35 +1054,60 @@ class LocationVisitAnalytics: ObservableObject {
                     
                     print("   ✅ Created split visit 1: ends at 11:59:59 PM")
 
-                    // Step 3: Create visit 2 (exit day, starts at 12:00:00 AM)
+                    // Step 3: Create visit 2 (next day, starts at 12:00:00 AM)
                     let visit2Id = UUID()
-                    let exitDayComponents = calendar.dateComponents([.weekday, .month, .year], from: startOfExitDay)
-                    let exitDayOfWeek = Self.dayOfWeekNameStatic(for: exitDayComponents.weekday ?? 1)
+                    let nextDayComponents = calendar.dateComponents([.weekday, .month, .year], from: startOfNextDay)
+                    let nextDayOfWeek = Self.dayOfWeekNameStatic(for: nextDayComponents.weekday ?? 1)
+                    let timeOfDay2 = isActiveVisit ? Self.timeOfDayNameStatic(for: startOfNextDay) : "Night"
                     
-                    let visit2Data: [String: PostgREST.AnyJSON] = [
+                    var visit2Data: [String: PostgREST.AnyJSON] = [
                         "id": .string(visit2Id.uuidString),
                         "user_id": .string(visit.userId.uuidString),
                         "saved_place_id": .string(visit.savedPlaceId.uuidString),
                         "session_id": visit.sessionId != nil ? .string(visit.sessionId!.uuidString) : .null,
-                        "entry_time": .string(formatter.string(from: startOfExitDay)),
-                        "exit_time": .string(formatter.string(from: visit.exitTime!)),
-                        "duration_minutes": .double(Double(max(duration2, 1))),
-                        "day_of_week": .string(exitDayOfWeek),
-                        "time_of_day": .string("Night"),
-                        "month": .double(Double(exitDayComponents.month ?? 12)),
-                        "year": .double(Double(exitDayComponents.year ?? 2025)),
+                        "entry_time": .string(formatter.string(from: startOfNextDay)),
+                        "day_of_week": .string(nextDayOfWeek),
+                        "time_of_day": .string(timeOfDay2),
+                        "month": .double(Double(nextDayComponents.month ?? 12)),
+                        "year": .double(Double(nextDayComponents.year ?? 2025)),
                         "confidence_score": visit.confidenceScore != nil ? .double(visit.confidenceScore!) : .null,
                         "merge_reason": .string("midnight_split_part2"),
                         "created_at": .string(formatter.string(from: visit.createdAt)),
                         "updated_at": .string(formatter.string(from: Date()))
                     ]
+                    
+                    // For active visits, don't set exit_time or duration_minutes
+                    // For completed visits, set both
+                    if isActiveVisit {
+                        visit2Data["exit_time"] = .null
+                        visit2Data["duration_minutes"] = .null
+                    } else {
+                        visit2Data["exit_time"] = .string(formatter.string(from: visit2ExitTime))
+                        visit2Data["duration_minutes"] = .double(Double(max(duration2 ?? 1, 1)))
+                    }
 
                     try await client
                         .from("location_visits")
                         .insert(visit2Data)
                         .execute()
 
-                    print("   ✅ Created split visit 2: starts at 12:00:00 AM")
+                    print("   ✅ Created split visit 2: starts at 12:00:00 AM (\(isActiveVisit ? "ACTIVE" : "COMPLETED"))")
+                    
+                    // If this was an active visit, update GeofenceManager to track the new active visit
+                    if isActiveVisit {
+                        let newActiveVisit = LocationVisitRecord.create(
+                            userId: visit.userId,
+                            savedPlaceId: visit.savedPlaceId,
+                            entryTime: startOfNextDay,
+                            sessionId: visit.sessionId,
+                            confidenceScore: visit.confidenceScore,
+                            mergeReason: "midnight_split"
+                        )
+                        await MainActor.run {
+                            GeofenceManager.shared.updateActiveVisit(newActiveVisit, for: visit.savedPlaceId)
+                        }
+                        print("   ✅ Updated GeofenceManager with new active visit")
+                    }
 
                     // CRITICAL: Only delete original AFTER both splits are confirmed saved
                     try await client
@@ -997,8 +1135,11 @@ class LocationVisitAnalytics: ObservableObject {
             print("🌙 Skipped: \(skippedCount)")
             print("🌙 ==========================================\n")
 
-            // Invalidate all caches to force refresh
-            invalidateAllCache()
+            // CRITICAL: Use unified cache invalidation to keep all views in sync
+            // This invalidates all caches AND posts the VisitHistoryUpdated notification
+            await MainActor.run {
+                invalidateAllVisitCaches()
+            }
 
             return (fixedCount, errorCount, skippedCount)
         } catch {
@@ -1015,6 +1156,23 @@ class LocationVisitAnalytics: ObservableObject {
             return days[dayIndex - 1]
         }
         return "Unknown"
+    }
+    
+    /// Static helper to get time of day name
+    private static func timeOfDayNameStatic(for date: Date) -> String {
+        let calendar = Calendar.current
+        let hour = calendar.component(.hour, from: date)
+
+        switch hour {
+        case 5..<12:
+            return "Morning"
+        case 12..<17:
+            return "Afternoon"
+        case 17..<21:
+            return "Evening"
+        default:
+            return "Night"
+        }
     }
 
     /// ONE-TIME CLEANUP: Remove duplicate visits created by the midnight split bug
@@ -1314,6 +1472,73 @@ class LocationVisitAnalytics: ObservableObject {
     }
 
     // MARK: - Private Methods
+
+    /// Auto-merges visits with gaps less than 5 minutes
+    /// This prevents users from seeing separate visits that should be merged
+    /// Runs BEFORE UI display to ensure seamless experience
+    private func autoMergeVisits(_ visits: [LocationVisitRecord]) -> [LocationVisitRecord] {
+        guard visits.count > 1 else { return visits }
+
+        var merged: [LocationVisitRecord] = []
+        var current: LocationVisitRecord? = nil
+
+        // Sort by entry time (oldest first for sequential processing)
+        let sorted = visits.sorted { $0.entryTime < $1.entryTime }
+
+        for visit in sorted {
+            guard let currentVisit = current else {
+                // First visit, set as current
+                current = visit
+                continue
+            }
+
+            // Check if this visit should merge with current
+            // Only merge if:
+            // 1. Current visit has an exit time (is closed)
+            // 2. Gap between current exit and next entry is < 5 minutes (300 seconds)
+            // 3. CRITICAL: Neither visit is a midnight split (preserves day boundaries)
+            if let currentExit = currentVisit.exitTime {
+                let visitEntry = visit.entryTime
+                let gap = visitEntry.timeIntervalSince(currentExit)
+                
+                // CRITICAL: Never merge midnight-split visits (preserves day boundary)
+                let isMidnightSplit = (currentVisit.mergeReason?.contains("midnight_split") == true) ||
+                                      (visit.mergeReason?.contains("midnight_split") == true)
+
+                if gap >= 0 && gap < 300 && !isMidnightSplit { // Gap is between 0 and 5 minutes AND not midnight split
+                    // Create merged visit by extending current visit's exit time
+                    var mergedVisit = currentVisit
+                    mergedVisit.exitTime = visit.exitTime ?? visitEntry
+                    let totalDuration = mergedVisit.exitTime!.timeIntervalSince(mergedVisit.entryTime)
+                    mergedVisit.durationMinutes = Int(totalDuration / 60)
+
+                    // Update merge reason to track auto-merge
+                    let mergeReason = "auto_merged_gap_\(Int(gap))s"
+                    if let existingReason = mergedVisit.mergeReason {
+                        mergedVisit.mergeReason = existingReason + ", " + mergeReason
+                    } else {
+                        mergedVisit.mergeReason = mergeReason
+                    }
+
+                    current = mergedVisit
+                    continue
+                }
+            }
+
+            // Gap too large or current visit still open - save current and start new
+            merged.append(currentVisit)
+            current = visit
+        }
+
+        // Add final visit
+        if let finalVisit = current {
+            merged.append(finalVisit)
+        }
+
+        // Silently merge visits with small gaps - no logging needed
+
+        return merged
+    }
 
     private func fetchVisits(for placeId: UUID, userId: UUID) async throws -> [LocationVisitRecord] {
         // Removed excessive logging

@@ -182,7 +182,7 @@ class QueryRouter {
         """
 
         do {
-            let response = try await DeepSeekService.shared.generateText(
+            let response = try await GeminiService.shared.generateText(
                 systemPrompt: systemPrompt,
                 userPrompt: query,
                 maxTokens: 10,
@@ -246,7 +246,7 @@ class QueryRouter {
         """
 
         do {
-            let response = try await DeepSeekService.shared.generateText(
+            let response = try await GeminiService.shared.generateText(
                 systemPrompt: systemPrompt,
                 userPrompt: query,
                 maxTokens: 300,

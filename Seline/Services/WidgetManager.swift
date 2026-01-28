@@ -216,12 +216,24 @@ class WidgetManager: ObservableObject {
            let saved = try? JSONDecoder().decode([WidgetConfiguration].self, from: data) {
             // Merge with defaults to handle new widget types
             var merged = saved
+            
+            // CRITICAL: Hide unreadEmails and favoriteLocations widgets if they exist
+            for (index, config) in merged.enumerated() {
+                if config.type == .unreadEmails || config.type == .favoriteLocations {
+                    merged[index].isVisible = false
+                }
+            }
+            
+            // Remove unreadEmails and favoriteLocations from configurations
+            merged.removeAll { $0.type == .unreadEmails || $0.type == .favoriteLocations }
+            
             for defaultConfig in Self.defaultConfigurations {
                 if !merged.contains(where: { $0.type == defaultConfig.type }) {
                     merged.append(defaultConfig)
                 }
             }
             configurations = merged
+            saveConfigurations() // Save the updated config (with removed widgets)
         } else {
             configurations = Self.defaultConfigurations
         }
@@ -256,9 +268,8 @@ class WidgetManager: ObservableObject {
             WidgetConfiguration(type: .events, isVisible: true, order: 3),
             // New widgets - hidden by default, users can add them
             WidgetConfiguration(type: .weather, isVisible: false, order: 4),
-            WidgetConfiguration(type: .unreadEmails, isVisible: false, order: 5),
-            WidgetConfiguration(type: .pinnedNotes, isVisible: false, order: 6),
-            WidgetConfiguration(type: .favoriteLocations, isVisible: false, order: 7)
+            // Removed: unreadEmails and favoriteLocations widgets
+            WidgetConfiguration(type: .pinnedNotes, isVisible: false, order: 5)
         ]
     }
 }

@@ -874,8 +874,8 @@ class GeofenceManager: NSObject, ObservableObject {
                     print("📝 Started tracking visit for place: \(placeId)")
                     print("📝 New session: \(sessionId.uuidString)")
 
-                    // Invalidate analytics cache since a new active visit was created
-                    LocationVisitAnalytics.shared.invalidateCache(for: placeId)
+                    // CRITICAL: Use unified cache invalidation to keep all views in sync
+                    LocationVisitAnalytics.shared.invalidateAllVisitCaches()
 
                     // Save to Supabase
                     await self.saveVisitToSupabase(visit)
@@ -1218,7 +1218,9 @@ class GeofenceManager: NSObject, ObservableObject {
                 activeVisitsLock.unlock()
 
                 LocationSessionManager.shared.createSession(for: placeId, userId: userId)
-                LocationVisitAnalytics.shared.invalidateCache(for: placeId)
+                
+                // CRITICAL: Use unified cache invalidation to keep all views in sync
+                LocationVisitAnalytics.shared.invalidateAllVisitCaches()
 
                 await self.saveVisitToSupabase(visit)
 
@@ -1276,9 +1278,10 @@ class GeofenceManager: NSObject, ObservableObject {
                 return openVisit
             }
 
-            // CRITICAL FIX: Also check for very recent visits (within 2 minutes) to catch duplicates
+            // CRITICAL FIX: Also check for recent visits (within 5 minutes) to catch duplicates and merge gaps
             // This prevents race conditions where multiple geofence entries create duplicate visits
-            let twoMinutesAgo = Date().addingTimeInterval(-120)
+            // Also enables auto-merge for visits with short gaps (<5 minutes)
+            let fiveMinutesAgo = Date().addingTimeInterval(-300) // 5 minutes = 300 seconds
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
@@ -1287,7 +1290,7 @@ class GeofenceManager: NSObject, ObservableObject {
                 .select()
                 .eq("user_id", value: userId.uuidString)
                 .eq("saved_place_id", value: placeId.uuidString)
-                .gte("entry_time", value: formatter.string(from: twoMinutesAgo))
+                .gte("entry_time", value: formatter.string(from: fiveMinutesAgo))
                 .order("entry_time", ascending: false) // Most recent first
                 .limit(1)
                 .execute()
@@ -1295,13 +1298,24 @@ class GeofenceManager: NSObject, ObservableObject {
             let recentVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: recentResponse.data)
 
             if let recentVisit = recentVisits.first {
-                let secondsSinceCreation = Date().timeIntervalSince(recentVisit.entryTime)
+                let timeSinceEntry = abs(Date().timeIntervalSince(recentVisit.entryTime))
 
-                // If the visit was created within the last 30 seconds, it's likely a duplicate
-                if secondsSinceCreation < 30 {
+                // Case 1: Very recent entry (< 30 seconds) - definitely same visit (duplicate)
+                if timeSinceEntry < 30 {
                     print("🔍 Found very recent visit in Supabase (likely duplicate): ID=\(recentVisit.id)")
-                    print("   Entry=\(recentVisit.entryTime), Created \(String(format: "%.1f", secondsSinceCreation))s ago")
+                    print("   Entry=\(recentVisit.entryTime), Created \(String(format: "%.1f", timeSinceEntry))s ago")
                     return recentVisit
+                }
+
+                // Case 2: Within 5-minute merge window - check if this is a gap merge scenario
+                // If the visit has an exit time and the gap is small, we should merge
+                if timeSinceEntry < 300, let exitTime = recentVisit.exitTime {
+                    let gapDuration = abs(Date().timeIntervalSince(exitTime))
+                    if gapDuration < 300 { // Gap is less than 5 minutes
+                        print("🔗 Found recent visit within 5-min merge window: ID=\(recentVisit.id)")
+                        print("   Exit=\(exitTime), Gap=\(String(format: "%.1f", gapDuration))s - will merge")
+                        return recentVisit // Return to trigger merge instead of creating new visit
+                    }
                 }
             }
 
@@ -1876,9 +1890,8 @@ class GeofenceManager: NSObject, ObservableObject {
 
             print("✅ VISIT UPDATE SUCCESSFUL - ID: \(visit.id.uuidString)")
 
-            // OPTIMIZATION: Invalidate cached stats for this location
-            // so next query fetches fresh data
-            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
+            // CRITICAL: Use unified cache invalidation to keep all views in sync
+            LocationVisitAnalytics.shared.invalidateAllVisitCaches()
         } catch {
             print("❌ Error updating visit in Supabase: \(error)")
         }
@@ -1934,8 +1947,8 @@ class GeofenceManager: NSObject, ObservableObject {
 
             print("✅ Short visit deleted from Supabase: \(visit.id.uuidString)")
 
-            // Invalidate cache for this location
-            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
+            // CRITICAL: Use unified cache invalidation to keep all views in sync
+            LocationVisitAnalytics.shared.invalidateAllVisitCaches()
         } catch {
             print("❌ Error deleting visit from Supabase: \(error)")
         }

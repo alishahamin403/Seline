@@ -3,7 +3,7 @@ import SwiftUI
 struct MonthlySummaryCard: View {
     let selectedMonth: Date
     @StateObject private var taskManager = TaskManager.shared
-    @StateObject private var openAIService = DeepSeekService.shared
+    @StateObject private var openAIService = GeminiService.shared
     @Environment(\.colorScheme) var colorScheme
 
     @State private var aiInsights: String = ""

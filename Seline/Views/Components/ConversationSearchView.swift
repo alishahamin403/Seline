@@ -14,7 +14,7 @@ struct ConversationSearchView: View {
     @Environment(\.dismiss) var dismiss
     @StateObject private var searchService = SearchService.shared
     @StateObject private var authManager = AuthenticationManager.shared
-    @StateObject private var deepSeekService = DeepSeekService.shared
+    @StateObject private var deepSeekService = GeminiService.shared
     @State private var messageText = ""
     @FocusState private var isInputFocused: Bool
     @State private var scrollToBottom: UUID?
@@ -2960,7 +2960,7 @@ struct ExpenseReminderSheet: View {
 
 // MARK: - Token Usage Details Sheet
 struct TokenUsageDetailsSheet: View {
-    @StateObject private var deepSeekService = DeepSeekService.shared
+    @StateObject private var deepSeekService = GeminiService.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
     

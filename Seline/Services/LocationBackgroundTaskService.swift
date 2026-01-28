@@ -214,12 +214,12 @@ class LocationBackgroundTaskService {
         // Save to Supabase
         await geofenceManager.saveVisitToSupabase(visit)
         
-        // Invalidate cache
-        LocationVisitAnalytics.shared.invalidateCache(for: placeId)
+        // CRITICAL: Use unified cache invalidation to keep all views in sync
+        LocationVisitAnalytics.shared.invalidateAllVisitCaches()
         
         print("✅ Started visit from background for: \(placeName)")
         
-        // Post notification
+        // Post notification (also posted by invalidateAllVisitCaches, but keep for explicit trigger)
         NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
         
         // Start validation timer
@@ -288,8 +288,8 @@ class LocationBackgroundTaskService {
             }
         }
         
-        // Invalidate cache
-        LocationVisitAnalytics.shared.invalidateCache(for: placeId)
+        // CRITICAL: Use unified cache invalidation to keep all views in sync
+        LocationVisitAnalytics.shared.invalidateAllVisitCaches()
         
         // Close session
         LocationSessionManager.shared.closeSession(visit.sessionId ?? UUID())

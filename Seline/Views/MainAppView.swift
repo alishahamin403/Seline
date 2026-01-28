@@ -91,7 +91,7 @@ struct MainAppView: View {
 
     private var isAnySheetPresented: Bool {
         showingNewNoteSheet || searchSelectedNote != nil || authManager.showLocationSetup ||
-        authManager.showLabelSelection || searchSelectedEmail != nil || searchSelectedTask != nil ||
+        searchSelectedEmail != nil || searchSelectedTask != nil ||
         showingAddEventPopup || showReceiptStats || showAllLocationsSheet || selectedLocationPlace != nil
     }
 
@@ -869,6 +869,18 @@ struct MainAppView: View {
                 // Reload widget timelines immediately to match calendar view speed
                 WidgetCenter.shared.reloadAllTimelines()
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
+                // CRITICAL: Reload visits when history is updated (e.g., midnight split, manual fix)
+                // This ensures home page stays in sync with calendar view and location history
+                loadTodaysVisits()
+                
+                // Update current location display
+                updateCurrentLocation()
+                updateElapsedTime()
+                
+                // Reload widget timelines
+                WidgetCenter.shared.reloadAllTimelines()
+            }
             .onChange(of: locationService.locationName) { _ in
                 // Update location card when location service resolves the location name
                 if locationService.locationName != "Unknown Location" {
@@ -927,10 +939,6 @@ struct MainAppView: View {
             }
             .sheet(isPresented: $authManager.showLocationSetup) {
                 LocationSetupView()
-                    .presentationBg()
-            }
-            .sheet(isPresented: $authManager.showLabelSelection) {
-                GmailLabelSelectionView()
                     .presentationBg()
             }
             .sheet(isPresented: $showingSettings) {
@@ -2222,8 +2230,8 @@ struct MainAppView: View {
             }
             
             do {
-                // Use DeepSeekService (which delegates to OpenAI for vision) - same as receipts page
-                let deepSeekService = DeepSeekService.shared
+                // Use GeminiService (which delegates to OpenAI for vision) - same as receipts page
+                let deepSeekService = GeminiService.shared
                 let (receiptTitle, receiptContent) = try await deepSeekService.analyzeReceiptImage(image)
                 
                 // Clean up the extracted content - same as receipts page

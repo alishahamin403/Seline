@@ -4,7 +4,7 @@ import Foundation
 class ReceiptCategorizationService: ObservableObject {
     static let shared = ReceiptCategorizationService()
 
-    private let openAIService = DeepSeekService.shared
+    private let openAIService = GeminiService.shared
     private let userDefaults = UserDefaults.standard
     private let supabaseManager = SupabaseManager.shared
     private let categoryCache = NSMutableDictionary()

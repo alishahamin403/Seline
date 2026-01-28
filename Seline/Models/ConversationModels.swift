@@ -359,7 +359,8 @@ struct ConversationMessageWithSummary {
 // MARK: - Conversation State Tracking
 
 /// Tracks the current state of a conversation to avoid redundancy
-struct ConversationState {
+/// Renamed from ConversationState to ConversationContext to avoid conflict with ConversationState class
+struct ConversationContext {
     let topicsDiscussed: [ConversationTopic]  // What's been talked about
     let lastQuestionType: String?  // Type of last question (spending, events, etc.)
     let isProbablyFollowUp: Bool  // Is this likely a follow-up to the last question?

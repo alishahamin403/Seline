@@ -1,7 +1,7 @@
 /**
  * Embeddings Proxy Edge Function
  *
- * Generates vector embeddings using OpenAI's text-embedding-3-small model.
+ * Generates vector embeddings using Google Gemini's text-embeddings-004 model.
  * This is used for semantic search across notes, emails, tasks, locations, receipts, visits, and people.
  *
  * Features:
@@ -9,15 +9,16 @@
  * - Content hashing to avoid re-embedding unchanged content
  * - Automatic storage in document_embeddings table
  * - Support for semantic search queries
- * - 512-dimension embeddings for 3x faster search & lower cost
+ * - 768-dimension embeddings (Gemini standard) for better search quality
  * - In-memory query cache for repeated searches
+ * - FREE with generous quota limits
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 // Configuration
-const EMBEDDING_DIMENSIONS = 512 // Reduced from 1536 for 3x speedup
+const EMBEDDING_DIMENSIONS = 768 // Gemini text-embeddings-004 uses 768 dimensions
 
 // Query embedding cache (in-memory, resets on function restart)
 const queryEmbeddingCache = new Map<string, number[]>()
@@ -36,6 +37,8 @@ interface EmbeddingRequest {
     document_types?: string[]
     limit?: number
     similarity_threshold?: number
+    date_range_start?: string // ISO8601 date string
+    date_range_end?: string // ISO8601 date string
     // For 'batch_embed' action
     documents?: Array<{
         document_type: 'note' | 'email' | 'task' | 'location' | 'receipt' | 'visit' | 'person'
@@ -50,18 +53,10 @@ interface EmbeddingRequest {
     check_document_type?: string
 }
 
-interface OpenAIEmbeddingResponse {
-    object: string
-    data: Array<{
-        object: string
-        embedding: number[]
-        index: number
+interface GeminiEmbeddingResponse {
+    embeddings: Array<{
+        values: number[]
     }>
-    model: string
-    usage: {
-        prompt_tokens: number
-        total_tokens: number
-    }
 }
 
 serve(async (req) => {
@@ -239,39 +234,67 @@ async function handleSearch(supabase: any, userId: string, request: EmbeddingReq
 
     // Generate embedding for the query (with caching enabled)
     const queryEmbedding = await generateEmbedding(request.query, true)
-    
+
     const limit = request.limit || 10
-    const similarityThreshold = request.similarity_threshold || 0.3
-    
+    const similarityThreshold = request.similarity_threshold || 0.15 // Lowered from 0.3 to 0.15 for better recall
+
     // Build the document types filter
     let typeFilter = ''
     if (request.document_types && request.document_types.length > 0) {
         const types = request.document_types.map(t => `'${t}'`).join(',')
         typeFilter = `AND document_type IN (${types})`
     }
-    
+
     // Use direct SQL query to bypass RPC search_path issues
     // The <=> operator needs extensions schema to be visible
     const embeddingStr = `[${queryEmbedding.join(',')}]`
-    
+
     const { data, error } = await supabase
         .from('document_embeddings')
         .select('document_type, document_id, title, content, metadata, embedding')
         .eq('user_id', userId)
         .not('embedding', 'is', null)
-    
+
     if (error) {
         console.error('Search error:', error)
         return jsonError(`Search failed: ${error.message || error.code || JSON.stringify(error)}`, 500)
     }
-    
+
     // Calculate similarity in JavaScript (cosine similarity)
     // This bypasses the database operator issue entirely
     const results = (data || [])
         .filter((doc: any) => {
+            // Document type filter
             if (request.document_types && request.document_types.length > 0) {
-                return request.document_types.includes(doc.document_type)
+                if (!request.document_types.includes(doc.document_type)) {
+                    return false
+                }
             }
+            
+            // Date range filter (if specified)
+            if (request.date_range_start || request.date_range_end) {
+                const docDate = extractDateFromMetadata(doc.metadata, doc.document_type)
+                if (!docDate) {
+                    // If we can't extract a date and a range is specified, exclude it
+                    // (unless it's a document type that doesn't have dates)
+                    return false
+                }
+                
+                if (request.date_range_start) {
+                    const rangeStart = new Date(request.date_range_start)
+                    if (docDate < rangeStart) {
+                        return false
+                    }
+                }
+                
+                if (request.date_range_end) {
+                    const rangeEnd = new Date(request.date_range_end)
+                    if (docDate >= rangeEnd) {
+                        return false
+                    }
+                }
+            }
+            
             return true
         })
         .map((doc: any) => {
@@ -286,10 +309,10 @@ async function handleSearch(supabase: any, userId: string, request: EmbeddingReq
             } else {
                 return null
             }
-            
+
             // Calculate cosine similarity
             const similarity = cosineSimilarity(queryEmbedding, docEmbedding)
-            
+
             return {
                 document_type: doc.document_type,
                 document_id: doc.document_id,
@@ -319,20 +342,20 @@ function cosineSimilarity(a: number[], b: number[]): number {
         console.error(`Vector dimension mismatch: ${a.length} vs ${b.length}`)
         return 0
     }
-    
+
     let dotProduct = 0
     let normA = 0
     let normB = 0
-    
+
     for (let i = 0; i < a.length; i++) {
         dotProduct += a[i] * b[i]
         normA += a[i] * a[i]
         normB += b[i] * b[i]
     }
-    
+
     const denominator = Math.sqrt(normA) * Math.sqrt(normB)
     if (denominator === 0) return 0
-    
+
     return dotProduct / denominator
 }
 
@@ -372,8 +395,8 @@ async function handleCheckNeeded(supabase: any, userId: string, request: Embeddi
 // ============================================================
 
 /**
- * Generate embedding for a single text using OpenAI
- * Uses 512 dimensions for 3x speedup and lower cost
+ * Generate embedding for a single text using Gemini
+ * Uses 768 dimensions (standard for text-embeddings-004)
  */
 async function generateEmbedding(text: string, useCache: boolean = false): Promise<number[]> {
     // Check cache if enabled (for query embeddings)
@@ -385,35 +408,47 @@ async function generateEmbedding(text: string, useCache: boolean = false): Promi
         }
     }
 
-    const apiKey = Deno.env.get('OPENAI_API_KEY')
+    const apiKey = Deno.env.get('GEMINI_API_KEY')
     if (!apiKey) {
-        throw new Error('OPENAI_API_KEY not configured')
+        throw new Error('GEMINI_API_KEY not configured')
     }
 
-    // Truncate text if too long (max ~8000 tokens for text-embedding-3-small)
-    const truncatedText = text.slice(0, 30000) // ~7500 tokens approx
+    // Truncate text if too long (Gemini supports up to ~30K tokens)
+    const truncatedText = text.slice(0, 100000) // ~25K tokens approx
 
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-            model: 'text-embedding-3-small',
-            input: truncatedText,
-            dimensions: EMBEDDING_DIMENSIONS, // 512 instead of default 1536
-        }),
-    })
+    const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent?key=${apiKey}`,
+        {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: 'models/text-embedding-004',
+                content: {
+                    parts: [{
+                        text: truncatedText
+                    }]
+                },
+                taskType: 'RETRIEVAL_DOCUMENT',
+                outputDimensionality: EMBEDDING_DIMENSIONS
+            }),
+        }
+    )
 
     if (!response.ok) {
         const error = await response.text()
-        console.error('OpenAI API error:', error)
-        throw new Error(`OpenAI API error: ${response.status}`)
+        console.error('Gemini API error:', error)
+        throw new Error(`Gemini API error: ${response.status}`)
     }
 
-    const data: OpenAIEmbeddingResponse = await response.json()
-    const embedding = data.data[0].embedding
+    const data = await response.json()
+    const embedding = data.embedding.values
+
+    // Verify dimensions
+    if (embedding.length !== EMBEDDING_DIMENSIONS) {
+        console.warn(`Expected ${EMBEDDING_DIMENSIONS} dimensions, got ${embedding.length}`)
+    }
 
     // Cache query embeddings
     if (useCache) {
@@ -433,41 +468,55 @@ async function generateEmbedding(text: string, useCache: boolean = false): Promi
 
 /**
  * Generate embeddings for multiple texts in batch
- * Uses 512 dimensions for 3x speedup and lower cost
+ * Uses 768 dimensions (standard for text-embeddings-004)
  */
 async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
-    const apiKey = Deno.env.get('OPENAI_API_KEY')
+    const apiKey = Deno.env.get('GEMINI_API_KEY')
     if (!apiKey) {
-        throw new Error('OPENAI_API_KEY not configured')
+        throw new Error('GEMINI_API_KEY not configured')
     }
 
     // Truncate each text
-    const truncatedTexts = texts.map(text => text.slice(0, 30000))
+    const truncatedTexts = texts.map(text => text.slice(0, 100000))
 
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
+    // Gemini batch API
+    const requests = truncatedTexts.map(text => ({
+        model: 'models/text-embedding-004',
+        content: {
+            parts: [{
+                text: text
+            }]
         },
-        body: JSON.stringify({
-            model: 'text-embedding-3-small',
-            input: truncatedTexts,
-            dimensions: EMBEDDING_DIMENSIONS, // 512 instead of default 1536
-        }),
-    })
+        taskType: 'RETRIEVAL_DOCUMENT',
+        outputDimensionality: EMBEDDING_DIMENSIONS
+    }))
 
-    if (!response.ok) {
-        const error = await response.text()
-        console.error('OpenAI API error:', error)
-        throw new Error(`OpenAI API error: ${response.status}`)
+    // Process in smaller batches (Gemini handles up to 100 at once)
+    const embeddings: number[][] = []
+
+    for (const request of requests) {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent?key=${apiKey}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(request),
+            }
+        )
+
+        if (!response.ok) {
+            const error = await response.text()
+            console.error('Gemini API error:', error)
+            throw new Error(`Gemini API error: ${response.status}`)
+        }
+
+        const data = await response.json()
+        embeddings.push(data.embedding.values)
     }
 
-    const data: OpenAIEmbeddingResponse = await response.json()
-
-    // Sort by index to ensure correct order
-    const sortedData = data.data.sort((a, b) => a.index - b.index)
-    return sortedData.map(item => item.embedding)
+    return embeddings
 }
 
 /**
@@ -493,6 +542,38 @@ function jsonSuccess(data: any) {
             'Access-Control-Allow-Origin': '*',
         },
     })
+}
+
+/**
+ * Extract date from document metadata based on document type
+ */
+function extractDateFromMetadata(metadata: any, documentType: string): Date | null {
+    if (!metadata) return null
+    
+    // Common date field names across document types
+    const dateFields = [
+        'entry_time',      // visits
+        'date',            // receipts, notes
+        'start',           // tasks
+        'scheduled_time',  // tasks
+        'target_date',     // tasks
+        'created_at',      // general
+        'updated_at'       // general
+    ]
+    
+    for (const field of dateFields) {
+        if (metadata[field]) {
+            const dateStr = metadata[field]
+            if (typeof dateStr === 'string') {
+                const date = new Date(dateStr)
+                if (!isNaN(date.getTime())) {
+                    return date
+                }
+            }
+        }
+    }
+    
+    return null
 }
 
 /**

@@ -10,7 +10,7 @@ class SupabaseManager: ObservableObject {
     private let supabaseURL: URL
     private let supabaseKey: String
 
-    // Public getters for DeepSeek proxy
+    // Public getters for Gemini proxy
     var url: String {
         return supabaseURL.absoluteString
     }

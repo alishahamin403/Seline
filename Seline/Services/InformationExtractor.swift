@@ -108,7 +108,7 @@ class InformationExtractor {
         """
 
         do {
-            let response = try await DeepSeekService.shared.generateText(
+            let response = try await GeminiService.shared.generateText(
                 systemPrompt: "You are an event information extractor. Show your reasoning, then return ONLY valid JSON.",
                 userPrompt: prompt,
                 maxTokens: 400,
@@ -216,7 +216,7 @@ class InformationExtractor {
         """
 
         do {
-            let response = try await DeepSeekService.shared.generateText(
+            let response = try await GeminiService.shared.generateText(
                 systemPrompt: "You are an update event extractor. Show your reasoning, then return ONLY valid JSON.",
                 userPrompt: prompt,
                 maxTokens: 400,
@@ -292,7 +292,7 @@ class InformationExtractor {
         """
 
         do {
-            let response = try await DeepSeekService.shared.generateText(
+            let response = try await GeminiService.shared.generateText(
                 systemPrompt: "You are a note information extractor. Show your reasoning, then return ONLY valid JSON.",
                 userPrompt: prompt,
                 maxTokens: 400,
@@ -346,7 +346,7 @@ class InformationExtractor {
         """
 
         do {
-            let response = try await DeepSeekService.shared.generateText(
+            let response = try await GeminiService.shared.generateText(
                 systemPrompt: "You are an information extractor. Show your reasoning, then return ONLY valid JSON.",
                 userPrompt: prompt,
                 maxTokens: 200,
@@ -451,7 +451,7 @@ class InformationExtractor {
         """
 
         do {
-            let title = try await DeepSeekService.shared.generateText(
+            let title = try await GeminiService.shared.generateText(
                 systemPrompt: "You generate concise titles. Return ONLY the title.",
                 userPrompt: prompt,
                 maxTokens: 20,

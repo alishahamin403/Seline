@@ -118,12 +118,6 @@ struct AuthenticationView: View {
                 Color.black : // Pure black to match logo background
                 Color.white   // Pure white to match home screen
         )
-        .overlay {
-            if authManager.isImportingLabels {
-                LabelImportProgressView(progress: authManager.importProgress)
-                    .transition(.opacity)
-            }
-        }
     }
 }
 

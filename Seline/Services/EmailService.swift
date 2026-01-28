@@ -64,7 +64,7 @@ class EmailService: ObservableObject {
     private let authManager = AuthenticationManager.shared
     private let gmailAPIClient = GmailAPIClient.shared
     let notificationService = NotificationService.shared // Made public for access from EmailView
-    private let openAIService = DeepSeekService.shared
+    private let openAIService = GeminiService.shared
     private let emailIntelligence = EmailNotificationIntelligence.shared
 
     private init() {
@@ -1585,28 +1585,6 @@ class EmailService: ObservableObject {
         return try await emailFolderService.updateFolderColor(id: id, color: color)
     }
 
-    /// Update folder sync status (for imported label folders)
-    func updateFolderSyncStatus(id: UUID, syncEnabled: Bool) async throws {
-        let supabaseManager = SupabaseManager.shared
-        let client = await supabaseManager.getPostgrestClient()
-
-        struct UpdateData: Codable {
-            let sync_enabled: Bool
-            let updated_at: String
-        }
-
-        let updateData = UpdateData(
-            sync_enabled: syncEnabled,
-            updated_at: ISO8601DateFormatter().string(from: Date())
-        )
-
-        try await client
-            .from("email_folders")
-            .update(updateData)
-            .eq("id", value: id.uuidString)
-            .execute()
-    }
-
     /// Delete an email folder
     func deleteEmailFolder(id: UUID) async throws {
         let emailFolderService = await EmailFolderService.shared
@@ -1662,46 +1640,6 @@ class EmailService: ObservableObject {
         return emails.count
     }
 
-    /// Manually trigger a full label sync
-    func manualSyncLabels() async throws {
-        let labelSyncService = LabelSyncService.shared
-        try await labelSyncService.manualSyncLabels()
-    }
-
-    /// Check for new Gmail labels not yet imported
-    func checkForNewLabels() async throws -> [GmailLabel] {
-        let gmailLabelService = GmailLabelService.shared
-        let supabaseManager = SupabaseManager.shared
-
-        // Fetch all available labels from Gmail
-        let allLabels = try await gmailLabelService.fetchAllCustomLabels()
-        print("📋 Found \(allLabels.count) total labels in Gmail")
-
-        guard let userId = supabaseManager.getCurrentUser()?.id else {
-            throw NSError(domain: "EmailService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
-        }
-
-        // Get imported label IDs from database
-        let client = await supabaseManager.getPostgrestClient()
-        let mappingResponse = try await client
-            .from("email_label_mappings")
-            .select("gmail_label_id")
-            .eq("user_id", value: userId.uuidString)
-            .execute()
-
-        struct LabelMapping: Decodable {
-            let gmail_label_id: String
-        }
-
-        let mappings = try JSONDecoder().decode([LabelMapping].self, from: mappingResponse.data)
-        let importedLabelIds = Set(mappings.map { $0.gmail_label_id })
-
-        // Find new labels (in Gmail but not imported yet)
-        let newLabels = allLabels.filter { !importedLabelIds.contains($0.id) }
-        print("✨ Found \(newLabels.count) new labels not yet imported")
-
-        return newLabels
-    }
 
     // MARK: - Error Handling
     private func getUserFriendlyErrorMessage(_ error: Error) -> String {

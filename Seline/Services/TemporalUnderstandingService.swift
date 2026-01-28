@@ -87,19 +87,25 @@ class TemporalUnderstandingService {
 
         // "yesterday"
         if query.contains("yesterday") {
-            let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+            let todayStart = calendar.startOfDay(for: today)
+            let yesterdayStart = calendar.date(byAdding: .day, value: -1, to: todayStart)!
+            let yesterdayEnd = todayStart  // Yesterday ends when today begins
             return DateRange(
-                startDate: yesterday,
-                endDate: yesterday,
+                startDate: yesterdayStart,
+                endDate: yesterdayEnd,  // ✅ CORRECT: Full 24-hour day
                 description: "Yesterday"
             )
         }
 
         // "today"
         if query.contains("today") {
+            let todayStart = calendar.startOfDay(for: today)
+            guard let todayEnd = calendar.date(byAdding: .day, value: 1, to: todayStart) else {
+                return nil
+            }
             return DateRange(
-                startDate: today,
-                endDate: today,
+                startDate: todayStart,
+                endDate: todayEnd,  // ✅ CORRECT: Full 24-hour day (midnight to midnight)
                 description: "Today"
             )
         }

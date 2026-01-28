@@ -7,7 +7,7 @@ class ConversationStateAnalyzerService {
     static func analyzeConversationState(
         currentQuery: String,
         conversationHistory: [ConversationMessage]
-    ) -> ConversationState {
+    ) -> ConversationContext {
         let topicsDiscussed = extractTopicsFromHistory(conversationHistory)
         let lastQuestionType = identifyLastQuestionType(conversationHistory)
         let isProbablyFollowUp = detectFollowUpQuestion(currentQuery, history: conversationHistory)
@@ -18,7 +18,7 @@ class ConversationStateAnalyzerService {
             lastQuestionType: lastQuestionType
         )
 
-        return ConversationState(
+        return ConversationContext(
             topicsDiscussed: topicsDiscussed,
             lastQuestionType: lastQuestionType,
             isProbablyFollowUp: isProbablyFollowUp,

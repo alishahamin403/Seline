@@ -210,8 +210,8 @@ struct EmailView: View, Searchable {
             // Tab selector and buttons
             tabSelectorSection(topPadding: topPadding)
 
-            // Search bar - show when search is active
-            if isSearchActive {
+            // Search bar - show when search is active (but not on events tab)
+            if isSearchActive && selectedTab != .events {
                 searchBarSection(topPadding: 0)
             }
 
@@ -244,13 +244,27 @@ struct EmailView: View, Searchable {
     @ViewBuilder
     private func tabSelectorSection(topPadding: CGFloat) -> some View {
         HStack(spacing: 12) {
-            folderButton
-            searchButton
-
+            // Left side buttons - only show when NOT on events tab
+            if selectedTab != .events {
+                folderButton
+            } else {
+                // Empty spacer to balance layout
+                Color.clear.frame(width: 44, height: 44)
+            }
+            
             Spacer()
 
             EmailTabView(selectedTab: $selectedTab)
                 .onChange(of: selectedTab) { newTab in
+                    // Close search when switching to events tab
+                    if newTab == .events && isSearchActive {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isSearchActive = false
+                            searchText = ""
+                            emailService.searchResults = []
+                        }
+                    }
+                    
                     Task {
                         await emailService.loadEmailsForFolder(newTab.folder)
                     }
@@ -258,7 +272,16 @@ struct EmailView: View, Searchable {
 
             Spacer()
 
-            unreadFilterButton
+            // Right side buttons - only show when NOT on events tab
+            if selectedTab != .events {
+                HStack(spacing: 12) {
+                    searchButton
+                    unreadFilterButton
+                }
+            } else {
+                // Empty spacer to balance layout
+                Color.clear.frame(width: 44, height: 44)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, topPadding)
@@ -399,37 +422,7 @@ struct EmailView: View, Searchable {
             HStack {
                 Spacer()
 
-                if selectedTab == .events {
-                    // Events tab: Camera and + buttons stacked vertically
-                    VStack(spacing: 12) {
-                        Button(action: {
-                            showPhotoImportDialog = true
-                        }) {
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 56, height: 56)
-                                .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
-                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-
-                        Button(action: {
-                            addEventDate = selectedDate
-                            showAddEventPopup = true
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 56, height: 56)
-                                .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
-                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 30)
-                } else {
+                if selectedTab != .events {
                     // Email tabs: Compose button
                     Button(action: {
                         openGmailCompose()
@@ -637,6 +630,9 @@ struct EmailView: View, Searchable {
                         onAddEvent: { date in
                             addEventDate = date
                             showAddEventPopup = true
+                        },
+                        onCameraAction: {
+                            showPhotoImportDialog = true
                         }
                     )
                     .id("agendaView")

@@ -170,10 +170,29 @@ class VectorContextBuilder {
         let calendar = Calendar.current
         let today = Date()
         let todayStart = calendar.startOfDay(for: today)
-        
+
         // Quick checks for common explicit patterns
         let lower = query.lowercased()
-        
+
+        // EXPLICIT PATTERN MATCHING for "today" (fast path, no LLM needed)
+        if lower.contains("today") || lower.contains("my day") {
+            guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: todayStart) else {
+                return nil
+            }
+            print("📅 Date extraction (pattern): Detected 'today' - Range: \(todayStart) to \(dayEnd)")
+            return (start: todayStart, end: dayEnd)
+        }
+
+        // EXPLICIT PATTERN MATCHING for "yesterday" (fast path, no LLM needed)
+        if lower.contains("yesterday") {
+            guard let yesterday = calendar.date(byAdding: .day, value: -1, to: todayStart) else {
+                return nil
+            }
+            let dayEnd = todayStart  // Yesterday's end is today's start
+            print("📅 Date extraction (pattern): Detected 'yesterday' - Range: \(yesterday) to \(dayEnd)")
+            return (start: yesterday, end: dayEnd)
+        }
+
         // Explicit ISO dates (fast path)
         if let range = lower.range(of: "\\b\\d{4}-\\d{2}-\\d{2}\\b", options: .regularExpression) {
             let token = String(lower[range])
@@ -184,6 +203,7 @@ class VectorContextBuilder {
             if let targetDate = df.date(from: token) {
                 let dayStart = calendar.startOfDay(for: targetDate)
                 guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return nil }
+                print("📅 Date extraction (pattern): Detected ISO date '\(token)' - Range: \(dayStart) to \(dayEnd)")
                 return (start: dayStart, end: dayEnd)
             }
         }
@@ -340,10 +360,38 @@ class VectorContextBuilder {
         do {
             let tagManager = TagManager.shared
             let tasks = TaskManager.shared.getTasksForDate(dayStart).filter { !$0.isDeleted }
-            
-            if !tasks.isEmpty {
-                context += "EVENTS/TASKS (\(tasks.count)):\n"
-                for t in tasks.sorted(by: { ($0.scheduledTime ?? $0.targetDate ?? $0.createdAt) < ($1.scheduledTime ?? $1.targetDate ?? $1.createdAt) }) {
+
+            // VALIDATION: Verify all tasks actually belong to this date
+            let validTasks = tasks.filter { task in
+                // If task has targetDate, verify it's on the same day as dayStart
+                if let targetDate = task.targetDate {
+                    let isCorrectDate = Calendar.current.isDate(targetDate, inSameDayAs: dayStart)
+                    if !isCorrectDate {
+                        print("⚠️ MISMATCH: Task '\(task.title)' has targetDate \(targetDate) but dayStart is \(dayStart)")
+                    }
+                    return isCorrectDate
+                }
+                // If no targetDate but has scheduledTime, check that
+                if let scheduledTime = task.scheduledTime {
+                    let isCorrectDate = Calendar.current.isDate(scheduledTime, inSameDayAs: dayStart)
+                    if !isCorrectDate {
+                        print("⚠️ MISMATCH: Task '\(task.title)' has scheduledTime \(scheduledTime) but dayStart is \(dayStart)")
+                    }
+                    return isCorrectDate
+                }
+                // Allow tasks without specific dates (safety fallback)
+                return true
+            }
+
+            print("📋 Day completeness: Found \(validTasks.count) validated events for \(dayLabelFormatter.string(from: dayStart))")
+            for task in validTasks {
+                let timeDesc = task.scheduledTime != nil ? timeFormatter.string(from: task.scheduledTime!) : "all-day"
+                print("   - \(task.title) @ \(timeDesc)")
+            }
+
+            if !validTasks.isEmpty {
+                context += "EVENTS/TASKS (\(validTasks.count)):\n"
+                for t in validTasks.sorted(by: { ($0.scheduledTime ?? $0.targetDate ?? $0.createdAt) < ($1.scheduledTime ?? $1.targetDate ?? $1.createdAt) }) {
                     let tagName = tagManager.getTag(by: t.tagId)?.name ?? "Personal"
                     
                     let timeLabel: String = {

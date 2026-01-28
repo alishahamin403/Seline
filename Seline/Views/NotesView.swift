@@ -20,7 +20,7 @@ struct NotesView: View, Searchable {
     @State private var selectedTab = "notes" // "notes", "receipts", "recurring"
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
-    @StateObject private var openAIService = DeepSeekService.shared
+    @StateObject private var openAIService = GeminiService.shared
     @Namespace private var tabAnimation
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var noteForReminder: Note? = nil
@@ -165,6 +165,9 @@ struct NotesView: View, Searchable {
                                         )
                                 }
                                 .buttonStyle(PlainButtonStyle())
+                            } else {
+                                // Empty spacer to balance layout
+                                Color.clear.frame(width: 44, height: 44)
                             }
 
                             Spacer()
@@ -206,6 +209,9 @@ struct NotesView: View, Searchable {
                             )
 
                             Spacer()
+                            
+                            // Empty spacer on right to balance layout
+                            Color.clear.frame(width: 44, height: 44)
                         }
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
@@ -985,7 +991,7 @@ struct NoteEditView: View {
     @State private var showingAddMorePrompt = false
     @State private var addMorePromptText = ""
     @State private var showingShareSheet = false
-    @StateObject private var openAIService = DeepSeekService.shared
+    @StateObject private var openAIService = GeminiService.shared
     @State private var selectedTextRange: NSRange = NSRange(location: 0, length: 0)
     @State private var showingImagePicker = false
     @State private var showingCameraPicker = false
@@ -3078,7 +3084,7 @@ struct NoteEditView: View {
 
                 // Call OpenAI to process the text
                 print("🤖 Processing with OpenAI...")
-                let openAIService = DeepSeekService.shared
+                let openAIService = GeminiService.shared
                 let processedText = try await openAIService.extractDetailedDocumentContent(
                     fileContent,
                     withPrompt: prompt,

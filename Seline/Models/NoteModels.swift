@@ -290,7 +290,11 @@ class NotesManager: ObservableObject {
 
         // Sync with Supabase with retry logic
         Task {
-            await saveNoteToSupabaseWithRetry(note, maxRetries: 3)
+            let result = await saveNoteToSupabaseWithRetry(note, maxRetries: 3)
+            // Immediately embed the note after successful save
+            if result.success {
+                await embedNoteImmediately(note)
+            }
         }
     }
 
@@ -312,6 +316,12 @@ class NotesManager: ObservableObject {
 
         // Wait for Supabase save to complete with retry logic
         let result = await saveNoteToSupabaseWithRetry(note, maxRetries: 3)
+        
+        // Immediately embed the note after successful save
+        if result.success {
+            await embedNoteImmediately(note)
+        }
+        
         return result.success
     }
 
@@ -380,6 +390,45 @@ class NotesManager: ObservableObject {
             return (false, error.localizedDescription)
         }
     }
+    
+    /// Immediately embed a note after it's been saved/updated
+    /// This ensures new/updated notes are searchable right away
+    private func embedNoteImmediately(_ note: Note) async {
+        // Decrypt note content for embedding (embeddings need plain text)
+        let content: String
+        do {
+            if note.isLocked {
+                // For locked notes, try to decrypt for embedding
+                content = try await decryptNoteAfterLoading(note).content
+            } else {
+                content = note.content
+            }
+        } catch {
+            print("⚠️ Could not decrypt note for embedding: \(error)")
+            // Use encrypted content as fallback (less ideal but better than nothing)
+            content = note.content
+        }
+        
+        let contentToEmbed = "\(note.title)\n\n\(content)"
+        
+        do {
+            try await VectorSearchService.shared.embedDocument(
+                type: .note,
+                id: note.id.uuidString,
+                title: note.title,
+                content: contentToEmbed,
+                metadata: [
+                    "date": ISO8601DateFormatter().string(from: note.dateModified),
+                    "folder_id": note.folderId?.uuidString ?? NSNull(),
+                    "is_pinned": note.isPinned
+                ]
+            )
+            print("✅ Immediately embedded note: \(note.title)")
+        } catch {
+            print("⚠️ Failed to immediately embed note: \(error.localizedDescription)")
+            // Note: The note will still be embedded on next sync, so this is not critical
+        }
+    }
 
     // Upload image and return URL - used when adding new images to notes
     func uploadNoteImage(_ image: UIImage, noteId: UUID) async throws -> String {
@@ -439,7 +488,11 @@ class NotesManager: ObservableObject {
 
             // Sync with Supabase with retry logic (fire-and-forget for UI responsiveness)
             Task {
-                await updateNoteInSupabaseWithRetry(updatedNote, maxRetries: 3)
+                let success = await updateNoteInSupabaseWithRetry(updatedNote, maxRetries: 3)
+                // Immediately embed the note after successful update
+                if success {
+                    await embedNoteImmediately(updatedNote)
+                }
             }
         }
     }
@@ -461,6 +514,12 @@ class NotesManager: ObservableObject {
 
             // Wait for Supabase update to complete with retry logic
             let result = await updateNoteInSupabaseWithRetry(updatedNote, maxRetries: 3)
+            
+            // Immediately embed the note after successful update
+            if result {
+                await embedNoteImmediately(updatedNote)
+            }
+            
             return result
         }
         return false

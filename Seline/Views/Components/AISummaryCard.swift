@@ -94,6 +94,32 @@ struct AISummaryCard: View {
 
     // MARK: - Helper Functions
 
+    /// Remove markdown bold markers **text** -> text
+    private func cleanMarkdownText(_ text: String) -> String {
+        // Remove bold markers **text** -> text
+        let boldPattern = #"\*\*([^\*]+)\*\*"#
+        guard let regex = try? NSRegularExpression(pattern: boldPattern, options: []) else {
+            return text
+        }
+        
+        let nsString = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+        
+        var result = text
+        // Process in reverse to preserve indices
+        for match in matches.reversed() {
+            if match.numberOfRanges >= 2 {
+                let fullRange = match.range
+                let textRange = match.range(at: 1)
+                let boldText = nsString.substring(with: textRange)
+                // Replace **text** with just text
+                result = (result as NSString).replacingCharacters(in: fullRange, with: boldText)
+            }
+        }
+        
+        return result
+    }
+    
     private func isDummySummary(_ summary: String) -> Bool {
         let dummyPhrases = [
             "Additional details mentioned",
@@ -159,8 +185,8 @@ struct AISummaryCard: View {
                         .frame(width: 6, height: 6)
                         .padding(.top, 6)
 
-                    // Bullet text
-                    Text(bullet)
+                    // Bullet text (remove markdown bold markers)
+                    Text(cleanMarkdownText(bullet))
                         .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
                         .multilineTextAlignment(.leading)

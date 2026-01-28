@@ -306,7 +306,7 @@ class SearchService: ObservableObject {
             let batchItems = batch.map { ($0.identifier, $0.searchText) }
 
             do {
-                let batchScores = try await DeepSeekService.shared.getSemanticSimilarityScores(
+                let batchScores = try await GeminiService.shared.getSemanticSimilarityScores(
                     query: query,
                     contents: batchItems
                 )
@@ -436,7 +436,7 @@ class SearchService: ObservableObject {
     /// Returns (success, formattedResponse, relatedItems) or nil if semantic query didn't apply
     func processWithSemanticQuery(_ userQuery: String) async -> (text: String, items: [RelatedDataItem])? {
         // Step 1: Generate semantic query from user input
-        guard let semanticQuery = await DeepSeekService.shared.generateSemanticQuery(from: userQuery) else {
+        guard let semanticQuery = await GeminiService.shared.generateSemanticQuery(from: userQuery) else {
             print("⚠️ Semantic query generation failed, falling back to conversation")
             return nil
         }
@@ -571,7 +571,7 @@ class SearchService: ObservableObject {
     private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date, skipUserMessage: Bool = false, isVoiceMode: Bool = false) async {
         // Initialize SelineChat if needed
         if selineChat == nil {
-            selineChat = SelineChat(appContext: SelineAppContext(), deepSeekService: DeepSeekService.shared)
+            selineChat = SelineChat(appContext: SelineAppContext(), geminiService: GeminiService.shared)
 
             // IMPORTANT: Sync existing conversation history to SelineChat
             // This ensures historical chats retain context when reopened
@@ -822,7 +822,7 @@ class SearchService: ObservableObject {
         guard conversationHistory.isEmpty else { return }
         
         if selineChat == nil {
-            selineChat = SelineChat(appContext: SelineAppContext(), deepSeekService: DeepSeekService.shared)
+            selineChat = SelineChat(appContext: SelineAppContext(), geminiService: GeminiService.shared)
         }
         guard let chat = selineChat else { return }
         
@@ -893,10 +893,10 @@ class SearchService: ObservableObject {
                 self.streamingMessageID = streamingMessageID
                 var messageAdded = false
 
-                try await DeepSeekService.shared.answerQuestionWithStreaming(
+                try await GeminiService.shared.answerQuestionWithStreaming(
                     query: userMessage,
                     conversationHistory: Array(conversationHistory.dropLast(1)).map { msg in
-                        DeepSeekService.Message(role: msg.isUser ? "user" : "assistant", content: msg.text)
+                        GeminiService.Message(role: msg.isUser ? "user" : "assistant", content: msg.text)
                     },
                     onChunk: { chunk in
                         fullResponse += chunk
@@ -942,7 +942,7 @@ class SearchService: ObservableObject {
                     if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
                         // Extract related data from OpenAIService's lastSearchAnswer
                         var relatedData: [RelatedDataItem]? = nil
-                        if let searchAnswer = DeepSeekService.shared.lastSearchAnswer {
+                        if let searchAnswer = GeminiService.shared.lastSearchAnswer {
                             var items: [RelatedDataItem] = []
 
                             // Add related receipts
@@ -979,17 +979,17 @@ class SearchService: ObservableObject {
                 }
             } else {
                 // Non-streaming response
-                let response = try await DeepSeekService.shared.answerQuestion(
+                let response = try await GeminiService.shared.answerQuestion(
                     query: userMessage,
                     conversationHistory: Array(conversationHistory.dropLast()).map { msg in
-                        DeepSeekService.Message(role: msg.isUser ? "user" : "assistant", content: msg.text)
+                        GeminiService.Message(role: msg.isUser ? "user" : "assistant", content: msg.text)
                     },
                     operationType: "chat"
                 )
 
                 // Extract related data from OpenAIService's lastSearchAnswer
                 var relatedData: [RelatedDataItem]? = nil
-                if let searchAnswer = DeepSeekService.shared.lastSearchAnswer {
+                if let searchAnswer = GeminiService.shared.lastSearchAnswer {
                     var items: [RelatedDataItem] = []
 
                     // Add related receipts
@@ -1278,7 +1278,7 @@ class SearchService: ObservableObject {
             Respond with ONLY the summary, no additional text.
             """
 
-            let summaryResponse = try await DeepSeekService.shared.generateText(
+            let summaryResponse = try await GeminiService.shared.generateText(
                 systemPrompt: "You are an expert at creating concise conversation summaries.",
                 userPrompt: summaryPrompt,
                 maxTokens: 100,
@@ -1296,7 +1296,7 @@ class SearchService: ObservableObject {
             Respond with ONLY the title, no additional text, quotes, or punctuation.
             """
 
-            let titleResponse = try await DeepSeekService.shared.generateText(
+            let titleResponse = try await GeminiService.shared.generateText(
                 systemPrompt: "You are an expert at creating concise, descriptive, and smart conversation titles that accurately reflect the conversation content.",
                 userPrompt: titlePrompt,
                 maxTokens: 50,

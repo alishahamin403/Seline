@@ -13,12 +13,8 @@ class AuthenticationManager: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var showLocationSetup = false
-    @Published var showLabelSelection = false  // Show label selection after first login
-    @Published var isImportingLabels = false
-    @Published var importProgress = ImportProgress()
 
     private let supabaseManager = SupabaseManager.shared
-    private let labelSyncService = LabelSyncService.shared
 
     private init() {
         // Check for existing session on init
@@ -60,9 +56,6 @@ class AuthenticationManager: ObservableObject {
             await NotesManager.shared.syncNotesOnLogin()
             await PeopleManager.shared.syncPeopleOnLogin()
             await TagManager.shared.loadTagsFromSupabase()
-
-            // Sync Gmail labels (ensures labels stay up-to-date on each app launch)
-            await importGmailLabelsIfNeeded()
 
         } catch {
             // No valid session found, user needs to sign in
@@ -164,9 +157,6 @@ class AuthenticationManager: ObservableObject {
                 await TagManager.shared.loadTagsFromSupabase()
             }
 
-            // Import Gmail labels on first login
-            await importGmailLabelsIfNeeded()
-
             // Check if first-time setup is needed
             Task {
                 await checkFirstTimeSetup()
@@ -190,57 +180,6 @@ class AuthenticationManager: ObservableObject {
             print("❌ Failed to check first-time setup: \(error)")
             // If we can't load preferences, assume first-time and show setup
             self.showLocationSetup = true
-        }
-    }
-
-    private func importGmailLabelsIfNeeded() async {
-        // Check if user has already been shown the label selection popup
-        print("🔍 Checking if Gmail labels need to be imported...")
-        do {
-            guard let userId = supabaseManager.getCurrentUser()?.id else {
-                print("⚠️ No user authenticated, skipping label import")
-                return
-            }
-
-            let userIdString = userId.uuidString
-            let labelSelectionKey = "hasSeenLabelSelection_\(userIdString)"
-
-            // Check if we've already shown this user the label selection popup
-            let hasSeenLabelSelection = UserDefaults.standard.bool(forKey: labelSelectionKey)
-            if hasSeenLabelSelection {
-                print("ℹ️ User has already been shown label selection popup, skipping...")
-                return
-            }
-
-            let client = await supabaseManager.getPostgrestClient()
-
-            print("📊 Querying email_label_mappings for user: \(userIdString)")
-            let response = try await client
-                .from("email_label_mappings")
-                .select("id")
-                .eq("user_id", value: userIdString)
-                .limit(1)
-                .execute()
-
-            let mappingCount = response.count ?? 0
-            print("📊 Label mappings check - Found \(mappingCount) existing mappings")
-
-            // If we already have label mappings, mark as seen and skip showing popup
-            if mappingCount > 0 {
-                print("✅ Gmail labels already imported for this user")
-                UserDefaults.standard.set(true, forKey: labelSelectionKey)
-                return
-            }
-
-            // No mappings found AND user hasn't been shown popup yet, show label selection view
-            print("🚀 Showing label selection view for first-time user...")
-            UserDefaults.standard.set(true, forKey: labelSelectionKey)
-            self.showLabelSelection = true
-
-        } catch {
-            print("❌ Failed to check label import status: \(error.localizedDescription)")
-            print("🐛 Error details: \(error)")
-            // Don't fail authentication - user can manually sync later
         }
     }
 

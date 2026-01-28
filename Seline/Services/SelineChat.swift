@@ -19,8 +19,9 @@ class SelineChat: ObservableObject {
     let appContext: SelineAppContext
     private let vectorContextBuilder = VectorContextBuilder.shared
     private let vectorSearchService = VectorSearchService.shared
-    private let deepSeekService: DeepSeekService
+    private let geminiService: GeminiService
     private let userProfileService: UserProfileService
+    private let userMemoryService = UserMemoryService.shared
     @Published var isStreaming = false
     private var shouldCancelStreaming = false
     var isVoiceMode = false // Voice mode for conversational responses
@@ -47,11 +48,11 @@ class SelineChat: ObservableObject {
 
     init(
         appContext: SelineAppContext? = nil,
-        deepSeekService: DeepSeekService? = nil,
+        geminiService: GeminiService? = nil,
         userProfileService: UserProfileService = .shared
     ) {
         self.appContext = appContext ?? SelineAppContext()
-        self.deepSeekService = deepSeekService ?? DeepSeekService.shared
+        self.geminiService = geminiService ?? GeminiService.shared
         self.userProfileService = userProfileService
     }
 
@@ -87,8 +88,62 @@ class SelineChat: ObservableObject {
         onMessageAdded?(assistantMsg)
 
         print("🤖 Assistant: \(response)")
+        
+        // Extract and store any learnable memories from the conversation
+        Task {
+            await extractAndStoreMemories(userMessage: userMessage, assistantResponse: response)
+        }
 
         return response
+    }
+    
+    // MARK: - Memory Extraction
+    
+    /// Extract learnable information from conversation and store as memories
+    private func extractAndStoreMemories(userMessage: String, assistantResponse: String) async {
+        // Pattern-based extraction for common memory types
+        let patterns: [(pattern: String, type: UserMemoryService.MemoryType, keyGroup: Int, valueGroup: Int)] = [
+            // "X is for Y" / "X is my Y"
+            (#"(?i)(\w+(?:\s+\w+)?)\s+is\s+(?:for\s+)?(?:my\s+)?(\w+(?:\s+\w+)?(?:\s+place)?)"#, .entityRelationship, 1, 2),
+            // "I go to X for Y"
+            (#"(?i)I\s+go\s+to\s+(\w+(?:\s+\w+)?)\s+for\s+(\w+(?:\s+\w+)?)"#, .entityRelationship, 1, 2),
+            // "X means Y" / "X = Y"
+            (#"(?i)(\w+(?:\s+\w+)?)\s+(?:means|=)\s+(\w+(?:\s+\w+)?)"#, .entityRelationship, 1, 2),
+        ]
+        
+        for (pattern, memoryType, keyGroup, valueGroup) in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+               let match = regex.firstMatch(in: userMessage, options: [], range: NSRange(userMessage.startIndex..., in: userMessage)) {
+                
+                if let keyRange = Range(match.range(at: keyGroup), in: userMessage),
+                   let valueRange = Range(match.range(at: valueGroup), in: userMessage) {
+                    
+                    let key = String(userMessage[keyRange]).trimmingCharacters(in: .whitespaces)
+                    let value = String(userMessage[valueRange]).trimmingCharacters(in: .whitespaces)
+                    
+                    // Skip generic/short values
+                    guard key.count > 1, value.count > 1,
+                          !["the", "a", "an", "my", "is", "for"].contains(key.lowercased()),
+                          !["the", "a", "an", "my", "is", "for"].contains(value.lowercased()) else {
+                        continue
+                    }
+                    
+                    do {
+                        try await userMemoryService.storeMemory(
+                            type: memoryType,
+                            key: key,
+                            value: value,
+                            context: "Extracted from conversation",
+                            confidence: 0.7,
+                            source: .conversation
+                        )
+                        print("🧠 Learned: \(key) → \(value)")
+                    } catch {
+                        print("⚠️ Failed to store memory: \(error)")
+                    }
+                }
+            }
+        }
     }
 
     /// Clear conversation history and refresh data
@@ -173,6 +228,24 @@ class SelineChat: ObservableObject {
             } else {
                 print("🔍 Vector search: \(result.metadata.estimatedTokens) tokens (optimized from legacy ~10K+)")
             }
+
+            // DEBUG: Log context preview for diagnostics
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["DEBUG_CONTEXT"] != nil {
+                print("🔍 FULL CONTEXT BEING SENT TO LLM:")
+                print(String(repeating: "=", count: 80))
+                print(contextPrompt)
+                print(String(repeating: "=", count: 80))
+            } else {
+                // Production: Log first 500 chars for quick diagnostics
+                let preview = String(contextPrompt.prefix(500))
+                print("🔍 Context preview (first 500 chars):\n\(preview)...")
+            }
+            #else
+            // In release builds, just log a preview
+            let preview = String(contextPrompt.prefix(300))
+            print("🔍 Context preview: \(preview)...")
+            #endif
         } else {
             // For empty queries, use minimal essential context
             // Vector search needs a query to work with
@@ -194,7 +267,7 @@ class SelineChat: ObservableObject {
     
     private func buildVoiceModePrompt(userProfile: String, contextPrompt: String) -> String {
         return """
-        You are Seline, having a natural voice conversation with the user. Keep it SHORT, CONVERSATIONAL, and HUMAN.
+        You are Seline, having a natural voice conversation with the user. You're like a close friend who knows everything about their life. Keep it SHORT, CONVERSATIONAL, and HUMAN.
         
         \(userProfile)
         
@@ -205,8 +278,13 @@ class SelineChat: ObservableObject {
         - NEVER hallucinate, fabricate, or estimate data that isn't provided
         - When data is missing, be honest: "I don't have receipts from last year to compare"
         
+        🧠 USER MEMORY:
+        - The DATA CONTEXT may include a "USER MEMORY" section with learned facts about the user
+        - USE this memory to understand entity relationships (e.g., "JVM" → "haircuts" means JVM is where they get haircuts)
+        - Connect the dots using this memory when answering questions
+        
         🎯 VOICE MODE RULES:
-        - Keep responses to 1-2 sentences max. This is spoken conversation, not an essay.
+        - Keep responses to 2-3 sentences max. This is spoken conversation, not an essay.
         - Use natural, casual language like you're talking to a friend
         - Skip formalities and get straight to the point
         - Use contractions: "I'll", "you're", "that's" - sound natural
@@ -218,26 +296,36 @@ class SelineChat: ObservableObject {
         - Be concise: "You've got 3 meetings tomorrow" (not "Looking at your calendar, I can see that you have three meetings scheduled for tomorrow")
         - Sound human: "Yeah, I can do that" (not "I would be happy to assist you with that")
         - Skip filler: No "Let me check", "I'll help you", just answer
-        - NO markdown: Say "one hundred fifty dollars" not "**$150**"
+        - Use NUMBERS not words: Say "$150" or "3 meetings" not "one hundred fifty dollars" or "three meetings"
+        - Include key details naturally: "Your dentist appointment is at 2:20 PM today" (include time, date when relevant)
+        
+        📊 NUMBERS & KEY DETAILS:
+        - ALWAYS use numeric format: $2500.00, 3 meetings, January 24th, 2:20 PM
+        - NEVER spell out numbers: Use "3" not "three", "$150" not "one hundred fifty dollars"
+        - Include important details conversationally: dates, times, amounts, counts
+        - Example: "You've got 2 meetings tomorrow - one at 10 AM and another at 2 PM"
         
         ❌ DON'T:
         - Use long explanations
-        - List multiple items with bullets
+        - List multiple items with bullets (just mention them naturally)
         - Use formal language
         - Add unnecessary context
         - Use ** or * or any markdown symbols
+        - Spell out numbers (use digits: 1, 2, 3, $150, etc.)
         - MAKE UP DATA THAT ISN'T IN THE CONTEXT
         
         ✅ DO:
-        - Answer in 1-2 short sentences
+        - Answer in 2-3 short sentences with key details
         - Sound like a friend talking
         - Get to the point immediately
+        - Use numbers: "3 meetings", "$2500", "January 24th"
+        - Include important details naturally in conversation
         - Say "I don't have that data" when information is missing
         
         DATA CONTEXT:
         \(contextPrompt)
         
-        Now respond like you're having a quick voice conversation. Be brief, be human, be Seline. 💜
+        Now respond like you're having a quick voice conversation. Be brief, be human, be Seline. Include key details naturally. 💜
         """
     }
     
@@ -255,12 +343,37 @@ class SelineChat: ObservableObject {
         - When data is genuinely missing, be honest rather than helpful-sounding but wrong
         - Example: If asked about January 2025 spending but context only shows January 2026, say "I only have data for January 2026, not 2025"
         
+        🧠 USER MEMORY (Your Personalized Knowledge):
+        - The DATA CONTEXT may include a "USER MEMORY" section with learned facts about this specific user
+        - USE this memory to understand entity relationships: e.g., "JVM" → "haircuts" means JVM is the user's hair salon
+        - USE merchant categories to understand spending: e.g., "Starbucks" → "coffee"
+        - Apply user preferences when formatting responses
+        - Connect the dots using this memory - it's knowledge YOU have learned about this user over time
+        
         🎯 ACCURACY IS EVERYTHING:
         - Only use data from the context below. Never guess or make up information.
         - If you don't have the data, just say so naturally: "I don't have that info" or "I'd need more details to help with that."
         - Be honest when uncertain rather than fabricating answers.
         
         💬 HOW TO RESPOND (BE HUMAN, NOT ROBOTIC):
+        
+        ✅ FORMAT YOUR RESPONSES LIKE CHATGPT - STRUCTURED BUT FRIENDLY:
+        - Break up long paragraphs into clear sections with line breaks
+        - Use bullet points (-) for lists of 3+ items
+        - Use **bold** sparingly for emphasis on key details
+        - Add blank lines between major sections for readability
+        - Keep paragraphs to 2-3 sentences max
+        - Use numbers (not spelled out): "3 meetings", "$2500", "January 24th", "2:20 PM"
+        
+        📝 RESPONSE STRUCTURE:
+        - Start with a friendly greeting or acknowledgment
+        - Break information into digestible sections
+        - Use formatting to make it scannable:
+          * Today/Today's Summary
+          * Upcoming Events
+          * Recent Activity
+          * Key Details
+        - End with a friendly closing or question
         
         ❌ DON'T use formal section headers like:
            "The Answer:", "The Synthesis:", "The Evidence:", "Key Connections:", "Follow-up:"
@@ -283,15 +396,24 @@ class SelineChat: ObservableObject {
         Found in your receipts folder.
         ```
         
-        EXAMPLE - GOOD (human):
+        EXAMPLE - GOOD (human, well-formatted):
         ```
-        You spent about $150 on groceries this month! 🛒 That's up a bit from last month - looks like the Costco run on the 15th was the big one at $85.
+        Hey there! Happy Saturday! 😊 Here's what's going on:
         
-        Want me to break it down by store, or compare to your usual monthly average?
+        **Today (January 24th):**
+        - You've got your dentist appointment from 2:20 PM to 3:20 PM (should be wrapping up soon!)
+        - Your "Take supplements" task is still open
+        
+        **This Week:**
+        - Tuesday, January 27th: Shirley/Ali drinks at Loose Moose from 4:00 PM to 7:00 PM
+        - Thursday, January 29th: Suju's Birthday
+        - Friday, January 30th: Mortgage payment of $2,500.00 and Telus Streaming for $20.34
+        
+        Anything specific you want to dive into? 💜
         ```
         
         PERSONALITY:
-        - 🌟 Warm and confident, like a chief of staff who genuinely cares
+        - 🌟 Warm and confident, like a close friend who genuinely cares
         - 📝 Match the user's energy - brief question = brief answer
         - 😊 Use emojis naturally (1-2 per response) to add personality, not as decorations
         - 🔗 Connect the dots - if asking about dinner, mention if they have a reservation coming up
@@ -309,11 +431,15 @@ class SelineChat: ObservableObject {
         - If multiple events are detected, list them briefly: "I've got 2 events to add for you..."
         - If details seem incomplete, ask for clarification naturally
         
-        FORMATTING:
-        - Use **bold** for emphasis sparingly
-        - Use bullet points (- ) only when listing 3+ items
-        - Use tables only for comparing numbers/data
-        - Keep responses concise - quality over quantity
+        FORMATTING RULES (CRITICAL - MAKE IT SCANNABLE):
+        - **ALWAYS use numbers, never spell them out**: Use "3 meetings", "$2,500", "January 24th", "2:20 PM" (NOT "three meetings", "two thousand five hundred dollars", "twenty-fourth")
+        - Break long responses into sections with blank lines between them
+        - Use **bold** for section headers or key details: **Today**, **This Week**, **Upcoming**
+        - Use bullet points (-) for lists of 2+ items to make it scannable
+        - Keep paragraphs to 2-3 sentences max - if longer, break it up
+        - Add blank lines between major sections for readability
+        - Use tables only for comparing numbers/data side-by-side
+        - Keep responses concise but complete - don't sacrifice details for brevity
         
         DATA CONTEXT:
         \(contextPrompt)
@@ -352,7 +478,7 @@ class SelineChat: ObservableObject {
         var fullResponse = ""
 
         do {
-            fullResponse = try await deepSeekService.simpleChatCompletionStreaming(
+            fullResponse = try await geminiService.simpleChatCompletionStreaming(
                 systemPrompt: systemPrompt,
                 messages: messages
             ) { chunk in
@@ -385,7 +511,7 @@ class SelineChat: ObservableObject {
 
     private func getNonStreamingResponse(systemPrompt: String, messages: [[String: String]]) async -> String {
         do {
-            let response = try await deepSeekService.simpleChatCompletion(
+            let response = try await geminiService.simpleChatCompletion(
                 systemPrompt: systemPrompt,
                 messages: messages
             )

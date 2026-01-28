@@ -79,7 +79,7 @@ class MerchantIntelligenceLayer {
         """
 
         do {
-            let response = try await DeepSeekService.shared.generateText(
+            let response = try await GeminiService.shared.generateText(
                 systemPrompt: "You are a business expert. Identify what type of business this is and what they sell.",
                 userPrompt: prompt,
                 maxTokens: 150,

@@ -235,15 +235,15 @@ class LocationBackgroundValidationService {
         // Create session
         LocationSessionManager.shared.createSession(for: place.id, userId: userId)
         
-        // Invalidate cache
-        LocationVisitAnalytics.shared.invalidateCache(for: place.id)
+        // CRITICAL: Use unified cache invalidation to keep all views in sync
+        LocationVisitAnalytics.shared.invalidateAllVisitCaches()
         
         // Save to Supabase
         await geofenceManager.saveVisitToSupabase(visit)
         
         print("✅ Created missed visit for: \(place.displayName)")
         
-        // Post notification
+        // Post notification (also posted by invalidateAllVisitCaches, but keep for explicit trigger)
         NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
         
         // Refresh widgets
@@ -293,15 +293,32 @@ class LocationBackgroundValidationService {
         // print("🔍 Validating \(activeVisits.count) active visit(s)...")
 
         for (placeId, visit) in activeVisits {
-            // CRITICAL: Check if midnight has been crossed for this active visit
-            // If yes, force-close current visit and start new one for next day
+            // CRITICAL: Check if we've reached or passed 11:59 PM of the entry day
+            // This proactively closes visits at 11:59 PM instead of waiting until after midnight
             let calendar = Calendar.current
+            let now = Date()
+            
+            // Calculate 11:59:59 PM of entry day
+            var endOfEntryDayComponents = calendar.dateComponents([.year, .month, .day], from: visit.entryTime)
+            endOfEntryDayComponents.hour = 23
+            endOfEntryDayComponents.minute = 59
+            endOfEntryDayComponents.second = 59
+            
+            guard let endOfEntryDay = calendar.date(from: endOfEntryDayComponents) else {
+                print("❌ Failed to calculate end of entry day")
+                continue
+            }
+            
+            // Check if current time is >= 11:59:59 PM of entry day
+            // OR if we've already crossed into the next day
             let entryDay = calendar.dateComponents([.year, .month, .day], from: visit.entryTime)
-            let currentDay = calendar.dateComponents([.year, .month, .day], from: Date())
-
-            if entryDay != currentDay {
-                print("🌙 MIDNIGHT CROSSED for active visit at \(savedPlaces.first(where: { $0.id == placeId })?.displayName ?? "unknown")")
-                print("   Entry: \(visit.entryTime), Current: \(Date())")
+            let currentDay = calendar.dateComponents([.year, .month, .day], from: now)
+            let hasReached1159PM = now >= endOfEntryDay
+            let hasCrossedMidnight = entryDay != currentDay
+            
+            if hasReached1159PM || hasCrossedMidnight {
+                print("🌙 CLOSING VISIT AT 11:59 PM for active visit at \(savedPlaces.first(where: { $0.id == placeId })?.displayName ?? "unknown")")
+                print("   Entry: \(visit.entryTime), Current: \(now), End of day: \(endOfEntryDay)")
 
                 // Force-close the visit at 11:59:59 PM of entry day and start new visit at 12:00:00 AM
                 await handleMidnightCrossing(placeId, visit: visit, geofenceManager: geofenceManager)
@@ -367,9 +384,16 @@ class LocationBackgroundValidationService {
         print("💾 Saving old visit (before midnight): \(durationMinutes) min")
         await updateVisitInSupabase(oldVisit)
 
-        // Calculate 12:00:00 AM of current day
-        let currentDay = Date()
-        var newDayComponents = calendar.dateComponents([.year, .month, .day], from: currentDay)
+        // Calculate 12:00:00 AM of the NEXT day (day after entry day)
+        // This ensures we always start the new visit on the correct day, even if called at 11:59 PM
+        guard let nextDay = calendar.date(byAdding: .day, value: 1, to: endOfEntryDay) else {
+            print("❌ Failed to calculate next day")
+            // Remove old visit from active visits (thread-safe)
+            geofenceManager.removeActiveVisit(for: placeId)
+            return
+        }
+        
+        var newDayComponents = calendar.dateComponents([.year, .month, .day], from: nextDay)
         newDayComponents.hour = 0
         newDayComponents.minute = 0
         newDayComponents.second = 0
@@ -399,8 +423,8 @@ class LocationBackgroundValidationService {
         // Save new visit to Supabase
         await saveVisitToSupabase(newVisit)
 
-        // Invalidate cache for this location to reflect the midnight split
-        LocationVisitAnalytics.shared.invalidateCache(for: placeId)
+        // CRITICAL: Use unified cache invalidation to keep all views in sync after midnight split
+        LocationVisitAnalytics.shared.invalidateAllVisitCaches()
     }
 
     // MARK: - Auto-Close Logic
@@ -558,8 +582,8 @@ class LocationBackgroundValidationService {
 
             print("✅ Visit updated in Supabase: \(visit.id.uuidString)")
 
-            // Invalidate cache
-            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
+            // CRITICAL: Use unified cache invalidation to keep all views in sync
+            LocationVisitAnalytics.shared.invalidateAllVisitCaches()
         } catch {
             print("❌ Error updating visit: \(error)")
         }

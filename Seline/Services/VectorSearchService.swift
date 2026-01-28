@@ -26,9 +26,9 @@ class VectorSearchService: ObservableObject {
     // MARK: - Configuration
 
     private let maxBatchSize = 50 // Max documents per batch
-    private let similarityThreshold: Float = 0.3 // Minimum similarity score
-    private let defaultResultLimit = 10
-    private let recentDaysThreshold = 30 // Only embed documents from last 30 days
+    private let similarityThreshold: Float = 0.30 // Minimum similarity score (increased from 0.15 to filter weak matches)
+    private let defaultResultLimit = 50 // Increased from 10 to 50 for better historical data retrieval
+    // Removed recentDaysThreshold - now embedding ALL historical data
     
     // MARK: - Cache
     
@@ -50,13 +50,14 @@ class VectorSearchService: ObservableObject {
     func search(
         query: String,
         documentTypes: [DocumentType]? = nil,
-        limit: Int = 10
+        limit: Int = 10,
+        dateRange: (start: Date, end: Date)? = nil
     ) async throws -> [SearchResult] {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return []
         }
         
-        let requestBody: [String: Any] = [
+        var requestBody: [String: Any] = [
             "action": "search",
             "query": query,
             "document_types": documentTypes?.map { $0.rawValue } ?? NSNull(),
@@ -64,8 +65,30 @@ class VectorSearchService: ObservableObject {
             "similarity_threshold": similarityThreshold
         ]
         
-        let response: SearchResponse = try await makeRequest(body: requestBody)
+        // Add date range filtering if specified
+        if let dateRange = dateRange {
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            requestBody["date_range_start"] = iso.string(from: dateRange.start)
+            requestBody["date_range_end"] = iso.string(from: dateRange.end)
+        }
         
+        let response: SearchResponse = try await makeRequest(body: requestBody)
+
+        // Log search results and similarity scores
+        if !response.results.isEmpty {
+            print("🔍 Vector search returned \(response.results.count) results (threshold: \(similarityThreshold)):")
+            for (index, result) in response.results.prefix(5).enumerated() {
+                let similarityPercent = Int(result.similarity * 100)
+                print("   \(index + 1). [\(similarityPercent)%] \(result.title ?? result.document_type) - \(result.content.prefix(60))...")
+            }
+            if response.results.count > 5 {
+                print("   ... and \(response.results.count - 5) more results")
+            }
+        } else {
+            print("🔍 Vector search returned 0 results (threshold: \(similarityThreshold)) - no matches found")
+        }
+
         return response.results.map { result in
             SearchResult(
                 documentType: DocumentType(rawValue: result.document_type) ?? .note,
@@ -82,9 +105,10 @@ class VectorSearchService: ObservableObject {
     /// This is the main method used by SelineAppContext
     func getRelevantContext(
         forQuery query: String,
-        limit: Int = 15
+        limit: Int = 50,  // Increased from 15 to 50 for better historical data retrieval
+        dateRange: (start: Date, end: Date)? = nil
     ) async throws -> String {
-        let results = try await search(query: query, limit: limit)
+        let results = try await search(query: query, limit: limit, dateRange: dateRange)
         
         guard !results.isEmpty else {
             return ""
@@ -142,12 +166,20 @@ class VectorSearchService: ObservableObject {
         // Only sync if not already syncing
         guard !isIndexing else { return }
         
-        // Check if we've synced recently (within 5 minutes)
+        // Check if we've synced recently (within 30 seconds to allow immediate embedding of new data)
         if let lastSync = lastSyncTime,
-           Date().timeIntervalSince(lastSync) < 300 {
+           Date().timeIntervalSince(lastSync) < 30 {
             print("⚡ Skipping embedding sync - synced \(Int(Date().timeIntervalSince(lastSync)))s ago")
             return
         }
+        
+        await syncAllEmbeddings()
+    }
+    
+    /// Force immediate sync (bypasses cooldown) - useful for immediate embedding after create/update
+    func syncEmbeddingsImmediately() async {
+        // Only sync if not already syncing
+        guard !isIndexing else { return }
         
         await syncAllEmbeddings()
     }
@@ -178,29 +210,32 @@ class VectorSearchService: ObservableObject {
             print("✅ Embedding sync complete: \(totalCount) documents in \(String(format: "%.1f", duration))s")
             print("   Notes: \(notesCount), Emails: \(emailsCount), Tasks: \(tasksCount), Locations: \(locationsCount), Receipts: \(receiptsCount), Visits: \(visitsCount), People: \(peopleCount)")
             
+            // Log any potential issues
+            if totalCount == 0 {
+                print("⚠️ WARNING: No documents were embedded. This might indicate:")
+                print("   - All documents are already embedded (check database)")
+                print("   - No documents exist in the app")
+                print("   - Authentication issues")
+            }
+            
         } catch {
             print("❌ Embedding sync failed: \(error)")
+            print("   Error details: \(error.localizedDescription)")
+            if let vectorError = error as? VectorSearchError {
+                print("   VectorSearchError: \(vectorError.errorDescription ?? "unknown")")
+            }
         }
     }
     
-    /// Sync note embeddings - only embed new/changed notes from last 30 days
+    /// Sync note embeddings - embed ALL notes (no date limit)
     private func syncNoteEmbeddings() async -> Int {
         let allNotes = NotesManager.shared.notes
         guard !allNotes.isEmpty else { return 0 }
 
-        // Filter to only recent notes (last 30 days)
-        let cutoffDate = Calendar.current.date(byAdding: .day, value: -recentDaysThreshold, to: Date())!
-        let recentNotes = allNotes.filter { $0.dateModified >= cutoffDate }
-
-        guard !recentNotes.isEmpty else {
-            print("📝 Notes: No notes modified in last \(recentDaysThreshold) days, skipping")
-            return 0
-        }
-
-        print("📝 Notes: Syncing \(recentNotes.count) of \(allNotes.count) (last \(recentDaysThreshold) days)")
+        print("📝 Notes: Syncing all \(allNotes.count) notes (no date limit)")
 
         // Prepare documents for embedding
-        let documents = recentNotes.map { note -> [String: Any] in
+        let documents = allNotes.map { note -> [String: Any] in
             let content = "\(note.title)\n\n\(note.content)"
             return [
                 "document_type": "note",
@@ -251,23 +286,14 @@ class VectorSearchService: ObservableObject {
         }
     }
     
-    /// Sync email embeddings - only embed new/changed emails from last 30 days
+    /// Sync email embeddings - embed ALL emails (no date limit)
     private func syncEmailEmbeddings() async -> Int {
         let allEmails = EmailService.shared.inboxEmails + EmailService.shared.sentEmails
         guard !allEmails.isEmpty else { return 0 }
 
-        // Filter to only recent emails (last 30 days)
-        let cutoffDate = Calendar.current.date(byAdding: .day, value: -recentDaysThreshold, to: Date())!
-        let recentEmails = allEmails.filter { $0.timestamp >= cutoffDate }
-
-        guard !recentEmails.isEmpty else {
-            print("📧 Emails: No emails from last \(recentDaysThreshold) days, skipping")
-            return 0
-        }
-
-        print("📧 Emails: Syncing \(recentEmails.count) of \(allEmails.count) (last \(recentDaysThreshold) days)")
+        print("📧 Emails: Syncing all \(allEmails.count) emails (no date limit)")
         
-        let documents = recentEmails.map { email -> [String: Any] in
+        let documents = allEmails.map { email -> [String: Any] in
             let content = """
             Subject: \(email.subject)
             From: \(email.sender.displayName)
@@ -324,28 +350,16 @@ class VectorSearchService: ObservableObject {
         }
     }
     
-    /// Sync task embeddings - only embed tasks from last 30 days
+    /// Sync task embeddings - embed ALL tasks (no date limit)
     private func syncTaskEmbeddings() async -> Int {
         let allTasks = TaskManager.shared.tasks.values
             .flatMap { $0 }
             .filter { !$0.isDeleted }
         guard !allTasks.isEmpty else { return 0 }
 
-        // Filter to only recent tasks (created or scheduled in last 30 days)
-        let cutoffDate = Calendar.current.date(byAdding: .day, value: -recentDaysThreshold, to: Date())!
-        let recentTasks = allTasks.filter { task in
-            let relevantDate = task.scheduledTime ?? task.targetDate ?? task.createdAt
-            return relevantDate >= cutoffDate
-        }
+        print("📅 Tasks: Syncing all \(allTasks.count) tasks (no date limit)")
 
-        guard !recentTasks.isEmpty else {
-            print("📅 Tasks: No tasks from last \(recentDaysThreshold) days, skipping")
-            return 0
-        }
-
-        print("📅 Tasks: Syncing \(recentTasks.count) of \(allTasks.count) (last \(recentDaysThreshold) days)")
-
-        let documents = recentTasks.map { task -> [String: Any] in
+        let documents = allTasks.map { task -> [String: Any] in
             let calendar = Calendar.current
             let iso = ISO8601DateFormatter()
             
@@ -664,25 +678,13 @@ class VectorSearchService: ObservableObject {
 
             guard !allReceiptNotes.isEmpty else { return 0 }
 
-            // Filter to only recent receipts (last 30 days based on extracted date or creation date)
-            let cutoffDate = Calendar.current.date(byAdding: .day, value: -recentDaysThreshold, to: Date())!
-            let recentReceiptNotes = allReceiptNotes.filter { note in
-                let receiptDate = notesManager.extractFullDateFromTitle(note.title) ?? note.dateCreated
-                return receiptDate >= cutoffDate
-            }
-
-            guard !recentReceiptNotes.isEmpty else {
-                print("💵 Receipts: No receipts from last \(recentDaysThreshold) days, skipping")
-                return 0
-            }
-
-            print("💵 Receipts: Syncing \(recentReceiptNotes.count) of \(allReceiptNotes.count) (last \(recentDaysThreshold) days)")
+            print("💵 Receipts: Syncing all \(allReceiptNotes.count) receipts (no date limit)")
 
             let iso = ISO8601DateFormatter()
             let monthYearFormatter = DateFormatter()
             monthYearFormatter.dateFormat = "MMMM yyyy"
 
-            let documents: [[String: Any]] = recentReceiptNotes.map { note in
+            let documents: [[String: Any]] = allReceiptNotes.map { note in
                 let date = notesManager.extractFullDateFromTitle(note.title) ?? note.dateCreated
                 let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
                 let category = ReceiptCategorizationService.shared.quickCategorizeReceipt(title: note.title, content: note.content) ?? "Other"
@@ -781,39 +783,35 @@ class VectorSearchService: ObservableObject {
         return Int64(hash)
     }
     
-    /// Sync location visit embeddings - includes visit history, patterns, reasons from last 30 days
+    /// Sync location visit embeddings - includes visit history, patterns, reasons (ALL visits, no date limit)
     private func syncLocationVisitEmbeddings() async -> Int {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return 0 }
 
         do {
             // Embed PER-VISIT records so day queries can be answered precisely.
-            // Only embed visits from last 30 days for performance
-            let cutoffDate = Calendar.current.date(byAdding: .day, value: -recentDaysThreshold, to: Date())!
-            let iso = ISO8601DateFormatter()
-            let cutoffISO = iso.string(from: cutoffDate)
-
+            // Embed ALL visits (no date limit) for complete historical context
             let client = await SupabaseManager.shared.getPostgrestClient()
 
             let response = try await client
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
-                .gte("entry_time", value: cutoffISO) // Only last 30 days
                 .order("entry_time", ascending: false)
-                .limit(2000)
+                .limit(10000)  // Increased limit to handle more historical data
                 .execute()
             
             let decoder = JSONDecoder.supabaseDecoder()
             let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
             guard !visits.isEmpty else {
-                print("📍 Visits: No visits from last \(recentDaysThreshold) days, skipping")
+                print("📍 Visits: No visits found, skipping")
                 return 0
             }
 
-            print("📍 Visits: Syncing \(visits.count) visits (last \(recentDaysThreshold) days)")
+            print("📍 Visits: Syncing all \(visits.count) visits (no date limit)")
 
             let locations = LocationsManager.shared.savedPlaces
+            let iso = ISO8601DateFormatter()
             
             let dateFormatter = DateFormatter()
             dateFormatter.dateStyle = .full
@@ -826,8 +824,9 @@ class VectorSearchService: ObservableObject {
             let monthYearFormatter = DateFormatter()
             monthYearFormatter.dateFormat = "MMMM yyyy"
             
-            // Build documents (one per visit)
-            let documents: [[String: Any]] = visits.map { visit in
+            // Build documents (one per visit) - break up complex expression
+            var documents: [[String: Any]] = []
+            for visit in visits {
                 let place = locations.first(where: { $0.id == visit.savedPlaceId })
                 let placeName = place?.displayName ?? "Unknown Location"
                 let placeCategory = place?.category ?? "Unknown"
@@ -879,7 +878,7 @@ class VectorSearchService: ObservableObject {
                 
                 content += "\nMonth: \(monthYearFormatter.string(from: start))"
                 
-                return [
+                let document: [String: Any] = [
                     "document_type": "visit",
                     "document_id": visit.id.uuidString,
                     "title": "Visit: \(placeName)",
@@ -902,6 +901,7 @@ class VectorSearchService: ObservableObject {
                         "visit_notes": visit.visitNotes ?? NSNull()
                     ] as [String: Any]
                 ]
+                documents.append(document)
             }
             
             // Diff to embed only changed/new visits
@@ -1092,16 +1092,22 @@ class VectorSearchService: ObservableObject {
                 embedded += response.embedded
                 
                 if response.failed > 0 {
-                    print("⚠️ \(response.failed) \(type)s failed to embed")
+                    print("⚠️ \(response.failed) \(type)s failed to embed (out of \(response.total))")
                     if let results = response.results {
                         let failedItems = results.filter { !$0.success }
                         for item in failedItems {
-                            print("   — \(type) \(item.document_id): \(item.error ?? "unknown")")
+                            print("   — \(type) \(item.document_id): \(item.error ?? "unknown error")")
                         }
                     }
+                } else {
+                    print("✅ Successfully embedded \(response.embedded) \(type)s")
                 }
             } catch {
                 print("❌ Batch embed error for \(type): \(error)")
+                print("   Error details: \(error.localizedDescription)")
+                if let vectorError = error as? VectorSearchError {
+                    print("   VectorSearchError: \(vectorError.errorDescription ?? "unknown")")
+                }
             }
         }
         

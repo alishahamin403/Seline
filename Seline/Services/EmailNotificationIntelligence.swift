@@ -6,7 +6,7 @@ import Foundation
 class EmailNotificationIntelligence: ObservableObject {
     static let shared = EmailNotificationIntelligence()
 
-    private let deepSeekService = DeepSeekService.shared
+    private let deepSeekService = GeminiService.shared
 
     // Thread consolidation tracking
     private var recentThreadActivity: [String: ThreadActivity] = [:] // [threadId: activity]

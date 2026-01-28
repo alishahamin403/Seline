@@ -112,14 +112,7 @@ class GmailAPIClient {
             return profilePicUrl
         }
         
-        // 2. Fallback: Try Gravatar (Public avatar service)
-        if let gravatarUrl = generateGravatarUrl(email) {
-            profilePictureCache[email] = gravatarUrl
-            CacheManager.shared.set(gravatarUrl, forKey: cacheKey, ttl: CacheManager.TTL.veryLong)
-            return gravatarUrl
-        }
-        
-        // 3. Fallback: Try Domain Favicon (Company Logo)
+        // 2. Fallback: Try Domain Favicon (Company Logo)
         // Useful for transactional emails like "receipts@uber.com"
         if let domainLogoUrl = fetchDomainLogo(for: email) {
             profilePictureCache[email] = domainLogoUrl
@@ -155,17 +148,6 @@ class GmailAPIClient {
         return "https://www.google.com/s2/favicons?domain=\(domain)&sz=128"
     }
     
-    // Gravatar URL generator using MD5 hash
-    private func generateGravatarUrl(_ email: String) -> String? {
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard let data = trimmedEmail.data(using: .utf8) else { return nil }
-        
-        let digest = Insecure.MD5.hash(data: data)
-        let hash = digest.map { String(format: "%02hhx", $0) }.joined()
-        
-        // d=404 tells Gravatar to return 404 if no image exists
-        return "https://www.gravatar.com/avatar/\(hash)?s=128&d=404"
-    }
     
     /// Fetches the current user's own profile picture
     func fetchCurrentUserProfilePicture() async throws -> String? {
@@ -1305,11 +1287,9 @@ class GmailAPIClient {
             let components = trimmed.components(separatedBy: "<")
             let name = components.first?.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\"", with: "")
             let email = components.last?.replacingOccurrences(of: ">", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let avatarUrl = email.flatMap { generateGravatarUrl($0) }
-            return EmailAddress(name: name?.isEmpty == false ? name : nil, email: email ?? trimmed, avatarUrl: avatarUrl)
+            return EmailAddress(name: name?.isEmpty == false ? name : nil, email: email ?? trimmed, avatarUrl: nil)
         } else {
-            let avatarUrl = generateGravatarUrl(trimmed)
-            return EmailAddress(name: nil, email: trimmed, avatarUrl: avatarUrl)
+            return EmailAddress(name: nil, email: trimmed, avatarUrl: nil)
         }
     }
 
