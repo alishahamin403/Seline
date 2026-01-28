@@ -881,12 +881,49 @@ class SelineAppContext {
         }
         
         // Pattern 4: "[appointment type] appointment"
-        if let match = lowercased.range(of: "(doctor|dentist|dental|medical|therapy|gym|workout)('s)?\\s*(appointment|session|visit)?", options: .regularExpression) {
+        if let match = lowercased.range(of: "(doctor|dentist|dental|medical|therapy|gym|haircut|workout|checkup|cleaning)('s)?\\s*(appointment|session|visit)?", options: .regularExpression) {
             var extracted = String(lowercased[match]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !extracted.contains("appointment") { extracted += " appointment" }
+            // Only add "appointment" if it's a medical/professional service without it
+            if !extracted.contains("appointment") && !extracted.contains("haircut") && !extracted.contains("workout") {
+                extracted += " appointment"
+            }
             return extracted.capitalized
         }
-        
+
+        // Pattern 4b: Extract activity between day-of-week and time
+        // Handles: "for thurs to get haircut at 6 pm" -> "get haircut"
+        let dayPatterns = ["mon", "tue", "wed", "thu", "thur", "thurs", "fri", "sat", "sun",
+                          "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+                          "tomorrow", "today"]
+        for dayPattern in dayPatterns {
+            if lowercased.contains(dayPattern) {
+                // Find text after the day pattern and before time
+                if let dayRange = lowercased.range(of: dayPattern) {
+                    let afterDay = String(lowercased[dayRange.upperBound...])
+
+                    // Remove "to " prefix if present
+                    var titleCandidate = afterDay.replacingOccurrences(of: "^\\s*to\\s+", with: "", options: .regularExpression)
+
+                    // Extract until time pattern or "at"
+                    if let atRange = titleCandidate.range(of: "\\s+at\\s+\\d+", options: .regularExpression) {
+                        titleCandidate = String(titleCandidate[..<atRange.lowerBound])
+                    } else if let timeRange = titleCandidate.range(of: "\\d+\\s*(am|pm|:\\d+)", options: .regularExpression) {
+                        titleCandidate = String(titleCandidate[..<timeRange.lowerBound])
+                    }
+
+                    titleCandidate = titleCandidate.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    // Remove "get " or "have " prefix
+                    titleCandidate = titleCandidate.replacingOccurrences(of: "^(get|have|do|go to)\\s+", with: "", options: .regularExpression)
+
+                    if titleCandidate.count >= 5 && titleCandidate.count <= 100 {
+                        return titleCandidate.capitalized
+                    }
+                }
+                break
+            }
+        }
+
         // Pattern 5: Extract activity description after "for" but skip short words like "me", "tom"
         // Improved to handle "for me for tom at 5 pm [actual title]"
         if let forRange = lowercased.range(of: "for\\s+(?:me\\s+)?(?:for\\s+)?(?:tom|tomorrow|today|this\\s+)?(?:wed|thu|fri|sat|sun|mon|tue|wednesday|thursday|friday|saturday|sunday|monday|tuesday)?\\s*(?:at\\s+\\d+\\s*(am|pm|:\\d+))?\\s*", options: .regularExpression) {
@@ -969,13 +1006,13 @@ class SelineAppContext {
         // Check for day of week - handle full names AND abbreviations
         // Map includes both full names and common abbreviations
         let weekdayMappings: [(patterns: [String], weekday: Int)] = [
-            (["sunday", " sun ", "this sun", "next sun"], 1),
-            (["monday", " mon ", "this mon", "next mon"], 2),
-            (["tuesday", " tue ", " tues ", "this tue", "next tue", "this tues", "next tues"], 3),
-            (["wednesday", " wed ", "this wed", "next wed"], 4),
-            (["thursday", " thu ", " thur ", " thurs ", "this thu", "next thu", "this thur", "next thur"], 5),
-            (["friday", " fri ", "this fri", "next fri"], 6),
-            (["saturday", " sat ", "this sat", "next sat"], 7)
+            (["sunday", " sun ", " sun", "sun ", "this sun", "next sun", "for sun"], 1),
+            (["monday", " mon ", " mon", "mon ", "this mon", "next mon", "for mon"], 2),
+            (["tuesday", " tue ", " tue", "tue ", " tues ", " tues", "tues ", "this tue", "next tue", "this tues", "next tues", "for tue", "for tues"], 3),
+            (["wednesday", " wed ", " wed", "wed ", "this wed", "next wed", "for wed"], 4),
+            (["thursday", " thu ", " thu", "thu ", " thur ", " thur", "thur ", " thurs ", " thurs", "thurs ", "this thu", "next thu", "this thur", "next thur", "this thurs", "next thurs", "for thu", "for thur", "for thurs"], 5),
+            (["friday", " fri ", " fri", "fri ", "this fri", "next fri", "for fri"], 6),
+            (["saturday", " sat ", " sat", "sat ", "this sat", "next sat", "for sat"], 7)
         ]
         
         if !foundDate {

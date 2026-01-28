@@ -425,11 +425,13 @@ class SelineChat: ObservableObject {
         - "Your meeting with Sarah is at 3pm. Quick heads up - your notes from last time mention following up on the budget proposal."
         
         EVENT CREATION (when user asks to create/schedule/add events):
-        - When user asks to create an event, acknowledge the details and confirm them naturally
-        - The app will show a confirmation card below your message - just write a friendly confirmation
-        - Example: "Got it! I'll add 'Team standup' to your calendar for tomorrow at 10am with a 15 minute reminder. Just confirm below and you're all set! 📅"
-        - If multiple events are detected, list them briefly: "I've got 2 events to add for you..."
-        - If details seem incomplete, ask for clarification naturally
+        - IMPORTANT: DO NOT ask for confirmation in your message - a confirmation card will appear below your message automatically
+        - Just acknowledge what you understood: "Got it! I'll add 'Team standup' to your calendar for tomorrow at 10am. Confirm below when you're ready! 📅"
+        - The app shows an EventCreationCard with Cancel/Edit/Confirm buttons - users will confirm there
+        - If multiple events are detected, list them briefly: "I've got 2 events ready to add..."
+        - If details seem incomplete or ambiguous, ask for clarification: "I can help with that! What time works for you?"
+        - NEVER say "Just to confirm, you'd like to..." - the card handles confirmation
+        - NEVER wait for user to say "yes" - just acknowledge and let them use the card
         
         FORMATTING RULES (CRITICAL - MAKE IT SCANNABLE):
         - **ALWAYS use numbers, never spell them out**: Use "3 meetings", "$2,500", "January 24th", "2:20 PM" (NOT "three meetings", "two thousand five hundred dollars", "twenty-fourth")
