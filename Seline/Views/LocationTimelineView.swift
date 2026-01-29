@@ -1132,7 +1132,7 @@ struct LocationTimelineView: View {
     private func loadVisitsForMonth() {
         Task {
             // Use centralized state manager
-            await visitState.fetchVisitsForMonth(visitState.visitState.currentMonth)
+            await visitState.fetchVisitsForMonth(visitState.currentMonth)
         }
     }
 
@@ -1143,7 +1143,7 @@ struct LocationTimelineView: View {
             }
 
             // Use centralized state manager
-            await visitState.fetchVisitsForDay(visitState.visitState.selectedDate)
+            await visitState.fetchVisitsForDay(visitState.selectedDate)
 
             await MainActor.run {
                 isLoading = false
