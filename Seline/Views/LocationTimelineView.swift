@@ -7,11 +7,8 @@ struct LocationTimelineView: View {
     @StateObject private var supabaseManager = SupabaseManager.shared
     @StateObject private var locationsManager = LocationsManager.shared
     @StateObject private var peopleManager = PeopleManager.shared
+    @StateObject private var visitState = VisitStateManager.shared
 
-    @State private var selectedDate: Date = Date()
-    @State private var currentMonth: Date = Date()
-    @State private var visitsForSelectedDay: [LocationVisitRecord] = []
-    @State private var visitsForMonth: [Date: Int] = [:] // Date -> visit count
     @State private var isLoading = false
     @State private var selectedPlace: SavedPlace? = nil
     
@@ -28,12 +25,14 @@ struct LocationTimelineView: View {
     @State private var lastSummaryGeneratedFor: Date? = nil
     @State private var lastSummaryNotesHash: Int = 0 // Hash of visit notes for cache invalidation
     @State private var visitPeopleCache: [UUID: [Person]] = [:] // Cache people for each visit
+    @State private var showDeleteConfirmation = false
+    @State private var visitToDelete: LocationVisitRecord? = nil
 
     private let calendar = Calendar.current
 
     /// Returns visits for the selected day that have notes/reasons
     private var visitsWithNotes: [LocationVisitRecord] {
-        visitsForSelectedDay.filter { visit in
+        visitState.selectedDayVisits.filter { visit in
             if let notes = visit.visitNotes, !notes.isEmpty {
                 return true
             }
@@ -65,7 +64,7 @@ struct LocationTimelineView: View {
             if isLoading {
                 ProgressView()
                     .padding(.top, 40)
-            } else if visitsForSelectedDay.isEmpty {
+            } else if visitState.selectedDayVisits.isEmpty {
                 emptyDayView
             } else {
                 timelineSection
@@ -101,20 +100,20 @@ struct LocationTimelineView: View {
             // CRITICAL: Invalidate cache before reloading to ensure fresh data matches visit history
             let dayFormatter = DateFormatter()
             dayFormatter.dateFormat = "yyyy-MM-dd"
-            let dayKey = dayFormatter.string(from: selectedDate)
+            let dayKey = dayFormatter.string(from: visitState.selectedDate)
             CacheManager.shared.invalidate(forKey: "cache.visits.day.\(dayKey)")
             
             // Refresh when visits are updated (e.g., after midnight split fixes)
             loadVisitsForMonth()
             loadVisitsForSelectedDay()
         }
-        .onChange(of: selectedDate) { _ in
+        .onChange(of: visitState.selectedDate) { _ in
             // Reload visits when selected date changes
             loadVisitsForSelectedDay()
             // Clear summary so it regenerates for the new date
             daySummaryText = nil
         }
-        .onChange(of: visitsForSelectedDay.count) { _ in
+        .onChange(of: visitState.selectedDayVisits.count) { _ in
             // Generate summary after visits are loaded (fixes cache not showing on first load)
             // Only generate if we have visits with notes
             if !visitsWithNotes.isEmpty {
@@ -163,6 +162,20 @@ struct LocationTimelineView: View {
             )
             .presentationBg()
         }
+        .confirmationDialog("Delete Visit", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                guard let visit = visitToDelete else { return }
+                Task {
+                    let success = await visitState.deleteVisit(id: visit.id)
+                    if success {
+                        HapticManager.shared.success()
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete this visit? This action cannot be undone.")
+        }
     }
 
     // MARK: - Calendar Section
@@ -175,7 +188,7 @@ struct LocationTimelineView: View {
                 // Previous month button
                 Button(action: {
                     withAnimation {
-                        currentMonth = calendar.date(byAdding: .month, value: -1, to: currentMonth) ?? currentMonth
+                        visitState.currentMonth = calendar.date(byAdding: .month, value: -1, to: visitState.currentMonth) ?? visitState.currentMonth
                         loadVisitsForMonth()
                     }
                 }) {
@@ -191,7 +204,7 @@ struct LocationTimelineView: View {
                 .buttonStyle(PlainButtonStyle())
 
                 // Month and year
-                Text(dateFormatter.string(from: currentMonth))
+                Text(dateFormatter.string(from: visitState.currentMonth))
                     .font(FontManager.geist(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(maxWidth: .infinity)
@@ -200,8 +213,8 @@ struct LocationTimelineView: View {
                 Button(action: {
                     withAnimation {
                         let today = Date()
-                        currentMonth = today
-                        selectedDate = today
+                        visitState.currentMonth = today
+                        visitState.selectedDate = today
                         loadVisitsForMonth()
                         loadVisitsForSelectedDay()
                     }
@@ -221,7 +234,7 @@ struct LocationTimelineView: View {
                 // Next month button
                 Button(action: {
                     withAnimation {
-                        currentMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth) ?? currentMonth
+                        visitState.currentMonth = calendar.date(byAdding: .month, value: 1, to: visitState.currentMonth) ?? visitState.currentMonth
                         loadVisitsForMonth()
                     }
                 }) {
@@ -272,15 +285,15 @@ struct LocationTimelineView: View {
 
     @ViewBuilder
     private func calendarDayCell(for date: Date) -> some View {
-        let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
+        let isSelected = calendar.isDate(date, inSameDayAs: visitState.selectedDate)
         let isToday = calendar.isDateInToday(date)
-        let visitCount = visitsForMonth[normalizeDate(date)] ?? 0
+        let visitCount = visitState.monthVisitCounts[normalizeDate(date)] ?? 0
         let hasVisits = visitCount > 0
-        let isInCurrentMonth = calendar.isDate(date, equalTo: currentMonth, toGranularity: .month)
+        let isInCurrentMonth = calendar.isDate(date, equalTo: visitState.currentMonth, toGranularity: .month)
 
         Button(action: {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                selectedDate = date
+                visitState.selectedDate = date
                 loadVisitsForSelectedDay()
             }
         }) {
@@ -329,7 +342,7 @@ struct LocationTimelineView: View {
             // Day summary - cleaner header
             HStack(spacing: 0) {
                 // Merge button (left side)
-                if visitsForSelectedDay.count >= 2 {
+                if visitState.selectedDayVisits.count >= 2 {
                     Button(action: {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             isMergeMode.toggle()
@@ -358,7 +371,7 @@ struct LocationTimelineView: View {
                 Spacer()
 
                 // Visit count (center-left)
-                Text("\(visitsForSelectedDay.count) visit\(visitsForSelectedDay.count == 1 ? "" : "s")")
+                Text("\(visitState.selectedDayVisits.count) visit\(visitState.selectedDayVisits.count == 1 ? "" : "s")")
                     .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
@@ -436,7 +449,7 @@ struct LocationTimelineView: View {
             // Vertical timeline - cleaner spacing
             ScrollView {
                 VStack(spacing: 12) {
-                    ForEach(visitsForSelectedDay.sorted(by: { $0.entryTime < $1.entryTime })) { visit in
+                    ForEach(visitState.selectedDayVisits.sorted(by: { $0.entryTime < $1.entryTime })) { visit in
                         visitCard(for: visit)
                     }
                 }
@@ -594,25 +607,38 @@ struct LocationTimelineView: View {
                                 }
                             }
                         } else {
-                            // Show note icon if visit has notes, calendar+ icon if no notes
-                            if let notes = visit.visitNotes, !notes.isEmpty {
-                                // Has notes - show note icon to view
-                                Button(action: {
-                                    selectedVisitForNotes = visit
-                                }) {
-                                    Image(systemName: "note.text")
-                                        .font(FontManager.geist(size: 16, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? Color.blue.opacity(0.8) : Color.blue)
+                            HStack(spacing: 8) {
+                                // Show note icon if visit has notes, calendar+ icon if no notes
+                                if let notes = visit.visitNotes, !notes.isEmpty {
+                                    // Has notes - show note icon to view
+                                    Button(action: {
+                                        selectedVisitForNotes = visit
+                                    }) {
+                                        Image(systemName: "note.text")
+                                            .font(FontManager.geist(size: 16, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? Color.blue.opacity(0.8) : Color.blue)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                } else {
+                                    // No notes - show calendar+ icon to add notes
+                                    Button(action: {
+                                        selectedVisitForNotes = visit
+                                    }) {
+                                        Image(systemName: "calendar.badge.plus")
+                                            .font(FontManager.geist(size: 16, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
                                 }
-                                .buttonStyle(PlainButtonStyle())
-                            } else {
-                                // No notes - show calendar+ icon to add notes
+
+                                // Delete button
                                 Button(action: {
-                                    selectedVisitForNotes = visit
+                                    visitToDelete = visit
+                                    showDeleteConfirmation = true
                                 }) {
-                                    Image(systemName: "calendar.badge.plus")
-                                        .font(FontManager.geist(size: 16, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                    Image(systemName: "trash.fill")
+                                        .font(FontManager.geist(size: 14, weight: .medium))
+                                        .foregroundColor(.red.opacity(0.8))
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
@@ -672,7 +698,7 @@ struct LocationTimelineView: View {
                 // Generate summary when section appears
                 generateDaySummaryIfNeeded()
             }
-            .onChange(of: visitsForSelectedDay.count) { _ in
+            .onChange(of: visitState.selectedDayVisits.count) { _ in
                 // Regenerate when visits count changes
                 generateDaySummaryIfNeeded()
             }
@@ -739,7 +765,7 @@ struct LocationTimelineView: View {
         let combinedHash = Int(hasher.finalize())
 
         // Also check in-memory state (for same session)
-        let normalizedDate = normalizeDate(selectedDate)
+        let normalizedDate = normalizeDate(visitState.selectedDate)
         if lastSummaryGeneratedFor == normalizedDate &&
            lastSummaryNotesHash == combinedHash &&
            daySummaryText != nil {
@@ -752,7 +778,7 @@ struct LocationTimelineView: View {
             // First try to load from Supabase
             let dateFormatter = DateFormatter()
             dateFormatter.dateFormat = "yyyy-MM-dd"
-            let dateKey = dateFormatter.string(from: selectedDate)
+            let dateKey = dateFormatter.string(from: visitState.selectedDate)
             
             if let savedSummary = await loadDaySummaryFromSupabase(for: dateKey) {
                 // Check if hash matches (visits haven't changed)
@@ -838,7 +864,7 @@ struct LocationTimelineView: View {
     }
 
     private func createFallbackSummary() -> String {
-        let sortedVisits = visitsForSelectedDay.sorted(by: { $0.entryTime < $1.entryTime })
+        let sortedVisits = visitState.selectedDayVisits.sorted(by: { $0.entryTime < $1.entryTime })
         let places = sortedVisits.compactMap { visit -> String? in
             locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId })?.displayName
         }
@@ -866,7 +892,7 @@ struct LocationTimelineView: View {
     // MARK: - Helper Functions
 
     private func daysInMonth() -> [Date?] {
-        guard let monthInterval = calendar.dateInterval(of: .month, for: currentMonth),
+        guard let monthInterval = calendar.dateInterval(of: .month, for: visitState.currentMonth),
               let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start)
         else {
             return []
@@ -891,19 +917,19 @@ struct LocationTimelineView: View {
 
     private func selectedDayString() -> String {
         let formatter = DateFormatter()
-        if calendar.isDateInToday(selectedDate) {
+        if calendar.isDateInToday(visitState.selectedDate) {
             return "Today"
-        } else if calendar.isDateInYesterday(selectedDate) {
+        } else if calendar.isDateInYesterday(visitState.selectedDate) {
             return "Yesterday"
         } else {
             formatter.dateFormat = "EEEE, MMM d"
-            return formatter.string(from: selectedDate)
+            return formatter.string(from: visitState.selectedDate)
         }
     }
 
     private func visitSummary() -> String {
-        let count = visitsForSelectedDay.count
-        let totalMinutes = visitsForSelectedDay.compactMap { $0.durationMinutes }.reduce(0, +)
+        let count = visitState.selectedDayVisits.count
+        let totalMinutes = visitState.selectedDayVisits.compactMap { $0.durationMinutes }.reduce(0, +)
         let hours = totalMinutes / 60
         let minutes = totalMinutes % 60
 
@@ -915,7 +941,7 @@ struct LocationTimelineView: View {
     }
 
     private func totalTimeString() -> String {
-        let totalMinutes = visitsForSelectedDay.compactMap { $0.durationMinutes }.reduce(0, +)
+        let totalMinutes = visitState.selectedDayVisits.compactMap { $0.durationMinutes }.reduce(0, +)
         let hours = totalMinutes / 60
         let minutes = totalMinutes % 60
 
@@ -1005,7 +1031,7 @@ struct LocationTimelineView: View {
         
         // Check if this visit is at the same location as the first selected visit
         if let firstVisitId = selectedVisitsForMerge.first,
-           let firstVisit = visitsForSelectedDay.first(where: { $0.id == firstVisitId }) {
+           let firstVisit = visitState.selectedDayVisits.first(where: { $0.id == firstVisitId }) {
             if firstVisit.savedPlaceId != visit.savedPlaceId {
                 mergeErrorMessage = "You can only merge visits at the same location"
                 showMergeError = true
@@ -1031,8 +1057,8 @@ struct LocationTimelineView: View {
         let secondVisitId = selectedVisitsForMerge[1]
         
         // Find the visits
-        guard let firstVisit = visitsForSelectedDay.first(where: { $0.id == firstVisitId }),
-              let secondVisit = visitsForSelectedDay.first(where: { $0.id == secondVisitId }) else {
+        guard let firstVisit = visitState.selectedDayVisits.first(where: { $0.id == firstVisitId }),
+              let secondVisit = visitState.selectedDayVisits.first(where: { $0.id == secondVisitId }) else {
             mergeErrorMessage = "Could not find selected visits in current view"
             showMergeError = true
             return
@@ -1049,7 +1075,7 @@ struct LocationTimelineView: View {
             // Invalidate cache before merge to ensure we're working with fresh data
             let dayFormatter = DateFormatter()
             dayFormatter.dateFormat = "yyyy-MM-dd"
-            let dayKey = dayFormatter.string(from: selectedDate)
+            let dayKey = dayFormatter.string(from: visitState.selectedDate)
             CacheManager.shared.invalidate(forKey: "cache.visits.day.\(dayKey)")
             
             let success = await LocationVisitAnalytics.shared.manualMergeVisits(
@@ -1105,114 +1131,26 @@ struct LocationTimelineView: View {
 
     private func loadVisitsForMonth() {
         Task {
-            guard let userId = supabaseManager.getCurrentUser()?.id else { return }
-
-            // Get first and last day of month
-            guard let monthInterval = calendar.dateInterval(of: .month, for: currentMonth) else { return }
-
-            // OPTIMIZATION: Create cache key for this month
-            let monthFormatter = DateFormatter()
-            monthFormatter.dateFormat = "yyyy-MM"
-            let monthKey = monthFormatter.string(from: currentMonth)
-            let cacheKey = "cache.visits.month.\(monthKey)"
-
-            // Check cache first
-            if let cachedVisits: [Date: Int] = CacheManager.shared.get(forKey: cacheKey) {
-                await MainActor.run {
-                    visitsForMonth = cachedVisits
-                }
-                return
-            }
-
-            do {
-                let client = await supabaseManager.getPostgrestClient()
-                let response = try await client
-                    .from("location_visits")
-                    .select()
-                    .eq("user_id", value: userId.uuidString)
-                    .gte("entry_time", value: monthInterval.start.ISO8601Format())
-                    .lte("entry_time", value: monthInterval.end.ISO8601Format())
-                    .execute()
-
-                let decoder = JSONDecoder.supabaseDecoder()
-                let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
-
-                // Group by day
-                var visitsByDay: [Date: Int] = [:]
-                for visit in visits {
-                    let normalizedDate = normalizeDate(visit.entryTime)
-                    visitsByDay[normalizedDate, default: 0] += 1
-                }
-
-                await MainActor.run {
-                    visitsForMonth = visitsByDay
-                    // OPTIMIZATION: Cache for 5 minutes
-                    CacheManager.shared.set(visitsByDay, forKey: cacheKey, ttl: CacheManager.TTL.medium)
-                }
-            } catch {
-                print("Error loading visits for month: \(error)")
-            }
+            // Use centralized state manager
+            await visitState.fetchVisitsForMonth(visitState.visitState.currentMonth)
         }
     }
 
     private func loadVisitsForSelectedDay() {
         Task {
-            guard let userId = supabaseManager.getCurrentUser()?.id else { return }
-
-            // OPTIMIZATION: Create cache key for this day
-            let dayFormatter = DateFormatter()
-            dayFormatter.dateFormat = "yyyy-MM-dd"
-            let dayKey = dayFormatter.string(from: selectedDate)
-            let cacheKey = "cache.visits.day.\(dayKey)"
-            
-            // Check cache first (use shorter TTL for daily data - 2 minutes)
-            if let cachedVisits: [LocationVisitRecord] = CacheManager.shared.get(forKey: cacheKey) {
-                await MainActor.run {
-                    visitsForSelectedDay = cachedVisits
-                }
-                return
-            }
-
             await MainActor.run {
                 isLoading = true
             }
 
-            // Get start and end of selected day
-            let startOfDay = calendar.startOfDay(for: selectedDate)
-            guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else { return }
+            // Use centralized state manager
+            await visitState.fetchVisitsForDay(visitState.visitState.selectedDate)
 
-            do {
-                let client = await supabaseManager.getPostgrestClient()
-                let response = try await client
-                    .from("location_visits")
-                    .select()
-                    .eq("user_id", value: userId.uuidString)
-                    .gte("entry_time", value: startOfDay.ISO8601Format())
-                    .lt("entry_time", value: endOfDay.ISO8601Format())
-                    .execute()
-
-                let decoder = JSONDecoder.supabaseDecoder()
-                let rawVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
-                
-                // CRITICAL: Process visits using shared function to ensure consistency with visit history view
-                // This splits midnight-spanning visits and merges gaps
-                let processedVisits = LocationVisitAnalytics.shared.processVisitsForDisplay(rawVisits)
-
-                await MainActor.run {
-                    visitsForSelectedDay = processedVisits
-                    isLoading = false
-                    // OPTIMIZATION: Cache for 2 minutes (shorter TTL for daily data that updates more often)
-                    CacheManager.shared.set(processedVisits, forKey: cacheKey, ttl: 120) // 2 minutes
-                }
-                
-                // Load people for each visit
-                await loadPeopleForVisits(processedVisits)
-            } catch {
-                print("Error loading visits for day: \(error)")
-                await MainActor.run {
-                    isLoading = false
-                }
+            await MainActor.run {
+                isLoading = false
             }
+
+            // Load people for each visit
+            await loadPeopleForVisits(visitState.selectedDayVisits)
         }
     }
     

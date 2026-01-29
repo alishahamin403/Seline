@@ -17,6 +17,7 @@ struct MainAppView: View {
     @StateObject private var tagManager = TagManager.shared
     @StateObject private var widgetManager = WidgetManager.shared
     @StateObject private var locationSuggestionService = LocationSuggestionService.shared
+    @StateObject private var visitState = VisitStateManager.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
     @State private var selectedTab: TabSelection = .home
@@ -51,7 +52,6 @@ struct MainAppView: View {
     @State private var updateTimer: Timer?
     @State private var lastLocationCheckCoordinate: CLLocationCoordinate2D?
     @State private var hasLoadedIncompleteVisits = false
-    @State private var todaysVisits: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)] = []
     @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
     @State private var showAllLocationsSheet = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast
@@ -526,12 +526,8 @@ struct MainAppView: View {
 
     private func loadTodaysVisits() {
         Task {
-            // CRITICAL: Force cache invalidation to ensure fresh active visit data
-            // This is especially important when called from GeofenceVisitCreated notification
-            CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
-
-            // Get today's visits with duration for each location
-            let visits = await LocationVisitAnalytics.shared.getTodaysVisitsWithDuration()
+            // Use centralized state manager to load today's visits
+            await visitState.fetchTodaysVisits()
 
             // Also load all locations with visit counts for "See All" feature
             var placesWithCounts: [(id: UUID, displayName: String, visitCount: Int)] = []
@@ -551,7 +547,6 @@ struct MainAppView: View {
             let allSorted = placesWithCounts.sorted { $0.visitCount > $1.visitCount }
 
             await MainActor.run {
-                todaysVisits = visits
                 allLocations = allSorted  // Store all locations for "See All" feature
             }
         }
@@ -2016,7 +2011,7 @@ struct MainAppView: View {
                     nearbyLocationPlace: nearbyLocationPlace,
                     distanceToNearest: distanceToNearest,
                     elapsedTimeString: elapsedTimeString,
-                    todaysVisits: todaysVisits,
+                    todaysVisits: visitState.todaysVisits,
                     selectedPlace: $selectedLocationPlace,
                     showAllLocationsSheet: $showAllLocationsSheet
                 )

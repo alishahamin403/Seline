@@ -170,6 +170,7 @@ struct VisitHistoryRow: View {
     let onDelete: () -> Void
 
     @StateObject private var peopleManager = PeopleManager.shared
+    @StateObject private var visitState = VisitStateManager.shared
     @State private var showDeleteConfirmation = false
     @State private var connectedPeople: [Person] = []
     @State private var showPeoplePicker = false
@@ -334,8 +335,9 @@ struct VisitHistoryRow: View {
         .confirmationDialog("Delete Visit", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 Task {
-                    let success = await LocationVisitAnalytics.shared.deleteVisit(id: visit.id.uuidString)
+                    let success = await visitState.deleteVisit(id: visit.id)
                     if success {
+                        HapticManager.shared.success()
                         onDelete()
                     }
                 }
