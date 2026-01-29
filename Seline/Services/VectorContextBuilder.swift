@@ -20,12 +20,9 @@ class VectorContextBuilder {
     private let vectorSearch = VectorSearchService.shared
     
     // MARK: - Configuration
-
-    /// Maximum total items in context from vector search (normal queries)
+    
+    /// Maximum total items in context from vector search
     private let maxTotalItems = 25  // Optimized for cost (75% reduction from 100) - top results capture 85-90% of relevance
-
-    /// Maximum items for aggregate/comprehensive queries ("all haircuts", "every visit to RMT", etc.)
-    private let maxAggregateItems = 200  // Much higher limit for completeness when user asks for "all" of something
     
     // MARK: - Main Context Building
     
@@ -52,20 +49,12 @@ class VectorContextBuilder {
         
         // 3. Extract date range from query using LLM (handles all natural language variations)
         let dateRange = await extractDateRange(from: query)
-
-        // 4. Detect if this is an aggregate/comprehensive query requiring more results
-        let isAggregateQuery = detectAggregateQuery(query)
-        let searchLimit = isAggregateQuery ? maxAggregateItems : maxTotalItems
-
-        if isAggregateQuery {
-            print("🔍 Aggregate query detected - using higher limit (\(maxAggregateItems) items)")
-        }
-
-        // 5. Get semantically relevant data via vector search (with date filtering if specified)
+        
+        // 4. Get semantically relevant data via vector search (with date filtering if specified)
         do {
             let relevantContext = try await vectorSearch.getRelevantContext(
                 forQuery: query,
-                limit: searchLimit,
+                limit: maxTotalItems,
                 dateRange: dateRange
             )
             
@@ -78,8 +67,8 @@ class VectorContextBuilder {
             // Fallback to minimal context
             context += "\n[Vector search unavailable - using minimal context]\n"
         }
-
-        // 6. For date-specific queries, ALSO fetch ALL items from that date
+        
+        // 5. For date-specific queries, ALSO fetch ALL items from that date
         // This guarantees completeness (not just top-k semantic matches)
         if let dateRange = dateRange {
             print("📍 Date range detected: fetching ALL items for completeness")
@@ -88,8 +77,8 @@ class VectorContextBuilder {
                 context += "\n" + dayContext
             }
         }
-
-        // 7. Calculate token estimate
+        
+        // 6. Calculate token estimate
         metadata.estimatedTokens = estimateTokenCount(context)
         metadata.buildTime = Date().timeIntervalSince(startTime)
         
@@ -172,30 +161,8 @@ class VectorContextBuilder {
         return context
     }
     
-    // MARK: - Query Type Detection
-
-    /// Detect if query is asking for comprehensive/aggregate results (all, every, list, etc.)
-    /// These queries need higher limits to ensure completeness
-    private func detectAggregateQuery(_ query: String) -> Bool {
-        let lowercaseQuery = query.lowercased()
-
-        // Keywords that indicate user wants comprehensive results, not just top matches
-        let aggregateKeywords = [
-            "all", "every", "each", "entire",
-            "list all", "show all", "give me all", "show me all",
-            "all of my", "all my", "all the",
-            "how many", "count", "total",
-            "complete list", "full list", "everything",
-            "history of", "past", "previous"
-        ]
-
-        return aggregateKeywords.contains { keyword in
-            lowercaseQuery.contains(keyword)
-        }
-    }
-
     // MARK: - Date Extraction
-
+    
     /// Extract date range from query using LLM intelligence
     /// This avoids hardcoding date patterns - the LLM understands natural language dates
     private func extractDateRange(from query: String) async -> (start: Date, end: Date)? {
