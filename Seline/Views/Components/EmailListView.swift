@@ -155,7 +155,9 @@ struct ErrorEmailState: View {
             loadingState: .loading,
             onRefresh: {},
             onDeleteEmail: { _ in },
-            onMarkAsUnread: { _ in }
+            onMarkAsUnread: { _ in },
+            hasMoreEmails: false,
+            onLoadMore: {}
         )
         .frame(height: 200)
 
@@ -167,7 +169,9 @@ struct ErrorEmailState: View {
             loadingState: .loaded(Email.sampleEmails),
             onRefresh: {},
             onDeleteEmail: { _ in },
-            onMarkAsUnread: { _ in }
+            onMarkAsUnread: { _ in },
+            hasMoreEmails: true,
+            onLoadMore: {}
         )
         .frame(height: 300)
     }
