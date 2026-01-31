@@ -24,7 +24,7 @@ struct EmailListView: View {
                     )
 
                 case .loading:
-                    LoadingEmailState()
+                    EmailListSkeleton(itemCount: 5)
 
                 case .loaded(let loadedEmails):
                     if loadedEmails.isEmpty {

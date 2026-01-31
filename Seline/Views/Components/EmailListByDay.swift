@@ -46,7 +46,8 @@ struct EmailListByDay: View {
                     EmptyView()
                     
                 case .loading:
-                    loadingPlaceholder
+                    EmailListSkeleton(itemCount: 4)
+                        .padding(.top, 8)
                     
                 case .loaded(_):
                     if daySections.isEmpty || daySections.allSatisfy({ $0.isEmpty }) {
