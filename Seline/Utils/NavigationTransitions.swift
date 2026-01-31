@@ -86,7 +86,7 @@ struct HeroNavigationLink<Destination: View, Label: View>: View {
 
     var body: some View {
         Button(action: {
-            HapticManager.shared.lightTap()
+            HapticManager.shared.light()
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 isActive = true
             }
@@ -154,7 +154,7 @@ struct InteractiveDismissalModifier: ViewModifier {
                     .onEnded { value in
                         if dragOffset > dismissThreshold {
                             // Dismiss with haptic feedback
-                            HapticManager.shared.swipeInteraction()
+                            HapticManager.shared.swipe()
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 isPresented = false
                             }
