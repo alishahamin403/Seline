@@ -195,19 +195,15 @@ struct SelineApp: App {
 
                 print("🔄 Consolidated background sync started")
 
-                // Perform all background operations in parallel for efficiency
+                // Perform email and data sync operations in parallel
+                // Note: Location checks run separately via LocationBackgroundTaskService
                 await withTaskGroup(of: Void.self) { group in
-                    // Email refresh (most important)
+                    // Email refresh (most important for user notifications)
                     group.addTask {
                         await EmailService.shared.handleBackgroundRefresh()
                     }
 
-                    // Location/geofence checks (lightweight)
-                    group.addTask {
-                        await LocationBackgroundTaskService.shared.performLocationCheck()
-                    }
-
-                    // Vector embedding sync (if needed, in background priority)
+                    // Vector embedding sync (keeps semantic search up-to-date)
                     group.addTask {
                         await VectorSearchService.shared.syncEmbeddingsIfNeeded()
                     }
