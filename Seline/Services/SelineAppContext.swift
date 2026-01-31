@@ -784,22 +784,85 @@ class SelineAppContext {
             return title
         }
         
-        // NEW: Pattern 0: Extract text after time/date indicators - most common case
-        // Handles: "for tom at 5 pm Telus representation call regarding payment dispute"
-        // Should extract: "Telus representation call regarding payment dispute"
-        let timePatterns = [
-            "\\d{1,2}\\s*(am|pm|:\\d+\\s*(am|pm)?)",
-            "at\\s+\\d{1,2}\\s*(am|pm|:\\d+\\s*(am|pm)?)",
+        // NEW: Pattern 0a: Extract text BETWEEN date and time patterns
+        // Handles: "for February 14 for a dentist appointment at 11:30 AM"
+        // Should extract: "dentist appointment"
+        let datePatterns = [
+            "january|february|march|april|may|june|july|august|september|october|november|december",
+            "jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec",
             "tomorrow",
             "today",
             "next week",
             "monday|tuesday|wednesday|thursday|friday|saturday|sunday",
             "mon|tue|wed|thu|fri|sat|sun"
         ]
-        
+
+        let timePatterns = [
+            "at\\s+\\d{1,2}\\s*(am|pm|:\\d+\\s*(am|pm)?)",
+            "\\d{1,2}\\s*(am|pm|:\\d+\\s*(am|pm)?)"
+        ]
+
+        // Try to find text between date and time
+        var datePat: NSRange? = nil
+        var timePat: NSRange? = nil
+
+        // Find last date pattern
+        for pattern in datePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                let range = NSRange(location: 0, length: lowercased.utf16.count)
+                let matches = regex.matches(in: lowercased, range: range)
+                if let lastMatch = matches.last {
+                    if datePat == nil || lastMatch.range.upperBound > datePat!.upperBound {
+                        datePat = lastMatch.range
+                    }
+                }
+            }
+        }
+
+        // Find first time pattern AFTER the date
+        for pattern in timePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                let range = NSRange(location: 0, length: lowercased.utf16.count)
+                let matches = regex.matches(in: lowercased, range: range)
+                for match in matches {
+                    if let dateRange = datePat, match.range.lowerBound > dateRange.upperBound {
+                        if timePat == nil || match.range.lowerBound < timePat!.lowerBound {
+                            timePat = match.range
+                        }
+                    }
+                }
+            }
+        }
+
+        // If we found both date and time, extract text between them
+        if let dateRange = datePat, let timeRange = timePat, dateRange.upperBound < timeRange.lowerBound {
+            if let dateIndex = lowercased.utf16.index(lowercased.utf16.startIndex, offsetBy: dateRange.upperBound, limitedBy: lowercased.utf16.endIndex),
+               let timeIndex = lowercased.utf16.index(lowercased.utf16.startIndex, offsetBy: timeRange.lowerBound, limitedBy: lowercased.utf16.endIndex),
+               let dateStringIndex = dateIndex.samePosition(in: lowercased),
+               let timeStringIndex = timeIndex.samePosition(in: lowercased),
+               dateStringIndex < timeStringIndex {
+
+                var betweenText = String(lowercased[dateStringIndex..<timeStringIndex])
+
+                // Remove prefixes
+                let prefixesToRemove = ["for\\s+", "to\\s+", "a\\s+", "an\\s+"]
+                for prefix in prefixesToRemove {
+                    betweenText = betweenText.replacingOccurrences(of: "^" + prefix, with: "", options: .regularExpression)
+                }
+
+                betweenText = betweenText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if betweenText.count >= 3 && betweenText.count <= 100 {
+                    return betweenText.capitalized
+                }
+            }
+        }
+
+        // Pattern 0b: Extract text after time/date indicators - fallback
         // Find the last occurrence of time/date pattern
         var lastTimeNSRange: NSRange? = nil
-        for pattern in timePatterns {
+        let allPatterns = datePatterns + timePatterns
+        for pattern in allPatterns {
             if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
                 let range = NSRange(location: 0, length: lowercased.utf16.count)
                 let matches = regex.matches(in: lowercased, range: range)
@@ -820,6 +883,16 @@ class SelineAppContext {
                 
                 var titleCandidate = String(lowercased[timeStringIndex...])
             
+            // Remove duration phrases like "for an hour", "for 30 minutes", "for 1 hour"
+            let durationPatterns = [
+                "for\\s+(an|\\d+)\\s+(hour|hours|minute|minutes|min|mins)\\s*$",
+                "for\\s+(an|\\d+)\\s*h\\s*$",
+                "lasting\\s+(an|\\d+)\\s+(hour|hours|minute|minutes)\\s*$"
+            ]
+            for pattern in durationPatterns {
+                titleCandidate = titleCandidate.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+            }
+
             // Remove common prefixes that aren't part of the title
             let prefixesToRemove = [
                 "for\\s+me\\s+",
@@ -836,13 +909,13 @@ class SelineAppContext {
                     titleCandidate = String(titleCandidate[prefixRange.upperBound...])
                 }
             }
-            
+
             // Remove category mentions at the end
             let categoryPatterns = ["\\s+(work|health|social|family|personal)\\s*$"]
             for pattern in categoryPatterns {
                 titleCandidate = titleCandidate.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
             }
-            
+
             titleCandidate = titleCandidate.trimmingCharacters(in: .whitespacesAndNewlines)
             
             // If we got a meaningful title (at least 5 chars), use it
@@ -995,17 +1068,58 @@ class SelineAppContext {
         var hasTime = false
         var baseDate = Date()
         var foundDate = false
-        
+
+        // First check for month + day patterns (e.g., "February 14", "March 5", "Dec 25")
+        let monthPatterns: [(patterns: [String], month: Int)] = [
+            (["january", "jan"], 1),
+            (["february", "feb"], 2),
+            (["march", "mar"], 3),
+            (["april", "apr"], 4),
+            (["may"], 5),
+            (["june", "jun"], 6),
+            (["july", "jul"], 7),
+            (["august", "aug"], 8),
+            (["september", "sept", "sep"], 9),
+            (["october", "oct"], 10),
+            (["november", "nov"], 11),
+            (["december", "dec"], 12)
+        ]
+
+        for (patterns, monthNum) in monthPatterns {
+            for pattern in patterns {
+                // Look for "February 14" or "Feb 14" pattern
+                if let monthRange = query.lowercased().range(of: pattern) {
+                    // Look for a number after the month name
+                    let afterMonth = String(query[monthRange.upperBound...])
+                    if let dayMatch = afterMonth.range(of: "\\s*(\\d{1,2})", options: .regularExpression),
+                       let dayNum = Int(afterMonth[dayMatch].trimmingCharacters(in: .whitespaces)) {
+                        // Create date with current year, extracted month, and extracted day
+                        var components = calendar.dateComponents([.year], from: Date())
+                        components.month = monthNum
+                        components.day = dayNum
+                        if let date = calendar.date(from: components) {
+                            baseDate = date
+                            foundDate = true
+                            break
+                        }
+                    }
+                }
+            }
+            if foundDate { break }
+        }
+
         // Check for relative dates - including common abbreviations
-        let tomorrowPatterns = ["tomorrow", " tom ", "tom ", " tmrw", " tmr ", " tom", "for tom", "for tomorrow"]
-        for pattern in tomorrowPatterns {
-            if query.contains(pattern) || query.hasPrefix("tom ") || query.hasSuffix(" tom") {
-                baseDate = calendar.date(byAdding: .day, value: 1, to: Date()) ?? Date()
-                foundDate = true
-                break
+        if !foundDate {
+            let tomorrowPatterns = ["tomorrow", " tom ", "tom ", " tmrw", " tmr ", " tom", "for tom", "for tomorrow"]
+            for pattern in tomorrowPatterns {
+                if query.contains(pattern) || query.hasPrefix("tom ") || query.hasSuffix(" tom") {
+                    baseDate = calendar.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+                    foundDate = true
+                    break
+                }
             }
         }
-        
+
         if !foundDate && query.contains("today") {
             baseDate = Date()
             foundDate = true
@@ -1108,100 +1222,60 @@ class SelineAppContext {
     /// Extract category from query - matches category names flexibly
     private func extractEventCategory(from query: String) -> String {
         let lowercased = query.lowercased()
-        
-        // Available categories
-        let categories: [(keywords: [String], name: String)] = [
-            (["work", "business", "office", "meeting", "work meeting", "work call", "work event"], "Work"),
-            (["health", "healthcare", "medical", "doctor", "dentist", "appointment", "therapy", "gym", "workout", "fitness"], "Health"),
-            (["social", "friends", "hangout", "party", "event", "celebration"], "Social"),
-            (["family", "family event", "family time"], "Family"),
-            (["personal", "personal event"], "Personal")
-        ]
-        
-        // First check for explicit category mentions with context words
+
+        // ONLY check for EXPLICIT category mentions - no automatic keyword matching
+        // Users must explicitly say "put in X category" or similar
         let explicitPatterns: [(pattern: String, category: String)] = [
-            ("work category", "Work"),
-            ("category work", "Work"),
             ("put in work", "Work"),
             ("in work category", "Work"),
-            ("work event", "Work"),
-            ("health category", "Health"),
-            ("category health", "Health"),
+            ("work category", "Work"),
+            ("category work", "Work"),
+            ("categorize as work", "Work"),
+            ("categorize work", "Work"),
+            ("as work category", "Work"),
+
             ("put in health", "Health"),
             ("in health category", "Health"),
-            ("social category", "Social"),
-            ("category social", "Social"),
+            ("health category", "Health"),
+            ("category health", "Health"),
+            ("categorize as health", "Health"),
+            ("categorize health", "Health"),
+            ("as health category", "Health"),
+
             ("put in social", "Social"),
             ("in social category", "Social"),
-            ("family category", "Family"),
-            ("category family", "Family"),
+            ("social category", "Social"),
+            ("category social", "Social"),
+            ("categorize as social", "Social"),
+            ("categorize social", "Social"),
+            ("as social category", "Social"),
+
             ("put in family", "Family"),
             ("in family category", "Family"),
-            ("personal category", "Personal"),
-            ("category personal", "Personal"),
+            ("family category", "Family"),
+            ("category family", "Family"),
+            ("categorize as family", "Family"),
+            ("categorize family", "Family"),
+            ("as family category", "Family"),
+
             ("put in personal", "Personal"),
             ("in personal category", "Personal"),
-            ("as work", "Work"),
-            ("categorize work", "Work"),
-            ("as health", "Health"),
-            ("categorize health", "Health"),
-            ("as social", "Social"),
-            ("categorize social", "Social"),
-            ("as family", "Family"),
-            ("categorize family", "Family"),
-            ("as personal", "Personal"),
-            ("categorize personal", "Personal")
+            ("personal category", "Personal"),
+            ("category personal", "Personal"),
+            ("categorize as personal", "Personal"),
+            ("categorize personal", "Personal"),
+            ("as personal category", "Personal")
         ]
-        
-        // Check explicit patterns first (highest priority)
+
+        // Check explicit patterns - user MUST explicitly specify category
         for (pattern, category) in explicitPatterns {
             if lowercased.contains(pattern) {
                 return category
             }
         }
-        
-        // Then check for category keywords in context (medium priority)
-        // Look for category words that appear near event-related keywords
-        let eventKeywords = ["event", "meeting", "appointment", "call", "schedule", "create", "add"]
-        for (keywords, categoryName) in categories {
-            for keyword in keywords {
-                // Check if keyword appears and is likely referring to category
-                if lowercased.contains(keyword) {
-                    // Check if it's near an event keyword or at the end of the query
-                    if let keywordRange = lowercased.range(of: keyword) {
-                        let index = keywordRange.lowerBound
-                        
-                        // Safely calculate start index (20 chars before, but not before start)
-                        let startIndex: String.Index
-                        if let beforeIndex = lowercased.index(index, offsetBy: -20, limitedBy: lowercased.startIndex) {
-                            startIndex = beforeIndex
-                        } else {
-                            startIndex = lowercased.startIndex
-                        }
-                        
-                        // Safely calculate end index (20 chars after, but not after end)
-                        let endIndex: String.Index
-                        if let afterIndex = lowercased.index(index, offsetBy: 20, limitedBy: lowercased.endIndex) {
-                            endIndex = afterIndex
-                        } else {
-                            endIndex = lowercased.endIndex
-                        }
-                        
-                        let context = String(lowercased[startIndex..<endIndex])
-                        
-                        // If keyword appears near event keywords or at end of query, it's likely a category
-                        let isNearEventKeyword = eventKeywords.contains { context.contains($0) }
-                        let isAtEnd = lowercased.hasSuffix(keyword) || lowercased.suffix(10).contains(keyword)
-                        
-                        if isNearEventKeyword || isAtEnd {
-                            return categoryName
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Default category
+
+        // NO automatic keyword matching - always default to Personal
+        // User must explicitly say "put in X category" or similar
         return "Personal"
     }
 

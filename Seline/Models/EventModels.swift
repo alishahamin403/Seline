@@ -289,7 +289,13 @@ struct TaskItem: Identifiable, Codable, Equatable {
     var location: String? // Location of the event
     var isDeleted: Bool = false // Flag for soft deletion when Supabase deletion fails
     var completedDates: [Date] = [] // For recurring tasks: track which specific dates were completed
-    var isFromCalendar: Bool = false // True if synced from iPhone calendar (read-only, no Supabase save)
+    var isFromCalendar: Bool = false // True if synced from iPhone calendar (now saved to Supabase)
+
+    // Calendar sync fields (for iPhone calendar events)
+    var calendarEventId: String? // EventKit event identifier
+    var calendarIdentifier: String? // Calendar identifier (EKCalendar.calendarIdentifier)
+    var calendarTitle: String? // Name of the calendar (e.g., "Work", "Personal", "Gmail")
+    var calendarSourceType: String? // Source type: Local, CalDAV, Exchange, Subscribed, Birthdays
 
     // Email attachment fields
     var emailId: String?
@@ -2126,6 +2132,27 @@ class TaskManager: ObservableObject {
         //     taskItem.isDeleted = isDeleted
         // }
 
+        // Parse calendar sync fields
+        if let isFromCalendar = taskDict["is_from_calendar"] as? Bool {
+            taskItem.isFromCalendar = isFromCalendar
+        }
+
+        if let calendarEventId = taskDict["calendar_event_id"] as? String {
+            taskItem.calendarEventId = calendarEventId
+        }
+
+        if let calendarIdentifier = taskDict["calendar_identifier"] as? String {
+            taskItem.calendarIdentifier = calendarIdentifier
+        }
+
+        if let calendarTitle = taskDict["calendar_title"] as? String {
+            taskItem.calendarTitle = calendarTitle
+        }
+
+        if let calendarSourceType = taskDict["calendar_source_type"] as? String {
+            taskItem.calendarSourceType = calendarSourceType
+        }
+
         return taskItem
     }
 
@@ -2169,10 +2196,7 @@ class TaskManager: ObservableObject {
     }
 
     private func saveTaskToSupabase(_ task: TaskItem) async {
-        // Skip calendar events - they are read-only and not saved to Supabase
-        guard !task.isFromCalendar else {
-            return
-        }
+        // Calendar events are now saved to Supabase for completion tracking and LLM context
 
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
@@ -2213,8 +2237,11 @@ class TaskManager: ObservableObject {
     }
 
     private func updateTaskInSupabase(_ task: TaskItem) async {
-        // Skip calendar events - they are read-only and not saved to Supabase
-        guard !task.isFromCalendar else {
+        // Calendar events are now saved to Supabase for completion tracking and LLM context
+
+        guard authManager.isAuthenticated,
+              let userId = authManager.supabaseUser?.id else {
+            print("⚠️ Cannot update task in Supabase: User not authenticated")
             return
         }
 
@@ -2429,6 +2456,33 @@ class TaskManager: ObservableObject {
         // } else {
         //     taskData["email_ai_summary"] = AnyJSON.null
         // }
+
+        // Add calendar sync fields
+        taskData["is_from_calendar"] = AnyJSON.bool(task.isFromCalendar)
+
+        if let calendarEventId = task.calendarEventId {
+            taskData["calendar_event_id"] = AnyJSON.string(calendarEventId)
+        } else {
+            taskData["calendar_event_id"] = AnyJSON.null
+        }
+
+        if let calendarIdentifier = task.calendarIdentifier {
+            taskData["calendar_identifier"] = AnyJSON.string(calendarIdentifier)
+        } else {
+            taskData["calendar_identifier"] = AnyJSON.null
+        }
+
+        if let calendarTitle = task.calendarTitle {
+            taskData["calendar_title"] = AnyJSON.string(calendarTitle)
+        } else {
+            taskData["calendar_title"] = AnyJSON.null
+        }
+
+        if let calendarSourceType = task.calendarSourceType {
+            taskData["calendar_source_type"] = AnyJSON.string(calendarSourceType)
+        } else {
+            taskData["calendar_source_type"] = AnyJSON.null
+        }
 
         return taskData
     }

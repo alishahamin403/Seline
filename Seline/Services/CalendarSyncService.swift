@@ -1,15 +1,16 @@
 import EventKit
 import Foundation
 
-/// CalendarSyncService: READ-ONLY synchronization of iPhone calendar events
+/// CalendarSyncService: Synchronization of iPhone calendar events to Supabase
 /// ⚠️ IMPORTANT: This service ONLY READS from the iPhone calendar.
 /// It NEVER writes, modifies, or creates events in the iPhone calendar.
-/// All synced events are stored in Seline app as "Personal" tasks.
+/// All synced events are saved to Supabase as tasks and can be marked complete.
 class CalendarSyncService {
     static let shared = CalendarSyncService()
 
     private let eventStore = EKEventStore()
     private let userDefaults = UserDefaults.standard
+    private let preferences = CalendarSyncPreferences.load()
 
     // Key to track if we've already synced calendars on first launch
     private let lastSyncDateKey = "lastCalendarSyncDate"
@@ -104,6 +105,44 @@ class CalendarSyncService {
         return months[max(0, min(11, month - 1))]
     }
 
+    // MARK: - Calendar Discovery & Selection
+
+    /// Fetch all available calendars from iPhone
+    /// Returns calendars grouped by source type
+    func fetchAvailableCalendars() async -> [CalendarMetadata] {
+        let hasAccess = await requestCalendarAccess()
+        guard hasAccess else {
+            print("❌ Calendar access not granted")
+            return []
+        }
+
+        let calendars = eventStore.calendars(for: .event)
+        let metadata = calendars.map { $0.toMetadata() }
+
+        print("📅 Found \(metadata.count) calendars:")
+        for cal in metadata {
+            print("  - \(cal.title) (\(cal.sourceDescription))")
+        }
+
+        return metadata
+    }
+
+    /// Get selected calendars from preferences
+    func getSelectedCalendars() async -> [CalendarMetadata] {
+        let allCalendars = await fetchAvailableCalendars()
+        return allCalendars.filter { preferences.isSelected(calendarId: $0.id) }
+    }
+
+    /// Get calendar preferences
+    func getPreferences() -> CalendarSyncPreferences {
+        return preferences
+    }
+
+    /// Save calendar selection preferences
+    func savePreferences(_ newPreferences: CalendarSyncPreferences) {
+        newPreferences.save()
+    }
+
     // MARK: - Calendar Authorization
 
     /// Request access to the user's calendar
@@ -149,9 +188,9 @@ class CalendarSyncService {
     /// Fetch calendar events from the original sync date onwards for the next 3 months
     /// This is a READ-ONLY operation - no modifications to the calendar
     /// Retains historical events from the original sync date (first time user syncs)
-    /// Filters events to only include those associated with the logged-in user's email
-    /// - Parameter userEmail: Optional user email to filter events. If nil, returns all events (for backward compatibility)
-    /// - Returns: Array of calendar events from original sync date to next 3 months, filtered by user email
+    /// Filters events to only include those from selected calendars
+    /// - Parameter userEmail: Optional user email to filter events (backward compatibility, now deprecated in favor of calendar selection)
+    /// - Returns: Array of calendar events from original sync date to next 3 months, filtered by selected calendars
     func fetchCalendarEventsFromCurrentMonthOnwards(userEmail: String? = nil) async -> [EKEvent] {
         // Get authorization first
         let hasAccess = await requestCalendarAccess()
@@ -180,25 +219,46 @@ class CalendarSyncService {
         let startDate = originalSyncDate
         let endDate = calendar.date(byAdding: .month, value: 3, to: now) ?? now
 
-        // Get all calendars (nil = all calendars)
+        // Get selected calendars from preferences
         let allCalendars = eventStore.calendars(for: .event)
-        let predicate = eventStore.predicateForEvents(withStart: startDate, end: endDate, calendars: allCalendars)
+        let selectedCalendarIds = preferences.selectedCalendarIds
+
+        // Filter to only selected calendars
+        let calendarsToSync: [EKCalendar]
+        if selectedCalendarIds.isEmpty {
+            // If no calendars selected, use backward compatible email filtering
+            calendarsToSync = allCalendars
+            print("⚠️ [CalendarSync] No calendars selected, using all calendars (backward compatibility)")
+        } else {
+            calendarsToSync = allCalendars.filter { selectedCalendarIds.contains($0.calendarIdentifier) }
+            print("📅 [CalendarSync] Syncing from \(calendarsToSync.count) selected calendars:")
+            for cal in calendarsToSync {
+                print("  - \(cal.title) (\(cal.source.title))")
+            }
+        }
+
+        guard !calendarsToSync.isEmpty else {
+            print("⚠️ [CalendarSync] No calendars to sync")
+            return []
+        }
+
+        let predicate = eventStore.predicateForEvents(withStart: startDate, end: endDate, calendars: calendarsToSync)
 
         // ⚠️ READ-ONLY: eventStore.events(matching:) only reads, does not modify
         let allEvents = eventStore.events(matching: predicate)
 
-        // Filter events by user email if provided
+        // Apply email filter only if provided (backward compatibility)
         let filteredEvents: [EKEvent]
-        if let userEmail = userEmail?.lowercased(), !userEmail.isEmpty {
+        if let userEmail = userEmail?.lowercased(), !userEmail.isEmpty, selectedCalendarIds.isEmpty {
             filteredEvents = allEvents.filter { event in
                 isEventAssociatedWithEmail(event: event, email: userEmail)
             }
             print("📅 [CalendarSync] Fetched \(allEvents.count) events, filtered to \(filteredEvents.count) events associated with \(userEmail)")
         } else {
             filteredEvents = allEvents
-            print("📅 [CalendarSync] Fetched \(allEvents.count) events from \(startDate) to \(endDate) (no email filter)")
+            print("📅 [CalendarSync] Fetched \(allEvents.count) events from \(startDate) to \(endDate)")
         }
-        
+
         return filteredEvents
     }
     
@@ -307,6 +367,12 @@ class CalendarSyncService {
         // Extract notes as description
         let description = event.notes
 
+        // Get calendar metadata
+        let eventCalendar = event.calendar
+        let calendarTitle = eventCalendar?.title ?? "Unknown Calendar"
+        let sourceType = eventCalendar?.source.sourceType
+        let calendarSourceType = sourceType != nil ? CalendarSourceType.from(ekSourceType: sourceType!).rawValue : "Unknown"
+
         // Create the TaskItem as Personal (tagId: nil = Personal tag)
         var taskItem = TaskItem(
             title: title,
@@ -326,8 +392,14 @@ class CalendarSyncService {
         // Mark as Personal - tagId: nil means default Personal category
         taskItem.tagId = nil
 
-        // Mark as calendar event (read-only, not saved to Supabase)
+        // Mark as calendar event (now saved to Supabase)
         taskItem.isFromCalendar = true
+
+        // Store calendar metadata
+        taskItem.calendarEventId = event.eventIdentifier
+        taskItem.calendarIdentifier = eventCalendar?.calendarIdentifier
+        taskItem.calendarTitle = calendarTitle
+        taskItem.calendarSourceType = calendarSourceType
 
         // Store a unique ID for this occurrence
         // For recurring events, EventKit returns multiple instances with the SAME eventIdentifier

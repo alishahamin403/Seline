@@ -795,119 +795,106 @@ class GeofenceManager: NSObject, ObservableObject {
                 }
             }
 
-            // NEW: Use MergeDetectionService for 3-scenario merge logic
-            let currentCoords = self.sharedLocationManager.currentLocation?.coordinate ?? CLLocationCoordinate2D()
+            // NEW: Use atomic database function to handle merge-or-create in a single transaction
+            // This eliminates race conditions between check and create operations
+            let sessionId = UUID()
+            let client = await SupabaseManager.shared.getPostgrestClient()
 
-            if let (mergeCandidate, confidence, reason) = await MergeDetectionService.shared.findMergeCandidate(
-                for: placeId,
-                currentLocation: currentCoords,
-                geofenceRadius: self.geofenceRadius
-            ) {
-                print("\n🔄 ===== MERGING VISITS (Confidence: \(String(format: "%.0f%%", confidence * 100))) =====")
-                print("🔄 Reason: \(reason)")
-                print("🔄 Previous visit: \(mergeCandidate.entryTime) to \(mergeCandidate.exitTime?.description ?? "ongoing")")
+            do {
+                let response = try await client.rpc(
+                    "upsert_location_visit",
+                    params: [
+                        "p_user_id": userId.uuidString,
+                        "p_saved_place_id": placeId.uuidString,
+                        "p_entry_time": ISO8601DateFormatter().string(from: Date()),
+                        "p_session_id": sessionId.uuidString,
+                        "p_merge_window_minutes": "5"
+                    ]
+                ).execute()
 
-                // Use atomic merge to ensure data consistency
-                let sessionId = mergeCandidate.sessionId ?? UUID()
-                if await LocationErrorRecoveryService.shared.executeAtomicMerge(
-                    mergeCandidate,
-                    sessionId: sessionId,
-                    confidence: confidence,
-                    reason: reason,
-                    geofenceManager: self,
-                    sessionManager: LocationSessionManager.shared
-                ) {
-                    print("🔄 ============================\n")
-
-                    // Add to merge detection cache for future reference
-                    MergeDetectionService.shared.cacheClosedVisit(mergeCandidate)
+                struct UpsertResult: Codable {
+                    let visit_id: UUID
+                    let action: String
+                    let merge_reason: String?
                 }
-            } else {
-                // CRITICAL SAFETY CHECK: Before creating a new visit, explicitly check Supabase
-                // for any open visits that might have been missed by merge detection
-                // This prevents overwriting existing visits when the app restarts or memory is cleared
-                if let existingOpenVisit = await self.findOpenVisitInSupabase(for: placeId, userId: userId) {
-                    print("\n⚠️ ===== FOUND EXISTING OPEN VISIT IN SUPABASE =====")
-                    print("⚠️ Existing visit ID: \(existingOpenVisit.id)")
-                    print("⚠️ Entry time: \(existingOpenVisit.entryTime)")
-                    print("⚠️ This visit should have been found by merge detection!")
-                    print("⚠️ Merging with existing visit instead of creating new one")
-                    print("⚠️ ================================================\n")
-                    
-                    // Merge with the existing open visit
-                    let sessionId = existingOpenVisit.sessionId ?? UUID()
-                    if await LocationErrorRecoveryService.shared.executeAtomicMerge(
-                        existingOpenVisit,
-                        sessionId: sessionId,
-                        confidence: 1.0,
-                        reason: "recovered_open_visit",
-                        geofenceManager: self,
-                        sessionManager: LocationSessionManager.shared
-                    ) {
-                        // Add to merge detection cache
-                        MergeDetectionService.shared.cacheClosedVisit(existingOpenVisit)
-                        print("✅ Successfully merged with existing open visit")
-                    } else {
-                        print("❌ Failed to merge with existing open visit - this should not happen")
-                    }
-                } else {
-                    // No existing open visit found - safe to create new one
-                    // Create a new visit record with new session
-                    let sessionId = UUID()
-                    let visit = LocationVisitRecord.create(
-                        userId: userId,
-                        savedPlaceId: placeId,
-                        entryTime: Date(),
-                        sessionId: sessionId,
-                        confidenceScore: 1.0,
-                        mergeReason: nil
-                    )
 
-                    // Add to activeVisits with lock protection
-                    activeVisitsLock.lock()
-                    self.activeVisits[placeId] = visit
-                    activeVisitsLock.unlock()
+                let decoder = JSONDecoder.supabaseDecoder()
+                let result: UpsertResult = try decoder.decode(UpsertResult.self, from: response.data)
 
-                    // Create session and save to Supabase
-                    LocationSessionManager.shared.createSession(for: placeId, userId: userId)
+                print("✅ Visit \(result.action): \(result.visit_id)")
+                if let reason = result.merge_reason {
+                    print("   Merge reason: \(reason)")
+                }
 
-                    print("📝 Started tracking visit for place: \(placeId)")
-                    print("📝 New session: \(sessionId.uuidString)")
+                // Create a LocationVisitRecord using the existing create method
+                var visit = LocationVisitRecord.create(
+                    userId: userId,
+                    savedPlaceId: placeId,
+                    entryTime: Date(),
+                    sessionId: sessionId,
+                    confidenceScore: 1.0,
+                    mergeReason: result.merge_reason
+                )
 
-                    // CRITICAL: Use unified cache invalidation to keep all views in sync
-                    LocationVisitAnalytics.shared.invalidateAllVisitCaches()
+                // Override the ID with the one from database
+                visit.id = result.visit_id
 
-                    // Save to Supabase
-                    await self.saveVisitToSupabase(visit)
+                // Update active visits cache
+                activeVisitsLock.lock()
+                self.activeVisits[placeId] = visit
+                activeVisitsLock.unlock()
 
-                    // Notify that visits have been updated so UI can refresh
-                    NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
+                // Create session
+                LocationSessionManager.shared.createSession(for: placeId, userId: userId)
 
-                    // CRITICAL FIX: Reload widgets so they show the new location immediately
-                    // This ensures the widget updates even when the app is in the background
-                    WidgetCenter.shared.reloadAllTimelines()
-                    print("🔄 Widget timelines reloaded after visit creation")
+                print("📝 Tracking visit for place: \(placeId)")
+                print("📝 Session: \(sessionId.uuidString)")
 
-                    // Send arrival notification with context (only once per visit session)
+                // Invalidate caches
+                LocationVisitAnalytics.shared.invalidateAllVisitCaches()
+
+                // Notify UI
+                NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
+
+                // Reload widgets
+                WidgetCenter.shared.reloadAllTimelines()
+                print("🔄 Widget timelines reloaded after visit upsert")
+
+                // Send arrival notification (only for newly created visits, not merged ones)
+                if result.action == "created" {
                     if let place = allPlaces.first(where: { $0.id == placeId }) {
-                        // Check if we've already sent a notification for this visit session
-                        let sessionId = visit.sessionId ?? UUID()
                         notificationTrackingLock.lock()
                         let alreadyNotified = notifiedVisitSessions.contains(sessionId)
                         if !alreadyNotified {
                             notifiedVisitSessions.insert(sessionId)
                         }
                         notificationTrackingLock.unlock()
-                        
+
                         if !alreadyNotified {
                             Task {
                                 await self.sendArrivalNotification(for: place)
                             }
-                        } else {
-                            print("ℹ️ Arrival notification already sent for visit session: \(sessionId)")
                         }
                     }
                 }
+
+            } catch {
+                print("❌ Error upserting visit: \(error)")
+                // Fallback to local tracking if database fails
+                let visit = LocationVisitRecord.create(
+                    userId: userId,
+                    savedPlaceId: placeId,
+                    entryTime: Date(),
+                    sessionId: sessionId,
+                    confidenceScore: 1.0,
+                    mergeReason: nil
+                )
+
+                activeVisitsLock.lock()
+                self.activeVisits[placeId] = visit
+                activeVisitsLock.unlock()
+
+                print("⚠️ Using local tracking only due to database error")
             }
 
             // Start background validation timer if not already running

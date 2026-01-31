@@ -22,7 +22,7 @@ class VectorContextBuilder {
     // MARK: - Configuration
     
     /// Maximum total items in context from vector search
-    private let maxTotalItems = 25  // Optimized for cost (75% reduction from 100) - top results capture 85-90% of relevance
+    private let maxTotalItems = 50  // Increased to capture more historical matches (like Oct haircut)
     
     // MARK: - Main Context Building
     
@@ -49,41 +49,81 @@ class VectorContextBuilder {
         
         // 3. Extract date range from query using LLM (handles all natural language variations)
         let dateRange = await extractDateRange(from: query)
-        
-        // 4. Get semantically relevant data via vector search (with date filtering if specified)
+
+        // 4. Detect query type to determine context strategy
+        let queryType = detectQueryType(query, dateRange: dateRange)
+
+        // 5. Build context based on query type (SINGLE source of truth)
         do {
-            let relevantContext = try await vectorSearch.getRelevantContext(
-                forQuery: query,
-                limit: maxTotalItems,
-                dateRange: dateRange
-            )
-            
-            if !relevantContext.isEmpty {
-                context += "\n" + relevantContext
-                metadata.usedVectorSearch = true
+            switch queryType {
+            case .dateSpecific:
+                // For date queries: Use ONLY complete day data (comprehensive)
+                if let dateRange = dateRange {
+                    print("📅 Date-specific query: using complete day data")
+                    let dayContext = await buildDayCompletenessContext(dateRange: dateRange)
+                    if !dayContext.isEmpty {
+                        context += "\n" + dayContext
+                        metadata.usedCompleteDayData = true
+                    }
+                } else {
+                    // No date detected, fall back to vector search
+                    print("🔍 No date detected: using vector search")
+                    let relevantContext = try await vectorSearch.getRelevantContext(
+                        forQuery: query,
+                        limit: maxTotalItems,
+                        dateRange: nil
+                    )
+                    if !relevantContext.isEmpty {
+                        context += "\n" + relevantContext
+                        metadata.usedVectorSearch = true
+                    }
+                }
+
+            case .semantic:
+                // For semantic queries: Use ONLY vector search (relevance)
+                print("🔍 Semantic query: using vector search")
+
+                // ENHANCEMENT: Expand query using user memories
+                let queryExpansions = await UserMemoryService.shared.expandQuery(query)
+                var expandedQuery = query
+                if !queryExpansions.isEmpty {
+                    // Add expansions to query for better matching
+                    expandedQuery = "\(query) \(queryExpansions.joined(separator: " "))"
+                    print("🧠 Expanded query: '\(query)' → '\(expandedQuery)'")
+                }
+
+                let relevantContext = try await vectorSearch.getRelevantContext(
+                    forQuery: expandedQuery,  // Use expanded query
+                    limit: maxTotalItems,
+                    dateRange: dateRange
+                )
+                if !relevantContext.isEmpty {
+                    context += "\n" + relevantContext
+                    metadata.usedVectorSearch = true
+                }
             }
         } catch {
-            print("⚠️ Vector search failed: \(error)")
-            // Fallback to minimal context
-            context += "\n[Vector search unavailable - using minimal context]\n"
-        }
-        
-        // 5. For date-specific queries, ALSO fetch ALL items from that date
-        // This guarantees completeness (not just top-k semantic matches)
-        if let dateRange = dateRange {
-            print("📍 Date range detected: fetching ALL items for completeness")
-            let dayContext = await buildDayCompletenessContext(dateRange: dateRange)
-            if !dayContext.isEmpty {
-                context += "\n" + dayContext
-            }
+            print("⚠️ Context building failed: \(error)")
+            context += "\n[Context unavailable - using minimal context]\n"
         }
         
         // 6. Calculate token estimate
         metadata.estimatedTokens = estimateTokenCount(context)
         metadata.buildTime = Date().timeIntervalSince(startTime)
-        
+
         print("📊 Context built: ~\(metadata.estimatedTokens) tokens in \(String(format: "%.2f", metadata.buildTime))s")
-        
+
+        // DEBUG: Log query type and context structure
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["DEBUG_CONTEXT_TYPE"] != nil {
+            print("🔍 QUERY TYPE: \(queryType)")
+            print("📊 CONTEXT STRUCTURE:")
+            print("  - Vector Search: \(metadata.usedVectorSearch)")
+            print("  - Complete Day: \(metadata.usedCompleteDayData)")
+            print("  - Estimated Tokens: \(metadata.estimatedTokens)")
+        }
+        #endif
+
         return ContextResult(context: context, metadata: metadata)
     }
     
@@ -161,8 +201,30 @@ class VectorContextBuilder {
         return context
     }
     
+    // MARK: - Query Type Detection
+
+    /// Detect if query is date-specific or semantic
+    private func detectQueryType(_ query: String, dateRange: (start: Date, end: Date)?) -> QueryType {
+        // If date range detected, it's date-specific
+        if dateRange != nil {
+            return .dateSpecific
+        }
+
+        // Check for semantic keywords
+        let lowercaseQuery = query.lowercased()
+        let semanticKeywords = ["all", "every", "list", "show me", "history", "past"]
+        let hasSemanticKeyword = semanticKeywords.contains { lowercaseQuery.contains($0) }
+
+        return hasSemanticKeyword ? .semantic : .dateSpecific
+    }
+
+    enum QueryType {
+        case dateSpecific    // "haircut today", "what did I do yesterday"
+        case semantic       // "all haircuts", "meetings with John"
+    }
+
     // MARK: - Date Extraction
-    
+
     /// Extract date range from query using LLM intelligence
     /// This avoids hardcoding date patterns - the LLM understands natural language dates
     private func extractDateRange(from query: String) async -> (start: Date, end: Date)? {
@@ -287,9 +349,9 @@ class VectorContextBuilder {
         timeFormatter.dateStyle = .none
         timeFormatter.timeStyle = .short
         
-        var context = "\n=== COMPLETE DAY DATA (All Items) ===\n"
+        var context = "\n=== TODAY'S COMPLETE DATA ===\n"
         context += "Date: \(dayLabelFormatter.string(from: dayStart))\n"
-        context += "Note: This section includes ALL items from this date for completeness.\n\n"
+        context += "This is the authoritative list of ALL items for this date.\n\n"
         
         print("📊 Building day completeness context for: \(dayLabelFormatter.string(from: dayStart))")
         
@@ -478,6 +540,7 @@ class VectorContextBuilder {
     
     struct ContextMetadata {
         var usedVectorSearch: Bool = false
+        var usedCompleteDayData: Bool = false
         var estimatedTokens: Int = 0
         var buildTime: TimeInterval = 0
     }

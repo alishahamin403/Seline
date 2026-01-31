@@ -34,7 +34,12 @@ struct SelineApp: App {
         // Sync calendar events on launch to ensure calendar permission is granted and events are fetched
         syncCalendarEventsOnFirstLaunch()
         migrateReceiptCategoriesIfNeeded()
-        
+
+        // FIX: Update haircut memory (run once to fix database)
+        Task {
+            try? await UserMemoryService.shared.fixHaircutMemory()
+        }
+
         // Refresh widget spending data on app launch
         // This ensures the widget shows current data even if the app was killed
         refreshWidgetDataOnLaunch()

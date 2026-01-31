@@ -76,35 +76,41 @@ class InformationExtractor {
         4. EXTRACT: Provide the structured data
 
         Example reasoning:
-        "User said 'Can you create an event for me for tom at 5 pm Telus representation call regarding payment dispute'.
-        - Title: Telus representation call regarding payment dispute (NOT 'Me For Tom' - ignore 'for me for tom')
-        - Date: Tomorrow (tom) = \(today)
-        - Start time: 17:00 (5pm in 24-hour format)
+        "User said 'Can you create an event for me for February 14 I have a dentist appointment'.
+        - Title: Dentist appointment (NOT 'for me' or 'create event')
+        - Date: February 14 = 2026-02-14 (using current year 2026)
+        - Start time: Not specified
         - End time: Not specified
-        - Category: Personal (default, no category mentioned)
-        - Description: Representation call with Telus about payment dispute"
+        - Category: Personal (NEVER auto-categorize - user didn't say 'put in health category')
+        - Description: Dental appointment"
 
         "User said 'schedule a meeting with John about Q4 budget on Friday at 2pm'.
         - Title: Meeting with John - Q4 Budget
-        - Date: Friday = November 14, 2025
+        - Date: Friday = next Friday from today
         - Start time: 14:00 (2pm in 24-hour format)
         - End time: Not specified
         - Duration hint: 'meeting' typically 1 hour
+        - Category: Personal (NEVER auto-categorize unless explicitly requested)
         - Description: About Q4 budget discussion with John"
 
         Extract these fields if present:
         - title: Event title/name (the actual event description, NOT meta-words like "for me", "create", etc.)
-        - date: Date in ISO8601 format (YYYY-MM-DD). Convert relative dates using today's date.
+        - date: Date in ISO8601 format (YYYY-MM-DD). CRITICAL: Parse month names correctly (January=01, February=02, etc.). Use current year (2026) for dates without year. Example: "February 14" = "2026-02-14", "March 5" = "2026-03-05"
         - startTime: Start time in HH:mm format (24-hour). Infer from context if needed.
         - endTime: End time in HH:mm format, or null if not specified
         - isAllDay: true/false
         - reminder: Minutes before event for reminder, or null
         - recurrence: "daily", "weekly", "biweekly", "monthly", "yearly", or null
-        - category: "Work", "Health", "Social", "Family", or "Personal" (extract if mentioned)
+        - category: ALWAYS "Personal" unless user EXPLICITLY says "put in X category" or "categorize as X"
         - description: Additional context (people involved, purpose, notes)
 
+        CRITICAL RULES:
+        1. Date parsing: "February 14" must become "2026-02-14" (NOT today's date!)
+        2. Category: NEVER auto-categorize based on keywords. ALWAYS use "Personal" unless explicit.
+        3. Title: Remove meta-words like "for me", "create", date/time references
+
         Return ONLY valid JSON with these fields. Use null for missing fields.
-        Example: {"title":"Telus representation call regarding payment dispute","date":"2025-11-14","startTime":"17:00","endTime":null,"isAllDay":false,"reminder":null,"recurrence":null,"category":"Personal","description":"Call with Telus to discuss payment dispute"}
+        Example: {"title":"Dentist appointment","date":"2026-02-14","startTime":null,"endTime":null,"isAllDay":true,"reminder":null,"recurrence":null,"category":"Personal","description":"Dental checkup"}
         """
 
         do {

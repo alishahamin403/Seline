@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var showingFeedback = false
     @State private var showingLocationInfo = false
     @State private var profilePictureUrl: String? = nil
+    @State private var showingCalendarSelection = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -142,6 +143,31 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
+                        // Calendar Sync Selection
+                        Button(action: { showingCalendarSelection = true }) {
+                            HStack(spacing: 16) {
+                                Image(systemName: "calendar.badge.checkmark")
+                                    .font(FontManager.geist(size: 16, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                    .frame(width: 24)
+
+                                Text("Select Calendars to Sync")
+                                    .font(FontManager.geist(size: 16, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .white : .black)
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
+                                    .foregroundColor(.gray.opacity(0.3))
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 14)
+                        }
+
+                        Divider()
+                            .padding(.leading, 50)
+
                         // Feedback Button
                         Button(action: { showingFeedback = true }) {
                             HStack(spacing: 16) {
@@ -164,8 +190,6 @@ struct SettingsView: View {
                             .padding(.vertical, 14)
                         }
 
-                        Divider()
-                            .padding(.leading, 50)
 
                         settingsMenuItemLogout
                     }
@@ -178,6 +202,10 @@ struct SettingsView: View {
         .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
         .sheet(isPresented: $showingFeedback) {
             FeedbackView()
+                .presentationBg()
+        }
+        .sheet(isPresented: $showingCalendarSelection) {
+            CalendarSelectionView()
                 .presentationBg()
         }
         .sheet(isPresented: $showingLocationInfo) {

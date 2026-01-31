@@ -27,6 +27,7 @@ struct LocationTimelineView: View {
     @State private var visitPeopleCache: [UUID: [Person]] = [:] // Cache people for each visit
     @State private var showDeleteConfirmation = false
     @State private var visitToDelete: LocationVisitRecord? = nil
+    @State private var reloadTask: Task<Void, Never>?
 
     private let calendar = Calendar.current
 
@@ -76,36 +77,32 @@ struct LocationTimelineView: View {
             loadVisitsForMonth()
             loadVisitsForSelectedDay()
         }
-        .task {
-            // CRITICAL: Run midnight fix on first load to ensure data consistency
-            // This ensures calendar and history views show matching data
-            let result = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
-            if result.fixed > 0 {
-                print("✅ Fixed \(result.fixed) midnight-spanning visits on timeline load")
-                // Invalidate all caches and reload
-                await MainActor.run {
-                    LocationVisitAnalytics.shared.invalidateAllVisitCaches()
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
+            // Debounce: Cancel previous reload and schedule new one
+            reloadTask?.cancel()
+            reloadTask = Task {
+                try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                if !Task.isCancelled {
+                    loadVisitsForMonth()
+                    loadVisitsForSelectedDay()
                 }
-                loadVisitsForMonth()
-                loadVisitsForSelectedDay()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
-            // CRITICAL: Update calendar view in real-time when visit is created
-            // This ensures calendar view matches the accuracy of geofence tracking
-            loadVisitsForMonth()
-            loadVisitsForSelectedDay()
-        }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
-            // CRITICAL: Invalidate cache before reloading to ensure fresh data matches visit history
-            let dayFormatter = DateFormatter()
-            dayFormatter.dateFormat = "yyyy-MM-dd"
-            let dayKey = dayFormatter.string(from: visitState.selectedDate)
-            CacheManager.shared.invalidate(forKey: "cache.visits.day.\(dayKey)")
-            
-            // Refresh when visits are updated (e.g., after midnight split fixes)
-            loadVisitsForMonth()
-            loadVisitsForSelectedDay()
+            reloadTask?.cancel()
+            reloadTask = Task {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if !Task.isCancelled {
+                    // Invalidate cache
+                    let dayFormatter = DateFormatter()
+                    dayFormatter.dateFormat = "yyyy-MM-dd"
+                    let dayKey = dayFormatter.string(from: visitState.selectedDate)
+                    CacheManager.shared.invalidate(forKey: "cache.visits.day.\(dayKey)")
+
+                    loadVisitsForMonth()
+                    loadVisitsForSelectedDay()
+                }
+            }
         }
         .onChange(of: visitState.selectedDate) { _ in
             // Reload visits when selected date changes
@@ -212,7 +209,7 @@ struct LocationTimelineView: View {
                 // Today button
                 Button(action: {
                     withAnimation {
-                        let today = Date()
+                        let today = calendar.startOfDay(for: Date())
                         visitState.currentMonth = today
                         visitState.selectedDate = today
                         loadVisitsForMonth()
@@ -293,7 +290,8 @@ struct LocationTimelineView: View {
 
         Button(action: {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                visitState.selectedDate = date
+                // Normalize the date to start of day to prevent time-based comparison issues
+                visitState.selectedDate = calendar.startOfDay(for: date)
                 loadVisitsForSelectedDay()
             }
         }) {
@@ -325,9 +323,17 @@ struct LocationTimelineView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 36)
             .background(
-                isSelected ? (colorScheme == .dark ? Color.white : Color.black) :
-                isToday ? (colorScheme == .dark ? Color.white : Color.black).opacity(0.1) :
-                Color.clear
+                // Selected gets solid fill, today gets no background (will use border instead)
+                isSelected ? (colorScheme == .dark ? Color.white : Color.black) : Color.clear
+            )
+            .overlay(
+                // Today gets a border if it's not selected
+                Group {
+                    if isToday && !isSelected {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1.5)
+                    }
+                }
             )
             .cornerRadius(8)
         }
@@ -892,17 +898,18 @@ struct LocationTimelineView: View {
     // MARK: - Helper Functions
 
     private func daysInMonth() -> [Date?] {
-        guard let monthInterval = calendar.dateInterval(of: .month, for: visitState.currentMonth),
-              let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start)
-        else {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: visitState.currentMonth) else {
             return []
         }
 
         let daysCount = calendar.component(.weekday, from: monthInterval.start) - 1
         var days: [Date?] = Array(repeating: nil, count: daysCount)
 
-        var date = monthInterval.start
-        while date < monthInterval.end {
+        // CRITICAL: Normalize all dates to start of day to ensure proper comparison
+        var date = calendar.startOfDay(for: monthInterval.start)
+        let endDate = calendar.startOfDay(for: monthInterval.end)
+
+        while date < endDate {
             days.append(date)
             date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
         }
@@ -1155,12 +1162,20 @@ struct LocationTimelineView: View {
     }
     
     // MARK: - Load People for Visits
-    
+
     private func loadPeopleForVisits(_ visits: [LocationVisitRecord]) async {
-        for visit in visits {
-            let people = await peopleManager.getPeopleForVisit(visitId: visit.id)
-            await MainActor.run {
-                visitPeopleCache[visit.id] = people
+        await withTaskGroup(of: (UUID, [Person]).self) { group in
+            for visit in visits {
+                group.addTask {
+                    let people = await self.peopleManager.getPeopleForVisit(visitId: visit.id)
+                    return (visit.id, people)
+                }
+            }
+
+            for await (visitId, people) in group {
+                await MainActor.run {
+                    self.visitPeopleCache[visitId] = people
+                }
             }
         }
     }

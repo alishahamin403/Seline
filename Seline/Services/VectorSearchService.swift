@@ -31,8 +31,9 @@ class VectorSearchService: ObservableObject {
     // Removed recentDaysThreshold - now embedding ALL historical data
     
     // MARK: - Cache
-    
+
     private var lastSyncedHashes: [String: Int] = [:] // document_id -> content_hash
+    private var memoryAnnotationCache: [String: String] = [:] // title -> annotated title
     
     // MARK: - Initialization
     
@@ -109,28 +110,30 @@ class VectorSearchService: ObservableObject {
         dateRange: (start: Date, end: Date)? = nil
     ) async throws -> String {
         let results = try await search(query: query, limit: limit, dateRange: dateRange)
-        
+
         guard !results.isEmpty else {
             return ""
         }
-        
+
         var context = "=== RELEVANT DATA (Semantic Search) ===\n"
         context += "Query matched \(results.count) items by semantic similarity:\n\n"
-        
+
         // Group by document type
         let grouped = Dictionary(grouping: results) { $0.documentType }
-        
+
         for (type, items) in grouped.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
             context += "**\(type.displayName) (\(items.count) matches):**\n"
-            
+
             for item in items {
                 let similarity = String(format: "%.0f%%", item.similarity * 100)
                 context += "• [\(similarity) match] "
-                
+
                 if let title = item.title, !title.isEmpty {
-                    context += "**\(title)**\n"
+                    // ENHANCEMENT: Annotate with memory context
+                    let annotatedTitle = await annotateWithMemory(title)
+                    context += "**\(annotatedTitle)**\n"
                 }
-                
+
                 // Add relevant content preview
                 let preview = item.content.prefix(300)
                 context += "  \(preview)"
@@ -138,7 +141,7 @@ class VectorSearchService: ObservableObject {
                     context += "..."
                 }
                 context += "\n"
-                
+
                 // Add metadata if present
                 if let metadata = item.metadata {
                     if let date = metadata["date"] as? String {
@@ -154,8 +157,60 @@ class VectorSearchService: ObservableObject {
                 context += "\n"
             }
         }
-        
+
         return context
+    }
+
+    /// Annotate a result title with memory context (e.g., "Jvmesmrvo" → "Jvmesmrvo (Haircut)")
+    private func annotateWithMemory(_ title: String) async -> String {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("🧠 Annotation skipped: No user ID")
+            return title
+        }
+
+        // Quick cache check - avoid processing if we've already checked this title
+        let cacheKey = title.lowercased()
+        if let cached = memoryAnnotationCache[cacheKey] {
+            print("🧠 Annotation cache hit: '\(title)' → '\(cached)'")
+            return cached
+        }
+
+        print("🧠 Annotating title: '\(title)'")
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+
+            // Find memories where the KEY matches the merchant/title name
+            let response = try await client
+                .from("user_memory")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .gte("confidence", value: 0.5)
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            let data: [MemorySupabaseData] = try decoder.decode([MemorySupabaseData].self, from: response.data)
+
+            print("🧠 Found \(data.count) memories for annotation")
+
+            // Find matching memory
+            for memoryData in data {
+                print("🧠 Checking memory: key='\(memoryData.key)', value='\(memoryData.value)'")
+                if title.lowercased().contains(memoryData.key.lowercased()) {
+                    let annotated = "\(title) (\(memoryData.value))"
+                    memoryAnnotationCache[cacheKey] = annotated
+                    print("🧠 ✅ Annotated result: '\(title)' → '\(annotated)'")
+                    return annotated
+                }
+            }
+
+            print("🧠 No memory match found for '\(title)'")
+            memoryAnnotationCache[cacheKey] = title  // Cache negative result
+            return title
+        } catch {
+            print("⚠️ Memory annotation failed: \(error)")
+            return title
+        }
     }
     
     // MARK: - Embedding Sync
@@ -452,8 +507,18 @@ class VectorSearchService: ObservableObject {
             }
             
             // Calendar-synced vs app-created
-            content += "\nSource: \(task.isFromCalendar ? "Calendar (read-only)" : "Seline")"
-            
+            if task.isFromCalendar {
+                content += "\nSource: iPhone Calendar"
+                if let calendarTitle = task.calendarTitle {
+                    content += " (\(calendarTitle))"
+                }
+                if let sourceType = task.calendarSourceType {
+                    content += " - \(sourceType)"
+                }
+            } else {
+                content += "\nSource: Seline"
+            }
+
             // Email provenance (if created from email)
             if let emailSubject = task.emailSubject, !emailSubject.isEmpty {
                 content += "\nRelated email subject: \(emailSubject)"
@@ -491,6 +556,10 @@ class VectorSearchService: ObservableObject {
                     "completed_dates": completedDatesISO.isEmpty ? NSNull() : completedDatesISO,
                     "completed_counts_by_year": completedDatesByYear.isEmpty ? NSNull() : completedDatesByYear,
                     "is_from_calendar": task.isFromCalendar,
+                    "calendar_event_id": task.calendarEventId ?? NSNull(),
+                    "calendar_identifier": task.calendarIdentifier ?? NSNull(),
+                    "calendar_title": task.calendarTitle ?? NSNull(),
+                    "calendar_source_type": task.calendarSourceType ?? NSNull(),
                     "created_at": iso.string(from: task.createdAt)
                 ] as [String: Any]
             ]
@@ -1296,6 +1365,16 @@ private struct EmbedResponse: Decodable {
 
 private struct VectorSearchErrorResponse: Decodable {
     let error: String
+}
+
+// MARK: - MemorySupabaseData Helper (for annotation)
+
+private struct MemorySupabaseData: Codable {
+    let id: String
+    let memory_type: String
+    let key: String
+    let value: String
+    let confidence: Float
 }
 
 // MARK: - VectorSearchAnyCodable Helper

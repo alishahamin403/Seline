@@ -141,11 +141,8 @@ class LocationVisitAnalytics: ObservableObject {
                 processedVisits.append(visit)
             }
         }
-        
-        // Auto-merge visits with <5 minute gaps BEFORE displaying
-        let mergedVisits = autoMergeVisits(processedVisits)
-        
-        return mergedVisits
+
+        return processedVisits
     }
     
     /// CRITICAL: Handles midnight-spanning visits by splitting them and deduplicating
@@ -1472,73 +1469,6 @@ class LocationVisitAnalytics: ObservableObject {
     }
 
     // MARK: - Private Methods
-
-    /// Auto-merges visits with gaps less than 5 minutes
-    /// This prevents users from seeing separate visits that should be merged
-    /// Runs BEFORE UI display to ensure seamless experience
-    private func autoMergeVisits(_ visits: [LocationVisitRecord]) -> [LocationVisitRecord] {
-        guard visits.count > 1 else { return visits }
-
-        var merged: [LocationVisitRecord] = []
-        var current: LocationVisitRecord? = nil
-
-        // Sort by entry time (oldest first for sequential processing)
-        let sorted = visits.sorted { $0.entryTime < $1.entryTime }
-
-        for visit in sorted {
-            guard let currentVisit = current else {
-                // First visit, set as current
-                current = visit
-                continue
-            }
-
-            // Check if this visit should merge with current
-            // Only merge if:
-            // 1. Current visit has an exit time (is closed)
-            // 2. Gap between current exit and next entry is < 5 minutes (300 seconds)
-            // 3. CRITICAL: Neither visit is a midnight split (preserves day boundaries)
-            if let currentExit = currentVisit.exitTime {
-                let visitEntry = visit.entryTime
-                let gap = visitEntry.timeIntervalSince(currentExit)
-                
-                // CRITICAL: Never merge midnight-split visits (preserves day boundary)
-                let isMidnightSplit = (currentVisit.mergeReason?.contains("midnight_split") == true) ||
-                                      (visit.mergeReason?.contains("midnight_split") == true)
-
-                if gap >= 0 && gap < 300 && !isMidnightSplit { // Gap is between 0 and 5 minutes AND not midnight split
-                    // Create merged visit by extending current visit's exit time
-                    var mergedVisit = currentVisit
-                    mergedVisit.exitTime = visit.exitTime ?? visitEntry
-                    let totalDuration = mergedVisit.exitTime!.timeIntervalSince(mergedVisit.entryTime)
-                    mergedVisit.durationMinutes = Int(totalDuration / 60)
-
-                    // Update merge reason to track auto-merge
-                    let mergeReason = "auto_merged_gap_\(Int(gap))s"
-                    if let existingReason = mergedVisit.mergeReason {
-                        mergedVisit.mergeReason = existingReason + ", " + mergeReason
-                    } else {
-                        mergedVisit.mergeReason = mergeReason
-                    }
-
-                    current = mergedVisit
-                    continue
-                }
-            }
-
-            // Gap too large or current visit still open - save current and start new
-            merged.append(currentVisit)
-            current = visit
-        }
-
-        // Add final visit
-        if let finalVisit = current {
-            merged.append(finalVisit)
-        }
-
-        // Silently merge visits with small gaps - no logging needed
-
-        return merged
-    }
 
     private func fetchVisits(for placeId: UUID, userId: UUID) async throws -> [LocationVisitRecord] {
         // Removed excessive logging

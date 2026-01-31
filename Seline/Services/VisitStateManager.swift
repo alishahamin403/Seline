@@ -25,8 +25,8 @@ class VisitStateManager: ObservableObject {
     @Published var monthVisitCounts: [Date: Int] = [:]
 
     // Current selections
-    @Published var selectedDate: Date = Date()
-    @Published var currentMonth: Date = Date()
+    @Published var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+    @Published var currentMonth: Date = Calendar.current.startOfDay(for: Date())
 
     // Loading states
     @Published var isLoadingToday: Bool = false
@@ -92,7 +92,6 @@ class VisitStateManager: ObservableObject {
 
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             print("❌ [VisitStateManager] No user ID found")
-            selectedDate = date
             selectedDayVisits = []
             return
         }
@@ -101,7 +100,6 @@ class VisitStateManager: ObservableObject {
         let startOfDay = calendar.startOfDay(for: date)
         guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else {
             print("❌ [VisitStateManager] Failed to calculate end of day")
-            selectedDate = date
             selectedDayVisits = []
             return
         }
@@ -122,13 +120,11 @@ class VisitStateManager: ObservableObject {
             // Process visits using shared function for consistency
             let processedVisits = LocationVisitAnalytics.shared.processVisitsForDisplay(rawVisits)
 
-            selectedDate = date
             selectedDayVisits = processedVisits.sorted { $0.entryTime > $1.entryTime }
 
             print("📊 [VisitStateManager] Fetched \(processedVisits.count) visits for selected day")
         } catch {
             print("❌ [VisitStateManager] Error fetching visits for day: \(error)")
-            selectedDate = date
             selectedDayVisits = []
         }
     }
