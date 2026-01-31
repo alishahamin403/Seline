@@ -182,84 +182,69 @@ struct SelineApp: App {
     }
 
     private func configureBackgroundRefresh() {
-        // Register Background App Refresh task for email notifications (lightweight, runs every 15+ mins)
+        // CONSOLIDATED: Single unified background task for all syncing operations
+        // Combines email refresh, location checks, and data sync into one efficient task
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.seline.emailRefresh", using: nil) { task in
             Task {
-                print("📧 Background refresh task started")
-                await EmailService.shared.handleBackgroundRefresh()
+                // Check if device is in low power mode
+                if ProcessInfo.processInfo.isLowPowerModeEnabled {
+                    print("⚠️ Skipping background sync - device in low power mode")
+                    task.setTaskCompleted(success: true)
+                    return
+                }
 
-                // Schedule the next background refresh
+                print("🔄 Consolidated background sync started")
+
+                // Perform all background operations in parallel for efficiency
+                await withTaskGroup(of: Void.self) { group in
+                    // Email refresh (most important)
+                    group.addTask {
+                        await EmailService.shared.handleBackgroundRefresh()
+                    }
+
+                    // Location/geofence checks (lightweight)
+                    group.addTask {
+                        await LocationBackgroundTaskService.shared.performLocationCheck()
+                    }
+
+                    // Vector embedding sync (if needed, in background priority)
+                    group.addTask {
+                        await VectorSearchService.shared.syncEmbeddingsIfNeeded()
+                    }
+                }
+
+                print("✅ Consolidated background sync completed")
+
+                // Schedule next sync (15 minutes - iOS minimum)
                 self.scheduleBackgroundRefresh()
 
                 // Mark task as completed
                 task.setTaskCompleted(success: true)
             }
         }
-        
-        // Register Background Processing task for more reliable email checking (runs when device is charging)
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.seline.emailProcessing", using: nil) { task in
-            guard let processingTask = task as? BGProcessingTask else {
-                task.setTaskCompleted(success: false)
-                return
-            }
-            
-            Task {
-                print("📧 Background processing task started (device likely charging)")
-                
-                // Set up expiration handler
-                processingTask.expirationHandler = {
-                    print("📧 Background processing task expired")
-                    processingTask.setTaskCompleted(success: false)
-                }
-                
-                await EmailService.shared.handleBackgroundRefresh()
 
-                // Schedule the next background processing
-                self.scheduleBackgroundProcessing()
-
-                // Mark task as completed
-                processingTask.setTaskCompleted(success: true)
-            }
-        }
-
-        // CRITICAL: Register location background tasks for reliable geofence detection
-        // iOS geofencing can be delayed by 10-20 minutes - these tasks provide additional checks
+        // CRITICAL: Still register location background tasks separately for reliable geofence detection
+        // iOS geofencing can be delayed - location service needs its own checks
         LocationBackgroundTaskService.shared.registerBackgroundTasks()
 
-        // Schedule background tasks
+        // Schedule initial sync
         scheduleBackgroundRefresh()
-        scheduleBackgroundProcessing()
-        
-        // Schedule location background tasks
+
+        // Schedule location-specific tasks (these are lightweight and time-critical)
         LocationBackgroundTaskService.shared.scheduleLocationRefresh()
-        LocationBackgroundTaskService.shared.scheduleLocationProcessing()
     }
 
     private func scheduleBackgroundRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: "com.seline.emailRefresh")
-        // Schedule refresh in 15 minutes (minimum is 15 minutes for app refresh)
+        // Schedule refresh in 15 minutes (iOS minimum for app refresh)
+        // This consolidated task handles all background sync operations
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
 
         do {
             try BGTaskScheduler.shared.submit(request)
-            print("📅 Background refresh scheduled for 15 minutes from now")
+            print("📅 Consolidated background sync scheduled for 15 minutes from now")
         } catch {
-            print("⚠️ Failed to schedule background refresh: \(error)")
-        }
-    }
-    
-    private func scheduleBackgroundProcessing() {
-        let request = BGProcessingTaskRequest(identifier: "com.seline.emailProcessing")
-        // Schedule processing in 5 minutes (more frequent when device is charging)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 5 * 60)
-        request.requiresNetworkConnectivity = true
-        request.requiresExternalPower = false // Can run on battery too
-
-        do {
-            try BGTaskScheduler.shared.submit(request)
-            print("📅 Background processing scheduled for 5 minutes from now")
-        } catch {
-            print("⚠️ Failed to schedule background processing: \(error)")
+            print("⚠️ Failed to schedule background sync: \(error)")
         }
     }
 

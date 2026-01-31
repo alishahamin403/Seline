@@ -412,6 +412,10 @@ struct EmailView: View, Searchable {
             },
             onMarkAsUnread: { email in
                 emailService.markAsUnread(email)
+            },
+            hasMoreEmails: emailService.hasMoreEmails[selectedTab.folder] ?? false,
+            onLoadMore: {
+                await emailService.loadMoreEmails(for: selectedTab.folder)
             }
         )
     }

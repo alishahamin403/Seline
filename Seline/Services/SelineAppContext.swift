@@ -223,8 +223,14 @@ class SelineAppContext {
         // Clear folder name cache on refresh
         self.folderNameCache.removeAll()
 
-        // Collect all events
-        self.events = taskManager.tasks.values.flatMap { $0 }
+        // Collect recent events (limit to improve performance)
+        // Load only tasks from the last 90 days and upcoming tasks
+        let ninetyDaysAgo = Calendar.current.date(byAdding: .day, value: -90, to: Date())!
+        self.events = taskManager.tasks.values.flatMap { $0 }.filter { task in
+            let taskDate = task.targetDate ?? task.createdAt
+            return taskDate >= ninetyDaysAgo || task.isRecurring // Include recurring tasks
+        }
+        print("📅 Filtered to \(self.events.count) recent/upcoming events (last 90 days)")
 
         // Collect custom email folders and their saved emails (optimized with parallel loading)
         do {
@@ -307,13 +313,22 @@ class SelineAppContext {
         }
         print("✅ Extracted \(self.receipts.count) receipts with valid dates")
 
-        // Collect all notes
-        self.notes = notesManager.notes
+        // Collect recent notes (limit to improve performance)
+        // Load only notes modified in the last 90 days, plus pinned notes
+        let recentNotes = notesManager.notes.filter { note in
+            note.isPinned || note.dateModified >= ninetyDaysAgo
+        }
+        // Limit to most recent 200 notes to prevent memory bloat
+        self.notes = Array(recentNotes.sorted { $0.dateModified > $1.dateModified }.prefix(200))
+        print("📝 Filtered to \(self.notes.count) recent notes (last 90 days + pinned, max 200)")
 
-        // Collect all emails
+        // Collect recent emails (limit to improve performance)
+        // Emails are already paginated (20 per load), so just use what's loaded
+        // This prevents loading thousands of historical emails into LLM context
         self.emails = emailService.inboxEmails + emailService.sentEmails
+        print("📧 Loaded \(self.emails.count) emails (paginated, see EmailService for limits)")
 
-        // Collect all locations
+        // Collect all locations (kept as-is since location list is typically small)
         self.locations = locationsManager.savedPlaces
 
         // OPTIMIZATION: Don't fetch visit stats here - only fetch when needed in buildContextPrompt

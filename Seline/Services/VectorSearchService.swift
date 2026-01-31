@@ -27,7 +27,7 @@ class VectorSearchService: ObservableObject {
 
     private let maxBatchSize = 50 // Max documents per batch
     private let similarityThreshold: Float = 0.30 // Minimum similarity score (increased from 0.15 to filter weak matches)
-    private let defaultResultLimit = 50 // Increased from 10 to 50 for better historical data retrieval
+    private let defaultResultLimit = 15 // Reduced from 50 to 15 for better UI performance
     // Removed recentDaysThreshold - now embedding ALL historical data
     
     // MARK: - Cache
@@ -51,7 +51,7 @@ class VectorSearchService: ObservableObject {
     func search(
         query: String,
         documentTypes: [DocumentType]? = nil,
-        limit: Int = 10,
+        limit: Int = 15,
         dateRange: (start: Date, end: Date)? = nil
     ) async throws -> [SearchResult] {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

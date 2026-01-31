@@ -79,11 +79,12 @@ class GmailAPIClient {
 
     // MARK: - Public Methods
 
-    func fetchInboxEmails(maxResults: Int = 50) async throws -> [Email] {
+    func fetchInboxEmails(maxResults: Int = 50, pageToken: String? = nil) async throws -> (emails: [Email], nextPageToken: String?) {
         try await refreshAccessTokenIfNeeded()
         return try await withRetry {
-            let messageList = try await self.fetchMessagesList(query: "in:inbox", maxResults: maxResults)
-            return try await self.fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
+            let messageList = try await self.fetchMessagesList(query: "in:inbox", maxResults: maxResults, pageToken: pageToken)
+            let emails = try await self.fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
+            return (emails: emails, nextPageToken: messageList.nextPageToken)
         }
     }
 
@@ -220,11 +221,12 @@ class GmailAPIClient {
         }
     }
 
-    func fetchSentEmails(maxResults: Int = 50) async throws -> [Email] {
+    func fetchSentEmails(maxResults: Int = 50, pageToken: String? = nil) async throws -> (emails: [Email], nextPageToken: String?) {
         try await refreshAccessTokenIfNeeded()
         return try await withRetry {
-            let messageList = try await self.fetchMessagesList(query: "in:sent", maxResults: maxResults)
-            return try await self.fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
+            let messageList = try await self.fetchMessagesList(query: "in:sent", maxResults: maxResults, pageToken: pageToken)
+            let emails = try await self.fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
+            return (emails: emails, nextPageToken: messageList.nextPageToken)
         }
     }
 
@@ -984,7 +986,7 @@ class GmailAPIClient {
     }
 
     // CRITICAL FIX: Made public so EmailService can check for new emails without fetching full content
-    func fetchMessagesList(query: String, maxResults: Int = 50) async throws -> GmailMessagesList {
+    func fetchMessagesList(query: String, maxResults: Int = 50, pageToken: String? = nil) async throws -> GmailMessagesList {
         guard let user = GIDSignIn.sharedInstance.currentUser else {
             throw GmailAPIError.notAuthenticated
         }
@@ -992,10 +994,17 @@ class GmailAPIClient {
         let accessToken = user.accessToken.tokenString
 
         var urlComponents = URLComponents(string: "\(baseURL)/messages")!
-        urlComponents.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "maxResults", value: String(maxResults))
         ]
+
+        // Add pageToken if provided for pagination
+        if let pageToken = pageToken {
+            queryItems.append(URLQueryItem(name: "pageToken", value: pageToken))
+        }
+
+        urlComponents.queryItems = queryItems
 
         guard let url = urlComponents.url else {
             throw GmailAPIError.invalidURL

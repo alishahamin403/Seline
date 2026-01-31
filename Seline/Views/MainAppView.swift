@@ -204,7 +204,8 @@ struct MainAppView: View {
             }
         }
 
-        for task in deduplicatedTasks.prefix(5) {
+        // Limit to 3 most relevant tasks for faster search
+        for task in deduplicatedTasks.prefix(3) {
             results.append(OverlaySearchResult(
                 type: .event,
                 title: task.title,
@@ -226,7 +227,8 @@ struct MainAppView: View {
             $0.snippet.lowercased().contains(lowercasedSearch)
         }
 
-        for email in matchingEmails.prefix(5) {
+        // Limit to 3 most relevant emails for faster search
+        for email in matchingEmails.prefix(3) {
             results.append(OverlaySearchResult(
                 type: .email,
                 title: email.subject,
@@ -246,7 +248,8 @@ struct MainAppView: View {
             $0.content.lowercased().contains(lowercasedSearch)
         }
 
-        for note in matchingNotes.prefix(5) {
+        // Limit to 3 most relevant notes for faster search
+        for note in matchingNotes.prefix(3) {
             results.append(OverlaySearchResult(
                 type: .note,
                 title: note.title,
@@ -268,7 +271,8 @@ struct MainAppView: View {
             ($0.customName?.lowercased().contains(lowercasedSearch) ?? false)
         }
 
-        for location in matchingLocations.prefix(5) {
+        // Limit to 3 most relevant locations for faster search
+        for location in matchingLocations.prefix(3) {
             results.append(OverlaySearchResult(
                 type: .location,
                 title: location.displayName,
@@ -293,7 +297,8 @@ struct MainAppView: View {
             $0.category.lowercased().contains(lowercasedSearch)
         }
         
-        for receipt in matchingReceipts.prefix(5) {
+        // Limit to 3 most relevant receipts for faster search
+        for receipt in matchingReceipts.prefix(3) {
             // Find the note for this receipt
             if let note = notesManager.notes.first(where: { $0.id == receipt.noteId }) {
                 let dateFormatter = DateFormatter()
@@ -322,7 +327,8 @@ struct MainAppView: View {
                 ($0.description?.lowercased().contains(lowercasedSearch) ?? false)
             }
             
-            for expense in matchingExpenses.prefix(5) {
+            // Limit to 3 most relevant expenses for faster search
+            for expense in matchingExpenses.prefix(3) {
                 let dateFormatter = DateFormatter()
                 dateFormatter.dateStyle = .medium
                 let nextDateString = dateFormatter.string(from: expense.nextOccurrence)

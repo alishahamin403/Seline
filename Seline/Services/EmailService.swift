@@ -57,6 +57,10 @@ class EmailService: ObservableObject {
     // Request management
     private var currentTasks: [EmailFolder: Task<Void, Never>] = [:]
 
+    // Pagination tracking - store next page token for each folder
+    private var pageTokens: [EmailFolder: String?] = [:]
+    @Published var hasMoreEmails: [EmailFolder: Bool] = [.inbox: false, .sent: false]
+
     // New email checking
     private var newEmailTimer: Timer?
     private var isAppActive = false // Track if app is in foreground
@@ -113,18 +117,28 @@ class EmailService: ObservableObject {
 
             do {
                 let emails: [Email]
+                let nextPageToken: String?
 
                 switch folder {
                 case .inbox:
-                    // Fetch recent 100 emails to cover 7 days (Gmail API - doesn't count toward Supabase egress)
-                    emails = try await gmailAPIClient.fetchInboxEmails(maxResults: 100)
+                    // Fetch 20 emails per page for better performance (was 100)
+                    let result = try await gmailAPIClient.fetchInboxEmails(maxResults: 20, pageToken: nil)
+                    emails = result.emails
+                    nextPageToken = result.nextPageToken
                 case .sent:
-                    // Fetch recent 100 emails to cover 7 days (Gmail API - doesn't count toward Supabase egress)
-                    emails = try await gmailAPIClient.fetchSentEmails(maxResults: 100)
+                    // Fetch 20 emails per page for better performance (was 100)
+                    let result = try await gmailAPIClient.fetchSentEmails(maxResults: 20, pageToken: nil)
+                    emails = result.emails
+                    nextPageToken = result.nextPageToken
                 default:
                     // For other folders, we can extend this later
                     emails = []
+                    nextPageToken = nil
                 }
+
+                // Store pagination token and update hasMore status
+                pageTokens[folder] = nextPageToken
+                hasMoreEmails[folder] = (nextPageToken != nil)
 
                 // Check if task was cancelled
                 guard !Task.isCancelled else {
@@ -162,6 +176,75 @@ class EmailService: ObservableObject {
             }
 
             // Clean up task reference
+            currentTasks[folder] = nil
+        }
+
+        currentTasks[folder] = task
+        await task.value
+    }
+
+    /// Load more emails for pagination (infinite scroll)
+    func loadMoreEmails(for folder: EmailFolder) async {
+        // Check if we have a next page token
+        guard let pageToken = pageTokens[folder], pageToken != nil else {
+            print("ℹ️ No more emails to load for \(folder.displayName)")
+            return
+        }
+
+        // Don't load if already loading
+        guard currentTasks[folder] == nil else {
+            print("⚠️ Already loading emails for \(folder.displayName)")
+            return
+        }
+
+        let task = Task { @MainActor in
+            do {
+                let emails: [Email]
+                let nextPageToken: String?
+
+                switch folder {
+                case .inbox:
+                    let result = try await gmailAPIClient.fetchInboxEmails(maxResults: 20, pageToken: pageToken)
+                    emails = result.emails
+                    nextPageToken = result.nextPageToken
+                case .sent:
+                    let result = try await gmailAPIClient.fetchSentEmails(maxResults: 20, pageToken: pageToken)
+                    emails = result.emails
+                    nextPageToken = result.nextPageToken
+                default:
+                    emails = []
+                    nextPageToken = nil
+                }
+
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                // Filter to include only today's emails
+                let filteredEmails = filterTodaysEmails(emails)
+
+                // Merge with existing emails (append new ones)
+                let existingEmails = getEmails(for: folder)
+                let mergedEmails = mergeWithExistingAISummaries(newEmails: existingEmails + filteredEmails, existingEmails: existingEmails)
+
+                // Update the appropriate email list
+                updateEmailsForFolder(folder, emails: mergedEmails)
+
+                // Update pagination state
+                pageTokens[folder] = nextPageToken
+                hasMoreEmails[folder] = (nextPageToken != nil)
+
+                // Generate AI summaries in background
+                Task.detached(priority: .background) {
+                    await self.preloadAISummaries(for: filteredEmails)
+                }
+
+            } catch {
+                if !Task.isCancelled {
+                    print("❌ Error loading more emails for \(folder.displayName): \(error)")
+                }
+            }
+
             currentTasks[folder] = nil
         }
 

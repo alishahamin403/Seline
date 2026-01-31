@@ -9,6 +9,10 @@ class ImageCacheManager {
     private let fileManager = FileManager.default
     private let cacheDirectory: URL
 
+    // Disk cache limits
+    private let maxDiskCacheSize: Int64 = 500 * 1024 * 1024 // 500 MB max disk cache
+    private let targetDiskCacheSize: Int64 = 400 * 1024 * 1024 // Clean to 400 MB when exceeded
+
     private init() {
         // Set up cache directory
         let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
@@ -20,6 +24,11 @@ class ImageCacheManager {
         // Configure memory cache
         cache.countLimit = 100 // Max 100 images in memory
         cache.totalCostLimit = 50 * 1024 * 1024 // 50 MB max
+
+        // Check and clean disk cache if needed on init
+        Task {
+            await cleanDiskCacheIfNeeded()
+        }
     }
 
     /// Get cached image or download it
@@ -48,14 +57,22 @@ class ImageCacheManager {
             let (data, _) = try await URLSession.shared.data(from: imageURL)
             guard let image = UIImage(data: data) else { return nil }
 
-            // Save to memory cache
-            cache.setObject(image, forKey: key)
+            // Optimize image before caching (resize to max 1024x1024 for performance)
+            let optimizedImage = await optimizeImage(image)
 
-            // Save to disk cache
-            try? data.write(to: fileURL)
+            // Save to memory cache
+            cache.setObject(optimizedImage, forKey: key)
+
+            // Save optimized image to disk cache
+            if let optimizedData = optimizedImage.jpegData(compressionQuality: 0.8) {
+                try? optimizedData.write(to: fileURL)
+
+                // Clean disk cache if it exceeds limit
+                await cleanDiskCacheIfNeeded()
+            }
 
             print("🌐 Downloaded and cached image: \(url.suffix(30))")
-            return image
+            return optimizedImage
         } catch {
             print("❌ Failed to download image: \(error)")
             return nil
@@ -88,6 +105,80 @@ class ImageCacheManager {
         let imageCache = getCacheSize()
         let taskCache = getTaskCacheSize()
         return imageCache + taskCache
+    }
+
+    /// Optimize image for caching (resize and compress)
+    private func optimizeImage(_ image: UIImage) async -> UIImage {
+        let maxDimension: CGFloat = 1024 // Max width or height
+
+        // Check if image needs resizing
+        let size = image.size
+        if size.width <= maxDimension && size.height <= maxDimension {
+            return image // Already small enough
+        }
+
+        // Calculate new size maintaining aspect ratio
+        let ratio = size.width / size.height
+        let newSize: CGSize
+        if size.width > size.height {
+            newSize = CGSize(width: maxDimension, height: maxDimension / ratio)
+        } else {
+            newSize = CGSize(width: maxDimension * ratio, height: maxDimension)
+        }
+
+        // Resize image
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+
+        return resizedImage ?? image
+    }
+
+    /// Clean disk cache if it exceeds the maximum size
+    private func cleanDiskCacheIfNeeded() async {
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: cacheDirectory,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]
+        ) else {
+            return
+        }
+
+        // Calculate total cache size
+        let filesWithMetadata = contents.compactMap { url -> (url: URL, size: Int64, date: Date)? in
+            guard let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+                  let size = resourceValues.fileSize,
+                  let date = resourceValues.contentModificationDate else {
+                return nil
+            }
+            return (url, Int64(size), date)
+        }
+
+        let totalSize = filesWithMetadata.reduce(Int64(0)) { $0 + $1.size }
+
+        // Check if cleanup is needed
+        guard totalSize > maxDiskCacheSize else {
+            return
+        }
+
+        print("🗑️ Disk cache exceeded \(maxDiskCacheSize / 1024 / 1024)MB, cleaning up...")
+
+        // Sort by date (oldest first)
+        let sortedFiles = filesWithMetadata.sorted { $0.date < $1.date }
+
+        // Delete oldest files until we reach target size
+        var currentSize = totalSize
+        for file in sortedFiles {
+            if currentSize <= targetDiskCacheSize {
+                break
+            }
+
+            try? fileManager.removeItem(at: file.url)
+            currentSize -= file.size
+            print("🗑️ Deleted cached image: \(file.url.lastPathComponent)")
+        }
+
+        print("✅ Disk cache cleaned to \(currentSize / 1024 / 1024)MB")
     }
 
     /// Get task cache size from UserDefaults (in MB)

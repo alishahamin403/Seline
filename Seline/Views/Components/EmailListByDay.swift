@@ -7,24 +7,31 @@ struct EmailListByDay: View {
     let onRefresh: () async -> Void
     let onDeleteEmail: (Email) -> Void
     let onMarkAsUnread: (Email) -> Void
-    
+    let hasMoreEmails: Bool
+    let onLoadMore: () async -> Void
+
     @State private var expandedSections: Set<Date> = []
     @State private var selectedEmail: Email?
+    @State private var isLoadingMore = false
     @Environment(\.colorScheme) var colorScheme
-    
+
     init(
         daySections: [EmailDaySection],
         loadingState: EmailLoadingState,
         onRefresh: @escaping () async -> Void,
         onDeleteEmail: @escaping (Email) -> Void,
-        onMarkAsUnread: @escaping (Email) -> Void
+        onMarkAsUnread: @escaping (Email) -> Void,
+        hasMoreEmails: Bool = false,
+        onLoadMore: @escaping () async -> Void = {}
     ) {
         self.daySections = daySections
         self.loadingState = loadingState
         self.onRefresh = onRefresh
         self.onDeleteEmail = onDeleteEmail
         self.onMarkAsUnread = onMarkAsUnread
-        
+        self.hasMoreEmails = hasMoreEmails
+        self.onLoadMore = onLoadMore
+
         // Initialize with today expanded by default
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
@@ -72,9 +79,9 @@ struct EmailListByDay: View {
     }
     
     // MARK: - Day Sections List
-    
+
     private var daySectionsList: some View {
-        ForEach(daySections) { section in
+        ForEach(Array(daySections.enumerated()), id: \.element.id) { index, section in
             let isExpanded = Binding(
                 get: {
                     let calendar = Calendar.current
@@ -101,6 +108,26 @@ struct EmailListByDay: View {
                 onDeleteEmail: onDeleteEmail,
                 onMarkAsUnread: onMarkAsUnread
             )
+            .onAppear {
+                // Trigger load more when user scrolls to last few sections
+                if hasMoreEmails && !isLoadingMore && index >= daySections.count - 2 {
+                    isLoadingMore = true
+                    Task {
+                        await onLoadMore()
+                        isLoadingMore = false
+                    }
+                }
+            }
+        }
+
+        // Loading indicator for pagination
+        if hasMoreEmails && isLoadingMore {
+            HStack {
+                Spacer()
+                ProgressView()
+                    .padding(.vertical, 20)
+                Spacer()
+            }
         }
     }
     

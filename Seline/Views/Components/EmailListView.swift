@@ -6,8 +6,11 @@ struct EmailListView: View {
     let onRefresh: () async -> Void
     let onDeleteEmail: (Email) -> Void
     let onMarkAsUnread: (Email) -> Void
+    let hasMoreEmails: Bool
+    let onLoadMore: () async -> Void
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedEmail: Email?
+    @State private var isLoadingMore = false
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -31,7 +34,7 @@ struct EmailListView: View {
                             subtitle: "No new emails today"
                         )
                     } else {
-                        ForEach(loadedEmails) { email in
+                        ForEach(Array(loadedEmails.enumerated()), id: \.element.id) { index, email in
                             Button(action: {
                                 selectedEmail = email
                             }) {
@@ -42,6 +45,26 @@ struct EmailListView: View {
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
+                            .onAppear {
+                                // Trigger load more when user scrolls to 80% of list
+                                if hasMoreEmails && !isLoadingMore && index >= loadedEmails.count - 3 {
+                                    isLoadingMore = true
+                                    Task {
+                                        await onLoadMore()
+                                        isLoadingMore = false
+                                    }
+                                }
+                            }
+                        }
+
+                        // Loading indicator for pagination
+                        if hasMoreEmails && isLoadingMore {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                    .padding(.vertical, 12)
+                                Spacer()
+                            }
                         }
                     }
 
