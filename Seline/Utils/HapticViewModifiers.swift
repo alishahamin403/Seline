@@ -8,7 +8,7 @@ extension View {
     func hapticTap() -> some View {
         self.simultaneousGesture(
             TapGesture().onEnded { _ in
-                HapticManager.shared.lightTap()
+                HapticManager.shared.light()
             }
         )
     }
@@ -77,7 +77,7 @@ extension View {
         self.simultaneousGesture(
             DragGesture(minimumDistance: 20)
                 .onChanged { _ in
-                    HapticManager.shared.swipeInteraction()
+                    HapticManager.shared.swipe()
                 }
         )
     }
@@ -94,7 +94,7 @@ struct HapticButtonStyle: ButtonStyle {
         func trigger() {
             switch self {
             case .light:
-                HapticManager.shared.lightTap()
+                HapticManager.shared.light()
             case .medium:
                 HapticManager.shared.medium()
             case .heavy:
