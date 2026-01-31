@@ -82,52 +82,54 @@ struct EmailListByDay: View {
     // MARK: - Day Sections List
 
     private var daySectionsList: some View {
-        ForEach(Array(daySections.enumerated()), id: \.element.id) { index, section in
-            let isExpanded = Binding(
-                get: {
-                    let calendar = Calendar.current
-                    let startOfDay = calendar.startOfDay(for: section.date)
-                    return expandedSections.contains(startOfDay)
-                },
-                set: { newValue in
-                    let calendar = Calendar.current
-                    let startOfDay = calendar.startOfDay(for: section.date)
-                    if newValue {
-                        expandedSections.insert(startOfDay)
-                    } else {
-                        expandedSections.remove(startOfDay)
+        Group {
+            ForEach(Array(daySections.enumerated()), id: \.element.id) { index, section in
+                let isExpanded = Binding(
+                    get: {
+                        let calendar = Calendar.current
+                        let startOfDay = calendar.startOfDay(for: section.date)
+                        return expandedSections.contains(startOfDay)
+                    },
+                    set: { newValue in
+                        let calendar = Calendar.current
+                        let startOfDay = calendar.startOfDay(for: section.date)
+                        if newValue {
+                            expandedSections.insert(startOfDay)
+                        } else {
+                            expandedSections.remove(startOfDay)
+                        }
                     }
-                }
-            )
-            
-            EmailDaySectionView(
-                section: section,
-                isExpanded: isExpanded,
-                onEmailTap: { email in
-                    selectedEmail = email
-                },
-                onDeleteEmail: onDeleteEmail,
-                onMarkAsUnread: onMarkAsUnread
-            )
-            .onAppear {
-                // Trigger load more when user scrolls to last few sections
-                if hasMoreEmails && !isLoadingMore && index >= daySections.count - 2 {
-                    isLoadingMore = true
-                    Task {
-                        await onLoadMore()
-                        isLoadingMore = false
+                )
+
+                EmailDaySectionView(
+                    section: section,
+                    isExpanded: isExpanded,
+                    onEmailTap: { email in
+                        selectedEmail = email
+                    },
+                    onDeleteEmail: onDeleteEmail,
+                    onMarkAsUnread: onMarkAsUnread
+                )
+                .onAppear {
+                    // Trigger load more when user scrolls to last few sections
+                    if hasMoreEmails && !isLoadingMore && index >= daySections.count - 2 {
+                        isLoadingMore = true
+                        Task {
+                            await onLoadMore()
+                            isLoadingMore = false
+                        }
                     }
                 }
             }
-        }
 
-        // Loading indicator for pagination
-        if hasMoreEmails && isLoadingMore {
-            HStack {
-                Spacer()
-                ProgressView()
-                    .padding(.vertical, 20)
-                Spacer()
+            // Loading indicator for pagination
+            if hasMoreEmails && isLoadingMore {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .padding(.vertical, 20)
+                    Spacer()
+                }
             }
         }
     }
