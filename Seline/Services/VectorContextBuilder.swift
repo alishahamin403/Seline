@@ -311,19 +311,22 @@ class VectorContextBuilder {
             let iso = ISO8601DateFormatter()
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
-            var query = client.from("location_visits")
-                .select()
-                .eq("user_id", value: userId.uuidString)
-                .order("entry_time", ascending: false)
-
-            // Apply date filter
+            let response: Response
             if let dateRange = dateRange {
-                query = query
+                response = try await client.from("location_visits")
+                    .select()
+                    .eq("user_id", value: userId.uuidString)
                     .gte("entry_time", value: iso.string(from: dateRange.start))
                     .lt("entry_time", value: iso.string(from: dateRange.end))
+                    .order("entry_time", ascending: false)
+                    .execute()
+            } else {
+                response = try await client.from("location_visits")
+                    .select()
+                    .eq("user_id", value: userId.uuidString)
+                    .order("entry_time", ascending: false)
+                    .execute()
             }
-
-            let response = try await query.execute()
             let decoder = JSONDecoder.supabaseDecoder()
             var visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
@@ -383,7 +386,8 @@ class VectorContextBuilder {
         // Apply keyword filter
         if let keywords = keywords, !keywords.isEmpty {
             emails = emails.filter { email in
-                let searchText = (email.subject + " " + email.sender + " " + email.snippet).lowercased()
+                let senderStr = email.sender.description
+                let searchText = (email.subject + " " + senderStr + " " + email.snippet).lowercased()
                 return keywords.contains { keyword in
                     searchText.contains(keyword.lowercased())
                 }
@@ -392,7 +396,7 @@ class VectorContextBuilder {
 
         // Apply sender filter if provided
         if let sender = filters?["sender"] {
-            emails = emails.filter { $0.sender.lowercased().contains(sender.lowercased()) }
+            emails = emails.filter { $0.sender.description.lowercased().contains(sender.lowercased()) }
         }
 
         emails = Array(emails.sorted { $0.timestamp > $1.timestamp }.prefix(limit))
