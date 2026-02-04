@@ -2832,8 +2832,8 @@ class SelineAppContext {
                 }
 
                 // Category matching (e.g., "Coffee Shop" receipt → Starbucks location)
-                let receiptCategory = receipt.category?.lowercased() ?? ""
-                let locationCategory = location.category?.lowercased() ?? ""
+                let receiptCategory = receipt.category.lowercased()
+                let locationCategory = location.category.lowercased()
                 if !receiptCategory.isEmpty && !locationCategory.isEmpty &&
                    (receiptCategory.contains(locationCategory) || locationCategory.contains(receiptCategory)) {
                     receiptLocationLinks.append((receipt, location))
