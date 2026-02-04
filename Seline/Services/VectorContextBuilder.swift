@@ -19,6 +19,30 @@ class VectorContextBuilder {
 
     private let vectorSearch = VectorSearchService.shared
 
+    // MARK: - Query Plan Data Structures
+
+    struct QueryPlan: Codable {
+        let searches: [SearchRequest]
+        let reasoning: String?  // Optional: why LLM chose these searches
+
+        struct SearchRequest: Codable {
+            let type: DataType
+            let keywords: [String]?
+            let dateRange: String?  // Natural language: "yesterday", "Feb 2026", "last week"
+            let limit: Int?
+            let filters: [String: String]?  // Generic filters: merchant, category, sender, etc.
+
+            enum DataType: String, Codable {
+                case receipt
+                case visit
+                case email
+                case event
+                case note
+                case person
+            }
+        }
+    }
+
     // MARK: - Configuration
 
     /// Date extraction cache: query text -> (date range, extraction timestamp)
@@ -45,8 +69,248 @@ class VectorContextBuilder {
         return 30
     }
     
+    // MARK: - Query Planning
+
+    /// Generate a search plan from user query using LLM
+    private func generateQueryPlan(for query: String) async -> QueryPlan? {
+        let today = Date()
+        let formatter = DateFormatter()
+        formatter.dateStyle = .full
+        formatter.timeStyle = .none
+
+        let planningPrompt = """
+        You are a query planner. Analyze the user's query and generate a search plan to find the data needed to answer it.
+
+        Today's date: \(formatter.string(from: today))
+        User query: "\(query)"
+
+        Generate a JSON search plan with this structure:
+        {
+          "searches": [
+            {
+              "type": "receipt" | "visit" | "email" | "event" | "note" | "person",
+              "keywords": ["keyword1", "keyword2"],  // Optional: search terms
+              "dateRange": "yesterday" | "last week" | "Feb 2026" | "this month",  // Optional
+              "limit": 50,  // Optional: how many results to return
+              "filters": {"merchant": "Tesla", "category": "Food"}  // Optional
+            }
+          ],
+          "reasoning": "brief explanation of your plan"  // Optional
+        }
+
+        Guidelines:
+        - Use keywords to filter data (e.g., "Tesla" for Tesla receipts)
+        - Include date ranges when mentioned ("last month", "yesterday", etc.)
+        - For comparisons, create separate searches for each time period
+        - Use appropriate data types: receipt (purchases), visit (locations), email, event (calendar), note, person
+        - Be specific with keywords to avoid fetching too much data
+        - Default limit is 50 unless query asks for "all"
+
+        Examples:
+
+        Query: "Tesla charging this month vs last month"
+        Plan: {
+          "searches": [
+            {"type": "receipt", "keywords": ["Tesla", "charging"], "dateRange": "this month", "limit": 50},
+            {"type": "receipt", "keywords": ["Tesla", "charging"], "dateRange": "last month", "limit": 50}
+          ],
+          "reasoning": "Comparing Tesla charging receipts across two months"
+        }
+
+        Query: "Who did I meet yesterday?"
+        Plan: {
+          "searches": [
+            {"type": "visit", "dateRange": "yesterday", "limit": 20},
+            {"type": "event", "dateRange": "yesterday", "limit": 20}
+          ],
+          "reasoning": "Find visits and events from yesterday to identify people met"
+        }
+
+        Query: "Emails from Sarah about the project"
+        Plan: {
+          "searches": [
+            {"type": "email", "keywords": ["Sarah", "project"], "limit": 30}
+          ],
+          "reasoning": "Search emails with keywords Sarah and project"
+        }
+
+        Respond with ONLY the JSON plan. No other text.
+        """
+
+        do {
+            let response = try await GeminiService.shared.simpleChatCompletion(
+                systemPrompt: "You are a query planning assistant. Generate JSON search plans from user queries.",
+                messages: [["role": "user", "content": planningPrompt]]
+            )
+
+            let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+            print("📋 Query plan generated: \(trimmed)")
+
+            // Parse JSON response
+            let jsonData = trimmed.data(using: .utf8)!
+            let decoder = JSONDecoder()
+            let plan = try decoder.decode(QueryPlan.self, from: jsonData)
+
+            print("✅ Query plan parsed: \(plan.searches.count) searches")
+            if let reasoning = plan.reasoning {
+                print("💭 Reasoning: \(reasoning)")
+            }
+
+            return plan
+        } catch {
+            print("⚠️ Query planning failed: \(error)")
+            return nil
+        }
+    }
+
+    // MARK: - Search Execution
+
+    /// Execute the search plan and return formatted context
+    private func executeSearchPlan(_ plan: QueryPlan) async -> String {
+        var context = "\n=== SEARCH RESULTS ===\n"
+        if let reasoning = plan.reasoning {
+            context += "Search strategy: \(reasoning)\n\n"
+        }
+
+        for (index, search) in plan.searches.enumerated() {
+            print("🔍 Executing search \(index + 1)/\(plan.searches.count): \(search.type) - \(search.keywords ?? [])")
+
+            let searchResult = await executeSearch(search)
+            if !searchResult.isEmpty {
+                context += searchResult + "\n"
+            }
+        }
+
+        return context
+    }
+
+    /// Execute a single search request
+    private func executeSearch(_ search: QueryPlan.SearchRequest) async -> String {
+        // Parse date range if provided
+        var dateRange: (start: Date, end: Date)? = nil
+        if let dateStr = search.dateRange {
+            dateRange = await parseDateRange(dateStr)
+        }
+
+        let limit = search.limit ?? 50
+
+        switch search.type {
+        case .receipt:
+            return await searchReceipts(keywords: search.keywords, dateRange: dateRange, limit: limit, filters: search.filters)
+
+        case .visit:
+            return await searchVisits(keywords: search.keywords, dateRange: dateRange, limit: limit)
+
+        case .email:
+            return await searchEmails(keywords: search.keywords, dateRange: dateRange, limit: limit, filters: search.filters)
+
+        case .event:
+            return await searchEvents(keywords: search.keywords, dateRange: dateRange, limit: limit)
+
+        case .note:
+            return await searchNotes(keywords: search.keywords, limit: limit)
+
+        case .person:
+            return await searchPeople(keywords: search.keywords)
+        }
+    }
+
+    // MARK: - Individual Search Functions
+
+    private func searchReceipts(keywords: [String]?, dateRange: (start: Date, end: Date)?, limit: Int, filters: [String: String]?) async -> String {
+        let notesManager = NotesManager.shared
+        let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+
+        func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
+            guard let folderId else { return false }
+            if folderId == receiptsFolderId { return true }
+            if let folder = notesManager.folders.first(where: { $0.id == folderId }),
+               let parentId = folder.parentFolderId {
+                return isUnderReceiptsFolderHierarchy(folderId: parentId)
+            }
+            return false
+        }
+
+        var receipts = notesManager.notes
+            .filter { isUnderReceiptsFolderHierarchy(folderId: $0.folderId) }
+            .compactMap { note -> (note: Note, date: Date, amount: Double, category: String)? in
+                let date = notesManager.extractFullDateFromTitle(note.title) ?? note.dateCreated
+                let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
+                let category = ReceiptCategorizationService.shared.quickCategorizeReceipt(title: note.title, content: note.content) ?? "Other"
+                return (note, date, amount, category)
+            }
+
+        // Apply date filter
+        if let dateRange = dateRange {
+            receipts = receipts.filter { $0.date >= dateRange.start && $0.date < dateRange.end }
+        }
+
+        // Apply keyword filter
+        if let keywords = keywords, !keywords.isEmpty {
+            receipts = receipts.filter { receipt in
+                let searchText = (receipt.note.title + " " + receipt.note.content + " " + receipt.category).lowercased()
+                return keywords.contains { keyword in
+                    searchText.contains(keyword.lowercased())
+                }
+            }
+        }
+
+        // Apply merchant filter if provided
+        if let merchant = filters?["merchant"] {
+            receipts = receipts.filter { $0.note.title.lowercased().contains(merchant.lowercased()) }
+        }
+
+        // Sort by date and limit
+        receipts = Array(receipts.sorted { $0.date > $1.date }.prefix(limit))
+
+        guard !receipts.isEmpty else {
+            return "RECEIPTS: No receipts found matching criteria\n"
+        }
+
+        let total = receipts.reduce(0.0) { $0 + $1.amount }
+        var context = "RECEIPTS (\(receipts.count) found, total: $\(String(format: "%.2f", total))):\n"
+
+        for receipt in receipts {
+            let dateStr = DateFormatter.localizedString(from: receipt.date, dateStyle: .medium, timeStyle: .none)
+            context += "- \(dateStr): \(receipt.note.title) — $\(String(format: "%.2f", receipt.amount)) (\(receipt.category))\n"
+        }
+
+        return context
+    }
+
+    private func searchVisits(keywords: [String]?, dateRange: (start: Date, end: Date)?, limit: Int) async -> String {
+        // TODO: Implement visit search
+        return ""
+    }
+
+    private func searchEmails(keywords: [String]?, dateRange: (start: Date, end: Date)?, limit: Int, filters: [String: String]?) async -> String {
+        // TODO: Implement email search
+        return ""
+    }
+
+    private func searchEvents(keywords: [String]?, dateRange: (start: Date, end: Date)?, limit: Int) async -> String {
+        // TODO: Implement event search
+        return ""
+    }
+
+    private func searchNotes(keywords: [String]?, limit: Int) async -> String {
+        // TODO: Implement note search
+        return ""
+    }
+
+    private func searchPeople(keywords: [String]?) async -> String {
+        // TODO: Implement people search
+        return ""
+    }
+
+    /// Parse natural language date range into actual dates
+    private func parseDateRange(_ dateStr: String) async -> (start: Date, end: Date)? {
+        // Reuse existing date extraction logic
+        return await extractDateRange(from: dateStr)
+    }
+
     // MARK: - Main Context Building
-    
+
     /// Build optimized context for LLM using vector search
     /// This is the main replacement for buildContextPrompt(forQuery:)
     /// CACHING OPTIMIZATION: Context is structured for Gemini 2.5 implicit caching
@@ -68,68 +332,46 @@ class VectorContextBuilder {
             context += memoryContext
         }
         
-        // 3. Extract date range from query using LLM (handles all natural language variations)
-        let dateRange = await extractDateRange(from: query)
+        // 3. NEW APPROACH: LLM Query Planning
+        print("📋 Generating query plan...")
+        if let queryPlan = await generateQueryPlan(for: query) {
+            print("✅ Query plan generated with \(queryPlan.searches.count) searches")
 
-        // 4. Detect query type to determine context strategy
-        let queryType = detectQueryType(query, dateRange: dateRange)
-
-        // 5. Build context based on query type (SINGLE source of truth)
-        do {
-            switch queryType {
-            case .dateSpecific:
-                // For date queries: Use ONLY complete day data (comprehensive)
-                if let dateRange = dateRange {
-                    print("📅 Date-specific query: using complete day data")
-                    let dayContext = await buildDayCompletenessContext(dateRange: dateRange)
-                    if !dayContext.isEmpty {
-                        context += "\n" + dayContext
-                        metadata.usedCompleteDayData = true
-                    }
-                } else {
-                    // No date detected, fall back to vector search
-                    print("🔍 No date detected: using vector search")
-                    let searchLimit = determineSearchLimit(forQuery: query)
-                    print("🔍 Dynamic search limit: \(searchLimit) (based on query complexity)")
-                    let relevantContext = try await vectorSearch.getRelevantContext(
-                        forQuery: query,
-                        limit: searchLimit,
-                        dateRange: nil
-                    )
-                    if !relevantContext.isEmpty {
-                        context += "\n" + relevantContext
-                        metadata.usedVectorSearch = true
-                    }
+            // Execute the search plan
+            let searchResults = await executeSearchPlan(queryPlan)
+            if !searchResults.isEmpty {
+                context += searchResults
+                metadata.usedCompleteDayData = true  // Mark as using structured data
+            } else {
+                print("⚠️ No results from query plan, falling back to vector search")
+                // Fallback to vector search if no results
+                let relevantContext = try? await vectorSearch.getRelevantContext(
+                    forQuery: query,
+                    limit: 50,
+                    dateRange: nil
+                )
+                if let relevantContext = relevantContext, !relevantContext.isEmpty {
+                    context += "\n" + relevantContext
+                    metadata.usedVectorSearch = true
                 }
-
-            case .semantic:
-                // For semantic queries: Use ONLY vector search (relevance)
-                print("🔍 Semantic query: using vector search")
-
-                // ENHANCEMENT: Expand query using user memories
-                let queryExpansions = await UserMemoryService.shared.expandQuery(query)
-                var expandedQuery = query
-                if !queryExpansions.isEmpty {
-                    // Add expansions to query for better matching
-                    expandedQuery = "\(query) \(queryExpansions.joined(separator: " "))"
-                    print("🧠 Expanded query: '\(query)' → '\(expandedQuery)'")
-                }
-
-                let searchLimit = determineSearchLimit(forQuery: query)
-                print("🔍 Dynamic search limit: \(searchLimit) (based on query complexity)")
+            }
+        } else {
+            // Fallback: If query planning fails, use vector search
+            print("⚠️ Query planning failed, falling back to vector search")
+            do {
                 let relevantContext = try await vectorSearch.getRelevantContext(
-                    forQuery: expandedQuery,  // Use expanded query
-                    limit: searchLimit,
-                    dateRange: dateRange
+                    forQuery: query,
+                    limit: 50,
+                    dateRange: nil
                 )
                 if !relevantContext.isEmpty {
                     context += "\n" + relevantContext
                     metadata.usedVectorSearch = true
                 }
+            } catch {
+                print("⚠️ Vector search failed: \(error)")
+                context += "\n[Context unavailable - using minimal context]\n"
             }
-        } catch {
-            print("⚠️ Context building failed: \(error)")
-            context += "\n[Context unavailable - using minimal context]\n"
         }
         
         // 6. Calculate token estimate
