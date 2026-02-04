@@ -380,13 +380,12 @@ class VectorContextBuilder {
 
         print("📊 Context built: ~\(metadata.estimatedTokens) tokens in \(String(format: "%.2f", metadata.buildTime))s")
 
-        // DEBUG: Log query type and context structure
+        // DEBUG: Log context structure
         #if DEBUG
         if ProcessInfo.processInfo.environment["DEBUG_CONTEXT_TYPE"] != nil {
-            print("🔍 QUERY TYPE: \(queryType)")
             print("📊 CONTEXT STRUCTURE:")
-            print("  - Vector Search: \(metadata.usedVectorSearch)")
-            print("  - Complete Day: \(metadata.usedCompleteDayData)")
+            print("  - Query Planning: \(!metadata.usedVectorSearch && metadata.usedCompleteDayData)")
+            print("  - Vector Search Fallback: \(metadata.usedVectorSearch)")
             print("  - Estimated Tokens: \(metadata.estimatedTokens)")
         }
         #endif
