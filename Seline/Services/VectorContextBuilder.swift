@@ -655,10 +655,11 @@ class VectorContextBuilder {
         }
         
         // 3. Receipts (source-of-truth from receipt notes)
+        var receiptNotes: [(note: Note, date: Date, amount: Double, category: String)] = []
         do {
             let notesManager = NotesManager.shared
             let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
-            
+
             func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
                 guard let folderId else { return false }
                 if folderId == receiptsFolderId { return true }
@@ -668,8 +669,8 @@ class VectorContextBuilder {
                 }
                 return false
             }
-            
-            let receiptNotes = notesManager.notes
+
+            receiptNotes = notesManager.notes
                 .filter { isUnderReceiptsFolderHierarchy(folderId: $0.folderId) }
                 .compactMap { note -> (note: Note, date: Date, amount: Double, category: String)? in
                     let date = notesManager.extractFullDateFromTitle(note.title) ?? note.dateCreated
@@ -702,7 +703,8 @@ class VectorContextBuilder {
         // Link receipts to events at same time
         for r in receiptNotes.sorted(by: { $0.amount > $1.amount }).prefix(5) {
             let receiptTime = r.date
-            let nearbyTasks = await TaskManager.shared.tasks.filter { task in
+            let allTasks = TaskManager.shared.tasks.values.flatMap { $0 }
+            let nearbyTasks = allTasks.filter { task in
                 guard let taskTime = task.scheduledTime else { return false }
                 return abs(taskTime.timeIntervalSince(receiptTime)) < 2 * 60 * 60  // Within 2 hours
             }
