@@ -104,34 +104,43 @@ class VectorContextBuilder {
         - For comparisons, create separate searches for each time period
         - Use appropriate data types: receipt (purchases), visit (locations), email, event (calendar), note, person
         - Be specific with keywords to avoid fetching too much data
-        - Default limit is 50 unless query asks for "all"
+        - Set limit based on expected data volume (e.g., 200 for "all receipts last month", 20 for "emails from yesterday")
+        - When user asks for "all" or wants totals/summaries, use higher limits (200-500)
 
         Examples:
 
         Query: "Tesla charging this month vs last month"
         Plan: {
           "searches": [
-            {"type": "receipt", "keywords": ["Tesla", "charging"], "dateRange": "this month", "limit": 50},
-            {"type": "receipt", "keywords": ["Tesla", "charging"], "dateRange": "last month", "limit": 50}
+            {"type": "receipt", "keywords": ["Tesla", "charging"], "dateRange": "this month", "limit": 200},
+            {"type": "receipt", "keywords": ["Tesla", "charging"], "dateRange": "last month", "limit": 200}
           ],
-          "reasoning": "Comparing Tesla charging receipts across two months"
+          "reasoning": "Comparing Tesla charging receipts across two months - need all receipts for accurate totals"
         }
 
         Query: "Who did I meet yesterday?"
         Plan: {
           "searches": [
-            {"type": "visit", "dateRange": "yesterday", "limit": 20},
-            {"type": "event", "dateRange": "yesterday", "limit": 20}
+            {"type": "visit", "dateRange": "yesterday", "limit": 50},
+            {"type": "event", "dateRange": "yesterday", "limit": 50}
           ],
-          "reasoning": "Find visits and events from yesterday to identify people met"
+          "reasoning": "Find all visits and events from yesterday to identify people met"
         }
 
         Query: "Emails from Sarah about the project"
         Plan: {
           "searches": [
-            {"type": "email", "keywords": ["Sarah", "project"], "limit": 30}
+            {"type": "email", "keywords": ["Sarah", "project"], "limit": 100}
           ],
-          "reasoning": "Search emails with keywords Sarah and project"
+          "reasoning": "Search emails with keywords Sarah and project - use higher limit to get full conversation history"
+        }
+
+        Query: "All my gym visits this month"
+        Plan: {
+          "searches": [
+            {"type": "visit", "keywords": ["gym"], "dateRange": "this month", "limit": 200}
+          ],
+          "reasoning": "User wants ALL gym visits - use higher limit for completeness"
         }
 
         Respond with ONLY the JSON plan. No other text.
@@ -206,7 +215,7 @@ class VectorContextBuilder {
             dateRange = await parseDateRange(dateStr)
         }
 
-        let limit = search.limit ?? 50
+        let limit = search.limit ?? 200  // Default to 200 for better completeness
 
         switch search.type {
         case .receipt:
@@ -293,28 +302,241 @@ class VectorContextBuilder {
     }
 
     private func searchVisits(keywords: [String]?, dateRange: (start: Date, end: Date)?, limit: Int) async -> String {
-        // TODO: Implement visit search
-        return ""
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return "VISITS: No user logged in\n"
+        }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+            var query = client.from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .order("entry_time", ascending: false)
+
+            // Apply date filter
+            if let dateRange = dateRange {
+                query = query
+                    .gte("entry_time", value: iso.string(from: dateRange.start))
+                    .lt("entry_time", value: iso.string(from: dateRange.end))
+            }
+
+            let response = try await query.execute()
+            let decoder = JSONDecoder.supabaseDecoder()
+            var visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            // Apply keyword filter
+            if let keywords = keywords, !keywords.isEmpty {
+                visits = visits.filter { visit in
+                    let place = LocationsManager.shared.savedPlaces.first(where: { $0.id == visit.savedPlaceId })
+                    let placeName = place?.displayName ?? ""
+                    let notes = visit.visitNotes ?? ""
+                    let searchText = (placeName + " " + notes).lowercased()
+                    return keywords.contains { keyword in
+                        searchText.contains(keyword.lowercased())
+                    }
+                }
+            }
+
+            visits = Array(visits.prefix(limit))
+
+            guard !visits.isEmpty else {
+                return "VISITS: No visits found matching criteria\n"
+            }
+
+            var context = "VISITS (\(visits.count) found):\n"
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .medium
+            dateFormatter.timeStyle = .short
+
+            for visit in visits {
+                let place = LocationsManager.shared.savedPlaces.first(where: { $0.id == visit.savedPlaceId })
+                let placeName = place?.displayName ?? "Unknown Location"
+                let startTime = dateFormatter.string(from: visit.entryTime)
+                let duration = visit.durationMinutes.map { "\($0)m" } ?? "ongoing"
+
+                var visitLine = "- \(startTime): \(placeName) (\(duration))"
+                if let notes = visit.visitNotes, !notes.isEmpty {
+                    visitLine += " — \(notes)"
+                }
+                context += visitLine + "\n"
+            }
+
+            return context
+        } catch {
+            print("⚠️ Visit search failed: \(error)")
+            return "VISITS: Search failed\n"
+        }
     }
 
     private func searchEmails(keywords: [String]?, dateRange: (start: Date, end: Date)?, limit: Int, filters: [String: String]?) async -> String {
-        // TODO: Implement email search
-        return ""
+        let emailService = EmailService.shared
+        var emails = emailService.inboxEmails + emailService.sentEmails
+
+        // Apply date filter
+        if let dateRange = dateRange {
+            emails = emails.filter { $0.timestamp >= dateRange.start && $0.timestamp < dateRange.end }
+        }
+
+        // Apply keyword filter
+        if let keywords = keywords, !keywords.isEmpty {
+            emails = emails.filter { email in
+                let searchText = (email.subject + " " + email.sender + " " + email.snippet).lowercased()
+                return keywords.contains { keyword in
+                    searchText.contains(keyword.lowercased())
+                }
+            }
+        }
+
+        // Apply sender filter if provided
+        if let sender = filters?["sender"] {
+            emails = emails.filter { $0.sender.lowercased().contains(sender.lowercased()) }
+        }
+
+        emails = Array(emails.sorted { $0.timestamp > $1.timestamp }.prefix(limit))
+
+        guard !emails.isEmpty else {
+            return "EMAILS: No emails found matching criteria\n"
+        }
+
+        var context = "EMAILS (\(emails.count) found):\n"
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .short
+
+        for email in emails {
+            let dateStr = dateFormatter.string(from: email.timestamp)
+            context += "- \(dateStr): From \(email.sender) — \(email.subject)\n"
+            if !email.snippet.isEmpty {
+                context += "  \(email.snippet.prefix(100))\n"
+            }
+        }
+
+        return context
     }
 
     private func searchEvents(keywords: [String]?, dateRange: (start: Date, end: Date)?, limit: Int) async -> String {
-        // TODO: Implement event search
-        return ""
+        let allTasks = TaskManager.shared.tasks.values.flatMap { $0 }
+        var events = allTasks
+
+        // Apply date filter
+        if let dateRange = dateRange {
+            events = events.filter { task in
+                guard let scheduledTime = task.scheduledTime else { return false }
+                return scheduledTime >= dateRange.start && scheduledTime < dateRange.end
+            }
+        }
+
+        // Apply keyword filter
+        if let keywords = keywords, !keywords.isEmpty {
+            events = events.filter { task in
+                let searchText = (task.title + " " + (task.description ?? "") + " " + (task.location ?? "")).lowercased()
+                return keywords.contains { keyword in
+                    searchText.contains(keyword.lowercased())
+                }
+            }
+        }
+
+        events = Array(events.sorted { ($0.scheduledTime ?? Date.distantPast) > ($1.scheduledTime ?? Date.distantPast) }.prefix(limit))
+
+        guard !events.isEmpty else {
+            return "EVENTS: No events found matching criteria\n"
+        }
+
+        var context = "EVENTS (\(events.count) found):\n"
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .short
+
+        for event in events {
+            if let scheduledTime = event.scheduledTime {
+                let dateStr = dateFormatter.string(from: scheduledTime)
+                var eventLine = "- \(dateStr): \(event.title)"
+                if let location = event.location, !location.isEmpty {
+                    eventLine += " @ \(location)"
+                }
+                context += eventLine + "\n"
+            }
+        }
+
+        return context
     }
 
     private func searchNotes(keywords: [String]?, limit: Int) async -> String {
-        // TODO: Implement note search
-        return ""
+        let notesManager = NotesManager.shared
+        var notes = notesManager.notes
+
+        // Exclude receipt notes
+        let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+        func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
+            guard let folderId else { return false }
+            if folderId == receiptsFolderId { return true }
+            if let folder = notesManager.folders.first(where: { $0.id == folderId }),
+               let parentId = folder.parentFolderId {
+                return isUnderReceiptsFolderHierarchy(folderId: parentId)
+            }
+            return false
+        }
+
+        notes = notes.filter { !isUnderReceiptsFolderHierarchy(folderId: $0.folderId) }
+
+        // Apply keyword filter
+        if let keywords = keywords, !keywords.isEmpty {
+            notes = notes.filter { note in
+                let searchText = (note.title + " " + note.content).lowercased()
+                return keywords.contains { keyword in
+                    searchText.contains(keyword.lowercased())
+                }
+            }
+        }
+
+        notes = Array(notes.sorted { $0.dateModified > $1.dateModified }.prefix(limit))
+
+        guard !notes.isEmpty else {
+            return "NOTES: No notes found matching criteria\n"
+        }
+
+        var context = "NOTES (\(notes.count) found):\n"
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+
+        for note in notes {
+            let dateStr = dateFormatter.string(from: note.dateModified)
+            context += "- \(dateStr): \(note.title)\n"
+            if !note.content.isEmpty {
+                context += "  \(note.content.prefix(150))\n"
+            }
+        }
+
+        return context
     }
 
     private func searchPeople(keywords: [String]?) async -> String {
-        // TODO: Implement people search
-        return ""
+        let peopleManager = PeopleManager.shared
+        var people = await peopleManager.people
+
+        // Apply keyword filter
+        if let keywords = keywords, !keywords.isEmpty {
+            people = people.filter { person in
+                let searchText = person.name.lowercased()
+                return keywords.contains { keyword in
+                    searchText.contains(keyword.lowercased())
+                }
+            }
+        }
+
+        guard !people.isEmpty else {
+            return "PEOPLE: No people found matching criteria\n"
+        }
+
+        var context = "PEOPLE (\(people.count) found):\n"
+        for person in people {
+            context += "- \(person.name)\n"
+        }
+
+        return context
     }
 
     /// Parse natural language date range into actual dates
