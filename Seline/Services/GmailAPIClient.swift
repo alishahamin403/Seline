@@ -915,7 +915,7 @@ class GmailAPIClient {
     /// - Parameter query: Search query (name or email)
     /// - Returns: Array of matching contacts with name and email
     func searchGmailContacts(query: String) async throws -> [(name: String, email: String)] {
-        guard !query.isEmpty, query.count >= 2 else { return [] }
+        guard !query.isEmpty else { return [] }
         
         try await refreshAccessTokenIfNeeded()
         

@@ -45,11 +45,39 @@ struct PeopleListView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            // Header with "People" title and Add button
+            HStack(spacing: 12) {
+                Text("People")
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+                Spacer()
+
+                // Add button in top right
+                Button(action: {
+                    showingAddPerson = true
+                }) {
+                    Text("Add")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+
             // Favorites section (similar to saved locations)
             if !peopleManager.people.isEmpty {
                 favoritesSection
             }
-            
+
             // Main content box (categories and people list)
             if !peopleManager.people.isEmpty {
                 mainContentBox
@@ -194,38 +222,10 @@ struct PeopleListView: View {
     @ViewBuilder
     private var mainContentBox: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header with "All People" title and Add button
-            HStack(spacing: 12) {
-                Text("All People")
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-                Spacer()
-                
-                // Add button in top right
-                Button(action: {
-                    showingAddPerson = true
-                }) {
-                    Text("Add")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .black : .white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(colorScheme == .dark ? Color.white : Color.black)
-                    )
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-            
             // Relationship filter chips
             relationshipFilterChips
                 .padding(.horizontal, 20)
-                .padding(.top, 12)
+                .padding(.top, 20)
                 .padding(.bottom, 8)
             
             // People list content
@@ -287,7 +287,6 @@ struct PeopleListView: View {
                 ForEach(RelationshipType.allCases.filter { availableTypes.contains($0) }, id: \.self) { relationship in
                     filterChip(
                         title: relationship.displayName,
-                        icon: relationship.icon,
                         isSelected: selectedRelationshipFilter == relationship
                     ) {
                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -299,16 +298,10 @@ struct PeopleListView: View {
         }
     }
     
-    private func filterChip(title: String, icon: String? = nil, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func filterChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                if let icon = icon {
-                    Image(systemName: icon)
-                        .font(FontManager.geist(size: 11, weight: .medium))
-                }
-                Text(title)
-                    .font(FontManager.geist(size: 12, weight: .medium))
-            }
+            Text(title)
+                .font(FontManager.geist(size: 12, weight: .medium))
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(
@@ -395,10 +388,6 @@ struct PeopleListView: View {
     
     private func sectionHeader(for relationship: RelationshipType, count: Int) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: relationship.icon)
-                .font(FontManager.geist(size: 14, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-            
             Text(relationship.displayName.uppercased())
                 .font(FontManager.geist(size: 12, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))

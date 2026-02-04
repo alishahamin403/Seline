@@ -77,7 +77,9 @@ class SelineChat: ObservableObject {
         // Get response
         let response: String
         if streaming {
-            response = await getStreamingResponse(systemPrompt: systemPrompt, messages: messages)
+            // TEMPORARY: Disable streaming for debugging
+            response = await getNonStreamingResponse(systemPrompt: systemPrompt, messages: messages)
+            // response = await getStreamingResponse(systemPrompt: systemPrompt, messages: messages)
         } else {
             response = await getNonStreamingResponse(systemPrompt: systemPrompt, messages: messages)
         }
@@ -218,12 +220,7 @@ class SelineChat: ObservableObject {
         let contextPrompt: String
 
         if !userMessage.isEmpty {
-            // CRITICAL: Build context to detect event creation, ETA requests, etc.
-            // This populates appContext.lastEventCreationInfo which is used by the UI
-            _ = await appContext.buildContextPrompt(forQuery: userMessage)
-
-            // Use vector-based semantic search for relevant context only
-            // This dramatically reduces token count and improves response speed
+            // Main path: vector-based semantic search (the critical path for response)
             let result = await vectorContextBuilder.buildContext(forQuery: userMessage)
             contextPrompt = result.context
 
@@ -463,6 +460,25 @@ class SelineChat: ObservableObject {
 
         **Think like a human assistant who's been following the user all day** - what would they tell you if you asked "how was my day?" They wouldn't just list calendar events; they'd give you the FULL picture of where you went, what you did, who you talked to, what you accomplished, and what's still pending.
 
+        🔗 SMART CONNECTIONS - Synthesize Data Across Sources:
+
+        The context includes cross-references like "Receipt at Chipotle — With: Sarah" or "💡 Visit to Starbucks had these receipts: Morning Coffee".
+
+        **Use these connections to give intelligent answers:**
+        - "Lunch with Sarah" → Find the receipt at the restaurant + the visit + Sarah's association
+        - "Coffee spending" → Link Starbucks receipts to visit durations and frequency
+        - "What I did during my meeting" → Connect event time to receipts/visits at same time
+
+        **Examples of smart synthesis:**
+        ✅ "You had lunch at Chipotle with Sarah ($23.45) around 12:30 PM"
+        ✅ "You've visited Starbucks 3 times this week, spending $4-5 each time"
+        ✅ "During your 2-hour meeting at the office, you sent 8 work emails"
+
+        **Data completeness notes:**
+        - If context shows "50 matches" but the user asks for "all receipts", note there may be more
+        - If email data is limited to recent days, mention: "I have emails from the last 30 days"
+        - Be transparent about data boundaries when relevant to the question
+
         🎯 ACCURACY IS EVERYTHING:
         - Only use data from the context below. Never guess or make up information.
         - If you don't have the data, just say so naturally: "I don't have that info" or "I'd need more details to help with that."
@@ -625,15 +641,29 @@ class SelineChat: ObservableObject {
     }
 
     private func getNonStreamingResponse(systemPrompt: String, messages: [[String: String]]) async -> String {
+        // Signal streaming state for UI consistency
+        isStreaming = true
+        onStreamingStateChanged?(true)
+
         do {
             let response = try await geminiService.simpleChatCompletion(
                 systemPrompt: systemPrompt,
                 messages: messages
             )
 
+            // CRITICAL: Call onStreamingChunk with full response so SearchService adds the message
+            onStreamingChunk?(response)
+
+            // Signal completion
+            onStreamingComplete?()
+            isStreaming = false
+            onStreamingStateChanged?(false)
+
             return response
         } catch {
             print("❌ Error: \(error)")
+            isStreaming = false
+            onStreamingStateChanged?(false)
             return buildErrorMessage(error: error)
         }
     }
@@ -669,10 +699,10 @@ class SelineChat: ObservableObject {
             } else {
                 return """
                 You've reached your daily limit. ⏳
-                
+
                 Your daily quota will reset at midnight. You can continue asking questions then.
-                
-                Daily limit: 2M tokens per day
+
+                Daily limit: 1.5M tokens per day
                 """
             }
         }

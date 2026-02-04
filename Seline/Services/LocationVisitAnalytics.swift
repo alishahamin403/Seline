@@ -658,7 +658,7 @@ class LocationVisitAnalytics: ObservableObject {
         }
     }
 
-    /// Merge consecutive visits with gaps <= 5 minutes
+    /// Merge consecutive visits with gaps <= 7 minutes
     /// Returns (mergedCount, deletedCount)
     func mergeAndCleanupVisits() async -> (merged: Int, deleted: Int) {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
@@ -731,8 +731,8 @@ class LocationVisitAnalytics: ObservableObject {
                                 continue
                             }
 
-                            // Merge if gap is 5 minutes or less AND on same day
-                            if gapMinutes <= 5 && gapMinutes >= 0 {
+                            // Merge if gap is 7 minutes or less AND on same day
+                            if gapMinutes <= 7 && gapMinutes >= 0 {
                                 print("🔄 Merging visits: \(currentVisit.id) and \(nextVisit.id) (gap: \(gapMinutes) min)")
 
                                 // Merge: update first visit to have exit time of second visit

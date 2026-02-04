@@ -17,6 +17,8 @@ struct RatableCategoryRow: View {
     @State private var showingRenameAlert = false
     @State private var selectedPlace: SavedPlace? = nil
     @State private var newPlaceName = ""
+    @State private var showingRenameFolderAlert = false
+    @State private var newFolderName = ""
     
     // Rating statistics
     private var ratedPlaces: [SavedPlace] {
@@ -45,43 +47,48 @@ struct RatableCategoryRow: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Category header
-            Button(action: onToggle) {
-                HStack(spacing: 12) {
-                    Text(category)
-                        .font(FontManager.geist(size: 16, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                    
-                    Spacer()
-
-                    // Count badge with rated count
-                    HStack(spacing: 4) {
-                        // Total count
-                        Text("\(places.count)")
-                            .font(FontManager.geist(size: 12, weight: .semibold))
-
-                        // Rated count (if applicable and has ratings)
-                        if isRatable && !ratedPlaces.isEmpty {
-                            Text("•")
-                                .font(FontManager.geist(size: 12, weight: .semibold))
-                            Text("\(ratedPlaces.count)")
-                                .font(FontManager.geist(size: 11, weight: .medium))
-                                .foregroundColor(ratingSummaryColor)
-                        }
-                    }
+            // Category header (tap to expand, long press to rename)
+            HStack(spacing: 12) {
+                Text(category)
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(minWidth: 24, minHeight: 24)
-                    .padding(.horizontal, 6)
-                    .background(
-                        Capsule()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
-                    )
+
+                Spacer()
+
+                // Count badge with rated count
+                HStack(spacing: 4) {
+                    // Total count
+                    Text("\(places.count)")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+
+                    // Rated count (if applicable and has ratings)
+                    if isRatable && !ratedPlaces.isEmpty {
+                        Text("•")
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                        Text("\(ratedPlaces.count)")
+                            .font(FontManager.geist(size: 11, weight: .medium))
+                            .foregroundColor(ratingSummaryColor)
+                    }
                 }
-                .padding(.vertical, 14)
-                .padding(.horizontal, 16)
-                .contentShape(Rectangle())
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .frame(minWidth: 24, minHeight: 24)
+                .padding(.horizontal, 6)
+                .background(
+                    Capsule()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                )
             }
-            .buttonStyle(PlainButtonStyle())
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onToggle()
+            }
+            .onLongPressGesture(minimumDuration: 0.5) {
+                HapticManager.shared.selection()
+                newFolderName = category
+                showingRenameFolderAlert = true
+            }
             
             // Places list
             if isExpanded {
@@ -124,6 +131,24 @@ struct RatableCategoryRow: View {
             }
         } message: {
             Text("Enter a new name for this place")
+        }
+        .alert(places.isEmpty ? "Manage Folder" : "Rename Folder", isPresented: $showingRenameFolderAlert) {
+            TextField("Folder name", text: $newFolderName)
+            if places.isEmpty {
+                Button("Delete", role: .destructive) {
+                    locationsManager.removeUserFolder(category)
+                    newFolderName = ""
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                newFolderName = ""
+            }
+            Button("Rename") {
+                locationsManager.renameCategory(category, to: newFolderName)
+                newFolderName = ""
+            }
+        } message: {
+            Text(places.isEmpty ? "Rename or delete this folder" : "Enter a new name for this folder")
         }
     }
     
@@ -170,20 +195,20 @@ struct RatableCategoryRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(place.displayName)
-                            .font(FontManager.geist(size: 15, weight: .medium))
+                            .font(FontManager.geist(size: 13, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .lineLimit(1)
-                        
+
                         if place.isFavourite {
                             Image(systemName: "star.fill")
                                 .font(FontManager.geist(size: 11, weight: .semibold))
                                 .foregroundColor(.yellow)
                         }
                     }
-                    
+
                     if let distance = calculateDistance(to: place) {
                         Text(formatDistance(distance))
-                            .font(FontManager.geist(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                     }
                 }

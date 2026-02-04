@@ -313,14 +313,14 @@ class SelineAppContext {
         }
         print("✅ Extracted \(self.receipts.count) receipts with valid dates")
 
-        // Collect recent notes (limit to improve performance)
-        // Load only notes modified in the last 90 days, plus pinned notes
+        // Collect recent notes (optimized filtering)
+        // Load pinned notes (unlimited) + notes from last 90 days (unlimited)
+        // For semantic queries, vector search will handle relevance ranking
         let recentNotes = notesManager.notes.filter { note in
             note.isPinned || note.dateModified >= ninetyDaysAgo
         }
-        // Limit to most recent 200 notes to prevent memory bloat
-        self.notes = Array(recentNotes.sorted { $0.dateModified > $1.dateModified }.prefix(200))
-        print("📝 Filtered to \(self.notes.count) recent notes (last 90 days + pinned, max 200)")
+        self.notes = recentNotes.sorted { $0.dateModified > $1.dateModified }
+        print("📝 Filtered to \(self.notes.count) recent notes (last 90 days + pinned, no hard limit)")
 
         // Collect recent emails (limit to improve performance)
         // Emails are already paginated (20 per load), so just use what's loaded
@@ -2809,12 +2809,33 @@ class SelineAppContext {
         context += "\n=== CROSS-DATA INSIGHTS ===\n"
         context += "Connections between receipts, locations, events, and emails:\n\n"
 
-        // Link receipts to locations (by matching names or dates)
+        // Link receipts to locations (improved semantic matching)
         var receiptLocationLinks: [(receipt: ReceiptStat, location: SavedPlace)] = []
         for receipt in receipts.prefix(20) {
             for location in locations {
-                // Check if receipt title contains location name
-                if receipt.title.lowercased().contains(location.displayName.lowercased().split(separator: " ").first?.lowercased() ?? "") {
+                let receiptTitle = receipt.title.lowercased()
+                let locationName = location.displayName.lowercased()
+
+                // Exact match
+                if receiptTitle.contains(locationName) || locationName.contains(receiptTitle) {
+                    receiptLocationLinks.append((receipt, location))
+                    break
+                }
+
+                // Fuzzy match: check if words overlap
+                let receiptWords = Set(receiptTitle.split(separator: " ").map { String($0) })
+                let locationWords = Set(locationName.split(separator: " ").map { String($0) })
+                let commonWords = receiptWords.intersection(locationWords)
+                if !commonWords.isEmpty && commonWords.count >= min(receiptWords.count, locationWords.count) / 2 {
+                    receiptLocationLinks.append((receipt, location))
+                    break
+                }
+
+                // Category matching (e.g., "Coffee Shop" receipt → Starbucks location)
+                let receiptCategory = receipt.category?.lowercased() ?? ""
+                let locationCategory = location.category?.lowercased() ?? ""
+                if !receiptCategory.isEmpty && !locationCategory.isEmpty &&
+                   (receiptCategory.contains(locationCategory) || locationCategory.contains(receiptCategory)) {
                     receiptLocationLinks.append((receipt, location))
                     break
                 }

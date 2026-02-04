@@ -84,9 +84,9 @@ class MergeDetectionService {
             return (visit, 1.0, "continuous_visit")
         }
 
-        // Simple rule: Gap < 5 minutes = always merge (only within same calendar day)
-        if minutesSinceExit < 5 && minutesSinceExit >= 0 {
-            print("✅ MERGE: Gap is \(minutesSinceExit) min (< 5 min threshold)")
+        // Simple rule: Gap < 7 minutes = always merge (only within same calendar day)
+        if minutesSinceExit < 7 && minutesSinceExit >= 0 {
+            print("✅ MERGE: Gap is \(minutesSinceExit) min (< 7 min threshold)")
             print("   → Keeping original start time: \(visit.entryTime)")
             return (visit, 1.0, "quick_return")
         }

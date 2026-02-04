@@ -42,6 +42,8 @@ struct MapsViewNew: View, Searchable {
     @State private var showFullMapView = false  // Controls full map view sheet
     @State private var showChangeFolderSheet = false  // Controls change folder sheet
     @State private var placeToMove: SavedPlace? = nil  // Place being moved to different folder
+    @State private var showNewFolderAlert = false  // Controls new folder alert
+    @State private var newFolderName = ""  // Name for the new folder
     @State private var showingRenameAlert = false  // Controls rename alert
     @State private var placeToRename: SavedPlace? = nil  // Place being renamed
     @State private var newPlaceName = ""  // New name for the place
@@ -425,8 +427,7 @@ struct MapsViewNew: View, Searchable {
     // MARK: - Helper Functions
     
     private func getAllCategories() -> [String] {
-        let categorySet = Set(locationsManager.savedPlaces.map { $0.category })
-        return Array(categorySet).sorted()
+        return locationsManager.categories
     }
     
     private func setupOnAppear() async {
@@ -508,6 +509,23 @@ struct MapsViewNew: View, Searchable {
                     .tracking(0.5)
                 Spacer()
 
+                // Add folder icon button
+                Button(action: {
+                    newFolderName = ""
+                    showNewFolderAlert = true
+                }) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+
                 // Add button in top right
                 Button(action: {
                     showSearchModal = true
@@ -527,6 +545,18 @@ struct MapsViewNew: View, Searchable {
             .padding(.horizontal, 20)
             .padding(.top, 20)
             .padding(.bottom, 12)
+            .alert("New Folder", isPresented: $showNewFolderAlert) {
+                TextField("Folder name", text: $newFolderName)
+                Button("Cancel", role: .cancel) {
+                    newFolderName = ""
+                }
+                Button("Create") {
+                    locationsManager.addFolder(newFolderName)
+                    newFolderName = ""
+                }
+            } message: {
+                Text("Enter a name for the new folder")
+            }
 
             if locationsManager.categories.isEmpty {
                 VStack(spacing: 16) {
@@ -1076,16 +1106,17 @@ struct MapsViewNew: View, Searchable {
     private func getPlacesForSuperCategory(_ superCategory: LocationSuperCategory) -> [String: [SavedPlace]] {
         let filtered = getFilteredPlaces()
         var result: [String: [SavedPlace]] = [:]
-        
+
         for category in locationsManager.categories {
             if locationsManager.getSuperCategory(for: category) == superCategory {
                 let categoryPlaces = filtered.filter { $0.category == category }
-                if !categoryPlaces.isEmpty {
+                // Always include user-created folders (even if empty); skip others when empty
+                if !categoryPlaces.isEmpty || locationsManager.userFolders.contains(category) {
                     result[category] = categoryPlaces
                 }
             }
         }
-        
+
         return result
     }
 

@@ -808,7 +808,7 @@ class GeofenceManager: NSObject, ObservableObject {
                         "p_saved_place_id": placeId.uuidString,
                         "p_entry_time": ISO8601DateFormatter().string(from: Date()),
                         "p_session_id": sessionId.uuidString,
-                        "p_merge_window_minutes": "5"
+                        "p_merge_window_minutes": "7"
                     ]
                 ).execute()
 

@@ -14,6 +14,7 @@ struct EmailView: View, Searchable {
     @State private var searchText: String = ""
     @State private var selectedSearchEmail: Email? = nil
     @State private var isSearchActive: Bool = false
+    @State private var showNewCompose = false
 
     // Events tab state
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
@@ -100,6 +101,10 @@ struct EmailView: View, Searchable {
         .overlay(folderSidebarOverlay(geometry: geometry))
         .sheet(item: $selectedSearchEmail) { email in
             EmailDetailView(email: email)
+                .presentationBg()
+        }
+        .sheet(isPresented: $showNewCompose) {
+            NewComposeView()
                 .presentationBg()
         }
         .confirmationDialog("Import Schedule", isPresented: $showPhotoImportDialog) {
@@ -429,7 +434,7 @@ struct EmailView: View, Searchable {
                 if selectedTab != .events {
                     // Email tabs: Compose button
                     Button(action: {
-                        openGmailCompose()
+                        showNewCompose = true
                     }) {
                         Image(systemName: "plus")
                             .font(.system(size: 20, weight: .semibold))
@@ -678,33 +683,6 @@ struct EmailView: View, Searchable {
             recurrenceFrequency: frequency,
             tagId: tagId
         )
-    }
-
-    private func openGmailCompose() {
-        // Try Gmail compose URL schemes in order of reliability
-        let composeURLs = [
-            "googlegmail://co",           // Direct compose
-            "googlegmail:///co",          // Alternative compose
-            "googlegmail://compose",      // Another compose variant
-            "googlegmail://"              // Fallback to general Gmail
-        ]
-
-        for urlString in composeURLs {
-            if let url = URL(string: urlString) {
-                if UIApplication.shared.canOpenURL(url) {
-                    UIApplication.shared.open(url) { success in
-                        if success {
-                            print("✅ Successfully opened Gmail with: \(urlString)")
-                            return
-                        }
-                    }
-                    return
-                }
-            }
-        }
-
-        // If none worked, Gmail app might not be installed
-        print("Gmail app is not installed or none of the URL schemes worked")
     }
 
     // MARK: - Searchable Protocol

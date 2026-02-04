@@ -25,7 +25,7 @@ class GeminiService: ObservableObject {
     @Published var dailyTokensUsed: Int = 0
     @Published var dailyQueryCount: Int = 0
     private var lastResetDate: Date = Date()
-    private let dailyTokenLimit: Int = 2_000_000 // 2M tokens per day
+    private let dailyTokenLimit: Int = 1_500_000 // 1.5M tokens per day (~$0.30/day at 70/30 input/output ratio)
 
     // Average tokens per query (updated dynamically)
     private var averageTokensPerQuery: Int = 15_000 // Conservative estimate
@@ -433,51 +433,92 @@ class GeminiService: ObservableObject {
         )
     }
 
-    /// Answer question with streaming
+    /// Answer question with streaming using Gemini's native SSE streaming
     func answerQuestionWithStreaming(
         query: String,
         conversationHistory: [Message] = [],
         onChunk: @escaping (String) -> Void
     ) async throws {
-        // For now, use non-streaming (Gemini streaming requires different endpoint)
         var messages: [Message] = conversationHistory
         messages.append(Message(role: "user", content: query))
 
-        let response = try await chat(
-            messages: messages,
-            operationType: "streaming_chat"
-        )
+        // Use streamGenerateContent for real server-side streaming (tokens arrive as generated)
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent?key=\(apiKey)"
+        guard let url = URL(string: urlString) else {
+            throw GeminiError.invalidURL
+        }
 
-        // CRITICAL: Simulate streaming by sending chunks while PRESERVING newlines
-        // Split by spaces only, not by newlines, to maintain formatting
-        let fullText = response.choices.first?.message.content ?? ""
+        let geminiContents = convertMessagesToGeminiFormat(messages)
 
-        // Split by spaces while preserving newlines
-        var currentChunk = ""
-        for char in fullText {
-            if char == " " {
-                // Send accumulated chunk plus space
-                if !currentChunk.isEmpty {
-                    onChunk(currentChunk + " ")
-                    try await Task.sleep(nanoseconds: 10_000_000) // 10ms delay
-                    currentChunk = ""
-                }
-            } else if char == "\n" {
-                // Send accumulated chunk plus newline
-                if !currentChunk.isEmpty {
-                    onChunk(currentChunk)
-                    currentChunk = ""
-                }
-                onChunk("\n")
-            } else {
-                currentChunk.append(char)
+        let requestBody: [String: Any] = [
+            "contents": geminiContents,
+            "generationConfig": [
+                "temperature": 0.6,
+                "maxOutputTokens": 1024
+            ],
+            "tools": [
+                ["google_search": [:]]
+            ]
+        ]
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.timeoutInterval = 90
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GeminiError.invalidResponse
+        }
+
+        if httpResponse.statusCode != 200 {
+            var errorData = Data()
+            for try await byte in bytes {
+                errorData.append(byte)
+            }
+            if let errorResponse = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
+               let error = errorResponse["error"] as? [String: Any],
+               let message = error["message"] as? String {
+                throw GeminiError.apiError(message)
+            }
+            throw GeminiError.apiError("HTTP \(httpResponse.statusCode)")
+        }
+
+        var fullText = ""
+        var promptTokens = 0
+        var completionTokens = 0
+
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data: ") else { continue }
+            let jsonString = String(line.dropFirst(6))
+
+            guard let data = jsonString.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let candidates = json["candidates"] as? [[String: Any]],
+                  let firstCandidate = candidates.first,
+                  let content = firstCandidate["content"] as? [String: Any],
+                  let parts = content["parts"] as? [[String: Any]],
+                  let firstPart = parts.first,
+                  let text = firstPart["text"] as? String else { continue }
+
+            fullText += text
+            onChunk(text)
+
+            // Extract usage metadata (typically in final chunk)
+            if let usageMetadata = json["usageMetadata"] as? [String: Any] {
+                promptTokens = usageMetadata["promptTokenCount"] as? Int ?? promptTokens
+                completionTokens = usageMetadata["candidatesTokenCount"] as? Int ?? completionTokens
             }
         }
 
-        // Send remaining chunk
-        if !currentChunk.isEmpty {
-            onChunk(currentChunk)
-        }
+        // Track token usage
+        let totalTokens = promptTokens + completionTokens > 0
+            ? promptTokens + completionTokens
+            : fullText.count / 4  // Fallback estimate if no usage metadata
+        await trackTokenUsage(tokens: totalTokens)
+        print("✅ Gemini (streaming): \(totalTokens) tokens used, \(fullText.count) chars")
     }
 
     /// Get semantic similarity scores (stub)

@@ -3006,7 +3006,7 @@ struct TokenUsageDetailsSheet: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
     
-    private let dailyTokenLimit: Int = 2_000_000 // 2M tokens per day
+    private let dailyTokenLimit: Int = 1_500_000 // 1.5M tokens per day (~$0.30/day)
     
     private var dailyTokensRemaining: Int {
         max(0, dailyTokenLimit - deepSeekService.dailyTokensUsed)

@@ -90,16 +90,25 @@ class VectorSearchService: ObservableObject {
             print("🔍 Vector search returned 0 results (threshold: \(similarityThreshold)) - no matches found")
         }
 
-        return response.results.map { result in
-            SearchResult(
+        // Apply recency boost to results before returning
+        let resultsWithRecency = response.results.map { result -> SearchResult in
+            let baseScore = result.similarity
+            let recencyScore = calculateRecencyScore(metadata: result.metadata)
+            // Formula: 70% semantic similarity + 30% recency
+            let boostedScore = (0.7 * baseScore) + (0.3 * recencyScore)
+
+            return SearchResult(
                 documentType: DocumentType(rawValue: result.document_type) ?? .note,
                 documentId: result.document_id,
                 title: result.title,
                 content: result.content,
                 metadata: result.metadata,
-                similarity: result.similarity
+                similarity: boostedScore  // Use boosted score
             )
         }
+
+        // Re-sort by boosted score
+        return resultsWithRecency.sorted { $0.similarity > $1.similarity }
     }
     
     /// Search and return formatted context for LLM
@@ -118,6 +127,9 @@ class VectorSearchService: ObservableObject {
         var context = "=== RELEVANT DATA (Semantic Search) ===\n"
         context += "Query matched \(results.count) items by semantic similarity:\n\n"
 
+        // Fetch all memories once for batch annotation (performance optimization)
+        let memories = await fetchAllMemories()
+
         // Group by document type
         let grouped = Dictionary(grouping: results) { $0.documentType }
 
@@ -129,8 +141,8 @@ class VectorSearchService: ObservableObject {
                 context += "• [\(similarity) match] "
 
                 if let title = item.title, !title.isEmpty {
-                    // ENHANCEMENT: Annotate with memory context
-                    let annotatedTitle = await annotateWithMemory(title)
+                    // ENHANCEMENT: Annotate with memory context (using batched memories)
+                    let annotatedTitle = annotateWithMemory(title, memories: memories)
                     context += "**\(annotatedTitle)**\n"
                 }
 
@@ -161,26 +173,56 @@ class VectorSearchService: ObservableObject {
         return context
     }
 
-    /// Annotate a result title with memory context (e.g., "Jvmesmrvo" → "Jvmesmrvo (Haircut)")
-    private func annotateWithMemory(_ title: String) async -> String {
+    /// Calculate recency boost score (1.0 for today, decays to 0.1 for 1+ year ago)
+    private func calculateRecencyScore(metadata: [String: Any]?) -> Float {
+        guard let metadata = metadata,
+              let dateString = metadata["date"] as? String else {
+            // No date metadata, assume recent (neutral score)
+            return 0.5
+        }
+
+        // Parse date from ISO8601 or common formats
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var date = dateFormatter.date(from: dateString)
+
+        if date == nil {
+            // Try fallback format (YYYY-MM-DD)
+            let fallbackFormatter = DateFormatter()
+            fallbackFormatter.dateFormat = "yyyy-MM-dd"
+            date = fallbackFormatter.date(from: dateString)
+        }
+
+        guard let parsedDate = date else {
+            return 0.5  // Can't parse, neutral score
+        }
+
+        // Calculate age in days
+        let ageInDays = Date().timeIntervalSince(parsedDate) / (60 * 60 * 24)
+
+        // Exponential decay: 1.0 today, 0.5 at 30 days, 0.1 at 365 days
+        if ageInDays < 1 {
+            return 1.0  // Today
+        } else if ageInDays < 30 {
+            return Float(0.5 + (0.5 * (30 - ageInDays) / 30))  // Linear 1.0 → 0.5
+        } else if ageInDays < 365 {
+            return Float(0.1 + (0.4 * (365 - ageInDays) / 335))  // Linear 0.5 → 0.1
+        } else {
+            return 0.1  // 1+ year old
+        }
+    }
+
+    /// Batch fetch all memories for annotation (call once before annotating multiple titles)
+    private func fetchAllMemories() async -> [MemorySupabaseData] {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
-            print("🧠 Annotation skipped: No user ID")
-            return title
+            print("🧠 Memory fetch skipped: No user ID")
+            return []
         }
-
-        // Quick cache check - avoid processing if we've already checked this title
-        let cacheKey = title.lowercased()
-        if let cached = memoryAnnotationCache[cacheKey] {
-            print("🧠 Annotation cache hit: '\(title)' → '\(cached)'")
-            return cached
-        }
-
-        print("🧠 Annotating title: '\(title)'")
 
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
 
-            // Find memories where the KEY matches the merchant/title name
+            // Fetch all memories for this user once
             let response = try await client
                 .from("user_memory")
                 .select()
@@ -191,26 +233,35 @@ class VectorSearchService: ObservableObject {
             let decoder = JSONDecoder.supabaseDecoder()
             let data: [MemorySupabaseData] = try decoder.decode([MemorySupabaseData].self, from: response.data)
 
-            print("🧠 Found \(data.count) memories for annotation")
-
-            // Find matching memory
-            for memoryData in data {
-                print("🧠 Checking memory: key='\(memoryData.key)', value='\(memoryData.value)'")
-                if title.lowercased().contains(memoryData.key.lowercased()) {
-                    let annotated = "\(title) (\(memoryData.value))"
-                    memoryAnnotationCache[cacheKey] = annotated
-                    print("🧠 ✅ Annotated result: '\(title)' → '\(annotated)'")
-                    return annotated
-                }
-            }
-
-            print("🧠 No memory match found for '\(title)'")
-            memoryAnnotationCache[cacheKey] = title  // Cache negative result
-            return title
+            print("🧠 Fetched \(data.count) memories for batch annotation")
+            return data
         } catch {
-            print("⚠️ Memory annotation failed: \(error)")
-            return title
+            print("⚠️ Memory fetch failed: \(error)")
+            return []
         }
+    }
+
+    /// Annotate a result title with memory context (e.g., "Jvmesmrvo" → "Jvmesmrvo (Haircut)")
+    /// Uses pre-fetched memories for efficient batch processing
+    private func annotateWithMemory(_ title: String, memories: [MemorySupabaseData]) -> String {
+        // Quick cache check - avoid processing if we've already checked this title
+        let cacheKey = title.lowercased()
+        if let cached = memoryAnnotationCache[cacheKey] {
+            return cached
+        }
+
+        // Find matching memory
+        for memoryData in memories {
+            if title.lowercased().contains(memoryData.key.lowercased()) {
+                let annotated = "\(title) (\(memoryData.value))"
+                memoryAnnotationCache[cacheKey] = annotated
+                print("🧠 ✅ Annotated result: '\(title)' → '\(annotated)'")
+                return annotated
+            }
+        }
+
+        memoryAnnotationCache[cacheKey] = title  // Cache negative result
+        return title
     }
     
     // MARK: - Embedding Sync
@@ -866,7 +917,7 @@ class VectorSearchService: ObservableObject {
                 .select()
                 .eq("user_id", value: userId.uuidString)
                 .order("entry_time", ascending: false)
-                .limit(10000)  // Increased limit to handle more historical data
+                // No hard limit - trust database performance and let Postgres handle it
                 .execute()
             
             let decoder = JSONDecoder.supabaseDecoder()

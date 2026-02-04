@@ -1342,17 +1342,17 @@ class EmailService: ObservableObject {
         }
     }
 
-    private func filterTodaysEmails(_ emails: [Email]) -> [Email] {
+    private func filterTodaysEmails(_ emails: [Email], daysBack: Int = 30) -> [Email] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        
-        // Get date 7 days ago (including today = 7 days total)
-        guard let sevenDaysAgo = calendar.date(byAdding: .day, value: -6, to: today) else {
+
+        // Get date N days ago (configurable, default 30 days)
+        guard let cutoffDate = calendar.date(byAdding: .day, value: -(daysBack - 1), to: today) else {
             return emails.sorted { $0.timestamp > $1.timestamp }
         }
 
         return emails.filter { email in
-            email.timestamp >= sevenDaysAgo
+            email.timestamp >= cutoffDate
         }.sorted { $0.timestamp > $1.timestamp }
     }
 

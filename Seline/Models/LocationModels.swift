@@ -236,6 +236,7 @@ class LocationsManager: ObservableObject {
     @Published var searchHistory: [PlaceSearchResult] = []
     @Published var isLoading = false
     @Published var categories: [String] = []
+    @Published var userFolders: Set<String> = []
     @Published var countries: Set<String> = []
     @Published var provinces: Set<String> = []
     @Published var cities: Set<String> = []
@@ -246,10 +247,12 @@ class LocationsManager: ObservableObject {
     @Published var lastSyncTime: Date?
 
     private let placesKey = "SavedPlaces"
+    private let userFoldersKey = "seline_user_folders"
     private let searchHistoryKey = "MapsSearchHistory"
     private let authManager = AuthenticationManager.shared
 
     private init() {
+        loadUserFolders()
         loadSavedPlaces()
         loadSearchHistory()
 
@@ -297,6 +300,31 @@ class LocationsManager: ObservableObject {
         }
     }
 
+    // MARK: - User Folder Management
+
+    private func loadUserFolders() {
+        if let data = UserDefaults.standard.data(forKey: userFoldersKey),
+           let decoded = try? JSONDecoder().decode([String].self, from: data) {
+            userFolders = Set(decoded)
+        }
+    }
+
+    func addFolder(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty && !categories.contains(trimmed) else { return }
+        userFolders.insert(trimmed)
+        savePlacesToStorage()
+        objectWillChange.send()
+    }
+
+    func removeUserFolder(_ name: String) {
+        // Only allow removal if folder has no places
+        guard !savedPlaces.contains(where: { $0.category == name }) else { return }
+        userFolders.remove(name)
+        savePlacesToStorage()
+        objectWillChange.send()
+    }
+
     // MARK: - Data Persistence
 
     private func savePlacesToStorage() {
@@ -306,9 +334,14 @@ class LocationsManager: ObservableObject {
 
         // Update categories, countries, provinces, and cities
         // Keep categories as sorted array for consistent ordering
-        // IMPORTANT: Only include categories that have at least one place (auto-delete empty folders)
+        // Include place-derived categories AND user-created folders
         let categoriesWithPlaces = Set(savedPlaces.map { $0.category })
-        categories = Array(categoriesWithPlaces).sorted()
+        categories = Array(categoriesWithPlaces.union(userFolders)).sorted()
+
+        // Persist user folders
+        if let encoded = try? JSONEncoder().encode(Array(userFolders)) {
+            UserDefaults.standard.set(encoded, forKey: userFoldersKey)
+        }
         countries = Set(savedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
         provinces = Set(savedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
         cities = Set(savedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
@@ -342,7 +375,7 @@ class LocationsManager: ObservableObject {
             }
 
             self.savedPlaces = migratedPlaces
-            self.categories = Array(Set(migratedPlaces.map { $0.category })).sorted()
+            self.categories = Array(Set(migratedPlaces.map { $0.category }).union(userFolders)).sorted()
             self.countries = Set(migratedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
             self.provinces = Set(migratedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
             self.cities = Set(migratedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
@@ -391,47 +424,86 @@ class LocationsManager: ObservableObject {
     /// Get the super category for a given category string
     func getSuperCategory(for category: String) -> LocationSuperCategory {
         let lower = category.lowercased()
-        
+
         // Food & Dining
         if lower.contains("restaurant") || lower.contains("cafe") || lower.contains("coffee") ||
            lower.contains("pizza") || lower.contains("burger") || lower.contains("food") ||
            lower.contains("dining") || lower.contains("bakery") || lower.contains("deli") ||
-           lower.contains("bar") || lower.contains("pub") || lower.contains("brewery") ||
-           lower.contains("winery") || lower.contains("bistro") || lower.contains("eatery") {
+           (lower.contains("bar") && !lower.contains("barber")) || lower.contains("pub") ||
+           lower.contains("brewery") || lower.contains("winery") || lower.contains("bistro") ||
+           lower.contains("eatery") || lower.contains("sushi") || lower.contains("thai") ||
+           lower.contains("chinese") || lower.contains("italian") || lower.contains("mexican") ||
+           lower.contains("indian") || lower.contains("korean") || lower.contains("japanese") ||
+           lower.contains("greek") || lower.contains("french") || lower.contains("american") ||
+           lower.contains("bbq") || lower.contains("grill") || lower.contains("taco") ||
+           lower.contains("sandwich") || lower.contains("dessert") || lower.contains("ice cream") ||
+           lower.contains("brunch") || lower.contains("buffet") || lower.contains("seafood") ||
+           lower.contains("asian") || lower.contains("mediterranean") || lower.contains("caribbean") ||
+           lower.contains("noodle") || lower.contains("ramen") || lower.contains("pho") ||
+           lower.contains("burrito") || lower.contains("kebab") || lower.contains("smoothie") ||
+           lower.contains("steakhouse") || lower.contains("steak") || lower.contains("dim sum") ||
+           lower.contains("shawarma") || lower.contains("falafel") || lower.contains("donut") ||
+           lower.contains("waffle") || lower.contains("crepe") || lower.contains("tapas") ||
+           lower.contains("wings") || lower.contains("chicken") || lower.contains("brunch") ||
+           lower.contains("tea shop") || lower.contains("tea house") || lower.contains("bubble tea") {
             return .foodAndDining
         }
-        
+
         // Services
         if lower.contains("gym") || lower.contains("fitness") || lower.contains("salon") ||
-           lower.contains("barber") || lower.contains("spa") || lower.contains("clinic") ||
-           lower.contains("hospital") || lower.contains("doctor") || lower.contains("dentist") ||
-           lower.contains("repair") || lower.contains("service") || lower.contains("laundry") ||
-           lower.contains("cleaners") || lower.contains("mechanic") || lower.contains("garage") {
+           lower.contains("barber") ||
+           (lower.contains("spa") && !lower.contains("spanish") && !lower.contains("space")) ||
+           lower.contains("clinic") || lower.contains("hospital") || lower.contains("doctor") ||
+           lower.contains("dentist") || lower.contains("repair") || lower.contains("service") ||
+           lower.contains("laundry") || lower.contains("cleaners") || lower.contains("mechanic") ||
+           lower.contains("garage") || lower.contains("gas station") || lower.contains("fuel") ||
+           lower.contains("car wash") || lower.contains("bank") || lower.contains("insurance") ||
+           lower.contains("post office") || lower.contains("shipping") || lower.contains("tax") ||
+           lower.contains("accounting") || lower.contains("lawyer") || lower.contains("legal") ||
+           lower.contains("real estate") || lower.contains("travel") || lower.contains("vet") ||
+           lower.contains("optometrist") || lower.contains("urgent care") || lower.contains("parking") ||
+           lower.contains("pharmacy") || lower.contains("drugstore") || lower.contains("drug store") {
             return .services
         }
-        
+
         // Shopping
         if lower.contains("store") || lower.contains("shop") || lower.contains("mall") ||
            lower.contains("market") || lower.contains("boutique") || lower.contains("outlet") ||
-           lower.contains("retail") || lower.contains("grocery") || lower.contains("supermarket") {
+           lower.contains("retail") || lower.contains("grocery") || lower.contains("supermarket") ||
+           lower.contains("clothing") || lower.contains("fashion") || lower.contains("electronics") ||
+           lower.contains("appliance") || lower.contains("furniture") || lower.contains("jewelry") ||
+           lower.contains("jewellery") || lower.contains("toy") || lower.contains("optical") ||
+           lower.contains("eyewear") || lower.contains("hardware") || lower.contains("sporting") ||
+           lower.contains("thrift") || lower.contains("vintage") || lower.contains("dollar store") ||
+           lower.contains("convenience") || lower.contains("warehouse") || lower.contains("department") {
             return .shopping
         }
-        
+
         // Entertainment
         if lower.contains("cinema") || lower.contains("theater") || lower.contains("theatre") ||
            lower.contains("club") || lower.contains("lounge") || lower.contains("entertainment") ||
            lower.contains("arcade") || lower.contains("bowling") || lower.contains("museum") ||
-           lower.contains("gallery") || lower.contains("park") || lower.contains("recreation") {
+           lower.contains("gallery") ||
+           (lower.contains("park") && !lower.contains("parking")) || lower.contains("recreation") ||
+           lower.contains("library") || lower.contains("zoo") || lower.contains("aquarium") ||
+           lower.contains("amusement") || lower.contains("golf") || lower.contains("swimming") ||
+           lower.contains("concert") || lower.contains("karaoke") || lower.contains("escape room") ||
+           lower.contains("trampoline") || lower.contains("paintball") || lower.contains("laser tag") ||
+           lower.contains("ice skating") || lower.contains("rink") || lower.contains("hiking") ||
+           lower.contains("beach") || lower.contains("nightlife") || lower.contains("comedy") ||
+           lower.contains("yoga") || lower.contains("playground") || lower.contains("sports") {
             return .entertainment
         }
-        
-        // Personal (Home, Work, Office)
+
+        // Personal (Home, Work, School, etc.)
         if lower.contains("home") || lower.contains("work") || lower.contains("office") ||
-           lower.contains("house") || lower.contains("residence") {
+           lower.contains("house") || lower.contains("residence") || lower.contains("school") ||
+           lower.contains("university") || lower.contains("college") || lower.contains("church") ||
+           lower.contains("temple") || lower.contains("mosque") {
             return .personal
         }
-        
-        // Default to personal for unknown categories
+
+        // Default to personal for truly unknown categories
         return .personal
     }
     
@@ -588,6 +660,36 @@ class LocationsManager: ObservableObject {
         // Sync with Supabase
         Task {
             await updatePlaceInSupabase(place)
+        }
+    }
+
+    func renameCategory(_ oldName: String, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty && trimmed != oldName else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            var updatedPlaces: [SavedPlace] = []
+            for i in self.savedPlaces.indices where self.savedPlaces[i].category == oldName {
+                self.savedPlaces[i].category = trimmed
+                self.savedPlaces[i].dateModified = Date()
+                updatedPlaces.append(self.savedPlaces[i])
+            }
+
+            // Keep folder in userFolders under new name if it was user-created
+            if self.userFolders.contains(oldName) {
+                self.userFolders.remove(oldName)
+                self.userFolders.insert(trimmed)
+            }
+
+            self.savePlacesToStorage()
+            self.objectWillChange.send()
+
+            for place in updatedPlaces {
+                Task {
+                    await self.updatePlaceInSupabase(place)
+                }
+            }
         }
     }
 
@@ -1023,7 +1125,7 @@ class LocationsManager: ObservableObject {
             await MainActor.run {
                 if !migratedPlaces.isEmpty {
                     self.savedPlaces = migratedPlaces
-                    self.categories = Array(Set(migratedPlaces.map { $0.category })).sorted()
+                    self.categories = Array(Set(migratedPlaces.map { $0.category }).union(userFolders)).sorted()
                     self.countries = Set(migratedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
                     self.provinces = Set(migratedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
                     self.cities = Set(migratedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
