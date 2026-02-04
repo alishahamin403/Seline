@@ -143,8 +143,22 @@ class VectorContextBuilder {
                 messages: [["role": "user", "content": planningPrompt]]
             )
 
-            let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+            var trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
             print("📋 Query plan generated: \(trimmed)")
+
+            // Strip markdown code fences if present (```json ... ```)
+            if trimmed.hasPrefix("```") {
+                // Remove opening fence
+                if let firstNewline = trimmed.firstIndex(of: "\n") {
+                    trimmed = String(trimmed[trimmed.index(after: firstNewline)...])
+                }
+                // Remove closing fence
+                if trimmed.hasSuffix("```") {
+                    trimmed = String(trimmed.dropLast(3))
+                }
+                trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+                print("📋 Stripped markdown fences, clean JSON: \(trimmed)")
+            }
 
             // Parse JSON response
             let jsonData = trimmed.data(using: .utf8)!
