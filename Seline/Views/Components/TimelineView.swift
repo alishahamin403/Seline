@@ -20,6 +20,10 @@ struct TimelineView: View {
     @State private var selectedReminder: ReminderTime = .none
     @FocusState private var isTextFieldFocused: Bool
 
+    // Cache for event layouts to avoid O(n²) recalculation on every render
+    @State private var cachedLayouts: [EventLayout] = []
+    @State private var cachedLayoutsTaskIds: Set<String> = []
+
     init(
         date: Date,
         selectedTagId: String? = nil,
@@ -149,10 +153,18 @@ struct TimelineView: View {
     }
 
     // Compute layouts for all events, handling overlaps
-    private var eventLayouts: [EventLayout] {
+    private func computeEventLayouts() -> [EventLayout] {
         let tasksToLayout = scheduledTasks
+        let currentTaskIds = Set(tasksToLayout.map { $0.id })
+
+        // Return cache if tasks unchanged
+        if cachedLayoutsTaskIds == currentTaskIds && !cachedLayouts.isEmpty {
+            return cachedLayouts
+        }
 
         guard !tasksToLayout.isEmpty else {
+            cachedLayouts = []
+            cachedLayoutsTaskIds = []
             return []
         }
 
@@ -235,6 +247,9 @@ struct TimelineView: View {
             }
         }
 
+        // Cache the results
+        cachedLayouts = layouts
+        cachedLayoutsTaskIds = currentTaskIds
         return layouts
     }
 
@@ -353,6 +368,16 @@ struct TimelineView: View {
                     .transition(.move(edge: .bottom))
             }
         }
+        .onChange(of: taskManager.tasks) { _ in
+            // Invalidate layout cache when tasks change
+            cachedLayouts = []
+            cachedLayoutsTaskIds = []
+        }
+        .onChange(of: date) { _ in
+            // Invalidate layout cache when date changes
+            cachedLayouts = []
+            cachedLayoutsTaskIds = []
+        }
         // Removed swipe gesture - day view always shows today
     }
 
@@ -456,7 +481,7 @@ struct TimelineView: View {
     private var eventsLayer: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
-                ForEach(eventLayouts, id: \.task.id) { layout in
+                ForEach(computeEventLayouts(), id: \.task.id) { layout in
                     if let scheduledTime = layout.task.scheduledTime {
                         let availableWidth = geometry.size.width - 16
                         let gapWidth: CGFloat = 4

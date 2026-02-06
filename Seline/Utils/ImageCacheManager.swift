@@ -126,13 +126,14 @@ class ImageCacheManager {
             newSize = CGSize(width: maxDimension * ratio, height: maxDimension)
         }
 
-        // Resize image
-        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
-        image.draw(in: CGRect(origin: .zero, size: newSize))
-        let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-
-        return resizedImage ?? image
+        // Resize image on background thread to avoid blocking main thread
+        return await Task.detached(priority: .userInitiated) {
+            UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+            let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+            UIGraphicsEndImageContext()
+            return resizedImage ?? image
+        }.value
     }
 
     /// Clean disk cache if it exceeds the maximum size

@@ -72,17 +72,28 @@ class VectorContextBuilder {
     // MARK: - Query Planning
 
     /// Generate a search plan from user query using LLM
-    private func generateQueryPlan(for query: String) async -> QueryPlan? {
+    private func generateQueryPlan(for query: String, conversationHistory: [(role: String, content: String)] = []) async -> QueryPlan? {
         let today = Date()
         let formatter = DateFormatter()
         formatter.dateStyle = .full
         formatter.timeStyle = .none
 
+        // Build context from conversation history (last 3 messages for efficiency)
+        let recentHistory = conversationHistory.suffix(3)
+        let contextSummary = recentHistory.isEmpty ? "" : """
+
+        CONVERSATION CONTEXT (recent messages for context):
+        \(recentHistory.map { msg in
+            "\(msg.role == "user" ? "User" : "Assistant"): \(msg.content)"
+        }.joined(separator: "\n"))
+
+        """
+
         let planningPrompt = """
         You are a query planner. Analyze the user's query and generate a search plan to find the data needed to answer it.
 
         Today's date: \(formatter.string(from: today))
-        User query: "\(query)"
+        \(contextSummary)Current user query: "\(query)"
 
         Generate a JSON search plan with this structure:
         {
@@ -106,6 +117,7 @@ class VectorContextBuilder {
         - Be specific with keywords to avoid fetching too much data
         - Set limit based on expected data volume (e.g., 200 for "all receipts last month", 20 for "emails from yesterday")
         - When user asks for "all" or wants totals/summaries, use higher limits (200-500)
+        - IMPORTANT: For follow-up questions, use the conversation context to infer missing details (e.g., if previous message was about "car expenses", and user asks "how about in Feb", continue searching for car expenses)
 
         Examples:
 
@@ -141,6 +153,15 @@ class VectorContextBuilder {
             {"type": "visit", "keywords": ["gym"], "dateRange": "this month", "limit": 200}
           ],
           "reasoning": "User wants ALL gym visits - use higher limit for completeness"
+        }
+
+        Query: "How much did I spend on my car in Jan vs Dec 2025"
+        Plan: {
+          "searches": [
+            {"type": "receipt", "keywords": ["car"], "dateRange": "January 2026", "limit": 200},
+            {"type": "receipt", "keywords": ["car"], "dateRange": "December 2025", "limit": 200}
+          ],
+          "reasoning": "Comparing car expenses across two specific months - need complete data for both periods"
         }
 
         Respond with ONLY the JSON plan. No other text.
@@ -320,7 +341,7 @@ class VectorContextBuilder {
                     .order("entry_time", ascending: false)
                     .execute()
             } else {
-                response = try await client.from("location_visits")
+                try await client.from("location_visits")
                     .select()
                     .eq("user_id", value: userId.uuidString)
                     .order("entry_time", ascending: false)
@@ -421,7 +442,7 @@ class VectorContextBuilder {
     }
 
     private func searchEvents(keywords: [String]?, dateRange: (start: Date, end: Date)?, limit: Int) async -> String {
-        let allTasks = TaskManager.shared.tasks.values.flatMap { $0 }
+        let allTasks = TaskManager.shared.getAllTasksIncludingArchived()
         var events = allTasks
 
         // Apply date filter
@@ -556,7 +577,7 @@ class VectorContextBuilder {
     /// - Static content (system instructions, schema) goes FIRST
     /// - Variable content (user query, search results) goes LAST
     /// - This enables 75% discount on cached tokens automatically
-    func buildContext(forQuery query: String) async -> ContextResult {
+    func buildContext(forQuery query: String, conversationHistory: [(role: String, content: String)] = []) async -> ContextResult {
         let startTime = Date()
 
         var context = ""
@@ -573,7 +594,7 @@ class VectorContextBuilder {
         
         // 3. NEW APPROACH: LLM Query Planning
         print("📋 Generating query plan...")
-        if let queryPlan = await generateQueryPlan(for: query) {
+        if let queryPlan = await generateQueryPlan(for: query, conversationHistory: conversationHistory) {
             print("✅ Query plan generated with \(queryPlan.searches.count) searches")
 
             // Execute the search plan
@@ -633,10 +654,10 @@ class VectorContextBuilder {
     }
     
     /// Build compact context for voice mode (even smaller)
-    func buildVoiceContext(forQuery query: String) async -> String {
+    func buildVoiceContext(forQuery query: String, conversationHistory: [(role: String, content: String)] = []) async -> String {
         // Backwards-compatible API: voice mode now uses the SAME context as chat mode.
         // (Response concision is handled by the voice-mode system prompt, not by hiding data.)
-        let result = await buildContext(forQuery: query)
+        let result = await buildContext(forQuery: query, conversationHistory: conversationHistory)
         return result.context
     }
     
@@ -684,7 +705,7 @@ class VectorContextBuilder {
 
         // Data summary (quick counts)
         context += "=== DATA AVAILABLE ===\n"
-        context += "Events: \(TaskManager.shared.tasks.values.flatMap { $0 }.count)\n"
+        context += "Events: \(TaskManager.shared.getAllTasksIncludingArchived().count)\n"
         context += "Notes: \(NotesManager.shared.notes.count)\n"
         context += "Emails: \(EmailService.shared.inboxEmails.count + EmailService.shared.sentEmails.count)\n"
         context += "Locations: \(LocationsManager.shared.savedPlaces.count)\n"
@@ -842,6 +863,48 @@ class VectorContextBuilder {
                 guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return nil }
                 print("📅 Date extraction (pattern): Detected ISO date '\(token)' - Range: \(dayStart) to \(dayEnd)")
                 return (start: dayStart, end: dayEnd)
+            }
+        }
+
+        // Month names with optional year (e.g., "January 2026", "Dec 2025", "February")
+        let monthPatterns = [
+            ("january", 1), ("jan", 1),
+            ("february", 2), ("feb", 2),
+            ("march", 3), ("mar", 3),
+            ("april", 4), ("apr", 4),
+            ("may", 5),
+            ("june", 6), ("jun", 6),
+            ("july", 7), ("jul", 7),
+            ("august", 8), ("aug", 8),
+            ("september", 9), ("sep", 9), ("sept", 9),
+            ("october", 10), ("oct", 10),
+            ("november", 11), ("nov", 11),
+            ("december", 12), ("dec", 12)
+        ]
+
+        for (monthName, monthNumber) in monthPatterns {
+            if lower.contains(monthName) {
+                // Try to extract year from query (e.g., "January 2026", "Dec 2025")
+                let yearPattern = "\\b(\\d{4})\\b"
+                var targetYear = calendar.component(.year, from: today)  // Default to current year
+
+                if let yearRange = lower.range(of: yearPattern, options: .regularExpression) {
+                    if let year = Int(String(lower[yearRange])) {
+                        targetYear = year
+                    }
+                }
+
+                // Create date components for the first day of the month
+                var components = DateComponents()
+                components.year = targetYear
+                components.month = monthNumber
+                components.day = 1
+
+                if let firstOfMonth = calendar.date(from: components),
+                   let firstOfNextMonth = calendar.date(byAdding: .month, value: 1, to: firstOfMonth) {
+                    print("📅 Date extraction (pattern): Detected '\(monthName) \(targetYear)' - Range: \(firstOfMonth) to \(firstOfNextMonth)")
+                    return (start: firstOfMonth, end: firstOfNextMonth)
+                }
             }
         }
         
@@ -1183,7 +1246,7 @@ class VectorContextBuilder {
         // Link receipts to events at same time
         for r in receiptNotes.sorted(by: { $0.amount > $1.amount }).prefix(5) {
             let receiptTime = r.date
-            let allTasks = TaskManager.shared.tasks.values.flatMap { $0 }
+            let allTasks = TaskManager.shared.getAllTasksIncludingArchived()
             let nearbyTasks = allTasks.filter { task in
                 guard let taskTime = task.scheduledTime else { return false }
                 return abs(taskTime.timeIntervalSince(receiptTime)) < 2 * 60 * 60  // Within 2 hours

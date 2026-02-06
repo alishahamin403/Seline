@@ -4,7 +4,20 @@ struct EmailRow: View {
     let email: Email
     let onDelete: (Email) -> Void
     let onMarkAsUnread: (Email) -> Void
+    let onArchive: ((Email) -> Void)?
     @Environment(\.colorScheme) var colorScheme
+
+    init(
+        email: Email,
+        onDelete: @escaping (Email) -> Void,
+        onMarkAsUnread: @escaping (Email) -> Void,
+        onArchive: ((Email) -> Void)? = nil
+    ) {
+        self.email = email
+        self.onDelete = onDelete
+        self.onMarkAsUnread = onMarkAsUnread
+        self.onArchive = onArchive
+    }
 
     // Avatar background color - Google brand colors
     private var avatarColor: Color {
@@ -22,6 +35,41 @@ struct EmailRow: View {
     }
 
     var body: some View {
+        rowContent
+            .swipeActions(
+                left: SwipeAction(
+                    type: .delete,
+                    icon: "trash.fill",
+                    color: .red,
+                    haptic: { HapticManager.shared.delete() },
+                    action: {
+                        onDelete(email)
+                    }
+                ),
+                right: email.isRead ?
+                    SwipeAction(
+                        type: .markUnread,
+                        icon: "envelope.badge",
+                        color: .blue,
+                        haptic: { HapticManager.shared.email() },
+                        action: {
+                            onMarkAsUnread(email)
+                        }
+                    ) :
+                    (onArchive != nil ?
+                        SwipeAction(
+                            type: .archive,
+                            icon: "archivebox.fill",
+                            color: .gray,
+                            haptic: { HapticManager.shared.email() },
+                            action: {
+                                onArchive?(email)
+                            }
+                        ) : nil)
+            )
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 10) {
                 // Sender avatar - colored circle with initials
                 fallbackAvatarView

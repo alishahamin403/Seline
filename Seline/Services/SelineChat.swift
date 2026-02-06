@@ -221,7 +221,11 @@ class SelineChat: ObservableObject {
 
         if !userMessage.isEmpty {
             // Main path: vector-based semantic search (the critical path for response)
-            let result = await vectorContextBuilder.buildContext(forQuery: userMessage)
+            // Convert conversation history to format expected by VectorContextBuilder
+            let historyForContext = conversationHistory.map { msg in
+                (role: msg.role == .user ? "user" : "assistant", content: msg.content)
+            }
+            let result = await vectorContextBuilder.buildContext(forQuery: userMessage, conversationHistory: historyForContext)
             contextPrompt = result.context
 
             if isVoiceMode {
@@ -250,7 +254,10 @@ class SelineChat: ObservableObject {
         } else {
             // For empty queries, use minimal essential context
             // Vector search needs a query to work with
-            let result = await vectorContextBuilder.buildContext(forQuery: "general status update")
+            let historyForContext = conversationHistory.map { msg in
+                (role: msg.role == .user ? "user" : "assistant", content: msg.content)
+            }
+            let result = await vectorContextBuilder.buildContext(forQuery: "general status update", conversationHistory: historyForContext)
             contextPrompt = result.context
             print("📊 Empty query: Using minimal essential context (\(result.metadata.estimatedTokens) tokens)")
         }

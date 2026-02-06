@@ -83,7 +83,7 @@ class UniversalQueryExecutor {
 
             case .events(let status):
                 // Get events from TaskManager
-                let allEvents = TaskManager.shared.tasks.values.flatMap { $0 }
+                let allEvents = TaskManager.shared.getAllTasksIncludingArchived()
                 var filtered = allEvents
 
                 if let status = status {
@@ -153,7 +153,7 @@ class UniversalQueryExecutor {
 
             case .calendar:
                 // Get calendar events from TaskManager
-                let events = TaskManager.shared.tasks.values.flatMap { $0 }
+                let events = TaskManager.shared.getAllTasksIncludingArchived()
 
                 // CRITICAL FIX: Expand recurring events into separate items for each completion
                 var expandedCalendarEvents: [UniversalItem] = []

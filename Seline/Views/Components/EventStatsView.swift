@@ -13,7 +13,7 @@ struct EventStatsView: View {
 
     // Get the earliest event date (first event created)
     private var earliestEventDate: Date {
-        let allTasks = taskManager.tasks.values.flatMap { $0 }
+        let allTasks = taskManager.getAllTasksIncludingArchived()
         guard !allTasks.isEmpty else { return Date() }
 
         return allTasks.map { $0.createdAt }.min() ?? Date()

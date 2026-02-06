@@ -482,6 +482,16 @@ class TaskManager: ObservableObject {
     /// Maps date string (YYYY-MM-DD) to tasks for that date
     private var dateTaskCache: [String: [TaskItem]] = [:]
 
+    /// Get flattened tasks from cache or compute and cache
+    private func getFlattenedTasks() -> [TaskItem] {
+        if let cached = cachedFlattenedTasks {
+            return cached
+        }
+        let flattened = tasks.values.flatMap { $0 }
+        cachedFlattenedTasks = flattened
+        return flattened
+    }
+
     private let userDefaults = UserDefaults.standard
     private let tasksKey = "SavedTasks"
     private let supabaseManager = SupabaseManager.shared
@@ -1133,7 +1143,7 @@ class TaskManager: ObservableObject {
             return cached
         }
 
-        var flattened = tasks.values.flatMap { $0 }
+        var flattened = getFlattenedTasks()
 
         // OPTIMIZATION: Filter to only include active tasks + recent completions
         // Keep incomplete tasks and tasks completed in the last 30 days
@@ -1161,7 +1171,7 @@ class TaskManager: ObservableObject {
     /// Get ALL tasks including old completed ones (use sparingly)
     /// For archival/export purposes only
     func getAllTasksIncludingArchived() -> [TaskItem] {
-        return tasks.values.flatMap { $0 }
+        return getFlattenedTasks()
     }
 
     /// Invalidate the flattened tasks cache when tasks are modified
@@ -1202,7 +1212,7 @@ class TaskManager: ObservableObject {
         }
 
         // Get all tasks that should appear on this specific date
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
         let recurringTasks = allTasks.filter { $0.isRecurring }
 
         if !recurringTasks.isEmpty {
@@ -1284,7 +1294,7 @@ class TaskManager: ObservableObject {
         let currentWeekDate = weekday.dateForCurrentWeek()
 
         // Get all tasks that should appear on this specific weekday date
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
 
         return allTasks.filter { task in
             // First filter out deleted tasks
@@ -1325,7 +1335,7 @@ class TaskManager: ObservableObject {
         let today = Date()
 
         // Get all tasks that should appear today (including recurring tasks)
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
 
         return allTasks.filter { task in
             // First filter out deleted tasks
@@ -1367,7 +1377,7 @@ class TaskManager: ObservableObject {
 
     func getCompletedTasks(for date: Date) -> [TaskItem] {
         let calendar = Calendar.current
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
 
         return allTasks.filter { task in
             guard !task.isDeleted else { return false }
@@ -1395,7 +1405,7 @@ class TaskManager: ObservableObject {
 
     func getAllTasks(for date: Date) -> [TaskItem] {
         let calendar = Calendar.current
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
         let requestedDate = calendar.startOfDay(for: date)
 
         let filtered = allTasks.filter { task in
@@ -1526,7 +1536,7 @@ class TaskManager: ObservableObject {
 
     func getCompletedTasks(between startDate: Date, endDate: Date) -> [TaskItem] {
         let calendar = Calendar.current
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
 
         var completedTasksInRange: [TaskItem] = []
 
@@ -1570,7 +1580,7 @@ class TaskManager: ObservableObject {
     }
 
     func getAllCompletedTasks() -> [TaskItem] {
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
         return allTasks.filter { $0.isCompleted }.sorted { task1, task2 in
             guard let date1 = task1.completedDate,
                   let date2 = task2.completedDate else { return false }
@@ -1744,7 +1754,7 @@ class TaskManager: ObservableObject {
     }
 
     private func saveTasks() {
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
 
         // Log all recurring tasks with their completed dates before saving
         let recurringTasks = allTasks.filter { $0.isRecurring }
@@ -2502,7 +2512,7 @@ class TaskManager: ObservableObject {
 
     /// Decrypt all cached task titles/descriptions now that encryption key is ready
     private func decryptCachedTasks() async {
-        let allCachedTasks = tasks.values.flatMap { $0 }
+        let allCachedTasks = getFlattenedTasks()
 
         guard !allCachedTasks.isEmpty else {
             return
@@ -2563,7 +2573,7 @@ class TaskManager: ObservableObject {
 
     // Retry any failed deletions that were marked as deleted locally
     private func retryFailedDeletions() async {
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
         let deletedTasks = allTasks.filter { $0.isDeleted }
 
         if deletedTasks.isEmpty {
@@ -2670,7 +2680,7 @@ class TaskManager: ObservableObject {
             return []
         }
 
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
         return allTasks.filter { task in
             guard !task.isDeleted,
                   task.isCompleted,
@@ -2692,7 +2702,7 @@ class TaskManager: ObservableObject {
             return (0, 0, 0)
         }
 
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
         var totalCount = 0
         var completedCount = 0
 
@@ -2745,7 +2755,7 @@ class TaskManager: ObservableObject {
 
     /// Get recurring events stats (completed vs incomplete to date)
     func getRecurringEventsStats() -> (completed: Int, incomplete: Int, totalInstances: Int) {
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
         let today = Calendar.current.startOfDay(for: Date())
 
         // Get all recurring events that should have occurred by now
@@ -2828,7 +2838,7 @@ class TaskManager: ObservableObject {
     func getMissedRecurringEventsForWeek(_ weekStartDate: Date) -> WeeklyMissedEventSummary {
         let calendar = Calendar.current
         let weekEndDate = calendar.date(byAdding: .day, value: 6, to: weekStartDate) ?? weekStartDate
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
 
         var missedEvents: [WeeklyMissedEventSummary.MissedEventDetail] = []
         var processedParents: Set<String> = []
@@ -2900,7 +2910,7 @@ class TaskManager: ObservableObject {
             )
         }
 
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
         var completedTaskInstances: [(task: TaskItem, date: Date)] = []
 
         // Iterate through all tasks and count completed instances in this month
@@ -2966,7 +2976,7 @@ class TaskManager: ObservableObject {
             return []
         }
 
-        let allTasks = tasks.values.flatMap { $0 }
+        let allTasks = getFlattenedTasks()
         var stats: [RecurringEventStat] = []
         var processedParents: Set<String> = []
 
@@ -3176,7 +3186,7 @@ class TaskManager: ObservableObject {
         print("🔄 [TaskManager] Starting forced calendar sync...")
 
         // First, get the current count
-        let beforeCount = tasks.values.flatMap { $0 }.filter { $0.isFromCalendar }.count
+        let beforeCount = getFlattenedTasks().filter { $0.isFromCalendar }.count
         print("📊 [TaskManager] Calendar events before refresh: \(beforeCount)")
 
         // Delete all synced calendar events and reset tracking
@@ -3191,7 +3201,7 @@ class TaskManager: ObservableObject {
             // Perform fresh sync
             await syncCalendarEvents()
 
-            let afterCount = tasks.values.flatMap { $0 }.filter { $0.isFromCalendar }.count
+            let afterCount = getFlattenedTasks().filter { $0.isFromCalendar }.count
             print("✅ [TaskManager] Calendar events after refresh: \(afterCount)")
             print("📈 [TaskManager] Added \(afterCount - beforeCount) new calendar events")
         }

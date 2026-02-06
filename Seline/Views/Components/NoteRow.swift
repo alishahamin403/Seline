@@ -19,6 +19,35 @@ struct NoteRow: View {
     }
 
     var body: some View {
+        rowContent
+            .swipeActions(
+                left: SwipeAction(
+                    type: .delete,
+                    icon: "trash.fill",
+                    color: .red,
+                    haptic: { HapticManager.shared.delete() },
+                    action: {
+                        // For locked notes, show confirmation (already handled by showDeleteConfirmation)
+                        if note.isLocked {
+                            showDeleteConfirmation = true
+                        } else {
+                            onDelete?(note)
+                        }
+                    }
+                ),
+                right: SwipeAction(
+                    type: .pin,
+                    icon: note.isPinned ? "pin.slash.fill" : "pin.fill",
+                    color: note.isPinned ? .gray : .orange,
+                    haptic: { HapticManager.shared.selection() },
+                    action: {
+                        onPinToggle(note)
+                    }
+                )
+            )
+    }
+
+    private var rowContent: some View {
         Button(action: {
             onTap(note)
         }) {

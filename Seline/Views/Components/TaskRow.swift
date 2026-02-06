@@ -40,6 +40,43 @@ struct TaskRow: View {
     }
 
     var body: some View {
+        rowContent
+            .swipeActions(
+                left: SwipeAction(
+                    type: .delete,
+                    icon: "trash.fill",
+                    color: .red,
+                    haptic: { HapticManager.shared.delete() },
+                    action: {
+                        // For recurring tasks, show confirmation
+                        if task.isRecurring || task.parentRecurringTaskId != nil {
+                            // Note: In a real app, we'd show an alert here
+                            // For now, just delete the single instance
+                            onDelete()
+                        } else {
+                            onDelete()
+                        }
+                    }
+                ),
+                right: SwipeAction(
+                    type: .complete,
+                    icon: isTaskCompleted ? "circle" : "checkmark.circle.fill",
+                    color: isTaskCompleted ? .gray : .green,
+                    haptic: {
+                        if isTaskCompleted {
+                            HapticManager.shared.light()
+                        } else {
+                            HapticManager.shared.success()
+                        }
+                    },
+                    action: {
+                        onToggleCompletion()
+                    }
+                )
+            )
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 12) {
             // Checkbox
             Button(action: {

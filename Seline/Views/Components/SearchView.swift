@@ -50,7 +50,7 @@ struct SearchView: View {
         }
 
         // Search tasks/events
-        let allTasks = taskManager.tasks.values.flatMap { $0 }
+        let allTasks = taskManager.getAllTasksIncludingArchived()
         let matchingTasks = allTasks.filter {
             $0.title.lowercased().contains(lowercasedSearch)
         }

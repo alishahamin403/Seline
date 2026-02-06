@@ -137,42 +137,102 @@ extension View {
 
 struct InteractiveDismissalModifier: ViewModifier {
     @Binding var isPresented: Bool
+    let showHandle: Bool
+    let allowExpansion: Bool
+    let onExpand: (() -> Void)?
+
     @State private var dragOffset: CGFloat = 0
     let dismissThreshold: CGFloat = 100
+    let expandThreshold: CGFloat = -80
+
+    init(
+        isPresented: Binding<Bool>,
+        showHandle: Bool = true,
+        allowExpansion: Bool = false,
+        onExpand: (() -> Void)? = nil
+    ) {
+        self._isPresented = isPresented
+        self.showHandle = showHandle
+        self.allowExpansion = allowExpansion
+        self.onExpand = onExpand
+    }
 
     func body(content: Content) -> some View {
-        content
-            .offset(y: max(0, dragOffset))
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        // Only allow dragging down
-                        if value.translation.height > 0 {
-                            dragOffset = value.translation.height
-                        }
-                    }
-                    .onEnded { value in
-                        if dragOffset > dismissThreshold {
-                            // Dismiss with haptic feedback
-                            HapticManager.shared.swipe()
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                isPresented = false
-                            }
-                        } else {
-                            // Snap back with spring
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                dragOffset = 0
-                            }
-                        }
-                    }
-            )
+        VStack(spacing: 0) {
+            // Visual handle indicator
+            if showHandle {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 36, height: 3)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+            }
+
+            content
+        }
+        .offset(y: max(allowExpansion ? expandThreshold : 0, dragOffset))
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    handleDragChanged(value)
+                }
+                .onEnded { value in
+                    handleDragEnded(value)
+                }
+        )
+    }
+
+    private func handleDragChanged(_ value: DragGesture.Value) {
+        if allowExpansion {
+            // Allow both up and down dragging
+            dragOffset = value.translation.height
+        } else {
+            // Only allow dragging down
+            if value.translation.height > 0 {
+                dragOffset = value.translation.height
+            }
+        }
+    }
+
+    private func handleDragEnded(_ value: DragGesture.Value) {
+        // Swipe down to dismiss
+        if dragOffset > dismissThreshold {
+            HapticManager.shared.swipe()
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                isPresented = false
+            }
+        }
+        // Swipe up to expand (if enabled)
+        else if allowExpansion && dragOffset < expandThreshold {
+            HapticManager.shared.light()
+            onExpand?()
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                dragOffset = 0
+            }
+        }
+        // Snap back
+        else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                dragOffset = 0
+            }
+        }
     }
 }
 
 extension View {
     /// Add interactive dismissal gesture to sheets
-    func interactiveDismissal(isPresented: Binding<Bool>) -> some View {
-        self.modifier(InteractiveDismissalModifier(isPresented: isPresented))
+    func interactiveDismissal(
+        isPresented: Binding<Bool>,
+        showHandle: Bool = true,
+        allowExpansion: Bool = false,
+        onExpand: (() -> Void)? = nil
+    ) -> some View {
+        self.modifier(InteractiveDismissalModifier(
+            isPresented: isPresented,
+            showHandle: showHandle,
+            allowExpansion: allowExpansion,
+            onExpand: onExpand
+        ))
     }
 }
 

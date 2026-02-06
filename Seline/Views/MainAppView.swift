@@ -689,6 +689,36 @@ struct MainAppView: View {
         searchText = ""
     }
 
+    // MARK: - Tab Navigation Helpers
+
+    private func previousTab() {
+        let allTabs = TabSelection.allCases
+        guard let currentIndex = allTabs.firstIndex(of: selectedTab) else { return }
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            if currentIndex == 0 {
+                selectedTab = allTabs[allTabs.count - 1] // Wrap to last tab
+            } else {
+                selectedTab = allTabs[currentIndex - 1]
+            }
+        }
+        HapticManager.shared.selection()
+    }
+
+    private func nextTab() {
+        let allTabs = TabSelection.allCases
+        guard let currentIndex = allTabs.firstIndex(of: selectedTab) else { return }
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            if currentIndex == allTabs.count - 1 {
+                selectedTab = allTabs[0] // Wrap to first tab
+            } else {
+                selectedTab = allTabs[currentIndex + 1]
+            }
+        }
+        HapticManager.shared.selection()
+    }
+
     var body: some View {
         mainContent
             .onChange(of: searchText) { newValue in
@@ -1201,6 +1231,24 @@ struct MainAppView: View {
             }
             // Removed animation on tab change for instant, lag-free switching
             .frame(maxHeight: .infinity)
+            .gesture(
+                DragGesture(minimumDistance: 100)
+                    .onEnded { value in
+                        // Only if horizontal > 2x vertical
+                        guard abs(value.translation.width) > abs(value.translation.height) * 2 else { return }
+
+                        // Don't trigger if a sheet is presented
+                        guard !isAnySheetPresented else { return }
+
+                        if value.translation.width > 100 {
+                            // Swipe right - previous tab
+                            previousTab()
+                        } else if value.translation.width < -100 {
+                            // Swipe left - next tab
+                            nextTab()
+                        }
+                    }
+            )
 
             // Fixed Footer - hide when keyboard appears or any sheet is open or viewing note in navigation
             if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup && !notesManager.isViewingNoteInNavigation {

@@ -50,7 +50,7 @@ func answerQuestionWithStructuredValidation(
     // - EmailService may not have .emails property, adjust as needed
     // - WeatherService property names may differ
 
-    let allTasks = taskManager.tasks.values.flatMap { $0 }  // Convert dict to array
+    let allTasks = taskManager.getAllTasksIncludingArchived()  // Convert dict to array
     let emailsList: [Email] = []  // TODO: Get from emailService with your API
     let currentWeather: WeatherData? = nil  // TODO: Get from weatherService with your API
 

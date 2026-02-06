@@ -114,10 +114,7 @@ struct CalendarMonthView: View {
     // MARK: - Body
     
     var body: some View {
-        // CRITICAL: Sync filter state inline to catch view reconstruction
-        let _ = syncFilterIfNeeded()
-        
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             // Month navigation header with buttons
             monthNavigationHeader
             
@@ -144,8 +141,10 @@ struct CalendarMonthView: View {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                             if value.translation.width > threshold {
                                 previousMonth()
+                                HapticManager.shared.selection()
                             } else if value.translation.width < -threshold {
                                 nextMonth()
+                                HapticManager.shared.selection()
                             }
                             dragOffset = 0
                         }
@@ -171,12 +170,14 @@ struct CalendarMonthView: View {
             // CRITICAL: Update cached tag ID FIRST before clearing cache
             // This ensures getFilteredEvents knows the filter matches when rebuilding
             cachedTagId = newTagId
-            
-            // Clear old cache
+
+            // Clear old cache - UI updates immediately with new filter state
             cachedEventsForMonth.removeAll()
-            
-            // Force immediate rebuild of cache with new filter
-            rebuildCacheForCurrentMonth()
+
+            // Rebuild cache on background thread for smooth UI
+            Task.detached(priority: .userInitiated) {
+                await rebuildCacheAsync()
+            }
         }
         .onChange(of: taskManager.tasks) { _ in
             // Rebuild cache when tasks change
@@ -482,10 +483,10 @@ struct CalendarMonthView: View {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         dateFormatter.timeZone = calendar.timeZone
-        
+
         // Get all dates in the current month
         let dates = daysInMonth
-        
+
         // Batch compute events for all dates in the month
         // Use the current selectedTagId from the closure context
         for date in dates {
@@ -495,10 +496,38 @@ struct CalendarMonthView: View {
             cachedEventsForMonth[dateKey] = filtered
         }
     }
-    
-    private func applyFilter(to tasks: [TaskItem]) -> [TaskItem] {
-        // Use the current selectedTagId directly, not the cached one
-        if let tagId = selectedTagId {
+
+    private func rebuildCacheAsync() async {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        dateFormatter.timeZone = calendar.timeZone
+
+        let dates = daysInMonth
+        let currentTagId = selectedTagId
+
+        // Compute on background thread
+        var newCache: [String: [TaskItem]] = [:]
+        for date in dates {
+            let dateKey = dateFormatter.string(from: calendar.startOfDay(for: date))
+            let allTasks = taskManager.getAllTasks(for: date)
+            let filtered = applyFilter(to: allTasks, tagId: currentTagId)
+            newCache[dateKey] = filtered
+        }
+
+        // Update cache on main thread
+        await MainActor.run {
+            // Only update if filter hasn't changed during computation
+            if cachedTagId == currentTagId {
+                cachedEventsForMonth = newCache
+            }
+        }
+    }
+
+    private func applyFilter(to tasks: [TaskItem], tagId: String? = nil) -> [TaskItem] {
+        // Use provided tagId or fall back to current selectedTagId
+        let filterTagId = tagId ?? selectedTagId
+
+        if let tagId = filterTagId {
             if tagId == "" {
                 // Personal filter - show events with nil tagId (default/personal events) AND excluding synced calendar events
                 return tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
@@ -512,23 +541,6 @@ struct CalendarMonthView: View {
         }
         // No filter - show all tasks
         return tasks
-    }
-    
-    
-    // MARK: - Filter Sync Helper
-    
-    private func syncFilterIfNeeded() {
-        // Check if the current selectedTagId differs from cached
-        let filterMatches = (cachedTagId == nil && selectedTagId == nil) || (cachedTagId == selectedTagId)
-        if !filterMatches {
-            // Filter has changed - update cache state synchronously
-            // The actual cache rebuild happens via onChange or in getFilteredEvents
-            DispatchQueue.main.async {
-                cachedTagId = selectedTagId
-                cachedEventsForMonth.removeAll()
-                rebuildCacheForCurrentMonth()
-            }
-        }
     }
     
     private func previousMonth() {

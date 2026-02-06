@@ -226,7 +226,7 @@ class SelineAppContext {
         // Collect recent events (limit to improve performance)
         // Load only tasks from the last 90 days and upcoming tasks
         let ninetyDaysAgo = Calendar.current.date(byAdding: .day, value: -90, to: Date())!
-        self.events = taskManager.tasks.values.flatMap { $0 }.filter { task in
+        self.events = taskManager.getAllTasksIncludingArchived().filter { task in
             let taskDate = task.targetDate ?? task.createdAt
             return taskDate >= ninetyDaysAgo || task.isRecurring // Include recurring tasks
         }

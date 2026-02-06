@@ -1732,7 +1732,7 @@ class SearchService: ObservableObject {
 
             // Fetch recent/upcoming events from TaskManager
             let taskManager = TaskManager.shared
-            let allTasks = taskManager.tasks.values.flatMap { $0 }
+            let allTasks = taskManager.getAllTasksIncludingArchived()
             let now = Date()
             let relevantEvents = allTasks
                 .filter { task in

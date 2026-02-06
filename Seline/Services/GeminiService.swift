@@ -346,13 +346,57 @@ class GeminiService: ObservableObject {
         }
 
         // Parse Gemini response
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let candidates = json["candidates"] as? [[String: Any]],
-              let firstCandidate = candidates.first,
-              let content = firstCandidate["content"] as? [String: Any],
-              let parts = content["parts"] as? [[String: Any]],
-              let firstPart = parts.first,
-              let text = firstPart["text"] as? String else {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("❌ Failed to parse JSON response")
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("📄 Raw response: \(responseString.prefix(500))")
+            }
+            throw GeminiError.invalidResponse
+        }
+
+        // Check for safety blocking or other issues
+        if let candidates = json["candidates"] as? [[String: Any]],
+           let firstCandidate = candidates.first,
+           let finishReason = firstCandidate["finishReason"] as? String {
+            if finishReason == "SAFETY" {
+                print("⚠️ Response blocked by safety filters")
+                throw GeminiError.apiError("Response blocked by Gemini safety filters")
+            }
+            if finishReason != "STOP" && finishReason != "MAX_TOKENS" {
+                print("⚠️ Unexpected finish reason: \(finishReason)")
+            }
+        }
+
+        guard let candidates = json["candidates"] as? [[String: Any]],
+              let firstCandidate = candidates.first else {
+            print("❌ No candidates in response")
+            throw GeminiError.invalidResponse
+        }
+
+        guard let content = firstCandidate["content"] as? [String: Any] else {
+            print("❌ No content in candidate")
+            print("📄 Candidate: \(firstCandidate)")
+            throw GeminiError.invalidResponse
+        }
+
+        print("📄 Content keys: \(content.keys)")
+
+        guard let parts = content["parts"] as? [[String: Any]] else {
+            print("❌ No parts in content or wrong format")
+            print("📄 Content: \(content)")
+            throw GeminiError.invalidResponse
+        }
+
+        guard let firstPart = parts.first else {
+            print("❌ Parts array is empty")
+            throw GeminiError.invalidResponse
+        }
+
+        print("📄 First part keys: \(firstPart.keys)")
+
+        guard let text = firstPart["text"] as? String else {
+            print("❌ No text in part or wrong format")
+            print("📄 First part: \(firstPart)")
             throw GeminiError.invalidResponse
         }
 

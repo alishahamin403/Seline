@@ -2972,7 +2972,7 @@ class OpenAIService: ObservableObject {
 
         // Add tasks/events only if user asked about events
         if queryIntents.contains("events") {
-            let allTasks = taskManager.tasks.values.flatMap { $0 }
+            let allTasks = taskManager.getAllTasksIncludingArchived()
             let filteredTasks = filterTasksByDateRange(allTasks, range: dateRange, currentDate: currentDate)
             if !filteredTasks.isEmpty {
                 context += "=== TASKS/EVENTS ===\n"
@@ -3125,7 +3125,7 @@ class OpenAIService: ObservableObject {
 
         // Add semantic enrichment: find related content even without explicit keywords
         // (skipped for simple queries for better performance)
-        let allEvents = taskManager.tasks.values.flatMap { $0 }
+        let allEvents = taskManager.getAllTasksIncludingArchived()
         let semanticEnrichment = try? await enrichContextWithSemanticMatches(
             query: query,
             notes: notesManager.notes,
