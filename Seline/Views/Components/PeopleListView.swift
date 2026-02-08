@@ -227,16 +227,16 @@ struct PeopleListView: View {
         } message: {
             Text("Are you sure you want to delete \(selectedPeopleForDeletion.count) \(selectedPeopleForDeletion.count == 1 ? "person" : "people")? This action cannot be undone.")
         }
-        .onChange(of: searchText) { _, _ in
+        .onChange(of: searchText) { _ in
             searchDebounceTimer?.invalidate()
             searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
                 updateFilteredResults()
             }
         }
-        .onChange(of: selectedRelationshipFilter) { _, _ in
+        .onChange(of: selectedRelationshipFilter) { _ in
             updateFilteredResults()
         }
-        .onChange(of: peopleManager.people) { _, _ in
+        .onChange(of: peopleManager.people) { _ in
             updateFilteredResults()
         }
         .onAppear {
