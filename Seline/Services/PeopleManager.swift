@@ -14,6 +14,10 @@ class PeopleManager: ObservableObject {
     // Cache for visit-people connections
     private var visitPeopleCache: [UUID: [UUID]] = [:] // visitId -> [personId]
     private var receiptPeopleCache: [UUID: [UUID]] = [:] // noteId -> [personId]
+
+    // Cache for search/filter results
+    private var searchResultsCache: [String: [Person]] = [:]
+    private var groupedResultsCache: [String: [(relationship: RelationshipType, people: [Person])]] = [:]
     
     private let peopleKey = "SavedPeople"
     private let authManager = AuthenticationManager.shared
@@ -21,7 +25,18 @@ class PeopleManager: ObservableObject {
     private init() {
         loadPeopleFromStorage()
     }
-    
+
+    // MARK: - Cache Management
+
+    private func cacheKey(searchText: String, filter: RelationshipType?) -> String {
+        return "\(searchText)|\(filter?.rawValue ?? "nil")"
+    }
+
+    func invalidatePeopleCache() {
+        searchResultsCache.removeAll()
+        groupedResultsCache.removeAll()
+    }
+
     // MARK: - Data Persistence (Local Storage)
     
     private func savePeopleToStorage() {
@@ -49,14 +64,38 @@ class PeopleManager: ObservableObject {
             guard let self = self else { return }
             self.people.append(person)
             self.savePeopleToStorage()
+            self.invalidatePeopleCache()
         }
-        
+
         // Sync with Supabase
         Task {
             await savePersonToSupabase(person)
             // Immediately embed the new person
             await VectorSearchService.shared.syncEmbeddingsImmediately()
         }
+    }
+
+    /// Batch add multiple people at once (used by Contacts import)
+    /// Performs a single local storage write, then syncs each to Supabase, and one embeddings sync at the end
+    func addPeople(_ people: [Person]) async {
+        guard !people.isEmpty else { return }
+
+        // Update local storage in one batch on main thread
+        await MainActor.run {
+            self.people.append(contentsOf: people)
+            self.savePeopleToStorage()
+            self.invalidatePeopleCache()
+        }
+
+        // Sync each person to Supabase
+        for person in people {
+            await savePersonToSupabase(person)
+        }
+
+        // Single embeddings sync at the end
+        await VectorSearchService.shared.syncEmbeddingsImmediately()
+
+        print("✅ Batch imported \(people.count) people")
     }
     
     func updatePerson(_ person: Person) {
@@ -67,6 +106,7 @@ class PeopleManager: ObservableObject {
                 updatedPerson.dateModified = Date()
                 self.people[index] = updatedPerson
                 self.savePeopleToStorage()
+                self.invalidatePeopleCache()
             }
         }
         
@@ -83,7 +123,8 @@ class PeopleManager: ObservableObject {
             guard let self = self else { return }
             self.people.removeAll { $0.id == person.id }
             self.savePeopleToStorage()
-            
+            self.invalidatePeopleCache()
+
             // Clear from caches
             self.visitPeopleCache = self.visitPeopleCache.mapValues { $0.filter { $0 != person.id } }
             self.receiptPeopleCache = self.receiptPeopleCache.mapValues { $0.filter { $0 != person.id } }
@@ -138,7 +179,8 @@ class PeopleManager: ObservableObject {
             people[index].isFavourite.toggle()
             people[index].dateModified = Date()
             savePeopleToStorage()
-            
+            invalidatePeopleCache()
+
             // Sync with Supabase
             Task {
                 await updatePersonInSupabase(people[index])
@@ -658,10 +700,13 @@ class PeopleManager: ObservableObject {
         relationshipTypes = []
         visitPeopleCache = [:]
         receiptPeopleCache = [:]
-        
+
         // Clear UserDefaults
         UserDefaults.standard.removeObject(forKey: peopleKey)
-        
+
+        // Clear contacts sync mapping
+        ContactsSyncService.shared.clearSyncData()
+
         print("🗑️ Cleared all people data on logout")
     }
     
