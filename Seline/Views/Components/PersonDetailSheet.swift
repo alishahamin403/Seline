@@ -12,10 +12,12 @@ struct PersonDetailSheet: View {
     @State private var visitCount: Int = 0
     @State private var receiptCount: Int = 0
     @State private var recentVisitIds: [UUID] = []
+    @State private var recentVisits: [VisitHistoryItem] = []
     @State private var recentReceiptIds: [UUID] = []
     @State private var favouritePlaceIds: [UUID] = []
     @State private var isLoadingStats = true
     @State private var selectedPlace: SavedPlace? = nil
+    @State private var selectedVisitPlaceId: UUID? = nil
     
     var body: some View {
         NavigationView {
@@ -366,9 +368,9 @@ struct PersonDetailSheet: View {
             }
             
             VStack(spacing: 0) {
-                ForEach(recentVisitIds.prefix(5), id: \.self) { visitId in
-                    visitRow(visitId: visitId)
-                    if visitId != recentVisitIds.prefix(5).last {
+                ForEach(Array(recentVisits.prefix(5).enumerated()), id: \.element.visit.id) { index, visitItem in
+                    visitRow(visitItem: visitItem)
+                    if index < min(4, recentVisits.count - 1) {
                         divider
                     }
                 }
@@ -380,23 +382,55 @@ struct PersonDetailSheet: View {
         }
     }
     
-    private func visitRow(visitId: UUID) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "mappin.circle.fill")
-                .font(FontManager.geist(size: 20, weight: .medium))
-                .foregroundColor(.blue)
-            
-            Text("Visit \(visitId.uuidString.prefix(8))...")
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(FontManager.geist(size: 12, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+    private func visitRow(visitItem: VisitHistoryItem) -> some View {
+        Button(action: {
+            // Open the place detail for this visit
+            if let place = locationsManager.savedPlaces.first(where: { $0.id == visitItem.visit.savedPlaceId }) {
+                selectedPlace = place
+            }
+        }) {
+            HStack(spacing: 12) {
+                Image(systemName: "mappin.circle.fill")
+                    .font(FontManager.geist(size: 20, weight: .medium))
+                    .foregroundColor(.blue)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(visitItem.placeName)
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .lineLimit(1)
+
+                    HStack(spacing: 8) {
+                        Text(formatVisitDate(visitItem.visit.entryTime))
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+
+                        if let duration = visitItem.visit.durationMinutes {
+                            Text("•")
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+                            Text(formatDuration(duration))
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        }
+                    }
+
+                    if let notes = visitItem.visit.visitNotes, !notes.isEmpty {
+                        Text(notes)
+                            .font(FontManager.geist(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+            }
+            .padding(12)
         }
-        .padding(12)
+        .buttonStyle(PlainButtonStyle())
     }
     
     // MARK: - Receipts Section
@@ -605,16 +639,88 @@ struct PersonDetailSheet: View {
     }
     
     // MARK: - Data Loading
-    
+
     private func loadStats() async {
         visitCount = await peopleManager.getTotalVisitCount(personId: person.id)
         receiptCount = await peopleManager.getTotalReceiptCount(personId: person.id)
         recentVisitIds = await peopleManager.getVisitIdsForPerson(personId: person.id)
         recentReceiptIds = await peopleManager.getReceiptIdsForPerson(personId: person.id)
         favouritePlaceIds = await peopleManager.getFavouritePlacesForPerson(personId: person.id)
-        
+
+        // Fetch actual visit data
+        await loadRecentVisits()
+
         await MainActor.run {
             isLoadingStats = false
+        }
+    }
+
+    private func loadRecentVisits() async {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return
+        }
+
+        var visitItems: [VisitHistoryItem] = []
+
+        // Fetch visit records from Supabase for the recent visit IDs
+        for visitId in recentVisitIds.prefix(5) {
+            do {
+                let client = await SupabaseManager.shared.getPostgrestClient()
+                let response: [LocationVisitRecord] = try await client
+                    .from("location_visits")
+                    .select()
+                    .eq("id", value: visitId.uuidString)
+                    .execute()
+                    .value
+
+                if let visit = response.first {
+                    // Get the place name
+                    if let place = locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) {
+                        let item = VisitHistoryItem(visit: visit, placeName: place.displayName)
+                        visitItems.append(item)
+                    } else {
+                        // Fallback if place not found locally
+                        let item = VisitHistoryItem(visit: visit, placeName: "Unknown Location")
+                        visitItems.append(item)
+                    }
+                }
+            } catch {
+                print("❌ Error loading visit \(visitId): \(error)")
+            }
+        }
+
+        await MainActor.run {
+            self.recentVisits = visitItems
+        }
+    }
+
+    private func formatVisitDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+
+        if calendar.isDateInToday(date) {
+            formatter.dateFormat = "h:mm a"
+            return "Today, \(formatter.string(from: date))"
+        } else if calendar.isDateInYesterday(date) {
+            formatter.dateFormat = "h:mm a"
+            return "Yesterday, \(formatter.string(from: date))"
+        } else {
+            formatter.dateFormat = "MMM d, h:mm a"
+            return formatter.string(from: date)
+        }
+    }
+
+    private func formatDuration(_ minutes: Int) -> String {
+        if minutes < 60 {
+            return "\(minutes)m"
+        } else {
+            let hours = minutes / 60
+            let mins = minutes % 60
+            if mins == 0 {
+                return "\(hours)h"
+            } else {
+                return "\(hours)h \(mins)m"
+            }
         }
     }
     
