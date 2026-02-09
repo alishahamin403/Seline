@@ -484,8 +484,8 @@ class GeminiService: ObservableObject {
         var messages: [Message] = conversationHistory
         messages.append(Message(role: "user", content: query))
 
-        // Use streamGenerateContent for real server-side streaming (tokens arrive as generated)
-        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent?key=\(apiKey)"
+        // Use streamGenerateContent with alt=sse for Server-Sent Events format
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent?alt=sse&key=\(apiKey)"
         guard let url = URL(string: urlString) else {
             throw GeminiError.invalidURL
         }
@@ -496,7 +496,7 @@ class GeminiService: ObservableObject {
             "contents": geminiContents,
             "generationConfig": [
                 "temperature": 0.6,
-                "maxOutputTokens": 1024
+                "maxOutputTokens": 1536
             ],
             "tools": [
                 ["google_search": [:]]
