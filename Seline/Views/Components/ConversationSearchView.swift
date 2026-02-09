@@ -660,7 +660,7 @@ struct ConversationSearchView: View {
                             .frame(minHeight: UIScreen.main.bounds.height * 0.6)
                             .padding(.top, 60)
                     } else {
-                        VStack(alignment: isVoiceMode ? .center : .leading, spacing: 16) {
+                        VStack(alignment: isVoiceMode ? .center : .leading, spacing: 20) {
                             ForEach(searchService.conversationHistory) { message in
                                 ConversationMessageView(
                                     message: message,
@@ -1046,7 +1046,7 @@ struct ConversationSearchView: View {
             if messageText.isEmpty && !isInputFocused {
                 HStack {
                     Text(searchService.conversationHistory.isEmpty ? "Chat with Seline" : "Reply to Seline")
-                        .font(FontManager.geist(size: 15, weight: .regular))
+                        .font(FontManager.geist(size: 16, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.4) : Color.claudeTextLight.opacity(0.4))
                     Spacer()
                 }
@@ -1127,7 +1127,7 @@ struct ConversationSearchView: View {
         let estimatedHeight = messageText.boundingRect(
             with: size,
             options: .usesLineFragmentOrigin,
-            attributes: [.font: UIFont.systemFont(ofSize: 15, weight: .regular)],
+            attributes: [.font: UIFont.systemFont(ofSize: 16, weight: .regular)],
             context: nil
         ).height + 28
 
@@ -1443,8 +1443,8 @@ struct ConversationMessageView: View {
 
                     messageContent
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
                         .background(messageBackground)
                         .overlay(messageBorder)
                         .contentShape(Rectangle())
@@ -1481,7 +1481,7 @@ struct ConversationMessageView: View {
                         Spacer()
                     }
                 }
-                .padding(.leading, message.isUser ? 16 : 0)
+                .padding(.leading, message.isUser ? 40 : 16)
                 .padding(.trailing, 16)
             }
         }
@@ -1716,8 +1716,7 @@ struct ConversationMessageView: View {
                             SimpleTextWithPhoneLinks(text: content, colorScheme: colorScheme)
                         } else {
                             Text(content)
-                                .font(FontManager.geist(size: 13, weight: .regular))
-                                // User bubbles use a neutral translucent background now, so keep text readable in both modes.
+                                .font(FontManager.geist(size: 16, weight: .regular))
                                 .foregroundColor(
                                     message.isUser
                                         ? (colorScheme == .dark ? Color.white.opacity(0.92) : Color.black.opacity(0.88))
@@ -2348,7 +2347,7 @@ struct SimpleTextWithPhoneLinks: View {
 
         if matches.isEmpty {
             Text(text)
-                .font(FontManager.geist(size: 13, weight: .regular))
+                .font(FontManager.geist(size: 16, weight: .regular))
                 .foregroundColor(Color.shadcnForeground(colorScheme))
                 .textSelection(.enabled)
                 .lineLimit(nil)
@@ -2405,14 +2404,14 @@ struct SimpleTextWithPhoneLinks: View {
         if component.isPhone, let phoneNumber = component.phoneNumber {
             Link(destination: URL(string: "tel:\(phoneNumber)")!) {
                 Text(component.text)
-                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 16, weight: .regular))
                     .foregroundColor(.blue)
                     .underline()
                     .textSelection(.enabled)
             }
         } else {
             Text(component.text)
-                .font(FontManager.geist(size: 13, weight: .regular))
+                .font(FontManager.geist(size: 16, weight: .regular))
                 .foregroundColor(Color.shadcnForeground(colorScheme))
                 .lineLimit(nil)
                 .textSelection(.enabled)
@@ -2444,8 +2443,8 @@ struct TypingIndicatorView: View {
             .frame(width: 40, height: 12)
 
             Text(thinkingMessages[messageIndex % thinkingMessages.count])
-                .font(FontManager.geist(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                .font(FontManager.geist(size: 15, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -2725,7 +2724,7 @@ struct AlignedTextEditor: UIViewRepresentable {
         let textView = UITextView()
         textView.delegate = context.coordinator
         textView.backgroundColor = .clear
-        textView.font = UIFont.systemFont(ofSize: 15, weight: .regular)
+        textView.font = UIFont.systemFont(ofSize: 16, weight: .regular)
         textView.textColor = colorScheme == .dark ? .white : .black
         textView.tintColor = colorScheme == .dark ? UIColor.white.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.8)
         

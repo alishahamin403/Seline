@@ -18,15 +18,15 @@ struct MarkdownText: View {
     /// Element-specific top padding for ChatGPT-like visual rhythm
     private func topPadding(for element: MarkdownElement) -> CGFloat {
         switch element {
-        case .heading1: return 16
-        case .heading2: return 12
-        case .heading3: return 10
-        case .bulletPoint, .numberedPoint: return 4
-        case .paragraph: return 8
-        case .table: return 12
-        case .empty: return 2
-        case .horizontalRule: return 8
-        default: return 6
+        case .heading1: return 20
+        case .heading2: return 16
+        case .heading3: return 14
+        case .bulletPoint, .numberedPoint: return 6
+        case .paragraph: return 12
+        case .table: return 14
+        case .empty: return 4
+        case .horizontalRule: return 10
+        default: return 8
         }
     }
 
@@ -34,20 +34,20 @@ struct MarkdownText: View {
     private func renderElement(_ element: MarkdownElement) -> some View {
         switch element {
         case .heading1(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 20, weight: .bold)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 22, weight: .bold)
         case .heading2(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 18, weight: .semibold)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 20, weight: .semibold)
         case .heading3(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 16, weight: .semibold)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 18, weight: .semibold)
         case .bold(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 13, weight: .bold)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 16, weight: .bold)
         case .italic(let text):
-            renderItalicText(stripMarkdownFormatting(text), size: 13)
+            renderItalicText(stripMarkdownFormatting(text), size: 16)
         case .underline(let text):
-            renderUnderlinedText(stripMarkdownFormatting(text), size: 13)
+            renderUnderlinedText(stripMarkdownFormatting(text), size: 16)
         case .code(let text):
             Text(text)
-                .font(FontManager.geist(size: 12, weight: .regular))
+                .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(.orange)
                 .padding(4)
                 .background(colorScheme == .dark ? Color.black.opacity(0.3) : Color.gray.opacity(0.1))
@@ -56,21 +56,21 @@ struct MarkdownText: View {
         case .bulletPoint(let text):
             HStack(alignment: .top, spacing: 8) {
                 Text("•")
-                    .font(FontManager.geist(size: 13, weight: .bold))
+                    .font(FontManager.geist(size: 16, weight: .bold))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                     .frame(minWidth: 16, alignment: .leading)
-                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 13, weight: .regular)
+                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 16, weight: .regular)
             }
-            .padding(.leading, 8)
+            .padding(.leading, 12)
         case .numberedPoint(let number, let text):
             HStack(alignment: .top, spacing: 8) {
                 Text("\(number).")
-                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                     .frame(minWidth: 16, alignment: .leading)
-                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 13, weight: .regular)
+                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 16, weight: .regular)
             }
-            .padding(.leading, 8)
+            .padding(.leading, 12)
         case .table(let headers, let rows):
             renderTable(headers: headers, rows: rows)
         case .horizontalRule:
@@ -79,7 +79,7 @@ struct MarkdownText: View {
                 .frame(height: 1)
                 .padding(.vertical, 8)
         case .paragraph(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 13, weight: .regular)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 16, weight: .regular)
         case .empty:
             Spacer()
                 .frame(height: 4)
@@ -104,7 +104,7 @@ struct MarkdownText: View {
                 HStack(spacing: 0) {
                     ForEach(headers.indices, id: \.self) { i in
                         Text(stripMarkdownFormatting(headers[i]))
-                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                             .foregroundColor(headerTextColor)
                             .lineLimit(1)
                             .frame(minWidth: columnWidth(for: i, headers: headers, rows: rows), alignment: columnAlignments[safe: i] ?? .leading)
@@ -126,7 +126,7 @@ struct MarkdownText: View {
                                 let cellText = cellIndex < rows[rowIndex].count ? rows[rowIndex][cellIndex] : ""
                                 
                                 Text(stripMarkdownFormatting(cellText))
-                                    .font(FontManager.geist(size: 13, weight: .regular))
+                                    .font(FontManager.geist(size: 15, weight: .regular))
                                     .foregroundColor(cellTextColor)
                                     .lineLimit(1)
                                     .frame(minWidth: columnWidth(for: cellIndex, headers: headers, rows: rows), alignment: columnAlignments[safe: cellIndex] ?? .leading)
@@ -304,7 +304,7 @@ struct MarkdownText: View {
         Text(text)
             .font(FontManager.geist(size: size, weight: .regular))
             .italic()
-            .foregroundColor(colorScheme == .dark ? .white : .black)
+            .foregroundColor(colorScheme == .dark ? .white : .black.opacity(0.88))
             .textSelection(.enabled)
     }
 
@@ -315,7 +315,7 @@ struct MarkdownText: View {
         Text(text)
             .font(FontManager.geist(size: size, weight: .regular))
             .underline()
-            .foregroundColor(colorScheme == .dark ? .white : .black)
+            .foregroundColor(colorScheme == .dark ? .white : .black.opacity(0.88))
             .textSelection(.enabled)
     }
 
