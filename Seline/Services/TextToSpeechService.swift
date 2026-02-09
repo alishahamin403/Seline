@@ -7,6 +7,7 @@ class TextToSpeechService: NSObject, ObservableObject {
     static let shared = TextToSpeechService()
 
     private let synthesizer = AVSpeechSynthesizer()
+    private let elevenLabsService = ElevenLabsTTSService.shared
     @Published var isSpeaking = false
     var onSpeechFinished: (() -> Void)?
 
@@ -14,16 +15,42 @@ class TextToSpeechService: NSObject, ObservableObject {
     private var speechQueue: [String] = []
     private var isProcessingQueue = false
 
+    // Use ElevenLabs first (high quality), fall back to Apple AVSpeech
+    private var useElevenLabs: Bool {
+        elevenLabsService.isAvailable
+    }
+
+    private var cancellables = Set<AnyCancellable>()
+
     private override init() {
         super.init()
         synthesizer.delegate = self
+
+        // Observe ElevenLabs speaking state
+        elevenLabsService.$isSpeaking
+            .sink { [weak self] isSpeaking in
+                self?.isSpeaking = isSpeaking
+            }
+            .store(in: &cancellables)
     }
 
     func speak(_ text: String, completion: (() -> Void)? = nil) {
         // Stop any current speech
         stopSpeaking()
 
-        // Request playback mode from coordinator
+        // Use ElevenLabs if available (high quality)
+        if useElevenLabs {
+            onSpeechFinished = completion
+            elevenLabsService.onSpeechFinished = { [weak self] in
+                self?.onSpeechFinished?()
+                self?.onSpeechFinished = nil
+            }
+            elevenLabsService.speak(text, completion: nil)
+            isSpeaking = true
+            return
+        }
+
+        // Fall back to system TTS
         Task {
             do {
                 try await AudioSessionCoordinator.shared.requestMode(.playback)
@@ -34,11 +61,8 @@ class TextToSpeechService: NSObject, ObservableObject {
             }
         }
 
-        // Create speech utterance
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = bestAvailableVoice()
-
-        // Natural speech parameters for human-like delivery
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
         utterance.pitchMultiplier = 1.0
         utterance.volume = 0.95
@@ -50,8 +74,12 @@ class TextToSpeechService: NSObject, ObservableObject {
     }
 
     func stopSpeaking() {
-        if synthesizer.isSpeaking {
-            synthesizer.stopSpeaking(at: .immediate)
+        if useElevenLabs {
+            elevenLabsService.stopSpeaking()
+        } else {
+            if synthesizer.isSpeaking {
+                synthesizer.stopSpeaking(at: .immediate)
+            }
         }
         speechQueue.removeAll()
         isProcessingQueue = false
@@ -63,10 +91,23 @@ class TextToSpeechService: NSObject, ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        // Add to queue
+        // Use ElevenLabs if available (high quality)
+        if useElevenLabs {
+            // Bridge ElevenLabs queue completion into our onSpeechFinished callback.
+            // This is critical for voice mode UX (resume listening after the assistant finishes speaking).
+            if onSpeechFinished != nil && elevenLabsService.onSpeechFinished == nil {
+                elevenLabsService.onSpeechFinished = { [weak self] in
+                    self?.onSpeechFinished?()
+                    self?.onSpeechFinished = nil
+                }
+            }
+            elevenLabsService.speakIncremental(trimmed)
+            return
+        }
+
+        // Fall back to system TTS queue
         speechQueue.append(trimmed)
 
-        // Start processing if not already
         if !isProcessingQueue {
             processSpeechQueue()
         }
@@ -80,7 +121,6 @@ class TextToSpeechService: NSObject, ObservableObject {
 
         isProcessingQueue = true
 
-        // Configure audio session if not already active
         if !isSpeaking {
             Task {
                 do {
@@ -116,14 +156,12 @@ class TextToSpeechService: NSObject, ObservableObject {
             "com.apple.voice.enhanced.en-US.Tom"
         ]
 
-        // First try premium/enhanced voices
         for identifier in premiumVoiceIdentifiers {
             if let voice = voices.first(where: { $0.identifier == identifier }) {
                 return voice
             }
         }
 
-        // Try enhanced quality voices
         if let enhanced = voices.first(where: {
             $0.language == "en-US" &&
             ($0.quality == .enhanced || $0.quality == .premium)
@@ -131,25 +169,24 @@ class TextToSpeechService: NSObject, ObservableObject {
             return enhanced
         }
 
-        // Fallback to best available US English voice
         return AVSpeechSynthesisVoice(language: "en-US")
     }
 }
 
 extension TextToSpeechService: AVSpeechSynthesizerDelegate {
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        // Only handle system TTS callbacks (ElevenLabs handles its own)
+        guard !useElevenLabs else { return }
+
         isSpeaking = false
 
-        // Continue processing queue if there's more
         if !speechQueue.isEmpty {
             processSpeechQueue()
         } else {
             isProcessingQueue = false
-            // Only call completion when queue is empty
             onSpeechFinished?()
             onSpeechFinished = nil
 
-            // Return to idle mode via coordinator
             Task {
                 try? await AudioSessionCoordinator.shared.requestMode(.idle)
             }
@@ -157,12 +194,14 @@ extension TextToSpeechService: AVSpeechSynthesizerDelegate {
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        // Only handle system TTS callbacks (ElevenLabs handles its own)
+        guard !useElevenLabs else { return }
+
         isSpeaking = false
         speechQueue.removeAll()
         isProcessingQueue = false
         onSpeechFinished = nil
 
-        // Return to idle mode via coordinator
         Task {
             try? await AudioSessionCoordinator.shared.requestMode(.idle)
         }

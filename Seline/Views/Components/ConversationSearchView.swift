@@ -30,7 +30,7 @@ struct ConversationSearchView: View {
     @StateObject private var speechService = SpeechRecognitionService.shared
     @StateObject private var ttsService = TextToSpeechService.shared
     @StateObject private var emailService = EmailService.shared
-    @StateObject private var edgeTTSService = EdgeTTSService.shared
+    @StateObject private var elevenLabsService = ElevenLabsTTSService.shared
     @State private var selectedEmail: Email? = nil
     @State private var isProcessingResponse = false // Track if LLM is responding
     @State private var isVoiceMode = false // Track if we're in voice/speak mode
@@ -894,8 +894,8 @@ struct ConversationSearchView: View {
 
     private var voiceModeInputView: some View {
         let isDark = colorScheme == .dark
-        let isMaleSelected = edgeTTSService.selectedVoiceGender == .male
-        let isFemaleSelected = edgeTTSService.selectedVoiceGender == .female
+        let isMaleSelected = elevenLabsService.selectedVoiceGender == .male
+        let isFemaleSelected = elevenLabsService.selectedVoiceGender == .female
 
         let selectedTextColor: Color = isDark ? .black : .white
         let unselectedTextColor: Color = isDark ? .white.opacity(0.6) : .black.opacity(0.6)
@@ -933,7 +933,7 @@ struct ConversationSearchView: View {
             HStack(spacing: 0) {
                 Button(action: {
                     HapticManager.shared.selection()
-                    edgeTTSService.setVoice(gender: .male)
+                    elevenLabsService.setVoice(gender: .male)
                 }) {
                     Text("Male")
                         .font(FontManager.geist(size: 12, weight: .medium))
@@ -949,7 +949,7 @@ struct ConversationSearchView: View {
 
                 Button(action: {
                     HapticManager.shared.selection()
-                    edgeTTSService.setVoice(gender: .female)
+                    elevenLabsService.setVoice(gender: .female)
                 }) {
                     Text("Female")
                         .font(FontManager.geist(size: 12, weight: .medium))
