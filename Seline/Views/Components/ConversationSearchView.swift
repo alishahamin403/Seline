@@ -1186,7 +1186,7 @@ struct ConversationSearchView: View {
             print("🎙️ Response complete, TTS speaking: \(ttsService.isSpeaking)")
 
             if isVoiceMode {
-                // Give TTS a moment to start if it hasn't yet
+                // Give TTS a moment to start (speech queue processes synchronously on main)
                 if !ttsService.isSpeaking {
                     try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s grace period
                 }
@@ -1195,19 +1195,10 @@ struct ConversationSearchView: View {
                 if ttsService.isSpeaking {
                     voiceModeState = .speaking
                 } else {
-                    // TTS never started or already finished - reset state and resume listening
-                    await MainActor.run {
-                        isProcessingResponse = false
-                        voiceModeState = .listening
-                        print("🎙️ Ready for next message")
-                    }
-                    // Auto-start recording
-                    if !speechService.isRecording && !isProcessingResponse {
-                        try? await Task.sleep(nanoseconds: 200_000_000)
-                        speechService.clearTranscription()
-                        messageText = ""
-                        try? await speechService.startRecording()
-                    }
+                    // TTS already finished or never started - go back to listening
+                    isProcessingResponse = false
+                    voiceModeState = .listening
+                    print("🎙️ Ready for next message")
                 }
             } else {
                 isProcessingResponse = false

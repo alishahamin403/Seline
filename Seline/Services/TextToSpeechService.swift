@@ -5,9 +5,8 @@ import Combine
 @MainActor
 class TextToSpeechService: NSObject, ObservableObject {
     static let shared = TextToSpeechService()
-    
+
     private let synthesizer = AVSpeechSynthesizer()
-    private let edgeTTSService = EdgeTTSService.shared
     @Published var isSpeaking = false
     var onSpeechFinished: (() -> Void)?
 
@@ -15,43 +14,15 @@ class TextToSpeechService: NSObject, ObservableObject {
     private var speechQueue: [String] = []
     private var isProcessingQueue = false
 
-    // Use EdgeTTS first (free, high quality), fall back to Apple AVSpeech
-    private var useEdgeTTS: Bool {
-        edgeTTSService.isAvailable
-    }
-
-    private var cancellables = Set<AnyCancellable>()
-
     private override init() {
         super.init()
         synthesizer.delegate = self
-
-        // Observe EdgeTTS speaking state
-        edgeTTSService.$isSpeaking
-            .sink { [weak self] isSpeaking in
-                self?.isSpeaking = isSpeaking
-            }
-            .store(in: &cancellables)
     }
-    
+
     func speak(_ text: String, completion: (() -> Void)? = nil) {
         // Stop any current speech
         stopSpeaking()
 
-        // Use EdgeTTS if available (free, high quality)
-        if useEdgeTTS {
-            onSpeechFinished = completion
-            edgeTTSService.speak(text)
-            // Set callback AFTER speak() to avoid it being overwritten
-            edgeTTSService.onSpeechFinished = { [weak self] in
-                self?.onSpeechFinished?()
-                self?.onSpeechFinished = nil
-            }
-            isSpeaking = true
-            return
-        }
-
-        // Fall back to system TTS
         // Request playback mode from coordinator
         Task {
             do {
@@ -65,100 +36,42 @@ class TextToSpeechService: NSObject, ObservableObject {
 
         // Create speech utterance
         let utterance = AVSpeechUtterance(string: text)
-
-        // Use enhanced/premium voices for more human-like quality
-        let voices = AVSpeechSynthesisVoice.speechVoices()
-
-        // Priority order: Enhanced > Premium > Compact voices
-        // Look for high-quality voices
-        let premiumVoiceIdentifiers = [
-            "com.apple.voice.premium.en-US.Reed",
-            "com.apple.voice.premium.en-US.Aaron",
-            "com.apple.eloquence.en-US.Reed",
-            "com.apple.eloquence.en-US.Rocko",
-            "com.apple.voice.enhanced.en-US.Alex",
-            "com.apple.voice.enhanced.en-US.Tom"
-        ]
-
-        var selectedVoice: AVSpeechSynthesisVoice? = nil
-
-        // First try premium/enhanced voices
-        for identifier in premiumVoiceIdentifiers {
-            if let voice = voices.first(where: { $0.identifier == identifier }) {
-                selectedVoice = voice
-                print("🎙️ Using voice: \(identifier)")
-                break
-            }
-        }
-
-        // If no premium voice, try enhanced quality voices
-        if selectedVoice == nil {
-            selectedVoice = voices.first(where: {
-                $0.language == "en-US" &&
-                ($0.quality == .enhanced || $0.quality == .premium)
-            })
-        }
-
-        // Fallback to best available US English voice
-        if selectedVoice == nil {
-            selectedVoice = AVSpeechSynthesisVoice(language: "en-US")
-        }
-
-        utterance.voice = selectedVoice
+        utterance.voice = bestAvailableVoice()
 
         // Natural speech parameters for human-like delivery
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05 // Slightly faster for more natural conversation
-        utterance.pitchMultiplier = 1.0 // Natural pitch
-        utterance.volume = 0.95 // Slightly softer for pleasant listening
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
+        utterance.pitchMultiplier = 1.0
+        utterance.volume = 0.95
         utterance.prefersAssistiveTechnologySettings = false
 
         onSpeechFinished = completion
         isSpeaking = true
         synthesizer.speak(utterance)
     }
-    
+
     func stopSpeaking() {
-        if useEdgeTTS {
-            edgeTTSService.stopSpeaking()
-        } else {
-            if synthesizer.isSpeaking {
-                synthesizer.stopSpeaking(at: .immediate)
-            }
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
         }
         speechQueue.removeAll()
         isProcessingQueue = false
         isSpeaking = false
     }
-    
+
     /// Speak text incrementally as it streams in (like ChatGPT)
     func speakIncremental(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        
-        // Use EdgeTTS if available (free, high quality)
-        if useEdgeTTS {
-            // Bridge EdgeTTS queue completion into our onSpeechFinished callback.
-            // This is critical for voice mode UX (resume listening after the assistant finishes speaking).
-            if onSpeechFinished != nil && edgeTTSService.onSpeechFinished == nil {
-                edgeTTSService.onSpeechFinished = { [weak self] in
-                    self?.onSpeechFinished?()
-                    self?.onSpeechFinished = nil
-                }
-            }
-            edgeTTSService.speakIncremental(trimmed)
-            return
-        }
-        
-        // Fall back to system TTS queue
+
         // Add to queue
         speechQueue.append(trimmed)
-        
+
         // Start processing if not already
         if !isProcessingQueue {
             processSpeechQueue()
         }
     }
-    
+
     private func processSpeechQueue() {
         guard !speechQueue.isEmpty else {
             isProcessingQueue = false
@@ -177,11 +90,22 @@ class TextToSpeechService: NSObject, ObservableObject {
                 }
             }
         }
-        
+
         let textToSpeak = speechQueue.removeFirst()
         let utterance = AVSpeechUtterance(string: textToSpeak)
-        
-        // Use the same voice selection logic
+        utterance.voice = bestAvailableVoice()
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
+        utterance.pitchMultiplier = 1.0
+        utterance.volume = 0.95
+        utterance.prefersAssistiveTechnologySettings = false
+
+        isSpeaking = true
+        synthesizer.speak(utterance)
+    }
+
+    // MARK: - Voice Selection
+
+    private func bestAvailableVoice() -> AVSpeechSynthesisVoice? {
         let voices = AVSpeechSynthesisVoice.speechVoices()
         let premiumVoiceIdentifiers = [
             "com.apple.voice.premium.en-US.Reed",
@@ -191,42 +115,29 @@ class TextToSpeechService: NSObject, ObservableObject {
             "com.apple.voice.enhanced.en-US.Alex",
             "com.apple.voice.enhanced.en-US.Tom"
         ]
-        
-        var selectedVoice: AVSpeechSynthesisVoice? = nil
+
+        // First try premium/enhanced voices
         for identifier in premiumVoiceIdentifiers {
             if let voice = voices.first(where: { $0.identifier == identifier }) {
-                selectedVoice = voice
-                break
+                return voice
             }
         }
-        
-        if selectedVoice == nil {
-            selectedVoice = voices.first(where: {
-                $0.language == "en-US" &&
-                ($0.quality == .enhanced || $0.quality == .premium)
-            })
+
+        // Try enhanced quality voices
+        if let enhanced = voices.first(where: {
+            $0.language == "en-US" &&
+            ($0.quality == .enhanced || $0.quality == .premium)
+        }) {
+            return enhanced
         }
-        
-        if selectedVoice == nil {
-            selectedVoice = AVSpeechSynthesisVoice(language: "en-US")
-        }
-        
-        utterance.voice = selectedVoice
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
-        utterance.pitchMultiplier = 1.0
-        utterance.volume = 0.95
-        utterance.prefersAssistiveTechnologySettings = false
-        
-        isSpeaking = true
-        synthesizer.speak(utterance)
+
+        // Fallback to best available US English voice
+        return AVSpeechSynthesisVoice(language: "en-US")
     }
 }
 
 extension TextToSpeechService: AVSpeechSynthesizerDelegate {
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        // Only handle system TTS callbacks (EdgeTTS handles its own)
-        guard !useEdgeTTS else { return }
-
         isSpeaking = false
 
         // Continue processing queue if there's more
@@ -244,11 +155,8 @@ extension TextToSpeechService: AVSpeechSynthesizerDelegate {
             }
         }
     }
-    
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        // Only handle system TTS callbacks (EdgeTTS handles its own)
-        guard !useEdgeTTS else { return }
 
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         isSpeaking = false
         speechQueue.removeAll()
         isProcessingQueue = false
