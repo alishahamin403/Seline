@@ -263,6 +263,49 @@ class VectorContextBuilder {
         }
     }
 
+    // MARK: - Keyword Expansion
+
+    /// Expand keywords with related terms for better matching
+    /// e.g., "charging" -> ["charging", "supercharger", "supercharging", "charger"]
+    private func expandKeywords(_ keywords: [String]) -> [String] {
+        var expanded = Set(keywords.map { $0.lowercased() })
+
+        for keyword in keywords {
+            let lower = keyword.lowercased()
+
+            // Add word stem variations
+            // "charging" -> "charge", "charger", "supercharger", "supercharging"
+            if lower.hasSuffix("ing") {
+                let stem = String(lower.dropLast(3)) // "charg"
+                expanded.insert(stem + "e")   // "charge"
+                expanded.insert(stem + "er")  // "charger"
+                expanded.insert("super" + lower) // "supercharging"
+                expanded.insert("super" + stem + "er") // "supercharger"
+            }
+            if lower.hasSuffix("er") {
+                let stem = String(lower.dropLast(2)) // "charg"
+                expanded.insert(stem + "ing") // "charging"
+                expanded.insert("super" + lower) // "supercharger"
+            }
+
+            // Common brand/category associations
+            let associations: [String: [String]] = [
+                "tesla": ["supercharger", "supercharging", "ev charging", "tesla inc"],
+                "coffee": ["starbucks", "tim hortons", "cafe", "latte", "espresso"],
+                "grocery": ["groceries", "walmart", "costco", "loblaws", "food"],
+                "gas": ["fuel", "petro", "shell", "esso", "gasoline"],
+                "gym": ["fitness", "workout", "goodlife", "planet fitness"],
+                "restaurant": ["dining", "food", "takeout", "delivery"],
+            ]
+
+            if let related = associations[lower] {
+                expanded.formUnion(related)
+            }
+        }
+
+        return Array(expanded)
+    }
+
     // MARK: - Individual Search Functions
 
     private func searchReceipts(keywords: [String]?, dateRange: (start: Date, end: Date)?, limit: Int, filters: [String: String]?) async -> String {
@@ -293,11 +336,12 @@ class VectorContextBuilder {
             receipts = receipts.filter { $0.date >= dateRange.start && $0.date < dateRange.end }
         }
 
-        // Apply keyword filter
+        // Apply keyword filter with related term expansion
         if let keywords = keywords, !keywords.isEmpty {
+            let expandedKeywords = expandKeywords(keywords)
             receipts = receipts.filter { receipt in
                 let searchText = (receipt.note.title + " " + receipt.note.content + " " + receipt.category).lowercased()
-                return keywords.contains { keyword in
+                return expandedKeywords.contains { keyword in
                     searchText.contains(keyword.lowercased())
                 }
             }

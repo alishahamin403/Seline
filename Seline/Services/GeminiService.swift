@@ -306,18 +306,13 @@ class GeminiService: ObservableObject {
         // Convert messages to Gemini format
         let geminiContents = convertMessagesToGeminiFormat(request.messages)
 
-        // Build request body with Google Search grounding enabled
+        // Build request body - NO google_search tool (causes LLM to web-search
+        // instead of using the provided app context data)
         var requestBody: [String: Any] = [
             "contents": geminiContents,
             "generationConfig": [
                 "temperature": request.temperature ?? 0.6,
                 "maxOutputTokens": request.max_tokens ?? 2048
-            ],
-            // Enable Google Search grounding for web queries
-            "tools": [
-                [
-                    "google_search": [:]
-                ]
             ]
         ]
 
@@ -497,10 +492,9 @@ class GeminiService: ObservableObject {
             "generationConfig": [
                 "temperature": 0.6,
                 "maxOutputTokens": 1536
-            ],
-            "tools": [
-                ["google_search": [:]]
             ]
+            // NOTE: google_search tool REMOVED - it causes the LLM to web-search
+            // instead of using the provided app context data (receipts, visits, etc.)
         ]
 
         var urlRequest = URLRequest(url: url)
