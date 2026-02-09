@@ -5,6 +5,7 @@ import SwiftUI
 enum ReceiptProcessingState: Equatable {
     case idle
     case processing
+    case processingMultiple(current: Int, total: Int)
     case success
     case error(String)
 }
@@ -19,18 +20,18 @@ struct ReceiptProcessingToast: View {
                 // Status icon
                 Group {
                     switch state {
-                    case .processing:
+                    case .processing, .processingMultiple:
                         ProgressView()
-                            .tint(colorScheme == .dark ? Color(white: 0.3) : .white)
+                            .tint(colorScheme == .dark ? .black : .white)
                             .scaleEffect(0.8)
                     case .success:
                         Image(systemName: "checkmark")
                             .font(FontManager.geist(size: 16, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
                     case .error:
                         Image(systemName: "exclamationmark")
                             .font(FontManager.geist(size: 16, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
                     case .idle:
                         EmptyView()
                     }
@@ -39,15 +40,15 @@ struct ReceiptProcessingToast: View {
                 // Status text
                 Text(statusText)
                     .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
-                
+                    .foregroundColor(colorScheme == .dark ? .black : .white)
+
                 Spacer()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
                 Capsule()
-                    .fill(colorScheme == .dark ? Color(white: 0.7) : Color(white: 0.2))
+                    .fill(colorScheme == .dark ? .white : Color(white: 0.2))
             )
             .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
             .padding(.horizontal, 20)
@@ -65,6 +66,8 @@ struct ReceiptProcessingToast: View {
             return ""
         case .processing:
             return "Adding receipt..."
+        case .processingMultiple(let current, let total):
+            return "Adding receipt \(current) of \(total)..."
         case .success:
             return "Successfully added!"
         case .error(let message):
@@ -74,7 +77,7 @@ struct ReceiptProcessingToast: View {
     
     private var iconBackgroundColor: Color {
         switch state {
-        case .processing:
+        case .processing, .processingMultiple:
             return colorScheme == .dark ? Color.blue.opacity(0.2) : Color.blue.opacity(0.15)
         case .success:
             return Color.green.opacity(0.2)
@@ -84,10 +87,10 @@ struct ReceiptProcessingToast: View {
             return .clear
         }
     }
-    
+
     private var iconColor: Color {
         switch state {
-        case .processing:
+        case .processing, .processingMultiple:
             return .blue
         case .success:
             return .green

@@ -9,7 +9,7 @@ struct PeopleListView: View {
     @State private var selectedPerson: Person? = nil
     @State private var showingAddPerson = false
     @State private var showingContactsImport = false
-    @State private var selectedRelationshipFilter: RelationshipType? = nil
+    @State private var selectedRelationshipFilter: String? = nil // Changed to String to support custom relationships
     @State private var expandedSections: Set<RelationshipType> = Set(RelationshipType.allCases)
 
     // Edit mode for bulk delete
@@ -19,9 +19,12 @@ struct PeopleListView: View {
     @State private var showingBulkDeleteConfirmation = false
     @State private var personToDelete: Person? = nil
 
+    // Category ordering
+    @State private var categoryOrder: [String] = [] // Custom order for categories
+
     // Cache for filtered and grouped results
     @State private var filteredPeopleCache: [Person] = []
-    @State private var groupedPeopleCache: [(relationship: RelationshipType, people: [Person])] = []
+    @State private var groupedPeopleCache: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] = []
 
     // Debounce timer for search
     @State private var searchDebounceTimer: Timer?
@@ -46,123 +49,104 @@ struct PeopleListView: View {
 
         // Apply relationship filter
         if let filter = selectedRelationshipFilter {
-            result = result.filter { $0.relationship == filter }
+            result = result.filter { person in
+                if filter.hasPrefix("custom_") {
+                    // Custom relationship filter
+                    let customName = String(filter.dropFirst("custom_".count))
+                    return person.relationship == .other && person.customRelationship == customName
+                } else if filter.hasPrefix("type_") {
+                    // Standard relationship type filter
+                    let typeRawValue = String(filter.dropFirst("type_".count))
+                    return person.relationship.rawValue == typeRawValue
+                } else {
+                    return false
+                }
+            }
         }
 
         filteredPeopleCache = result
 
-        // Update grouped cache
-        let grouped = Dictionary(grouping: result) { $0.relationship }
-        groupedPeopleCache = RelationshipType.allCases
-            .filter { grouped[$0] != nil && !grouped[$0]!.isEmpty }
-            .sorted { $0.sortOrder < $1.sortOrder }
-            .map { (relationship: $0, people: grouped[$0]!.sorted { $0.name < $1.name }) }
+        // Update grouped cache - group by custom relationship if type is "other"
+        let groupedDict = Dictionary(grouping: result) { person -> String in
+            if person.relationship == .other, let custom = person.customRelationship, !custom.isEmpty {
+                return "custom_\(custom)" // Use custom relationship as key
+            } else {
+                return "type_\(person.relationship.rawValue)" // Use standard relationship type
+            }
+        }
+
+        // Build sorted groups
+        var groups: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] = []
+
+        // First add standard relationship types (in order)
+        for relType in RelationshipType.allCases where relType != .other {
+            let key = "type_\(relType.rawValue)"
+            if let people = groupedDict[key], !people.isEmpty {
+                groups.append((
+                    groupKey: key,
+                    displayName: relType.displayName,
+                    relationshipType: relType,
+                    people: people.sorted { $0.name < $1.name }
+                ))
+            }
+        }
+
+        // Then add custom relationships (alphabetically)
+        let customGroups = groupedDict
+            .filter { $0.key.hasPrefix("custom_") }
+            .sorted { $0.key < $1.key }
+            .map { key, people -> (groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person]) in
+                let customName = String(key.dropFirst("custom_".count))
+                return (
+                    groupKey: key,
+                    displayName: customName,
+                    relationshipType: nil,
+                    people: people.sorted { $0.name < $1.name }
+                )
+            }
+        groups.append(contentsOf: customGroups)
+
+        // Finally add "Other" if there are people with relationship = .other but no custom relationship
+        let otherKey = "type_\(RelationshipType.other.rawValue)"
+        if let otherPeople = groupedDict[otherKey], !otherPeople.isEmpty {
+            groups.append((
+                groupKey: otherKey,
+                displayName: RelationshipType.other.displayName,
+                relationshipType: .other,
+                people: otherPeople.sorted { $0.name < $1.name }
+            ))
+        }
+
+        groupedPeopleCache = groups
     }
+
+    private static let categoryOrderKey = "people_category_order"
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header with "People" title and action buttons
-            HStack(spacing: 12) {
-                Text("People")
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-                Spacer()
+            // PINNED HEADER — never scrolls
+            stickyHeader
+                .background(colorScheme == .dark ? Color.black : Color(UIColor.systemBackground))
 
-                if isEditMode {
-                    // Done button in edit mode
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isEditMode = false
-                            selectedPeopleForDeletion.removeAll()
-                        }
-                    }) {
-                        Text("Done")
-                            .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .black : .white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .fill(colorScheme == .dark ? Color.white : Color.black)
-                            )
+            // SCROLLABLE CONTENT — everything between header and footer scrolls
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Favorites
+                    if !peopleManager.people.isEmpty && !isEditMode {
+                        favoritesSection
                     }
-                    .buttonStyle(PlainButtonStyle())
-                } else {
-                    // Show Edit button if there are people
+
+                    // Main list
                     if !peopleManager.people.isEmpty {
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isEditMode = true
-                            }
-                        }) {
-                            Text("Edit")
-                                .font(FontManager.geist(size: 12, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(
-                                    Capsule()
-                                        .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
-                                )
-                        }
-                        .buttonStyle(PlainButtonStyle())
+                        mainContentBox
+                    } else {
+                        emptyStateView
                     }
-
-                    // Import from Contacts button
-                    Button(action: {
-                        showingContactsImport = true
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "person.crop.rectangle.stack")
-                                .font(.system(size: 11, weight: .medium))
-                            Text("Import")
-                                .font(FontManager.geist(size: 12, weight: .medium))
-                        }
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-
-                    // Add button in top right
-                    Button(action: {
-                        showingAddPerson = true
-                    }) {
-                        Text("Add")
-                            .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .black : .white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .fill(colorScheme == .dark ? Color.white : Color.black)
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
                 }
+                .padding(.bottom, isEditMode ? 20 : 0)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-
-            // Favorites section (similar to saved locations)
-            if !peopleManager.people.isEmpty {
-                favoritesSection
-            }
-
-            // Main content box (categories and people list)
-            if !peopleManager.people.isEmpty {
-                mainContentBox
-            } else {
-                emptyStateView
-            }
-
-            // Sticky delete footer (always visible in edit mode)
+        }
+        .safeAreaInset(edge: .bottom) {
             if isEditMode {
                 stickyDeleteFooter
             }
@@ -238,14 +222,125 @@ struct PeopleListView: View {
         }
         .onChange(of: peopleManager.people) { _ in
             updateFilteredResults()
+            syncCategoryOrder()
         }
         .onAppear {
+            loadCategoryOrder()
             updateFilteredResults()
+            syncCategoryOrder()
         }
     }
     
+    // MARK: - Sticky Header
+
+    private var stickyHeader: some View {
+        HStack(spacing: 12) {
+            Text("People")
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .textCase(.uppercase)
+                .tracking(0.5)
+            Spacer()
+
+            if isEditMode {
+                // Done button in edit mode
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isEditMode = false
+                        selectedPeopleForDeletion.removeAll()
+                    }
+                }) {
+                    Text("Done")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            } else {
+                // Show Edit button if there are people
+                if !peopleManager.people.isEmpty {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isEditMode = true
+                        }
+                    }) {
+                        Text("Edit")
+                            .font(FontManager.geist(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                // Import from Contacts button
+                Button(action: {
+                    showingContactsImport = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.crop.rectangle.stack")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Import")
+                            .font(FontManager.geist(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Add button in top right
+                Button(action: {
+                    showingAddPerson = true
+                }) {
+                    Text("Add")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+    }
+
+    // MARK: - Sorted Grouped People
+
+    private var sortedGroupedPeople: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] {
+        // If no custom order, return as is
+        if categoryOrder.isEmpty {
+            return groupedPeopleCache
+        }
+
+        // Sort according to custom order
+        return groupedPeopleCache.sorted { group1, group2 in
+            let index1 = categoryOrder.firstIndex(of: group1.groupKey) ?? Int.max
+            let index2 = categoryOrder.firstIndex(of: group2.groupKey) ?? Int.max
+            return index1 < index2
+        }
+    }
+
     // MARK: - Favorites Section
-    
+
     @ViewBuilder
     private var favoritesSection: some View {
         let favourites = peopleManager.getFavourites()
@@ -354,12 +449,14 @@ struct PeopleListView: View {
     @ViewBuilder
     private var mainContentBox: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Relationship filter chips
-            relationshipFilterChips
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 8)
-            
+            // Relationship filter chips (hidden in edit mode – edit mode is for selecting/reordering)
+            if !isEditMode {
+                relationshipFilterChips
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 8)
+            }
+
             // People list content
             if filteredPeopleCache.isEmpty {
                 VStack(spacing: 16) {
@@ -374,10 +471,9 @@ struct PeopleListView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             } else {
-                ScrollView {
-                    peopleListContent
-                        .padding(.horizontal, 4)
-                }
+                // No nested ScrollView – the outer ScrollView handles scrolling
+                peopleListContent
+                    .padding(.horizontal, 4)
             }
         }
         .padding(.bottom, 20)
@@ -405,7 +501,7 @@ struct PeopleListView: View {
     }
     
     // MARK: - Relationship Filter Chips
-    
+
     private var relationshipFilterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -415,16 +511,15 @@ struct PeopleListView: View {
                         selectedRelationshipFilter = nil
                     }
                 }
-                
-                // Relationship type chips (only show types that have people)
-                let availableTypes = Set(peopleManager.people.map { $0.relationship })
-                ForEach(RelationshipType.allCases.filter { availableTypes.contains($0) }, id: \.self) { relationship in
+
+                // Show chips for all groups (standard + custom)
+                ForEach(groupedPeopleCache, id: \.groupKey) { group in
                     filterChip(
-                        title: relationship.displayName,
-                        isSelected: selectedRelationshipFilter == relationship
+                        title: group.displayName,
+                        isSelected: selectedRelationshipFilter == group.groupKey
                     ) {
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedRelationshipFilter = selectedRelationshipFilter == relationship ? nil : relationship
+                            selectedRelationshipFilter = selectedRelationshipFilter == group.groupKey ? nil : group.groupKey
                         }
                     }
                 }
@@ -475,39 +570,39 @@ struct PeopleListView: View {
     // MARK: - People List Content
     
     private var peopleListContent: some View {
-        LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-            ForEach(groupedPeopleCache, id: \.relationship) { group in
-                Section {
-                    ForEach(group.people) { person in
-                        PersonRowView(
-                            person: person,
-                            colorScheme: colorScheme,
-                            isEditMode: isEditMode,
-                            isSelected: selectedPeopleForDeletion.contains(person.id),
-                            onTap: {
-                                if isEditMode {
-                                    toggleSelection(person.id)
-                                } else {
-                                    selectedPerson = person
-                                }
-                            },
-                            onFavouriteTap: {
-                                peopleManager.toggleFavourite(for: person.id)
-                            },
-                            onLongPress: {
-                                personToDelete = person
-                                showingDeleteConfirmation = true
-                            }
-                        )
+        VStack(spacing: 0) {
+            ForEach(sortedGroupedPeople, id: \.groupKey) { group in
+                // Section header
+                sectionHeader(groupKey: group.groupKey, displayName: group.displayName, count: group.people.count)
 
-                        if person.id != group.people.last?.id {
-                            Divider()
-                                .padding(.leading, 84)
-                                .opacity(0.2)
+                // People rows
+                ForEach(group.people) { person in
+                    PersonRowView(
+                        person: person,
+                        colorScheme: colorScheme,
+                        isEditMode: isEditMode,
+                        isSelected: selectedPeopleForDeletion.contains(person.id),
+                        onTap: {
+                            if isEditMode {
+                                toggleSelection(person.id)
+                            } else {
+                                selectedPerson = person
+                            }
+                        },
+                        onFavouriteTap: {
+                            peopleManager.toggleFavourite(for: person.id)
+                        },
+                        onLongPress: {
+                            personToDelete = person
+                            showingDeleteConfirmation = true
                         }
+                    )
+
+                    if person.id != group.people.last?.id {
+                        Divider()
+                            .padding(.leading, 84)
+                            .opacity(0.2)
                     }
-                } header: {
-                    sectionHeader(for: group.relationship, count: group.people.count)
                 }
             }
         }
@@ -530,9 +625,9 @@ struct PeopleListView: View {
 
     // MARK: - Section Header
 
-    private func sectionHeader(for relationship: RelationshipType, count: Int) -> some View {
+    private func sectionHeader(groupKey: String, displayName: String, count: Int) -> some View {
         HStack(spacing: 8) {
-            Text(relationship.displayName.uppercased())
+            Text(displayName.uppercased())
                 .font(FontManager.geist(size: 12, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
@@ -541,34 +636,38 @@ struct PeopleListView: View {
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
             Spacer()
+
+            // Up / Down arrows in edit mode (same pattern as home page widgets)
+            if isEditMode {
+                HStack(spacing: 6) {
+                    Button {
+                        moveCategoryUp(groupKey)
+                    } label: {
+                        Image(systemName: "chevron.up.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(colorScheme == .dark ? Color(white: 0.7) : Color(white: 0.3))
+                            .background(Circle().fill(colorScheme == .dark ? Color.black : Color.white).frame(width: 18, height: 18))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .opacity(canMoveCategoryUp(groupKey) ? 1.0 : 0.3)
+                    .disabled(!canMoveCategoryUp(groupKey))
+
+                    Button {
+                        moveCategoryDown(groupKey)
+                    } label: {
+                        Image(systemName: "chevron.down.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(colorScheme == .dark ? Color(white: 0.7) : Color(white: 0.3))
+                            .background(Circle().fill(colorScheme == .dark ? Color.black : Color.white).frame(width: 18, height: 18))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .opacity(canMoveCategoryDown(groupKey) ? 1.0 : 0.3)
+                    .disabled(!canMoveCategoryDown(groupKey))
+                }
+            }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 20)
-        .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
-    }
-
-    // MARK: - Bulk Delete Button (Legacy - kept for reference but not used)
-
-    private var bulkDeleteButton: some View {
-        VStack(spacing: 0) {
-            Divider()
-                .opacity(0.2)
-
-            Button(action: {
-                showingBulkDeleteConfirmation = true
-            }) {
-                HStack {
-                    Image(systemName: "trash")
-                        .font(.system(size: 14, weight: .medium))
-                    Text("Delete \(selectedPeopleForDeletion.count) \(selectedPeopleForDeletion.count == 1 ? "Person" : "People")")
-                        .font(FontManager.geist(size: 15, weight: .semibold))
-                }
-                .foregroundColor(.red)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-            }
-            .buttonStyle(PlainButtonStyle())
-        }
         .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
     }
 
@@ -576,31 +675,96 @@ struct PeopleListView: View {
 
     private var stickyDeleteFooter: some View {
         VStack(spacing: 0) {
-            Divider()
-                .opacity(0.3)
-
             Button(action: {
-                showingBulkDeleteConfirmation = true
+                if !selectedPeopleForDeletion.isEmpty {
+                    showingBulkDeleteConfirmation = true
+                }
             }) {
-                HStack {
-                    Image(systemName: "trash")
-                        .font(.system(size: 14, weight: .medium))
+                HStack(spacing: 8) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 15, weight: .semibold))
                     Text(selectedPeopleForDeletion.isEmpty
                         ? "Select people to delete"
                         : "Delete \(selectedPeopleForDeletion.count) \(selectedPeopleForDeletion.count == 1 ? "Person" : "People")")
                         .font(FontManager.geist(size: 15, weight: .semibold))
                 }
-                .foregroundColor(selectedPeopleForDeletion.isEmpty
-                    ? (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
-                    : .red)
+                .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(selectedPeopleForDeletion.isEmpty
+                            ? (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.3))
+                            : Color.red)
+                )
+                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
             }
             .buttonStyle(PlainButtonStyle())
             .disabled(selectedPeopleForDeletion.isEmpty)
         }
-        .background(colorScheme == .dark ? Color.black : Color(UIColor.systemGroupedBackground))
-        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: -4)
+        .background(
+            Rectangle()
+                .fill(colorScheme == .dark ? Color.black : Color(UIColor.systemBackground))
+                .ignoresSafeArea(edges: .bottom)
+        )
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.1), radius: 10, x: 0, y: -5)
+    }
+
+    // MARK: - Category Reordering
+
+    /// Sync categoryOrder with current groups (add new, remove stale)
+    private func syncCategoryOrder() {
+        let currentKeys = groupedPeopleCache.map { $0.groupKey }
+        var merged: [String] = []
+        // Keep existing ordered keys that still exist
+        for key in categoryOrder where currentKeys.contains(key) {
+            merged.append(key)
+        }
+        // Append any new keys at the end
+        for key in currentKeys where !merged.contains(key) {
+            merged.append(key)
+        }
+        categoryOrder = merged
+    }
+
+    private func canMoveCategoryUp(_ groupKey: String) -> Bool {
+        guard let index = categoryOrder.firstIndex(of: groupKey) else { return false }
+        return index > 0
+    }
+
+    private func canMoveCategoryDown(_ groupKey: String) -> Bool {
+        guard let index = categoryOrder.firstIndex(of: groupKey) else { return false }
+        return index < categoryOrder.count - 1
+    }
+
+    private func moveCategoryUp(_ groupKey: String) {
+        guard let index = categoryOrder.firstIndex(of: groupKey), index > 0 else { return }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            categoryOrder.swapAt(index, index - 1)
+        }
+        HapticManager.shared.selection()
+        saveCategoryOrder()
+    }
+
+    private func moveCategoryDown(_ groupKey: String) {
+        guard let index = categoryOrder.firstIndex(of: groupKey), index < categoryOrder.count - 1 else { return }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            categoryOrder.swapAt(index, index + 1)
+        }
+        HapticManager.shared.selection()
+        saveCategoryOrder()
+    }
+
+    private func saveCategoryOrder() {
+        UserDefaults.standard.set(categoryOrder, forKey: Self.categoryOrderKey)
+    }
+
+    private func loadCategoryOrder() {
+        if let saved = UserDefaults.standard.stringArray(forKey: Self.categoryOrderKey) {
+            categoryOrder = saved
+        }
     }
 
     // MARK: - Actions

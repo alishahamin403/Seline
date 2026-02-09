@@ -59,6 +59,9 @@ struct MainAppView: View {
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
+    @State private var selectedReceiptImages: [UIImage] = []
+    @State private var processingQueue: [UIImage] = []
+    @State private var currentProcessingIndex = 0
     @State private var showingSettings = false
     @State private var profilePictureUrl: String? = nil
     @State private var hasAppeared = false
@@ -1108,14 +1111,16 @@ struct MainAppView: View {
                 .presentationBg()
             }
             .sheet(isPresented: $showingReceiptImagePicker) {
-                ImagePicker(selectedImage: Binding(
-                    get: { nil },
-                    set: { newImage in
-                        if let image = newImage {
-                            processReceiptImage(image)
-                        }
-                    }
-                ))
+                ImagePicker(selectedImages: $selectedReceiptImages)
+            }
+            .onChange(of: selectedReceiptImages) { newImages in
+                if !newImages.isEmpty {
+                    // Start processing multiple images sequentially
+                    processingQueue = newImages
+                    currentProcessingIndex = 0
+                    selectedReceiptImages = []
+                    processNextReceiptInQueue()
+                }
             }
             .sheet(isPresented: $showingReceiptCameraPicker) {
                 CameraPicker(selectedImage: Binding(
@@ -2344,6 +2349,113 @@ struct MainAppView: View {
                         try? await Task.sleep(nanoseconds: 3_000_000_000)
                         await MainActor.run {
                             receiptProcessingState = .idle
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func processNextReceiptInQueue() {
+        guard currentProcessingIndex < processingQueue.count else {
+            // All receipts processed, clear the queue
+            processingQueue = []
+            currentProcessingIndex = 0
+
+            // Hide the success message after 1 second
+            Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                await MainActor.run {
+                    receiptProcessingState = .idle
+                }
+            }
+            return
+        }
+
+        let image = processingQueue[currentProcessingIndex]
+        let totalCount = processingQueue.count
+        let currentNumber = currentProcessingIndex + 1
+
+        print("📸 Processing receipt \(currentNumber) of \(totalCount)")
+
+        Task {
+            // Show processing indicator with count
+            await MainActor.run {
+                if totalCount > 1 {
+                    receiptProcessingState = .processingMultiple(current: currentNumber, total: totalCount)
+                } else {
+                    receiptProcessingState = .processing
+                }
+            }
+
+            do {
+                // Use GeminiService (which delegates to OpenAI for vision)
+                let deepSeekService = GeminiService.shared
+                let (receiptTitle, receiptContent) = try await deepSeekService.analyzeReceiptImage(image)
+
+                // Clean up the extracted content
+                let cleanedContent = receiptContent
+                    .split(separator: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+
+                // Extract month and year from receipt title for automatic folder organization
+                var folderIdForReceipt: UUID?
+                if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
+                    folderIdForReceipt = await notesManager.getOrCreateReceiptMonthFolderAsync(month: month, year: year)
+                    print("✅ Receipt assigned to \(notesManager.getMonthName(month)) \(year)")
+                } else {
+                    let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+                    folderIdForReceipt = receiptsFolderId
+                    print("⚠️ No date found in receipt title, using main Receipts folder")
+                }
+
+                // Create note with receipt content
+                var newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
+
+                // Save note first, then upload image
+                let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
+
+                if syncSuccess {
+                    // Upload image
+                    let imageUrls = await notesManager.uploadNoteImages([image], noteId: newNote.id)
+
+                    // Update note with image URL
+                    var updatedNote = newNote
+                    updatedNote.imageUrls = imageUrls
+                    updatedNote.dateModified = Date()
+                    let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
+
+                    await MainActor.run {
+                        HapticManager.shared.success()
+                        print("✅ Receipt \(currentNumber) of \(totalCount) saved")
+
+                        // Move to next receipt in queue
+                        currentProcessingIndex += 1
+
+                        // Show success briefly before processing next
+                        receiptProcessingState = .success
+                        Task {
+                            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                            await MainActor.run {
+                                processNextReceiptInQueue()
+                            }
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    print("❌ Error processing receipt \(currentNumber): \(error.localizedDescription)")
+                    HapticManager.shared.error()
+                    receiptProcessingState = .error(error.localizedDescription)
+
+                    // Skip this receipt and move to next after showing error
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                        await MainActor.run {
+                            currentProcessingIndex += 1
+                            processNextReceiptInQueue()
                         }
                     }
                 }

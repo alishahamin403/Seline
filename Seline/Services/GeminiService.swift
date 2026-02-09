@@ -104,7 +104,7 @@ class GeminiService: ObservableObject {
         EMAIL CONTENT:
         \(body.prefix(8000))
 
-        YOUR TASK: Create 3-5 detailed bullet points that answer "What do I need to know?" and "What should I do?"
+        YOUR TASK: Create 2-4 concise bullet points (MAX 4) that answer "What do I need to know?" and "What should I do?"
 
         CRITICAL RULES:
         1. Write like a helpful friend, NOT a robot. Never say "this email", "the email states", "the sender"
@@ -112,39 +112,37 @@ class GeminiService: ObservableObject {
         3. Focus on: amounts, dates, deadlines, action items, important details, links, tracking numbers
         4. If there's something to DO, start with an action verb (Review, Confirm, Pay, Check, Track, etc.)
         5. Include specific numbers: $amounts, dates, percentages, quantities, order numbers, tracking numbers
-        6. Include links in markdown format: [Link text](URL) so they can be clicked
+        6. 🚨 CRITICAL - LINKS FORMATTING:
+           - ALWAYS convert URLs to markdown links: [descriptive text](URL)
+           - NEVER show raw URLs like https://example.com/long-url
+           - Use descriptive link text like [Select your bank], [Learn more], [Track package]
+           - Example: "Select your bank: [RBC Royal Bank](https://etransfer.interac.ca/...)" NOT "using this link: (https://etransfer.interac.ca/...)"
         7. Skip fluff - no "Thank you for your business" type content
         8. If it's a receipt/transaction: state the key numbers (amount, what it's for, order number)
         9. If it's a request: state what they're asking and any deadline
         10. If it's informational: state the key takeaway with all relevant details
-        11. If there are links (tracking, invoices, account pages), include them as clickable markdown links
-        12. Be comprehensive - include all important details, not just one bullet point
+        11. Keep it concise - combine related info into single bullets when possible
 
         EXAMPLES OF GOOD SUMMARIES:
 
+        For a money transfer:
+        • You received $500.00 CAD - select your bank to claim: [RBC Royal Bank](url) or [Other institution](url)
+        • Funds expire March 9, 2026
+        • Reference number: CAEvQgGX
+
         For an order confirmation:
-        • Your order (#702-7867393-7724246) is arriving tomorrow
-        • Track your package: [Track package](https://tracking-url.com)
-        • You were charged $81.34 CAD for 2 items: cleanser ($20.99) and DIY kit ($50.99)
-        • Access your invoice or contact support via links in the email
+        • Your order (#702-7867393-7724246) arrives tomorrow - [Track package](https://tracking-url.com)
+        • Charged $81.34 CAD for 2 items: cleanser ($20.99) and DIY kit ($50.99)
 
         For a deposit notification:
         • $500 deposited to your TFSA account
-        • New balance: $12,450.32
-        • Transaction completed on January 24, 2026
-
-        For a crypto order:
-        • Your recurring buy order for ETH has been filled in your Crypto account
-        • Purchase amount: [specific amount if available]
-        • Order executed at [time/price if available]
-        • View transaction details in your account
+        • New balance: $12,450.32 (as of Jan 24, 2026)
 
         For a bill/invoice:
-        • $89.99 due by Jan 25th
-        • Pay at: [Pay now](https://account.example.com/pay)
+        • $89.99 due by Jan 25th - [Pay now](https://account.example.com/pay)
         • Invoice #12345
 
-        Return ONLY the bullet points using • symbol. Include links in markdown format [text](url). Be detailed and comprehensive.
+        Return ONLY the bullet points using • symbol. NEVER show raw URLs - always use markdown [text](url) format. Keep it to 4 points maximum.
         """
 
         let messages = [Message(role: "user", content: prompt)]

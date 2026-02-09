@@ -541,10 +541,16 @@ class VectorContextBuilder {
         let peopleManager = PeopleManager.shared
         var people = await peopleManager.people
 
-        // Apply keyword filter
+        // Apply keyword filter - search across name, nickname, notes, and other fields
         if let keywords = keywords, !keywords.isEmpty {
             people = people.filter { person in
-                let searchText = person.name.lowercased()
+                let searchText = (
+                    person.name + " " +
+                    (person.nickname ?? "") + " " +
+                    (person.notes ?? "") + " " +
+                    person.relationshipDisplayText + " " +
+                    (person.formattedBirthday ?? "")
+                ).lowercased()
                 return keywords.contains { keyword in
                     searchText.contains(keyword.lowercased())
                 }
@@ -556,8 +562,41 @@ class VectorContextBuilder {
         }
 
         var context = "PEOPLE (\(people.count) found):\n"
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .long
+        dateFormatter.timeStyle = .none
+
         for person in people {
-            context += "- \(person.name)\n"
+            var personLine = "- \(person.name)"
+            if let nickname = person.nickname {
+                personLine += " (aka \(nickname))"
+            }
+            personLine += " — \(person.relationshipDisplayText)"
+
+            // IMPORTANT: Include birthday info
+            if let birthday = person.birthday {
+                let birthdayStr = dateFormatter.string(from: birthday)
+                personLine += " — Birthday: \(birthdayStr)"
+                if let age = person.age {
+                    personLine += " (age \(age))"
+                }
+            }
+
+            // Include other relevant info
+            if let favouriteFood = person.favouriteFood {
+                personLine += " — Fav Food: \(favouriteFood)"
+            }
+            if let favouriteGift = person.favouriteGift {
+                personLine += " — Fav Gift: \(favouriteGift)"
+            }
+            if let interests = person.interests, !interests.isEmpty {
+                personLine += " — Interests: \(interests.joined(separator: ", "))"
+            }
+            if let notes = person.notes, !notes.isEmpty {
+                personLine += "\n  Notes: \(notes.prefix(200))"
+            }
+
+            context += personLine + "\n"
         }
 
         return context
@@ -710,12 +749,34 @@ class VectorContextBuilder {
         context += "Emails: \(EmailService.shared.inboxEmails.count + EmailService.shared.sentEmails.count)\n"
         context += "Locations: \(LocationsManager.shared.savedPlaces.count)\n"
         let peopleCount = PeopleManager.shared.people.count
-        context += "People: \(peopleCount)\n"
+        context += "People: \(peopleCount)\n\n"
+
+        // IMPORTANT: Include complete people list with birthdays for easy lookup
         if peopleCount > 0 {
-            let peopleNames = PeopleManager.shared.people.prefix(10).map { $0.name }
-            context += "  (Sample: \(peopleNames.joined(separator: ", "))\(peopleCount > 10 ? "... and \(peopleCount - 10) more" : ""))\n"
+            context += "=== YOUR PEOPLE (Complete List) ===\n"
+            context += "IMPORTANT: This is the ONLY source of truth for people in the app. Do NOT search the web for random people.\n\n"
+
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .long
+            dateFormatter.timeStyle = .none
+
+            for person in PeopleManager.shared.people.sorted(by: { $0.name < $1.name }) {
+                var personLine = "- \(person.name)"
+                if let nickname = person.nickname {
+                    personLine += " (aka \(nickname))"
+                }
+                personLine += " — \(person.relationshipDisplayText)"
+
+                if let birthday = person.birthday {
+                    let birthdayStr = dateFormatter.string(from: birthday)
+                    personLine += " — Birthday: \(birthdayStr)"
+                }
+
+                context += personLine + "\n"
+            }
+            context += "\n"
         }
-        context += "\n"
+
         
         // Critical instruction to prevent hallucination
         context += "🚨 CRITICAL INSTRUCTION:\n"
