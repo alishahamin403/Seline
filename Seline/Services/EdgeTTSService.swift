@@ -69,7 +69,10 @@ class EdgeTTSService: ObservableObject {
     /// Speak text using Edge-TTS (falls back to Apple TTS on failure)
     func speak(_ text: String, completion: (() -> Void)? = nil) {
         stopSpeaking()
-        onSpeechFinished = completion
+        // Only overwrite onSpeechFinished if a new completion is provided
+        if let completion = completion {
+            onSpeechFinished = completion
+        }
 
         currentTask = Task {
             await speakText(text)
@@ -81,6 +84,7 @@ class EdgeTTSService: ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        isSpeaking = true  // Signal immediately so voice mode sees TTS is active
         speechQueue.append(trimmed)
 
         if !isProcessingQueue {
@@ -102,6 +106,7 @@ class EdgeTTSService: ObservableObject {
         }
 
         isProcessingQueue = true
+        isSpeaking = true  // Set immediately so callers know speech is pending
         let textToSpeak = speechQueue.removeFirst()
 
         currentTask = Task {
@@ -189,13 +194,13 @@ class EdgeTTSService: ObservableObject {
         let tempDir = FileManager.default.temporaryDirectory
         let audioFile = tempDir.appendingPathComponent("edgetts_\(UUID().uuidString).mp3")
 
-        // Add timeout - Edge-TTS should respond within 15 seconds
+        // Add timeout - Edge-TTS should respond within 3 seconds (fast fallback to Apple TTS)
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
                 try await tts.ttsPromise(text: text, audioPath: audioFile.path)
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: 15_000_000_000) // 15s timeout
+                try await Task.sleep(nanoseconds: 3_000_000_000) // 3s timeout
                 throw EdgeTTSError.timeout
             }
 

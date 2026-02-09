@@ -41,11 +41,12 @@ class TextToSpeechService: NSObject, ObservableObject {
         // Use EdgeTTS if available (free, high quality)
         if useEdgeTTS {
             onSpeechFinished = completion
+            edgeTTSService.speak(text)
+            // Set callback AFTER speak() to avoid it being overwritten
             edgeTTSService.onSpeechFinished = { [weak self] in
                 self?.onSpeechFinished?()
                 self?.onSpeechFinished = nil
             }
-            edgeTTSService.speak(text, completion: nil)
             isSpeaking = true
             return
         }

@@ -1186,14 +1186,27 @@ struct ConversationSearchView: View {
             print("🎙️ Response complete, TTS speaking: \(ttsService.isSpeaking)")
 
             if isVoiceMode {
+                // Give TTS a moment to start if it hasn't yet
+                if !ttsService.isSpeaking {
+                    try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s grace period
+                }
+
                 // Update state to speaking if TTS is active
                 if ttsService.isSpeaking {
                     voiceModeState = .speaking
                 } else {
-                    // TTS finished - reset state
+                    // TTS never started or already finished - reset state and resume listening
                     await MainActor.run {
                         isProcessingResponse = false
+                        voiceModeState = .listening
                         print("🎙️ Ready for next message")
+                    }
+                    // Auto-start recording
+                    if !speechService.isRecording && !isProcessingResponse {
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        speechService.clearTranscription()
+                        messageText = ""
+                        try? await speechService.startRecording()
                     }
                 }
             } else {
@@ -1707,11 +1720,7 @@ struct ConversationMessageView: View {
                                     .lineLimit(nil)
                             }
                         } else if hasComplexFormatting && !message.isUser {
-                            AnimatedMessageText(
-                                markdown: content,
-                                colorScheme: colorScheme,
-                                isNewMessage: isLastAssistantMessage && !isStreaming
-                            )
+                            MarkdownText(markdown: content, colorScheme: colorScheme)
                         } else if !message.isUser {
                             SimpleTextWithPhoneLinks(text: content, colorScheme: colorScheme)
                         } else {
