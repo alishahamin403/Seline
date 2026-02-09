@@ -7,10 +7,26 @@ struct MarkdownText: View {
     let colorScheme: ColorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(parseMarkdown(markdown)) { element in
                 renderElement(element)
+                    .padding(.top, topPadding(for: element))
             }
+        }
+    }
+
+    /// Element-specific top padding for ChatGPT-like visual rhythm
+    private func topPadding(for element: MarkdownElement) -> CGFloat {
+        switch element {
+        case .heading1: return 16
+        case .heading2: return 12
+        case .heading3: return 10
+        case .bulletPoint, .numberedPoint: return 4
+        case .paragraph: return 8
+        case .table: return 12
+        case .empty: return 2
+        case .horizontalRule: return 8
+        default: return 6
         }
     }
 

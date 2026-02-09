@@ -15,6 +15,7 @@ class SpeechRecognitionService: ObservableObject {
     @Published var transcribedText = ""
     @Published var authorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
     @Published var errorMessage: String?
+    @Published var audioLevel: Float = -160.0 // Public audio power level for UI (VoiceOrbView)
 
     var onTranscriptionUpdate: ((String) -> Void)?
     var onAutoSend: (() -> Void)? // Callback when silence detected and should auto-send
@@ -196,6 +197,7 @@ class SpeechRecognitionService: ObservableObject {
 
                 DispatchQueue.main.async {
                     self.currentAudioPower = power
+                    self.audioLevel = power
                     if power > self.speechPowerThreshold {
                         self.hasSpeechActivity = true
                     }

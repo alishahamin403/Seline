@@ -30,7 +30,7 @@ struct ConversationSearchView: View {
     @StateObject private var speechService = SpeechRecognitionService.shared
     @StateObject private var ttsService = TextToSpeechService.shared
     @StateObject private var emailService = EmailService.shared
-    @StateObject private var elevenLabsService = ElevenLabsTTSService.shared
+    @StateObject private var edgeTTSService = EdgeTTSService.shared
     @State private var selectedEmail: Email? = nil
     @State private var isProcessingResponse = false // Track if LLM is responding
     @State private var isVoiceMode = false // Track if we're in voice/speak mode
@@ -879,78 +879,67 @@ struct ConversationSearchView: View {
     
     // MARK: - Voice Mode Input View
     
+    /// Compute voice mode state from actual service states
+    private var computedVoiceModeState: VoiceModeState {
+        if ttsService.isSpeaking {
+            return .speaking
+        } else if isProcessingResponse || searchService.isLoadingQuestionResponse || isStreamingResponse {
+            return .processing
+        } else if speechService.isRecording {
+            return .listening
+        } else {
+            return .idle
+        }
+    }
+
     private var voiceModeInputView: some View {
         let isDark = colorScheme == .dark
-        let isMaleSelected = elevenLabsService.selectedVoiceGender == .male
-        let isFemaleSelected = elevenLabsService.selectedVoiceGender == .female
+        let isMaleSelected = edgeTTSService.selectedVoiceGender == .male
+        let isFemaleSelected = edgeTTSService.selectedVoiceGender == .female
 
         let selectedTextColor: Color = isDark ? .black : .white
         let unselectedTextColor: Color = isDark ? .white.opacity(0.6) : .black.opacity(0.6)
         let selectedBgColor: Color = isDark ? .white : .black
         let toggleBgColor: Color = isDark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)
 
-        return HStack(spacing: 16) {
-            // Add some left padding to move microphone more to the right
-            Spacer()
-                .frame(width: 20)
-            
-            // Tap-and-auto-detect button (smaller, on the left)
-            Button(action: {
-                // Ignore taps when processing or AI is speaking
-                guard !isProcessingResponse && !ttsService.isSpeaking else {
-                    print("🎙️ Button tap ignored - system is busy (isProcessing: \(isProcessingResponse), isSpeaking: \(ttsService.isSpeaking))")
-                    return
-                }
+        return VStack(spacing: 16) {
+            // Centered VoiceOrbView
+            VoiceOrbView(
+                state: computedVoiceModeState,
+                audioLevel: speechService.audioLevel,
+                onTap: {
+                    // Ignore taps when processing or AI is speaking
+                    guard !isProcessingResponse && !ttsService.isSpeaking else {
+                        print("🎙️ Orb tap ignored - system is busy")
+                        return
+                    }
 
-                HapticManager.shared.medium()
+                    HapticManager.shared.medium()
 
-                // Only start recording if not already recording
-                if !speechService.isRecording {
-                    Task {
-                        print("🎙️ Starting new recording session")
-                        speechService.clearTranscription()
-                        messageText = ""
-                        try? await speechService.startRecording()
+                    // Only start recording if not already recording
+                    if !speechService.isRecording {
+                        Task {
+                            print("🎙️ Starting new recording session")
+                            speechService.clearTranscription()
+                            messageText = ""
+                            try? await speechService.startRecording()
+                        }
                     }
                 }
-            }) {
-                micButtonContent
-            }
-            .buttonStyle(PlainButtonStyle())
-            .opacity((isProcessingResponse || ttsService.isSpeaking) ? 0.5 : 1.0)
-            .animation(.easeInOut(duration: 0.2), value: isProcessingResponse)
-            .animation(.easeInOut(duration: 0.2), value: ttsService.isSpeaking)
-            .onAppear {
-                // Start pulse animation
-                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                    voiceModeListeningPulse = true
-                }
-            }
-            .onChange(of: speechService.transcribedText) { newText in
-                // Keep messageText in sync with transcription
-                if !newText.isEmpty && !isProcessingResponse {
-                    messageText = newText
-                    updateInputHeight()
-                }
-            }
-            .onDisappear {
-                voiceModeListeningPulse = false
-                voiceModeState = .idle
-            }
-            
-            Spacer()
-            
-            // Voice gender toggle (on the right)
+            )
+            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: computedVoiceModeState)
+
+            // Voice gender toggle (below orb, smaller)
             HStack(spacing: 0) {
                 Button(action: {
                     HapticManager.shared.selection()
-                    elevenLabsService.setVoice(gender: .male)
+                    edgeTTSService.setVoice(gender: .male)
                 }) {
                     Text("Male")
-                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(isMaleSelected ? selectedTextColor : unselectedTextColor)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
                         .background(
                             Capsule()
                                 .fill(isMaleSelected ? selectedBgColor : Color.clear)
@@ -960,13 +949,13 @@ struct ConversationSearchView: View {
 
                 Button(action: {
                     HapticManager.shared.selection()
-                    elevenLabsService.setVoice(gender: .female)
+                    edgeTTSService.setVoice(gender: .female)
                 }) {
                     Text("Female")
-                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(isFemaleSelected ? selectedTextColor : unselectedTextColor)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
                         .background(
                             Capsule()
                                 .fill(isFemaleSelected ? selectedBgColor : Color.clear)
@@ -974,16 +963,27 @@ struct ConversationSearchView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(4)
+            .padding(3)
             .background(
                 Capsule()
                     .fill(toggleBgColor)
             )
         }
-        .padding(.vertical, 30)
+        .padding(.vertical, 20)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+        .onChange(of: speechService.transcribedText) { newText in
+            // Keep messageText in sync with transcription
+            if !newText.isEmpty && !isProcessingResponse {
+                messageText = newText
+                updateInputHeight()
+            }
+        }
+        .onDisappear {
+            voiceModeListeningPulse = false
+            voiceModeState = .idle
+        }
         .onChange(of: isVoiceMode) { newValue in
             if newValue {
                 voiceModeState = .listening
@@ -1003,12 +1003,12 @@ struct ConversationSearchView: View {
                 if isVoiceMode {
                     print("🎙️ TTS finished - auto-starting recording for next input")
                     isProcessingResponse = false
-                    
+
                     // Auto-start listening after TTS finishes
                     Task {
                         // Small delay to ensure audio session is ready
                         try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s delay
-                        
+
                         // Only start if still in voice mode and not already recording
                         if isVoiceMode && !speechService.isRecording && !isProcessingResponse && !ttsService.isSpeaking {
                             print("🎙️ Auto-resuming recording after TTS")
@@ -1022,71 +1022,6 @@ struct ConversationSearchView: View {
         }
     }
     
-    private var micButtonContent: some View {
-        let accent = Color.claudeAccent
-        let isActive = speechService.isRecording
-        let isProcessing = isProcessingResponse || ttsService.isSpeaking
-        let isDark = colorScheme == .dark
-
-        // Calculate colors based on state
-        let fillColor: Color = {
-            if isActive {
-                return isDark ? accent.opacity(0.25) : accent.opacity(0.18)
-            } else if isProcessing {
-                return isDark ? Color.orange.opacity(0.2) : Color.orange.opacity(0.15)
-            } else {
-                return isDark ? Color.gray.opacity(0.25) : Color.gray.opacity(0.18)
-            }
-        }()
-
-        let strokeColor: Color = {
-            if isActive {
-                return accent.opacity(0.6)
-            } else if isProcessing {
-                return Color.orange.opacity(0.5)
-            } else {
-                return Color.gray.opacity(0.35)
-            }
-        }()
-
-        return ZStack {
-            // Pulse animation rings - show when actively recording (smaller for horizontal layout)
-            if isActive {
-                Circle()
-                    .stroke(accent.opacity(0.35), lineWidth: 2)
-                    .frame(width: 68, height: 68)
-                    .scaleEffect(voiceModeListeningPulse ? 1.3 : 1.0)
-                    .opacity(voiceModeListeningPulse ? 0 : 0.6)
-
-                Circle()
-                    .stroke(accent.opacity(0.22), lineWidth: 1.5)
-                    .frame(width: 75, height: 75)
-                    .scaleEffect(voiceModeListeningPulse ? 1.4 : 1.0)
-                    .opacity(voiceModeListeningPulse ? 0 : 0.4)
-            }
-
-            // Main button with state-based styling (smaller size)
-            Circle()
-                .fill(fillColor)
-                .frame(width: 60, height: 60)
-                .overlay(
-                    Circle()
-                        .stroke(strokeColor, lineWidth: 2.5)
-                )
-
-            // Icon based on state (smaller size)
-            if isProcessing {
-                Image(systemName: ttsService.isSpeaking ? "waveform" : "hourglass")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(.orange)
-            } else {
-                Image(systemName: isActive ? "mic.fill" : "mic")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(isActive ? accent : .gray)
-            }
-        }
-    }
-
     private var voiceModeStatusText: String {
         // Show clear states with distinct text
         if speechService.isRecording {
@@ -1454,6 +1389,16 @@ struct ConversationMessageView: View {
         return false
     }
 
+    // Check if this is the last assistant message (for typewriter animation)
+    private var isLastAssistantMessage: Bool {
+        guard !message.isUser else { return false }
+        if let lastMessage = searchService.conversationHistory.last,
+           lastMessage.id == message.id {
+            return true
+        }
+        return false
+    }
+
 
     private var previousUserMessage: String? {
         guard let index = searchService.conversationHistory.firstIndex(where: { $0.id == message.id }) else {
@@ -1762,7 +1707,11 @@ struct ConversationMessageView: View {
                                     .lineLimit(nil)
                             }
                         } else if hasComplexFormatting && !message.isUser {
-                            MarkdownText(markdown: content, colorScheme: colorScheme)
+                            AnimatedMessageText(
+                                markdown: content,
+                                colorScheme: colorScheme,
+                                isNewMessage: isLastAssistantMessage && !isStreaming
+                            )
                         } else if !message.isUser {
                             SimpleTextWithPhoneLinks(text: content, colorScheme: colorScheme)
                         } else {

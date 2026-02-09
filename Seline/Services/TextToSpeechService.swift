@@ -7,27 +7,27 @@ class TextToSpeechService: NSObject, ObservableObject {
     static let shared = TextToSpeechService()
     
     private let synthesizer = AVSpeechSynthesizer()
-    private let elevenLabsService = ElevenLabsTTSService.shared
+    private let edgeTTSService = EdgeTTSService.shared
     @Published var isSpeaking = false
     var onSpeechFinished: (() -> Void)?
-    
+
     // Queue for incremental speech (like ChatGPT)
     private var speechQueue: [String] = []
     private var isProcessingQueue = false
-    
-    // Use ElevenLabs if available, otherwise fall back to system TTS
-    private var useElevenLabs: Bool {
-        elevenLabsService.isAvailable
+
+    // Use EdgeTTS first (free, high quality), fall back to Apple AVSpeech
+    private var useEdgeTTS: Bool {
+        edgeTTSService.isAvailable
     }
-    
+
     private var cancellables = Set<AnyCancellable>()
-    
+
     private override init() {
         super.init()
         synthesizer.delegate = self
-        
-        // Observe ElevenLabs speaking state
-        elevenLabsService.$isSpeaking
+
+        // Observe EdgeTTS speaking state
+        edgeTTSService.$isSpeaking
             .sink { [weak self] isSpeaking in
                 self?.isSpeaking = isSpeaking
             }
@@ -38,14 +38,14 @@ class TextToSpeechService: NSObject, ObservableObject {
         // Stop any current speech
         stopSpeaking()
 
-        // Use ElevenLabs if available
-        if useElevenLabs {
+        // Use EdgeTTS if available (free, high quality)
+        if useEdgeTTS {
             onSpeechFinished = completion
-            elevenLabsService.onSpeechFinished = { [weak self] in
+            edgeTTSService.onSpeechFinished = { [weak self] in
                 self?.onSpeechFinished?()
                 self?.onSpeechFinished = nil
             }
-            elevenLabsService.speak(text, completion: nil)
+            edgeTTSService.speak(text, completion: nil)
             isSpeaking = true
             return
         }
@@ -117,8 +117,8 @@ class TextToSpeechService: NSObject, ObservableObject {
     }
     
     func stopSpeaking() {
-        if useElevenLabs {
-            elevenLabsService.stopSpeaking()
+        if useEdgeTTS {
+            edgeTTSService.stopSpeaking()
         } else {
             if synthesizer.isSpeaking {
                 synthesizer.stopSpeaking(at: .immediate)
@@ -134,17 +134,17 @@ class TextToSpeechService: NSObject, ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         
-        // Use ElevenLabs if available
-        if useElevenLabs {
-            // Bridge ElevenLabs queue completion into our onSpeechFinished callback.
+        // Use EdgeTTS if available (free, high quality)
+        if useEdgeTTS {
+            // Bridge EdgeTTS queue completion into our onSpeechFinished callback.
             // This is critical for voice mode UX (resume listening after the assistant finishes speaking).
-            if onSpeechFinished != nil && elevenLabsService.onSpeechFinished == nil {
-                elevenLabsService.onSpeechFinished = { [weak self] in
+            if onSpeechFinished != nil && edgeTTSService.onSpeechFinished == nil {
+                edgeTTSService.onSpeechFinished = { [weak self] in
                     self?.onSpeechFinished?()
                     self?.onSpeechFinished = nil
                 }
             }
-            elevenLabsService.speakIncremental(trimmed)
+            edgeTTSService.speakIncremental(trimmed)
             return
         }
         
@@ -223,8 +223,8 @@ class TextToSpeechService: NSObject, ObservableObject {
 
 extension TextToSpeechService: AVSpeechSynthesizerDelegate {
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        // Only handle system TTS callbacks (ElevenLabs handles its own)
-        guard !useElevenLabs else { return }
+        // Only handle system TTS callbacks (EdgeTTS handles its own)
+        guard !useEdgeTTS else { return }
 
         isSpeaking = false
 
@@ -245,8 +245,8 @@ extension TextToSpeechService: AVSpeechSynthesizerDelegate {
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        // Only handle system TTS callbacks
-        guard !useElevenLabs else { return }
+        // Only handle system TTS callbacks (EdgeTTS handles its own)
+        guard !useEdgeTTS else { return }
 
         isSpeaking = false
         speechQueue.removeAll()

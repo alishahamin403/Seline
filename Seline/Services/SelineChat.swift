@@ -77,9 +77,7 @@ class SelineChat: ObservableObject {
         // Get response
         let response: String
         if streaming {
-            // TEMPORARY: Disable streaming for debugging
-            response = await getNonStreamingResponse(systemPrompt: systemPrompt, messages: messages)
-            // response = await getStreamingResponse(systemPrompt: systemPrompt, messages: messages)
+            response = await getStreamingResponse(systemPrompt: systemPrompt, messages: messages)
         } else {
             response = await getNonStreamingResponse(systemPrompt: systemPrompt, messages: messages)
         }
@@ -347,6 +345,10 @@ class SelineChat: ObservableObject {
         - If details seem incomplete, ask for clarification: "What time works for you?"
         - NEVER say "Just to confirm, you'd like to..." - the card handles confirmation
 
+        🧩 COMPLEX QUESTIONS:
+        For complex questions, think step by step but keep your spoken answer to 2-3 sentences with the key findings.
+        If the context doesn't have enough data to fully answer, say what you CAN answer and what's missing.
+
         🎯 VOICE MODE OUTPUT RULES (HOW TO RESPOND):
         - Keep responses to 2-3 sentences max. This is spoken conversation, not an essay.
         - Use natural, casual language like you're talking to a friend
@@ -501,6 +503,13 @@ class SelineChat: ObservableObject {
         - If context shows "50 matches" but the user asks for "all receipts", note there may be more
         - If email data is limited to recent days, mention: "I have emails from the last 30 days"
         - Be transparent about data boundaries when relevant to the question
+
+        🧩 COMPLEX QUESTION REASONING:
+        For complex questions that involve multiple data types or time periods:
+        1. First identify all the data points available in context
+        2. Then synthesize connections between them
+        3. Present the answer with clear structure
+        If the context doesn't have enough data to fully answer, say what you CAN answer and what's missing.
 
         🎯 ACCURACY IS EVERYTHING:
         - Only use data from the context below. Never guess or make up information.

@@ -78,8 +78,8 @@ class VectorContextBuilder {
         formatter.dateStyle = .full
         formatter.timeStyle = .none
 
-        // Build context from conversation history (last 3 messages for efficiency)
-        let recentHistory = conversationHistory.suffix(3)
+        // Build context from conversation history (last 5 messages for better follow-up context)
+        let recentHistory = conversationHistory.suffix(5)
         let contextSummary = recentHistory.isEmpty ? "" : """
 
         CONVERSATION CONTEXT (recent messages for context):
@@ -118,6 +118,10 @@ class VectorContextBuilder {
         - Set limit based on expected data volume (e.g., 200 for "all receipts last month", 20 for "emails from yesterday")
         - When user asks for "all" or wants totals/summaries, use higher limits (200-500)
         - IMPORTANT: For follow-up questions, use the conversation context to infer missing details (e.g., if previous message was about "car expenses", and user asks "how about in Feb", continue searching for car expenses)
+        - MULTI-TOPIC: For questions spanning multiple topics (e.g., "gym visits and coffee spending"), create SEPARATE searches for each topic
+        - CROSS-REFERENCING: For questions about people or entities, search across visits, events, emails, and notes to build a complete picture
+        - COMPARISONS: For time comparisons (e.g., "this month vs last month"), use higher limits (200+) to ensure complete data for accurate totals
+        - FOLLOW-UP INTELLIGENCE: If the conversation context discusses a specific topic, strongly infer that follow-up questions relate to that same topic even when not explicitly stated
 
         Examples:
 

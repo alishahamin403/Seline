@@ -69,7 +69,7 @@ class GeminiService: ObservableObject {
         messages: [Message],
         model: String = "gemini-2.5-flash-lite",  // Flash-Lite: 33% cheaper than Flash ($0.10/$0.40 per 1M tokens vs $0.15/$0.60)
         temperature: Double = 0.6,
-        maxTokens: Int = 1024,  // Reduced from 2048 for cost optimization (most responses don't need 2K tokens)
+        maxTokens: Int = 1536,  // Balanced: enough for complex answers, still cost-conscious
         operationType: String? = nil
     ) async throws -> Response {
         let request = Request(
