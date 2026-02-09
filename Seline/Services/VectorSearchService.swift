@@ -294,8 +294,9 @@ class VectorSearchService: ObservableObject {
     func syncAllEmbeddings() async {
         isIndexing = true
         defer { isIndexing = false }
-        
+
         print("🔄 Starting embedding sync...")
+        print("⚠️  NOTE: Embedding sync requires 'embeddings-proxy' edge function to be deployed")
         let startTime = Date()
         
         do {

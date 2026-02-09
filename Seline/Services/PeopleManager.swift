@@ -67,11 +67,13 @@ class PeopleManager: ObservableObject {
             self.invalidatePeopleCache()
         }
 
-        // Sync with Supabase
+        // Sync with Supabase (non-blocking)
         Task {
             await savePersonToSupabase(person)
-            // Immediately embed the new person
-            await VectorSearchService.shared.syncEmbeddingsImmediately()
+            // Immediately embed the new person (non-blocking)
+            Task {
+                await VectorSearchService.shared.syncEmbeddingsImmediately()
+            }
         }
     }
 
@@ -92,8 +94,10 @@ class PeopleManager: ObservableObject {
             await savePersonToSupabase(person)
         }
 
-        // Single embeddings sync at the end
-        await VectorSearchService.shared.syncEmbeddingsImmediately()
+        // Single embeddings sync at the end (non-blocking - run in background)
+        Task {
+            await VectorSearchService.shared.syncEmbeddingsImmediately()
+        }
 
         print("✅ Batch imported \(people.count) people")
     }
@@ -110,11 +114,13 @@ class PeopleManager: ObservableObject {
             }
         }
         
-        // Sync with Supabase
+        // Sync with Supabase (non-blocking)
         Task {
             await updatePersonInSupabase(person)
-            // Immediately embed the updated person
-            await VectorSearchService.shared.syncEmbeddingsImmediately()
+            // Immediately embed the updated person (non-blocking)
+            Task {
+                await VectorSearchService.shared.syncEmbeddingsImmediately()
+            }
         }
     }
     
