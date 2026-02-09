@@ -1443,8 +1443,8 @@ struct ConversationMessageView: View {
 
                     messageContent
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, message.isUser ? 14 : 0)
+                        .padding(.vertical, message.isUser ? 12 : 4)
                         .background(messageBackground)
                         .overlay(messageBorder)
                         .contentShape(Rectangle())
@@ -1481,8 +1481,8 @@ struct ConversationMessageView: View {
                         Spacer()
                     }
                 }
-                .padding(.leading, message.isUser ? 40 : 16)
-                .padding(.trailing, 16)
+                .padding(.leading, message.isUser ? 48 : 16)
+                .padding(.trailing, message.isUser ? 16 : 16)
             }
         }
         .alert(isPresented: $showingEventCreationResult) {
