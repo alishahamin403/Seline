@@ -424,7 +424,7 @@ async function generateEmbedding(text: string, useCache: boolean = false): Promi
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: 'models/text-embedding-004',
+                model: 'text-embedding-004',
                 content: {
                     parts: [{
                         text: truncatedText
@@ -488,7 +488,7 @@ async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
 
     // Gemini batch API
     const requests = truncatedTexts.map(text => ({
-        model: 'models/text-embedding-004',
+        model: 'text-embedding-004',
         content: {
             parts: [{
                 text: text
