@@ -1,7 +1,7 @@
 /**
  * Embeddings Proxy Edge Function
  *
- * Generates vector embeddings using Google Gemini's text-embeddings-004 model.
+ * Generates vector embeddings using Google Gemini's gemini-embedding-001 model.
  * This is used for semantic search across notes, emails, tasks, locations, receipts, visits, and people.
  *
  * Features:
@@ -18,7 +18,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 // Configuration
-const EMBEDDING_DIMENSIONS = 768 // Gemini text-embeddings-004 uses 768 dimensions
+const EMBEDDING_DIMENSIONS = 768 // Gemini gemini-embedding-001 uses 768 dimensions
 
 // Query embedding cache (in-memory, resets on function restart)
 const queryEmbeddingCache = new Map<string, number[]>()
@@ -417,21 +417,19 @@ async function generateEmbedding(text: string, useCache: boolean = false): Promi
     const truncatedText = text.slice(0, 100000) // ~25K tokens approx
 
     const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`,
         {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: 'text-embedding-004',
                 content: {
                     parts: [{
                         text: truncatedText
                     }]
                 },
-                taskType: 'RETRIEVAL_DOCUMENT',
-                outputDimensionality: EMBEDDING_DIMENSIONS
+                taskType: 'RETRIEVAL_DOCUMENT'
             }),
         }
     )
@@ -488,14 +486,12 @@ async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
 
     // Gemini batch API
     const requests = truncatedTexts.map(text => ({
-        model: 'text-embedding-004',
         content: {
             parts: [{
                 text: text
             }]
         },
-        taskType: 'RETRIEVAL_DOCUMENT',
-        outputDimensionality: EMBEDDING_DIMENSIONS
+        taskType: 'RETRIEVAL_DOCUMENT'
     }))
 
     // Process in smaller batches (Gemini handles up to 100 at once)
@@ -503,7 +499,7 @@ async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
 
     for (const request of requests) {
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`,
             {
                 method: 'POST',
                 headers: {
