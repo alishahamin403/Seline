@@ -417,7 +417,7 @@ async function generateEmbedding(text: string, useCache: boolean = false): Promi
     const truncatedText = text.slice(0, 100000) // ~25K tokens approx
 
     const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`,
         {
             method: 'POST',
             headers: {
@@ -438,8 +438,15 @@ async function generateEmbedding(text: string, useCache: boolean = false): Promi
 
     if (!response.ok) {
         const error = await response.text()
-        console.error('Gemini API error:', error)
-        throw new Error(`Gemini API error: ${response.status}`)
+        console.error('❌ Gemini API error:', {
+            status: response.status,
+            statusText: response.statusText,
+            url: response.url,
+            error: error,
+            apiKeySet: !!apiKey,
+            apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + '...' : 'NOT SET'
+        })
+        throw new Error(`Gemini API error: ${response.status} - ${error}`)
     }
 
     const data = await response.json()
@@ -496,7 +503,7 @@ async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
 
     for (const request of requests) {
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`,
             {
                 method: 'POST',
                 headers: {
@@ -508,8 +515,12 @@ async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
 
         if (!response.ok) {
             const error = await response.text()
-            console.error('Gemini API error:', error)
-            throw new Error(`Gemini API error: ${response.status}`)
+            console.error('❌ Gemini batch API error:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: error
+            })
+            throw new Error(`Gemini API error: ${response.status} - ${error}`)
         }
 
         const data = await response.json()
