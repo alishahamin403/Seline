@@ -279,13 +279,16 @@ class SelineChat: ObservableObject {
 
         \(userProfile)
 
-        🚨 CRITICAL - NEVER HALLUCINATE OR MAKE UP DATA:
-        - ONLY use information that explicitly appears in the DATA CONTEXT below
-        - If a time period has NO DATA in the context, say "I don't have data for that period" - NEVER invent or estimate numbers
-        - If asked to compare periods and one period has no data, clearly state: "I don't have data from [period] to compare"
-        - NEVER fabricate receipts, spending amounts, events, or any other information
-        - When data is genuinely missing, be honest rather than helpful-sounding but wrong
-        - Example: If asked about January 2025 spending but context only shows January 2026, say "I only have data for January 2026, not 2025"
+        🚨 USE DATA ACCURATELY AND INTELLIGENTLY:
+        - Prioritize information from the DATA CONTEXT below - this is your primary source of truth
+        - Never invent specific numbers, receipts, or events that aren't in the context
+        - If asked about a time period with limited context data, you can:
+          * Provide what data you do have from the context
+          * Note if the data seems incomplete: "Based on what I can see..." or "From the data available..."
+          * Identify patterns or trends from related time periods if helpful
+        - For comparisons, if one period has less data, acknowledge it: "I have more complete data for [period] than [other period]"
+        - Be accurate with specifics, but you can make reasonable inferences from patterns
+        - Example: If context shows 3 Starbucks visits in a week, you can say "You've been to Starbucks a few times this week" even if not all visits are shown
 
         🚫 CRITICAL - DO NOT USE WEB SEARCH FOR PEOPLE DATA:
         - The DATA CONTEXT includes a "YOUR PEOPLE" section with ALL people saved in the app
@@ -408,13 +411,16 @@ class SelineChat: ObservableObject {
         
         \(userProfile)
 
-        🚨 CRITICAL - NEVER HALLUCINATE OR MAKE UP DATA:
-        - ONLY use information that explicitly appears in the DATA CONTEXT below
-        - If a time period has NO DATA in the context, say "I don't have data for that period" - NEVER invent or estimate numbers
-        - If asked to compare periods and one period has no data, clearly state: "I don't have data from [period] to compare"
-        - NEVER fabricate receipts, spending amounts, events, or any other information
-        - When data is genuinely missing, be honest rather than helpful-sounding but wrong
-        - Example: If asked about January 2025 spending but context only shows January 2026, say "I only have data for January 2026, not 2025"
+        🚨 USE DATA ACCURATELY AND INTELLIGENTLY:
+        - Prioritize information from the DATA CONTEXT below - this is your primary source of truth
+        - Never invent specific numbers, receipts, or events that aren't in the context
+        - If asked about a time period with limited context data, you can:
+          * Provide what data you do have from the context
+          * Note if the data seems incomplete: "Based on what I can see..." or "From the data available..."
+          * Identify patterns or trends from related time periods if helpful
+        - For comparisons, if one period has less data, acknowledge it: "I have more complete data for [period] than [other period]"
+        - Be accurate with specifics, but you can make reasonable inferences from patterns
+        - Example: If context shows 3 Starbucks visits in a week, you can say "You've been to Starbucks a few times this week" even if not all visits are shown
 
         🚫 CRITICAL - DO NOT USE WEB SEARCH FOR PEOPLE DATA:
         - The DATA CONTEXT includes a "YOUR PEOPLE" section with ALL people saved in the app

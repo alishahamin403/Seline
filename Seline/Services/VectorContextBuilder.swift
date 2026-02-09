@@ -78,8 +78,8 @@ class VectorContextBuilder {
         formatter.dateStyle = .full
         formatter.timeStyle = .none
 
-        // Build context from conversation history (last 5 messages for better follow-up context)
-        let recentHistory = conversationHistory.suffix(5)
+        // Build context from conversation history (last 15 messages for better follow-up context)
+        let recentHistory = conversationHistory.suffix(15)
         let contextSummary = recentHistory.isEmpty ? "" : """
 
         CONVERSATION CONTEXT (recent messages for context):
@@ -678,8 +678,31 @@ class VectorContextBuilder {
         if !memoryContext.isEmpty {
             context += memoryContext
         }
-        
-        // 3. NEW APPROACH: LLM Query Planning
+
+        // 3. Check for simple date-specific queries that benefit from complete data
+        let lowercasedQuery = query.lowercased()
+        let isSimpleDateQuery = lowercasedQuery.contains("yesterday") ||
+                                lowercasedQuery.contains("today") ||
+                                lowercasedQuery.contains("what did i do") ||
+                                lowercasedQuery.contains("show me everything from") ||
+                                (lowercasedQuery.contains("my day") && !lowercasedQuery.contains("compare"))
+
+        if isSimpleDateQuery {
+            if let dateRange = await extractDateRange(from: query) {
+                print("📅 Detected simple date query, using day completeness context")
+                let completeData = await buildDayCompletenessContext(dateRange: dateRange)
+                if !completeData.isEmpty {
+                    context += completeData
+                    metadata.usedCompleteDayData = true
+
+                    let duration = Date().timeIntervalSince(startTime)
+                    print("⏱️ Context built in \(String(format: "%.2f", duration))s using day completeness")
+                    return ContextResult(contextPrompt: context, metadata: metadata, queryPlanJSON: nil, duration: duration)
+                }
+            }
+        }
+
+        // 4. NEW APPROACH: LLM Query Planning (if not handled by day completeness)
         print("📋 Generating query plan...")
         if let queryPlan = await generateQueryPlan(for: query, conversationHistory: conversationHistory) {
             print("✅ Query plan generated with \(queryPlan.searches.count) searches")
@@ -694,7 +717,7 @@ class VectorContextBuilder {
                 // Fallback to vector search if no results
                 let relevantContext = try? await vectorSearch.getRelevantContext(
                     forQuery: query,
-                    limit: 50,
+                    limit: determineSearchLimit(forQuery: query),
                     dateRange: nil
                 )
                 if let relevantContext = relevantContext, !relevantContext.isEmpty {
@@ -708,7 +731,7 @@ class VectorContextBuilder {
             do {
                 let relevantContext = try await vectorSearch.getRelevantContext(
                     forQuery: query,
-                    limit: 50,
+                    limit: determineSearchLimit(forQuery: query),
                     dateRange: nil
                 )
                 if !relevantContext.isEmpty {
