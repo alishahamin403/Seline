@@ -155,6 +155,9 @@ extension CacheManager {
         static func locationStats(_ placeId: String) -> String {
             return "cache.location.stats.\(placeId)"
         }
+        static func visitHistory(_ placeId: String) -> String {
+            return "cache.visits.history.\(placeId)"
+        }
         
         // Maps/Locations
         static let topLocations = "cache.maps.topLocations"

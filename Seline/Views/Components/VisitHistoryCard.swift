@@ -127,8 +127,9 @@ struct VisitHistoryCard: View {
     private func loadVisitHistory() {
         isLoading = true
         Task {
-            // Fetch with a high limit to get all visits (10000 should be enough for most cases)
-            let fetchedHistory = await LocationVisitAnalytics.shared.fetchVisitHistory(for: place.id, limit: 10000)
+            // OPTIMIZATION: Fetch reasonable amount of visits (500 is plenty for history view)
+            // This is now cached so repeated loads are instant
+            let fetchedHistory = await LocationVisitAnalytics.shared.fetchVisitHistory(for: place.id, limit: 500)
             await MainActor.run {
                 visitHistory = fetchedHistory
                 // Group visits by date

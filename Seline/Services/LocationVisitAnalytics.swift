@@ -146,12 +146,18 @@ class LocationVisitAnalytics: ObservableObject {
     }
     
     /// CRITICAL: Handles midnight-spanning visits by splitting them and deduplicating
-    /// Always fetches fresh data from database to ensure accuracy with calendar view and home widget
+    /// Uses caching to improve performance with 2-minute TTL
     /// Uses the same query pattern as calendar view but filtered by location
     func fetchVisitHistory(for placeId: UUID, limit: Int = 20) async -> [VisitHistoryItem] {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             errorMessage = "User not authenticated"
             return []
+        }
+
+        // OPTIMIZATION: Check cache first with 2-minute TTL for fast repeated loads
+        let cacheKey = CacheManager.CacheKey.visitHistory(placeId.uuidString)
+        if let cachedHistory: [VisitHistoryItem] = CacheManager.shared.get(forKey: cacheKey) {
+            return cachedHistory
         }
 
         do {
@@ -166,10 +172,10 @@ class LocationVisitAnalytics: ObservableObject {
                 .eq("saved_place_id", value: placeId.uuidString)
                 .order("entry_time", ascending: false)
                 .execute()
-            
+
             let decoder = JSONDecoder.supabaseDecoder()
             let rawVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
-            
+
             let place = LocationsManager.shared.savedPlaces.first { $0.id == placeId }
 
             // CRITICAL: Use shared processing function to ensure consistency across all views
@@ -199,12 +205,17 @@ class LocationVisitAnalytics: ObservableObject {
                 .sorted { $0.entryTime > $1.entryTime }
                 .prefix(limit)
 
-            return sortedVisits.map { visit in
+            let historyItems = sortedVisits.map { visit in
                 VisitHistoryItem(
                     visit: visit,
                     placeName: place?.displayName ?? "Unknown Location"
                 )
             }
+
+            // OPTIMIZATION: Cache results with 2-minute TTL for fast repeated loads
+            CacheManager.shared.set(historyItems, forKey: cacheKey, ttl: CacheManager.TTL.medium)
+
+            return historyItems
         } catch {
             errorMessage = "Failed to fetch visit history: \(error.localizedDescription)"
             return []
@@ -466,9 +477,10 @@ class LocationVisitAnalytics: ObservableObject {
     /// Invalidate cache for a specific place (call when visit is recorded/updated)
     func invalidateCache(for placeId: UUID) {
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.locationStats(placeId.uuidString))
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.visitHistory(placeId.uuidString))
         // Also invalidate today's visits since it aggregates all locations
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
-        print("🔄 Invalidated stats cache for place \(placeId)")
+        print("🔄 Invalidated stats & history cache for place \(placeId)")
     }
 
     /// Invalidate all cached stats
@@ -483,21 +495,24 @@ class LocationVisitAnalytics: ObservableObject {
     func invalidateAllVisitCaches() {
         // Invalidate today's visits cache (used by home page Today's Activity)
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
-        
+
         // Invalidate calendar day cache for today (used by LocationTimelineView)
         let dayFormatter = DateFormatter()
         dayFormatter.dateFormat = "yyyy-MM-dd"
         let todayKey = dayFormatter.string(from: Date())
         CacheManager.shared.invalidate(forKey: "cache.visits.day.\(todayKey)")
-        
+
         // Invalidate all location stats caches
         CacheManager.shared.invalidate(keysWithPrefix: "cache.location")
-        
+
         // Invalidate all day caches (for calendar view)
         CacheManager.shared.invalidate(keysWithPrefix: "cache.visits.day")
-        
-        print("🔄 Invalidated all visit caches (today's activity, calendar, location stats)")
-        
+
+        // Invalidate all visit history caches
+        CacheManager.shared.invalidate(keysWithPrefix: "cache.visits.history")
+
+        print("🔄 Invalidated all visit caches (today's activity, calendar, location stats, visit history)")
+
         // Post notification to refresh UI
         NotificationCenter.default.post(name: NSNotification.Name("VisitHistoryUpdated"), object: nil)
     }

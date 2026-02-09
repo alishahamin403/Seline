@@ -9,7 +9,7 @@
  * - Content hashing to avoid re-embedding unchanged content
  * - Automatic storage in document_embeddings table
  * - Support for semantic search queries
- * - 768-dimension embeddings (Gemini standard) for better search quality
+ * - 3072-dimension embeddings (Gemini high quality) for better search quality
  * - In-memory query cache for repeated searches
  * - FREE with generous quota limits
  */
@@ -18,7 +18,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 // Configuration
-const EMBEDDING_DIMENSIONS = 768 // Gemini gemini-embedding-001 uses 768 dimensions
+const EMBEDDING_DIMENSIONS = 3072 // Gemini gemini-embedding-001 uses 3072 dimensions (high quality)
 
 // Query embedding cache (in-memory, resets on function restart)
 const queryEmbeddingCache = new Map<string, number[]>()

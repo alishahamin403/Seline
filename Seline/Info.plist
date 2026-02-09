@@ -86,7 +86,7 @@
     <key>NSCalendarsUsageDescription</key>
     <string>Seline needs access to your calendar to help manage your events and schedule.</string>
     <key>NSContactsUsageDescription</key>
-    <string>Seline needs access to your contacts to help with email management and suggestions.</string>
+    <string>Seline needs access to your contacts to import people into your People page and help with email management.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Seline needs access to your microphone for voice commands and email dictation.</string>
     <key>NSSpeechRecognitionUsageDescription</key>

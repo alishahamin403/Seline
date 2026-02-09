@@ -367,6 +367,16 @@ struct MapsViewNew: View, Searchable {
                 }
             }
         }
+        .refreshable {
+            // Activate search when user pulls down
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isLocationSearchActive = true
+            }
+            // Small delay then focus keyboard
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isSearchFocused = true
+            }
+        }
         .background(
             (colorScheme == .dark ? Color.black : Color.white)
                 .ignoresSafeArea()
