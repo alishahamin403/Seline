@@ -694,10 +694,10 @@ class VectorContextBuilder {
                 if !completeData.isEmpty {
                     context += completeData
                     metadata.usedCompleteDayData = true
+                    metadata.buildTime = Date().timeIntervalSince(startTime)
 
-                    let duration = Date().timeIntervalSince(startTime)
-                    print("⏱️ Context built in \(String(format: "%.2f", duration))s using day completeness")
-                    return ContextResult(contextPrompt: context, metadata: metadata, queryPlanJSON: nil, duration: duration)
+                    print("⏱️ Context built in \(String(format: "%.2f", metadata.buildTime))s using day completeness")
+                    return ContextResult(context: context, metadata: metadata)
                 }
             }
         }
