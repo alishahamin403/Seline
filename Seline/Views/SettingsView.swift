@@ -19,9 +19,6 @@ struct SettingsView: View {
     @State private var showingLocationInfo = false
     @State private var profilePictureUrl: String? = nil
     @State private var showingCalendarSelection = false
-    @State private var isResyncingEmbeddings = false
-    @State private var showResyncSuccess = false
-    @StateObject private var vectorSearchService = VectorSearchService.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -193,11 +190,8 @@ struct SettingsView: View {
                             .padding(.vertical, 14)
                         }
 
-                        Divider()
-                            .padding(.leading, 50)
-
-                        // Re-sync Embeddings Button
-                        resyncEmbeddingsButton
+                         Divider()
+                             .padding(.leading, 50)
 
                         settingsMenuItemLogout
                     }
@@ -416,65 +410,6 @@ struct SettingsView: View {
             // Silently fail - will show initials fallback
             print("Failed to fetch current user profile picture: \(error)")
         }
-    }
-
-    // MARK: - Re-sync Embeddings Button
-    private var resyncEmbeddingsButton: some View {
-        Button(action: {
-            Task {
-                isResyncingEmbeddings = true
-
-                // Delete all embeddings by triggering a full re-sync
-                await vectorSearchService.syncAllEmbeddings()
-
-                isResyncingEmbeddings = false
-                showResyncSuccess = true
-
-                // Hide success message after 3 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                    showResyncSuccess = false
-                }
-            }
-        }) {
-            HStack(spacing: 16) {
-                if isResyncingEmbeddings {
-                    ProgressView()
-                        .frame(width: 24)
-                } else {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(FontManager.geist(size: 16, weight: .regular))
-                        .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
-                        .frame(width: 24)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Re-sync Vector Embeddings")
-                        .font(FontManager.geist(size: 16, weight: .regular))
-                        .foregroundColor(isDarkMode ? .white : .black)
-
-                    if showResyncSuccess {
-                        Text("✓ Synced successfully")
-                            .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(.green)
-                    } else {
-                        Text("Rebuilds search embeddings from scratch")
-                            .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(.gray)
-                    }
-                }
-
-                Spacer()
-
-                if !isResyncingEmbeddings {
-                    Image(systemName: "chevron.right")
-                        .font(FontManager.geist(size: 14, weight: .semibold))
-                        .foregroundColor(.gray.opacity(0.3))
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-        }
-        .disabled(isResyncingEmbeddings)
     }
 
     // MARK: - Logout Menu Item
