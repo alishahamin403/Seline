@@ -1697,7 +1697,7 @@ struct ConversationMessageView: View {
                             if message.isUser {
                                 // User: italic, smaller, light gray
                                 Text(cleanContent)
-                                    .font(FontManager.geist(size: 14, weight: .regular))
+                                    .font(FontManager.geist(size: 13, weight: .regular))
                                     .italic()
                                     .foregroundColor(Color.gray.opacity(0.7))
                                     .multilineTextAlignment(.center)
@@ -1705,7 +1705,7 @@ struct ConversationMessageView: View {
                             } else {
                                 // Assistant: white, centered
                                 Text(cleanContent)
-                                    .font(FontManager.geist(size: 15, weight: .regular))
+                                    .font(FontManager.geist(size: 13, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white : Color.black.opacity(0.8))
                                     .multilineTextAlignment(.center)
                                     .lineLimit(nil)
@@ -1716,7 +1716,7 @@ struct ConversationMessageView: View {
                             SimpleTextWithPhoneLinks(text: content, colorScheme: colorScheme)
                         } else {
                             Text(content)
-                                .font(FontManager.geist(size: 16, weight: .regular))
+                                .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(
                                     message.isUser
                                         ? (colorScheme == .dark ? Color.white.opacity(0.92) : Color.black.opacity(0.88))
@@ -2347,7 +2347,7 @@ struct SimpleTextWithPhoneLinks: View {
 
         if matches.isEmpty {
             Text(text)
-                .font(FontManager.geist(size: 16, weight: .regular))
+                .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(Color.shadcnForeground(colorScheme))
                 .textSelection(.enabled)
                 .lineLimit(nil)

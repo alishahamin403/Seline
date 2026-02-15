@@ -69,7 +69,7 @@ class GeminiService: ObservableObject {
         messages: [Message],
         model: String = "gemini-2.5-flash-lite",  // Flash-Lite: 33% cheaper than Flash ($0.10/$0.40 per 1M tokens vs $0.15/$0.60)
         temperature: Double = 0.6,
-        maxTokens: Int = 1536,  // Balanced: enough for complex answers, still cost-conscious
+        maxTokens: Int = 1024,  // COST OPTIMIZATION: Reduced from 1536 - focuses on concise responses (output tokens are 4x more expensive)
         operationType: String? = nil
     ) async throws -> Response {
         let request = Request(
@@ -149,7 +149,7 @@ class GeminiService: ObservableObject {
         let response = try await chat(
             messages: messages,
             temperature: 0.0,
-            maxTokens: 400,
+            maxTokens: 300,  // COST OPTIMIZATION: Reduced from 400 for concise email summaries
             operationType: "email_summary"
         )
 
@@ -491,7 +491,7 @@ class GeminiService: ObservableObject {
             "contents": geminiContents,
             "generationConfig": [
                 "temperature": 0.6,
-                "maxOutputTokens": 1536
+                "maxOutputTokens": 1024  // COST OPTIMIZATION: Reduced from 1536 for concise streaming responses
             ]
             // NOTE: google_search tool REMOVED - it causes the LLM to web-search
             // instead of using the provided app context data (receipts, visits, etc.)
@@ -651,7 +651,7 @@ class GeminiService: ObservableObject {
         return try await generateText(
             systemPrompt: systemPrompt,
             userPrompt: userMessage,
-            maxTokens: 2000,
+            maxTokens: 1200,  // COST OPTIMIZATION: Reduced from 2000
             temperature: 0.0
         )
     }
@@ -825,7 +825,7 @@ class GeminiService: ObservableObject {
         return try await generateText(
             systemPrompt: systemPrompt,
             userPrompt: processedText,
-            maxTokens: 2000,  // Reduced from 4000 for cost optimization
+            maxTokens: 1200,  // COST OPTIMIZATION: Reduced from 2000 for concise cleanup
             temperature: 0.1
         )
     }
@@ -880,7 +880,7 @@ class GeminiService: ObservableObject {
         return try await generateText(
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
-            maxTokens: 1500,  // Reduced from 4000 - summaries should be concise
+            maxTokens: 1000,  // COST OPTIMIZATION: Reduced from 1500 for concise summaries
             temperature: 0.3
         )
     }
@@ -949,7 +949,7 @@ class GeminiService: ObservableObject {
         return try await generateText(
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
-            maxTokens: 2500,  // Reduced from 4000 for cost optimization
+            maxTokens: 1500,  // COST OPTIMIZATION: Reduced from 2500 for concise additions
             temperature: 0.5
         )
     }

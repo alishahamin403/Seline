@@ -51,9 +51,10 @@ struct EmailDetailView: View {
     }
 
     var body: some View {
+        GeometryReader { geometry in
         ZStack(alignment: .bottom) {
             // Main scrollable content
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: true) {
                 VStack(spacing: 0) {
                     // Subject with Inbox label (Gmail style)
                     gmailSubjectSection
@@ -84,7 +85,7 @@ struct EmailDetailView: View {
                             .padding(.top, 12)
                     }
 
-                    // Original Email Content - Expanded by default
+                    // Original Email Content - Expanded by default, full width
                     gmailEmailBodySection
                         .padding(.horizontal, 16)
                         .padding(.top, 12)
@@ -94,6 +95,7 @@ struct EmailDetailView: View {
                         .frame(height: hasAttachments ? 160 : 100)
                 }
                 .padding(.top, 8)
+                .frame(width: geometry.size.width) // CRITICAL: Constrain content to screen width
             }
 
             // Fixed bottom section with attachments + action bar
@@ -107,6 +109,7 @@ struct EmailDetailView: View {
                 gmailBottomActionBar
             }
         }
+        } // GeometryReader
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color(UIColor.systemBackground))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -380,6 +383,7 @@ struct EmailDetailView: View {
                     ZoomableHTMLView(htmlContent: bodyContent, contentHeight: $htmlContentHeight)
                         .frame(height: max(300, htmlContentHeight))
                         .frame(maxWidth: .infinity)
+                        .clipped() // Force content to stay within bounds
                 } else {
                     // Plain text - show full content with proper text selection
                     Text(bodyContent)
@@ -1274,11 +1278,24 @@ struct ZoomableHTMLView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         context.coordinator.parent = self
 
-        // DISABLE internal scrolling - parent ScrollView handles all scrolling
-        webView.scrollView.isScrollEnabled = false
-        webView.scrollView.bounces = false
-        webView.scrollView.showsVerticalScrollIndicator = false
-        webView.scrollView.showsHorizontalScrollIndicator = false
+        // CRITICAL: Set autoresizing mask to ensure WebView fills container properly
+        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+        // Allow scrolling for large content
+        webView.scrollView.isScrollEnabled = true
+        webView.scrollView.bounces = true
+        webView.scrollView.showsVerticalScrollIndicator = true
+        webView.scrollView.showsHorizontalScrollIndicator = true
+        webView.scrollView.contentInset = .zero
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        
+        // Enable pinch-to-zoom functionality with fit-to-width as default
+        webView.scrollView.minimumZoomScale = 0.5
+        webView.scrollView.maximumZoomScale = 5.0
+        webView.scrollView.zoomScale = 1.0
+        
+        // Enable scrolling to top with status bar tap
+        webView.scrollView.scrollsToTop = true
 
         // Disable back/forward navigation gestures that can interfere with toolbar
         webView.allowsBackForwardNavigationGestures = false
@@ -1315,26 +1332,30 @@ struct ZoomableHTMLView: UIViewRepresentable {
         <html>
         <head>
             <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes, shrink-to-fit=yes">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
             <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * data: blob: https: http:;">
             <style>
                 * {
                     box-sizing: border-box !important;
                 }
                 html, body {
-                    margin: 0;
-                    padding: 8px;
-                    width: 100%;
-                    max-width: 100%;
-                    overflow-x: hidden;
+                    margin: 0 !important;
+                    padding: 12px !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    min-width: 0 !important;
+                    overflow-x: auto !important;
+                    position: relative !important;
                     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
                     font-size: 14px;
                     line-height: 1.5;
                     color: \(colorScheme == .dark ? "#ffffff" : "#202124");
                     background-color: transparent;
                     -webkit-text-size-adjust: 100%;
-                    word-wrap: break-word;
-                    overflow-wrap: break-word;
+                    word-wrap: break-word !important;
+                    overflow-wrap: break-word !important;
+                    word-break: break-word !important;
+                    min-height: auto;
                 }
 
                 /* CRITICAL: Force ALL images to fit within viewport and ensure loading */
@@ -1342,8 +1363,9 @@ struct ZoomableHTMLView: UIViewRepresentable {
                     max-width: 100% !important;
                     width: auto !important;
                     height: auto !important;
-                    display: inline-block !important;
+                    display: block !important;
                     object-fit: contain !important;
+                    margin: 8px 0 !important;
                 }
 
                 /* Override inline width/height attributes on images */
@@ -1353,18 +1375,13 @@ struct ZoomableHTMLView: UIViewRepresentable {
                     height: auto !important;
                 }
 
-                /* Handle broken images with placeholder */
-                img::before {
-                    content: '';
-                    display: block;
-                }
-
                 /* Handle tables - common in email templates */
                 table {
+                    width: 100% !important;
                     max-width: 100% !important;
-                    width: auto !important;
                     table-layout: auto !important;
-                    border-collapse: collapse;
+                    border-collapse: collapse !important;
+                    margin: 12px 0 !important;
                 }
 
                 /* Table cells need to shrink */
@@ -1372,6 +1389,9 @@ struct ZoomableHTMLView: UIViewRepresentable {
                     max-width: 100% !important;
                     word-wrap: break-word !important;
                     overflow-wrap: break-word !important;
+                    word-break: break-word !important;
+                    padding: 8px !important;
+                    border: 1px solid \(colorScheme == .dark ? "#444" : "#ddd") !important;
                 }
 
                 /* Images inside tables */
@@ -1380,33 +1400,45 @@ struct ZoomableHTMLView: UIViewRepresentable {
                     height: auto !important;
                 }
 
-                /* Override any inline width/height styles on any element */
-                [width]:not(input):not(textarea), [style*="width"]:not(input):not(textarea) {
+                /* Base structural elements */
+                div, p, section, article {
                     max-width: 100% !important;
+                    overflow-wrap: break-word !important;
+                    word-wrap: break-word !important;
+                    word-break: break-word !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
                 }
 
-                div, p, span, section, article {
-                    max-width: 100% !important;
-                    overflow-wrap: break-word;
-                    word-wrap: break-word;
+                p {
+                    margin: 12px 0 !important;
+                }
+
+                h1, h2, h3, h4, h5, h6 {
+                    margin: 16px 0 12px 0 !important;
+                    word-wrap: break-word !important;
                 }
 
                 a {
-                    color: #1a73e8;
-                    word-break: break-all;
+                    color: #1a73e8 !important;
+                    word-break: break-word !important;
                 }
 
                 blockquote {
-                    margin: 8px 0;
-                    padding-left: 10px;
-                    border-left: 2px solid \(colorScheme == .dark ? "#444" : "#ccc");
+                    margin: 12px 0 !important;
+                    padding-left: 12px !important;
+                    border-left: 3px solid \(colorScheme == .dark ? "#555" : "#ddd") !important;
+                    opacity: 0.8 !important;
                 }
 
                 pre, code {
-                    white-space: pre-wrap;
-                    word-wrap: break-word;
-                    max-width: 100%;
-                    overflow-x: auto;
+                    white-space: pre-wrap !important;
+                    word-wrap: break-word !important;
+                    max-width: 100% !important;
+                    overflow-x: auto !important;
+                    background-color: \(colorScheme == .dark ? "#1a1a1a" : "#f5f5f5") !important;
+                    padding: 8px !important;
+                    border-radius: 4px !important;
                 }
 
                 /* Hide problematic tracking pixels but keep other images visible */
@@ -1414,21 +1446,45 @@ struct ZoomableHTMLView: UIViewRepresentable {
                 img[width="0"][height="0"] {
                     display: none !important;
                 }
+
+                /* Horizontal rules */
+                hr {
+                    border: none !important;
+                    border-top: 1px solid \(colorScheme == .dark ? "#444" : "#ddd") !important;
+                    margin: 12px 0 !important;
+                }
+
+                /* Support for iframes in email */
+                iframe {
+                    max-width: 100% !important;
+                    width: 100% !important;
+                    height: auto !important;
+                }
+
+                /* List styles */
+                ul, ol {
+                    margin: 12px 0 !important;
+                    padding-left: 24px !important;
+                }
+
+                li {
+                    margin: 4px 0 !important;
+                }
             </style>
             <script>
-                // Force resize any oversized images after load and handle image loading
-                document.addEventListener('DOMContentLoaded', function() {
+                // Ensure all content fits properly and measure height
+                function formatEmailContent() {
+                    // Remove fixed dimensions from all images
                     var images = document.querySelectorAll('img');
                     images.forEach(function(img) {
-                        // Remove fixed dimensions
                         img.removeAttribute('width');
                         img.removeAttribute('height');
                         img.style.maxWidth = '100%';
                         img.style.height = 'auto';
+                        img.style.width = 'auto';
 
-                        // Handle image load errors
+                        // Handle image load errors with retry logic
                         img.onerror = function() {
-                            // Try loading without referrer for privacy-blocked images
                             if (!this.dataset.retried && this.src) {
                                 this.dataset.retried = 'true';
                                 var originalSrc = this.src;
@@ -1446,16 +1502,39 @@ struct ZoomableHTMLView: UIViewRepresentable {
                             img.src = src;
                         }
                     });
-                });
 
-                // Also handle images that load after DOMContentLoaded
-                window.addEventListener('load', function() {
-                    var images = document.querySelectorAll('img');
-                    images.forEach(function(img) {
-                        img.style.maxWidth = '100%';
-                        img.style.height = 'auto';
+                    // Fix tables to fit width
+                    var tables = document.querySelectorAll('table');
+                    tables.forEach(function(table) {
+                        table.removeAttribute('width');
+                        table.style.width = '100%';
+                        table.style.maxWidth = '100%';
+                        table.style.tableLayout = 'auto';
                     });
+
+                    // Ensure all divs and containers fit
+                    var containers = document.querySelectorAll('div, section, article, td, th');
+                    containers.forEach(function(el) {
+                        if (el.style.width && el.style.width !== '100%') {
+                            el.style.maxWidth = '100%';
+                        }
+                    });
+                }
+
+                // Initial formatting on DOMContentLoaded
+                document.addEventListener('DOMContentLoaded', formatEmailContent);
+                
+                // Apply formatting on window load as well
+                window.addEventListener('load', function() {
+                    formatEmailContent();
+                    // Return total height for SwiftUI
+                    return document.body.scrollHeight;
                 });
+                
+                // Monitor for dynamic content changes
+                setTimeout(function() {
+                    formatEmailContent();
+                }, 500);
             </script>
         </head>
         <body>
@@ -1488,49 +1567,71 @@ struct ZoomableHTMLView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Strip inline width/height from images and get content height
-            let jsFixAndMeasure = """
-            (function() {
-                var images = document.querySelectorAll('img');
-                images.forEach(function(img) {
-                    img.removeAttribute('width');
-                    img.removeAttribute('height');
-                    img.style.maxWidth = '100%';
-                    img.style.height = 'auto';
-                    img.style.width = 'auto';
-                });
+             // Format content and measure height after page load
+             let jsFixAndMeasure = """
+             (function() {
+                 // Remove fixed dimensions from all images
+                 var images = document.querySelectorAll('img');
+                 images.forEach(function(img) {
+                     img.removeAttribute('width');
+                     img.removeAttribute('height');
+                     img.style.maxWidth = '100%';
+                     img.style.height = 'auto';
+                     img.style.width = 'auto';
+                 });
 
-                var tables = document.querySelectorAll('table');
-                tables.forEach(function(table) {
-                    table.removeAttribute('width');
-                    table.style.maxWidth = '100%';
-                    table.style.width = 'auto';
-                });
+                 // Fix tables to fit width
+                 var tables = document.querySelectorAll('table');
+                 tables.forEach(function(table) {
+                     table.removeAttribute('width');
+                     table.style.maxWidth = '100%';
+                     table.style.width = '100%';
+                 });
 
-                // Return the document height
-                return document.body.scrollHeight;
-            })();
-            """
+                 // Fix containers
+                 var containers = document.querySelectorAll('div, section, article, td, th');
+                 containers.forEach(function(el) {
+                     if (el.style.width && el.style.width !== '100%') {
+                         el.style.maxWidth = '100%';
+                     }
+                 });
 
-            webView.evaluateJavaScript(jsFixAndMeasure) { [weak self] height, _ in
-                if let contentHeight = height as? CGFloat, contentHeight > 0 {
-                    DispatchQueue.main.async {
-                        self?.parent?.contentHeight = contentHeight
-                    }
-                }
-            }
+                 // Return the document height (add padding for safety)
+                 var height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+                 return height;
+             })();
+             """
 
-            // Also observe for dynamic content changes (images loading, etc.)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                webView.evaluateJavaScript("document.body.scrollHeight") { [weak self] height, _ in
-                    if let contentHeight = height as? CGFloat, contentHeight > 0 {
-                        DispatchQueue.main.async {
-                            self?.parent?.contentHeight = contentHeight
-                        }
-                    }
-                }
-            }
-        }
+             webView.evaluateJavaScript(jsFixAndMeasure) { [weak self] height, _ in
+                 if let contentHeight = height as? CGFloat, contentHeight > 0 {
+                     DispatchQueue.main.async {
+                         self?.parent?.contentHeight = max(300, contentHeight)
+                     }
+                 }
+             }
+
+             // Additional measurement for images that load asynchronously
+             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                 webView.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] height, _ in
+                     if let contentHeight = height as? CGFloat, contentHeight > 300 {
+                         DispatchQueue.main.async {
+                             self?.parent?.contentHeight = contentHeight
+                         }
+                     }
+                 }
+             }
+             
+             // Final measurement after images load
+             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                 webView.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] height, _ in
+                     if let contentHeight = height as? CGFloat, contentHeight > 0 {
+                         DispatchQueue.main.async {
+                             self?.parent?.contentHeight = max(300, contentHeight)
+                         }
+                     }
+                 }
+             }
+         }
     }
 }
 

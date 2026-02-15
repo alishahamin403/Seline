@@ -277,22 +277,27 @@ async function handleSearch(supabase: any, userId: string, request: EmbeddingReq
                 if (!docDate) {
                     // If we can't extract a date and a range is specified, exclude it
                     // (unless it's a document type that doesn't have dates)
+                    console.log(`🔍 Date filter: Excluding ${doc.document_type}/${doc.title} - no date found`)
                     return false
                 }
-                
+
                 if (request.date_range_start) {
                     const rangeStart = new Date(request.date_range_start)
                     if (docDate < rangeStart) {
+                        console.log(`🔍 Date filter: Excluding ${doc.document_type}/${doc.title} - ${docDate.toISOString()} < ${rangeStart.toISOString()}`)
                         return false
                     }
                 }
-                
+
                 if (request.date_range_end) {
                     const rangeEnd = new Date(request.date_range_end)
                     if (docDate >= rangeEnd) {
+                        console.log(`🔍 Date filter: Excluding ${doc.document_type}/${doc.title} - ${docDate.toISOString()} >= ${rangeEnd.toISOString()}`)
                         return false
                     }
                 }
+
+                console.log(`✅ Date filter: Including ${doc.document_type}/${doc.title} - ${docDate.toISOString()} within range`)
             }
             
             return true
@@ -312,6 +317,11 @@ async function handleSearch(supabase: any, userId: string, request: EmbeddingReq
 
             // Calculate cosine similarity
             const similarity = cosineSimilarity(queryEmbedding, docEmbedding)
+
+            // Debug logging for similarity scores
+            if (doc.title?.toLowerCase().includes('pizza') || doc.content?.toLowerCase().includes('pizza')) {
+                console.log(`🍕 Pizza document similarity: ${doc.title} = ${(similarity * 100).toFixed(1)}%`)
+            }
 
             return {
                 document_type: doc.document_type,

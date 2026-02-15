@@ -212,16 +212,18 @@ struct EmailView: View, Searchable {
     @ViewBuilder
     private func headerSection(topPadding: CGFloat) -> some View {
         VStack(spacing: 0) {
-            // Tab selector and buttons
-            tabSelectorSection(topPadding: topPadding)
+            // Tab selector and buttons (hide when search is active)
+            if !isSearchActive {
+                tabSelectorSection(topPadding: topPadding)
+            }
 
             // Search bar - show when search is active (but not on events tab)
             if isSearchActive && selectedTab != .events {
-                searchBarSection(topPadding: 0)
+                searchBarSection(topPadding: topPadding)
             }
 
-            // Category filter slider - hide in events tab
-            if selectedTab != .events {
+            // Category filter slider - hide in events tab or when search is active
+            if selectedTab != .events && !isSearchActive {
                 EmailCategoryFilterView(selectedCategory: $selectedCategory)
                     .onChange(of: selectedCategory) { _ in
                         // Category change doesn't require reloading data, just filtering

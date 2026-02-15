@@ -5,7 +5,8 @@ struct PeopleListView: View {
     @ObservedObject var locationsManager: LocationsManager
     let colorScheme: ColorScheme
     let searchText: String
-    
+    @Binding var isSearchActive: Bool  // Now controlled by parent view
+
     @State private var selectedPerson: Person? = nil
     @State private var showingAddPerson = false
     @State private var showingContactsImport = false
@@ -28,15 +29,22 @@ struct PeopleListView: View {
 
     // Debounce timer for search
     @State private var searchDebounceTimer: Timer?
-    
+
+    // Internal search text for unified search experience
+    @State private var internalSearchText = ""
+    @FocusState private var isSearchFocused: Bool
+
     // MARK: - Cache Update Method
 
     private func updateFilteredResults() {
         var result = peopleManager.people
 
+        // Use internal search text if search is active, otherwise use passed-in searchText
+        let activeSearchText = isSearchActive ? internalSearchText : searchText
+
         // Apply search filter
-        if !searchText.isEmpty {
-            let lowercasedSearch = searchText.lowercased()
+        if !activeSearchText.isEmpty {
+            let lowercasedSearch = activeSearchText.lowercased()
             result = result.filter { person in
                 person.name.lowercased().contains(lowercasedSearch) ||
                 (person.nickname?.lowercased().contains(lowercasedSearch) ?? false) ||
@@ -123,10 +131,133 @@ struct PeopleListView: View {
     private static let categoryOrderKey = "people_category_order"
 
     var body: some View {
+        lifecycle(alerts(sheets(bodyContent)))
+    }
+
+    private var bodyContent: some View {
+        ZStack(alignment: .top) {
+            mainContentView
+
+            if isSearchActive {
+                searchOverlayView
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sheets<Content: View>(_ content: Content) -> some View {
+        content
+            .sheet(item: $selectedPerson) { person in
+                PersonDetailSheet(
+                    person: person,
+                    peopleManager: peopleManager,
+                    locationsManager: locationsManager,
+                    colorScheme: colorScheme,
+                    onDismiss: { selectedPerson = nil }
+                )
+                .presentationBg()
+            }
+            .sheet(isPresented: $showingAddPerson) {
+                PersonEditForm(
+                    person: nil,
+                    peopleManager: peopleManager,
+                    colorScheme: colorScheme,
+                    onSave: { newPerson in
+                        peopleManager.addPerson(newPerson)
+                        showingAddPerson = false
+                    },
+                    onCancel: {
+                        showingAddPerson = false
+                    }
+                )
+                .presentationBg()
+            }
+            .sheet(isPresented: $showingContactsImport) {
+                ContactsImportView(
+                    peopleManager: peopleManager,
+                    colorScheme: colorScheme,
+                    onDismiss: {
+                        showingContactsImport = false
+                    }
+                )
+                .presentationBg()
+            }
+    }
+
+    @ViewBuilder
+    private func alerts<Content: View>(_ content: Content) -> some View {
+        content
+            .alert(
+                "Delete Person",
+                isPresented: $showingDeleteConfirmation,
+                presenting: personToDelete
+            ) { person in
+                Button("Cancel", role: .cancel) {
+                    personToDelete = nil
+                }
+                Button("Delete", role: .destructive) {
+                    deleteSinglePerson(person)
+                }
+            } message: { person in
+                Text("Are you sure you want to delete \(person.name)? This action cannot be undone.")
+            }
+            .alert(
+                "Delete Multiple People",
+                isPresented: $showingBulkDeleteConfirmation
+            ) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    deleteSelectedPeople()
+                }
+            } message: {
+                Text("Are you sure you want to delete \(selectedPeopleForDeletion.count) \(selectedPeopleForDeletion.count == 1 ? "person" : "people")? This action cannot be undone.")
+            }
+    }
+
+    @ViewBuilder
+    private func lifecycle<Content: View>(_ content: Content) -> some View {
+        content
+            .onChange(of: searchText) { _ in
+                searchDebounceTimer?.invalidate()
+                searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                    updateFilteredResults()
+                }
+            }
+            .onChange(of: internalSearchText) { _ in
+                searchDebounceTimer?.invalidate()
+                searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                    updateFilteredResults()
+                }
+            }
+            .onChange(of: selectedRelationshipFilter) { _ in
+                updateFilteredResults()
+            }
+            .onChange(of: peopleManager.people) { _ in
+                updateFilteredResults()
+                syncCategoryOrder()
+            }
+            .onChange(of: isSearchActive) { newValue in
+                // When search is activated from parent, focus the search field
+                if newValue {
+                    isSearchFocused = true
+                }
+            }
+            .onAppear {
+                loadCategoryOrder()
+                updateFilteredResults()
+                syncCategoryOrder()
+            }
+    }
+
+    // MARK: - Main Content & Search Overlay
+
+    private var mainContentView: some View {
         VStack(spacing: 0) {
-            // PINNED HEADER — never scrolls
-            stickyHeader
-                .background(colorScheme == .dark ? Color.black : Color(UIColor.systemBackground))
+            // PINNED HEADER — never scrolls (hide when search is active)
+            if !isSearchActive {
+                stickyHeader
+                    .background(colorScheme == .dark ? Color.black : Color(UIColor.systemBackground))
+            }
 
             // SCROLLABLE CONTENT — everything between header and footer scrolls
             ScrollView {
@@ -151,86 +282,63 @@ struct PeopleListView: View {
                 stickyDeleteFooter
             }
         }
-        .sheet(item: $selectedPerson) { person in
-            PersonDetailSheet(
-                person: person,
-                peopleManager: peopleManager,
-                locationsManager: locationsManager,
-                colorScheme: colorScheme,
-                onDismiss: { selectedPerson = nil }
-            )
-            .presentationBg()
-        }
-        .sheet(isPresented: $showingAddPerson) {
-            PersonEditForm(
-                person: nil,
-                peopleManager: peopleManager,
-                colorScheme: colorScheme,
-                onSave: { newPerson in
-                    peopleManager.addPerson(newPerson)
-                    showingAddPerson = false
-                },
-                onCancel: {
-                    showingAddPerson = false
-                }
-            )
-            .presentationBg()
-        }
-        .sheet(isPresented: $showingContactsImport) {
-            ContactsImportView(
-                peopleManager: peopleManager,
-                colorScheme: colorScheme,
-                onDismiss: {
-                    showingContactsImport = false
-                }
-            )
-            .presentationBg()
-        }
-        .alert(
-            "Delete Person",
-            isPresented: $showingDeleteConfirmation,
-            presenting: personToDelete
-        ) { person in
-            Button("Cancel", role: .cancel) {
-                personToDelete = nil
-            }
-            Button("Delete", role: .destructive) {
-                deleteSinglePerson(person)
-            }
-        } message: { person in
-            Text("Are you sure you want to delete \(person.name)? This action cannot be undone.")
-        }
-        .alert(
-            "Delete Multiple People",
-            isPresented: $showingBulkDeleteConfirmation
-        ) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                deleteSelectedPeople()
-            }
-        } message: {
-            Text("Are you sure you want to delete \(selectedPeopleForDeletion.count) \(selectedPeopleForDeletion.count == 1 ? "person" : "people")? This action cannot be undone.")
-        }
-        .onChange(of: searchText) { _ in
-            searchDebounceTimer?.invalidate()
-            searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
-                updateFilteredResults()
-            }
-        }
-        .onChange(of: selectedRelationshipFilter) { _ in
-            updateFilteredResults()
-        }
-        .onChange(of: peopleManager.people) { _ in
-            updateFilteredResults()
-            syncCategoryOrder()
-        }
-        .onAppear {
-            loadCategoryOrder()
-            updateFilteredResults()
-            syncCategoryOrder()
-        }
+        .opacity(isSearchActive && !internalSearchText.isEmpty ? 0.3 : 1.0)
+        .allowsHitTesting(!isSearchActive)
     }
-    
+
+    private var searchOverlayView: some View {
+        VStack(spacing: 0) {
+            UnifiedSearchBar(
+                searchText: $internalSearchText,
+                isFocused: $isSearchFocused,
+                placeholder: "Search people",
+                onCancel: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSearchActive = false
+                        isSearchFocused = false
+                        internalSearchText = ""
+                        updateFilteredResults()
+                    }
+                },
+                colorScheme: colorScheme
+            )
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .background(colorScheme == .dark ? Color.black : Color.white)
+
+            if !internalSearchText.isEmpty {
+                SearchResultsListView(
+                    results: filteredPeopleCache,
+                    emptyMessage: "No people match your search",
+                    rowContent: { person in
+                        AnyView(
+                            PersonRowView(
+                                person: person,
+                                colorScheme: colorScheme,
+                                isEditMode: false,
+                                isSelected: false,
+                                onTap: {
+                                    selectedPerson = person
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        isSearchActive = false
+                                        internalSearchText = ""
+                                    }
+                                },
+                                onFavouriteTap: {
+                                    peopleManager.toggleFavourite(for: person.id)
+                                }
+                            )
+                        )
+                    },
+                    colorScheme: colorScheme
+                )
+            }
+        }
+        .background(colorScheme == .dark ? Color.black : Color.white)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .zIndex(100)
+    }
+
     // MARK: - Sticky Header
 
     private var stickyHeader: some View {
@@ -928,10 +1036,19 @@ struct PersonRowView: View {
 }
 
 #Preview {
-    PeopleListView(
-        peopleManager: PeopleManager.shared,
-        locationsManager: LocationsManager.shared,
-        colorScheme: .dark,
-        searchText: ""
-    )
+    struct PreviewWrapper: View {
+        @State private var isSearchActive = false
+
+        var body: some View {
+            PeopleListView(
+                peopleManager: PeopleManager.shared,
+                locationsManager: LocationsManager.shared,
+                colorScheme: .dark,
+                searchText: "",
+                isSearchActive: $isSearchActive
+            )
+        }
+    }
+
+    return PreviewWrapper()
 }

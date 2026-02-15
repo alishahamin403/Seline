@@ -8,6 +8,7 @@ struct NotesView: View, Searchable {
     @Environment(\.colorScheme) var colorScheme
     @State private var searchText = ""
     @State private var isSearchActive = false
+    @FocusState private var isSearchFocused: Bool
     @State private var showingNewNoteSheet = false
     @State private var selectedNote: Note? = nil
     @State private var navigationPath: [Note] = []
@@ -24,6 +25,7 @@ struct NotesView: View, Searchable {
     @Namespace private var tabAnimation
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var noteForReminder: Note? = nil
+    @State private var recurringExpenses: [RecurringExpense] = []
 
     var filteredPinnedNotes: [Note] {
         var notes: [Note]
@@ -145,17 +147,81 @@ struct NotesView: View, Searchable {
                 VStack(spacing: 0) {
                     // Header section with search
                     VStack(spacing: 0) {
-                        // Pill tabs and icon buttons in same row
-                        HStack(spacing: 12) {
-                            // Folder button - only show in notes tab
-                            if selectedTab == "notes" {
+                        // Pill tabs and icon buttons in same row (hide when search is active)
+                        if !isSearchActive {
+                            HStack(spacing: 12) {
+                                // Folder button - only show in notes tab
+                                if selectedTab == "notes" {
+                                    Button(action: {
+                                        withAnimation {
+                                            showingFolderSidebar.toggle()
+                                        }
+                                    }) {
+                                        Image(systemName: "folder")
+                                            .font(FontManager.geist(size: 14, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 10)
+                                                    .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                                            )
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                } else {
+                                    // Empty spacer to balance layout
+                                    Color.clear.frame(width: 44, height: 44)
+                                }
+
+                                Spacer()
+
+                                // Pill tabs - centered
+                                HStack(spacing: 4) {
+                                    ForEach(["notes", "receipts", "recurring"], id: \.self) { tab in
+                                        let isSelected = selectedTab == tab
+                                        let tabIcon = tab == "notes" ? "note.text" : (tab == "receipts" ? "receipt.fill" : "repeat.circle.fill")
+
+                                        Button(action: {
+                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                                selectedTab = tab
+                                                // Clear search when switching tabs
+                                                searchText = ""
+                                                selectedFolderId = nil
+                                            }
+                                        }) {
+                                            Image(systemName: tabIcon)
+                                                .font(FontManager.geist(size: 14, weight: .medium))
+                                                .foregroundColor(tabForegroundColor(isSelected: isSelected))
+                                                .padding(.horizontal, 16)
+                                                .padding(.vertical, 8)
+                                                .background {
+                                                    if isSelected {
+                                                        Capsule()
+                                                            .fill(tabBackgroundColor())
+                                                            .matchedGeometryEffect(id: "tab", in: tabAnimation)
+                                                    }
+                                                }
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+                                    }
+                                }
+                                .padding(4)
+                                .background(
+                                    Capsule()
+                                        .fill(tabContainerColor())
+                                )
+
+                                Spacer()
+
+                                // Search button on right (matching maps page design)
                                 Button(action: {
-                                    withAnimation {
-                                        showingFolderSidebar.toggle()
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        isSearchActive = true
+                                        isSearchFocused = true
                                     }
                                 }) {
-                                    Image(systemName: "folder")
-                                        .font(FontManager.geist(size: 14, weight: .medium))
+                                    Image(systemName: "magnifyingglass")
+                                        .font(.system(size: 14, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
@@ -165,70 +231,44 @@ struct NotesView: View, Searchable {
                                         )
                                 }
                                 .buttonStyle(PlainButtonStyle())
-                            } else {
-                                // Empty spacer to balance layout
-                                Color.clear.frame(width: 44, height: 44)
                             }
-
-                            Spacer()
-
-                            // Pill tabs - centered
-                            HStack(spacing: 4) {
-                                ForEach(["notes", "receipts", "recurring"], id: \.self) { tab in
-                                    let isSelected = selectedTab == tab
-                                    let tabIcon = tab == "notes" ? "note.text" : (tab == "receipts" ? "receipt.fill" : "repeat.circle.fill")
-
-                                    Button(action: {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                            selectedTab = tab
-                                            // Clear search when switching tabs
-                                            searchText = ""
-                                            selectedFolderId = nil
-                                        }
-                                    }) {
-                                        Image(systemName: tabIcon)
-                                            .font(FontManager.geist(size: 14, weight: .medium))
-                                            .foregroundColor(tabForegroundColor(isSelected: isSelected))
-                                            .padding(.horizontal, 16)
-                                            .padding(.vertical, 8)
-                                            .background {
-                                                if isSelected {
-                                                    Capsule()
-                                                        .fill(tabBackgroundColor())
-                                                        .matchedGeometryEffect(id: "tab", in: tabAnimation)
-                                                }
-                                            }
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
-                            }
-                            .padding(4)
-                            .background(
-                                Capsule()
-                                    .fill(tabContainerColor())
-                            )
-
-                            Spacer()
-                            
-                            // Empty spacer on right to balance layout
-                            Color.clear.frame(width: 44, height: 44)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 8)
+                            .padding(.bottom, 12)
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 8)
-                        .padding(.bottom, 12)
 
                         // Search bar - show when search is active
                         if isSearchActive {
                             VStack(spacing: 0) {
-                                EmailSearchBar(searchText: $searchText) { query in
-                                    // Search is handled by filtering
-                                }
+                                UnifiedSearchBar(
+                                    searchText: $searchText,
+                                    isFocused: $isSearchFocused,
+                                    placeholder: "Search \(selectedTab)",
+                                    onCancel: {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            isSearchActive = false
+                                            isSearchFocused = false
+                                            searchText = ""
+                                            selectedFolderId = nil
+                                        }
+                                    },
+                                    colorScheme: colorScheme
+                                )
                                 .padding(.horizontal, 20)
-                                .padding(.top, 0)
-                                
-                                // Search results dropdown
+                                .padding(.top, 8)
+
+                                // Search results for all tabs
                                 if !searchText.isEmpty {
-                                    searchResultsDropdown
+                                    switch selectedTab {
+                                    case "notes":
+                                        searchResultsDropdown
+                                    case "receipts":
+                                        receiptSearchResults
+                                    case "recurring":
+                                        recurringExpenseSearchResults
+                                    default:
+                                        EmptyView()
+                                    }
                                 }
                             }
                             .padding(.bottom, 12)
@@ -291,6 +331,13 @@ struct NotesView: View, Searchable {
                     }
                     .padding(.horizontal, 8)
                     .padding(.top, 8)
+                }
+                .refreshable {
+                    // Activate search when pulling down
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSearchActive = true
+                        isSearchFocused = true
+                    }
                 }
 
                 Spacer()
@@ -717,6 +764,212 @@ struct NotesView: View, Searchable {
         )
         .padding(.horizontal, 20)
         .padding(.top, 8)
+    }
+
+    private var receiptSearchResults: some View {
+        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
+        let receiptsFolderId = receiptsFolder?.id
+
+        let filteredReceipts = notesManager.searchNotes(query: searchText)
+            .filter { note in
+                guard let folderId = note.folderId, let receiptsFolderId = receiptsFolderId else { return false }
+                var currentFolderId: UUID? = folderId
+                while let currentId = currentFolderId {
+                    if currentId == receiptsFolderId {
+                        return true
+                    }
+                    currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+                }
+                return false
+            }
+            .prefix(10)
+
+        return receiptSearchResultsContent(filteredReceipts: Array(filteredReceipts))
+    }
+
+    @ViewBuilder
+    private func receiptSearchResultsContent(filteredReceipts: [Note]) -> some View {
+        VStack(spacing: 0) {
+            if filteredReceipts.isEmpty {
+                emptyReceiptState
+            } else {
+                receiptResultsList(filteredReceipts: filteredReceipts)
+            }
+        }
+        .background(searchResultsBackground)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+    }
+
+    private var emptyReceiptState: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(.secondary)
+            Text("No receipts match your search")
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private func receiptResultsList(filteredReceipts: [Note]) -> some View {
+        ForEach(filteredReceipts, id: \.id) { note in
+            Button(action: {
+                HapticManager.shared.buttonTap()
+                searchText = ""
+                isSearchActive = false
+                navigationPath.append(note)
+            }) {
+                receiptRow(note: note)
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            if filteredReceipts.last?.id != note.id {
+                Divider()
+                    .padding(.leading, 52)
+            }
+        }
+    }
+
+    private func receiptRow(note: Note) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "receipt")
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(.orange)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(note.title.isEmpty ? "Untitled Receipt" : note.title)
+                    .font(FontManager.geist(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
+
+                Text(note.content.prefix(50).replacingOccurrences(of: "\n", with: " "))
+                    .font(FontManager.geist(size: 12, weight: .regular))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Text(note.dateModified.formatted(.relative(presentation: .named)))
+                .font(FontManager.geist(size: 11, weight: .regular))
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var searchResultsBackground: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.white)
+            .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+    }
+
+    private var recurringExpenseSearchResults: some View {
+        let filtered = recurringExpenses.filter { expense in
+            let lowercased = searchText.lowercased()
+            return expense.title.lowercased().contains(lowercased) ||
+                   expense.category?.lowercased().contains(lowercased) ?? false ||
+                   expense.description?.lowercased().contains(lowercased) ?? false
+        }.prefix(10)
+
+        return recurringExpenseSearchResultsContent(filtered: Array(filtered))
+    }
+
+    @ViewBuilder
+    private func recurringExpenseSearchResultsContent(filtered: [RecurringExpense]) -> some View {
+        VStack(spacing: 0) {
+            if filtered.isEmpty {
+                emptyRecurringExpenseState
+            } else {
+                recurringExpenseResultsList(filtered: filtered)
+            }
+        }
+        .background(searchResultsBackground)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .onAppear {
+            Task {
+                do {
+                    recurringExpenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
+                } catch {
+                    print("Failed to load recurring expenses: \(error)")
+                }
+            }
+        }
+    }
+
+    private var emptyRecurringExpenseState: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(.secondary)
+            Text("No recurring expenses match your search")
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private func recurringExpenseResultsList(filtered: [RecurringExpense]) -> some View {
+        ForEach(filtered, id: \.id) { expense in
+            Button(action: {
+                HapticManager.shared.buttonTap()
+                searchText = ""
+                isSearchActive = false
+            }) {
+                recurringExpenseRow(expense: expense)
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            if filtered.last?.id != expense.id {
+                Divider()
+                    .padding(.leading, 52)
+            }
+        }
+    }
+
+    private func recurringExpenseRow(expense: RecurringExpense) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "repeat.circle.fill")
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(.blue)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(expense.title)
+                    .font(FontManager.geist(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    if let category = expense.category {
+                        Text(category)
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(.secondary)
+                    }
+                    Text("$\(String(format: "%.2f", Double(truncating: expense.amount as NSDecimalNumber)))")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            Text(expense.frequency.displayName)
+                .font(FontManager.geist(size: 11, weight: .regular))
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private var receiptsTabContent: some View {

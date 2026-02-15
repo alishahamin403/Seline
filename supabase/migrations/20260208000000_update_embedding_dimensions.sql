@@ -1,8 +1,19 @@
 -- Update embedding dimensions from 768 to 3072 for Gemini gemini-embedding-001
 -- This migration updates the document_embeddings table and related functions
 
--- Drop the existing upsert function if it exists
-DROP FUNCTION IF EXISTS upsert_embedding(uuid, text, text, text, text, bigint, jsonb, text);
+-- Drop ALL existing versions of upsert_embedding function
+DO $$
+DECLARE
+    func_signature text;
+BEGIN
+    FOR func_signature IN
+        SELECT oid::regprocedure::text
+        FROM pg_proc
+        WHERE proname = 'upsert_embedding'
+    LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS ' || func_signature || ' CASCADE';
+    END LOOP;
+END $$;
 
 -- Recreate the upsert_embedding function with updated dimension validation
 CREATE OR REPLACE FUNCTION upsert_embedding(
@@ -59,11 +70,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Update the document_embeddings table column to support 3072 dimensions
--- Note: This will recreate the column with new dimensions
-ALTER TABLE document_embeddings
-    ALTER COLUMN embedding TYPE vector(3072);
+-- Drop any existing indexes on the embedding column (pgvector indexes support max 2000 dimensions)
+DROP INDEX IF EXISTS document_embeddings_embedding_idx;
+
+-- Drop and recreate the embedding column to support 3072 dimensions
+-- Note: No index will be created as pgvector indexes don't support >2000 dimensions
+-- This means exact (not approximate) nearest neighbor search will be used
+ALTER TABLE document_embeddings DROP COLUMN IF EXISTS embedding;
+ALTER TABLE document_embeddings ADD COLUMN embedding vector(3072);
 
 -- Comment the changes
-COMMENT ON FUNCTION upsert_embedding IS 'Upserts document embeddings with 3072 dimensions for Gemini gemini-embedding-001';
-COMMENT ON COLUMN document_embeddings.embedding IS '3072-dimensional vector embedding from Gemini gemini-embedding-001';
+COMMENT ON FUNCTION upsert_embedding(uuid, text, text, text, text, bigint, jsonb, text) IS 'Upserts document embeddings with 3072 dimensions for Gemini gemini-embedding-001';
+COMMENT ON COLUMN document_embeddings.embedding IS '3072-dimensional vector embedding from Gemini gemini-embedding-001 (no index - exact NN search)';

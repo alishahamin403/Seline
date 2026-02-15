@@ -21,6 +21,7 @@ struct MapsViewNew: View, Searchable {
     @State private var showRatingEditor = false
     @State private var locationSearchText: String = ""
     @State private var isLocationSearchActive: Bool = false
+    @State private var isPeopleSearchActive: Bool = false
     @State private var currentLocationName: String = "Finding location..."
     @State private var nearbyLocation: String? = nil
     @State private var nearbyLocationFolder: String? = nil
@@ -204,45 +205,53 @@ struct MapsViewNew: View, Searchable {
     
     private var headerSection: some View {
         VStack(spacing: 0) {
-            // Tab bar with search bar
-            HStack(spacing: 12) {
-                // Empty spacer for balance
-                Color.clear.frame(width: 44, height: 44)
-                
-                Spacer()
-                tabBarView
-                Spacer()
-                
-                // Search icon on the right
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isLocationSearchActive = true
-                        isSearchFocused = true
+            // Tab bar with search icon (hide when search is active)
+            if !isLocationSearchActive && !isPeopleSearchActive {
+                HStack(spacing: 12) {
+                    // Empty spacer for balance
+                    Color.clear.frame(width: 44, height: 44)
+
+                    Spacer()
+                    tabBarView
+                    Spacer()
+
+                    // Search icon on the right - activates search based on current tab
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            if selectedTab == "people" {
+                                isPeopleSearchActive = true
+                            } else if selectedTab == "folders" {
+                                isLocationSearchActive = true
+                                isSearchFocused = true
+                            }
+                            // Timeline tab can be added later
+                        }
+                    }) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                            )
                     }
-                }) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
-                        )
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+                .background(
+                    colorScheme == .dark ? Color.black : Color.white
+                )
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
-            .background(
-                colorScheme == .dark ? Color.black : Color.white
-            )
-            
+
             // Search bar (appears when active)
             if isLocationSearchActive {
                 locationSearchBar
                     .padding(.horizontal, 20)
+                    .padding(.top, 8)
                     .padding(.bottom, 12)
                     .background(
                         colorScheme == .dark ? Color.black : Color.white
@@ -802,7 +811,8 @@ struct MapsViewNew: View, Searchable {
             peopleManager: peopleManager,
             locationsManager: locationsManager,
             colorScheme: colorScheme,
-            searchText: locationSearchText
+            searchText: locationSearchText,
+            isSearchActive: $isPeopleSearchActive
         )
     }
 

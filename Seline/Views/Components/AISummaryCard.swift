@@ -179,18 +179,17 @@ struct AISummaryCard: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(summaryBullets.enumerated()), id: \.offset) { index, bullet in
                 HStack(alignment: .top, spacing: 12) {
-                    // Bullet point
                     Circle()
                         .fill(Color.shadcnForeground(colorScheme))
                         .frame(width: 6, height: 6)
                         .padding(.top, 6)
 
-                    // Bullet text (remove markdown bold markers)
-                    Text(cleanMarkdownText(bullet))
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(Color.shadcnForeground(colorScheme))
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ClickableTextView(
+                        text: cleanMarkdownText(bullet),
+                        font: .systemFont(ofSize: 13),
+                        textColor: colorScheme == .dark ? .white : .black
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -552,21 +551,103 @@ struct AutoHeightHTMLView: UIViewRepresentable {
     }
 }
 
-#Preview {
-    VStack(spacing: 20) {
-        AISummaryCard(
-            email: Email.sampleEmails[0],
-            onGenerateSummary: { email, forceRegenerate in
-                // Mock function for preview
-                do {
-                    try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
-                    return .success("Q4 marketing campaign exceeded targets by 23%. Budget approval needed by December 15th. Double video marketing investment recommended.")
-                } catch {
-                    return .failure(error)
+// MARK: - Clickable Text View with URL detection
+
+struct ClickableTextView: UIViewRepresentable {
+    let text: String
+    var font: UIFont = .systemFont(ofSize: 13)
+    var textColor: UIColor = .label
+    
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.isEditable = false
+        textView.isScrollEnabled = false
+        textView.backgroundColor = .clear
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.delegate = context.coordinator
+        textView.isUserInteractionEnabled = true
+        textView.dataDetectorTypes = [.link]
+        // CRITICAL: Prevent UITextView from expanding beyond its container
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return textView
+    }
+    
+    func updateUIView(_ textView: UITextView, context: Context) {
+        let attributedString = NSMutableAttributedString(string: text)
+        let fullRange = NSRange(location: 0, length: attributedString.length)
+        
+        attributedString.addAttribute(.font, value: font, range: fullRange)
+        attributedString.addAttribute(.foregroundColor, value: textColor, range: fullRange)
+        
+        // Detect markdown-style links: [label](url)
+        let markdownLinkPattern = #"\[([^\]]+)\]\((https?://[^\s\)]+)\)"#
+        if let mdRegex = try? NSRegularExpression(pattern: markdownLinkPattern, options: []) {
+            let nsString = attributedString.string as NSString
+            let mdMatches = mdRegex.matches(in: attributedString.string, options: [], range: NSRange(location: 0, length: nsString.length))
+            
+            // Process in reverse to preserve indices
+            for match in mdMatches.reversed() {
+                if match.numberOfRanges >= 3 {
+                    let labelRange = match.range(at: 1)
+                    let urlRange = match.range(at: 2)
+                    let fullRange = match.range
+                    
+                    let label = nsString.substring(with: labelRange)
+                    let urlString = nsString.substring(with: urlRange)
+                    
+                    if let url = URL(string: urlString) {
+                        let linkAttr = NSMutableAttributedString(string: label)
+                        linkAttr.addAttribute(.link, value: url, range: NSRange(location: 0, length: label.count))
+                        linkAttr.addAttribute(.font, value: font, range: NSRange(location: 0, length: label.count))
+                        attributedString.replaceCharacters(in: fullRange, with: linkAttr)
+                    }
                 }
             }
-        )
+        }
+        
+        // Detect bare URLs (not already part of a markdown link)
+        let urlPattern = #"(?<!\()https?://[^\s<>"{}|\\^`\[\]).]+"#
+        if let regex = try? NSRegularExpression(pattern: urlPattern, options: []) {
+            let currentString = attributedString.string as NSString
+            let matches = regex.matches(in: attributedString.string, options: [], range: NSRange(location: 0, length: currentString.length))
+            
+            for match in matches {
+                // Skip if this range already has a link attribute
+                var existingLink: Any? = nil
+                if match.range.location < attributedString.length {
+                    existingLink = attributedString.attribute(.link, at: match.range.location, effectiveRange: nil)
+                }
+                if existingLink != nil { continue }
+                
+                let urlString = currentString.substring(with: match.range)
+                if let url = URL(string: urlString) {
+                    attributedString.addAttribute(.link, value: url, range: match.range)
+                }
+            }
+        }
+        
+        textView.attributedText = attributedString
     }
-    .padding()
-    .background(Color.shadcnBackground(.light))
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    class Coordinator: NSObject, UITextViewDelegate {
+        func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+            UIApplication.shared.open(URL)
+            return false
+        }
+    }
+}
+
+#Preview {
+    VStack(spacing: 20) {
+        ClickableTextView(
+            text: "Check out https://example.com for more info and [click here](https://test.com) for details"
+        )
+        .padding()
+    }
 }

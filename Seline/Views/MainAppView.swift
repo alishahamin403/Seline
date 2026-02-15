@@ -1970,8 +1970,10 @@ struct MainAppView: View {
             .scrollDismissesKeyboard(.interactively)
             .scrollContentBackground(.hidden)
             .refreshable {
-                // Refresh all data sources
-                await refreshAllData()
+                // Activate search when pulling down
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSearchFocused = true
+                }
             }
             // Apply delaysContentTouches via UIScrollView introspection
             .onAppear {

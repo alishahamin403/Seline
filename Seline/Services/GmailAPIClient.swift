@@ -1501,115 +1501,55 @@ class GmailAPIClient {
         return content
     }
 
-    private func cleanHTMLForDisplay(_ html: String) -> String {
-        var cleanedHTML = html
+     private func cleanHTMLForDisplay(_ html: String) -> String {
+         var cleanedHTML = html
 
-        // Remove problematic elements while preserving layout
-        // Remove script tags and their content
-        cleanedHTML = cleanedHTML.replacingOccurrences(
-            of: "<script[^>]*>[\\s\\S]*?</script>",
-            with: "",
-            options: .regularExpression
-        )
+         // Remove problematic elements while preserving layout
+         // Remove script tags and their content
+         cleanedHTML = cleanedHTML.replacingOccurrences(
+             of: "<script[^>]*>[\\s\\S]*?</script>",
+             with: "",
+             options: .regularExpression
+         )
 
-        // Remove style tags but keep inline styles for formatting
-        cleanedHTML = cleanedHTML.replacingOccurrences(
-            of: "<style[^>]*>[\\s\\S]*?</style>",
-            with: "",
-            options: .regularExpression
-        )
+         // Remove style tags but keep inline styles for formatting
+         cleanedHTML = cleanedHTML.replacingOccurrences(
+             of: "<style[^>]*>[\\s\\S]*?</style>",
+             with: "",
+             options: .regularExpression
+         )
 
-        // Remove form elements that won't work in display context
-        cleanedHTML = cleanedHTML.replacingOccurrences(
-            of: "<(form|input|button|select|textarea)[^>]*>[\\s\\S]*?</\\1>",
-            with: "",
-            options: .regularExpression
-        )
+         // Remove form elements that won't work in display context
+         cleanedHTML = cleanedHTML.replacingOccurrences(
+             of: "<(form|input|button|select|textarea)[^>]*>[\\s\\S]*?</\\1>",
+             with: "",
+             options: .regularExpression
+         )
 
-        // Clean up meta and link tags in head that might cause issues
-        cleanedHTML = cleanedHTML.replacingOccurrences(
-            of: "<(meta|link)[^>]*>",
-            with: "",
-            options: .regularExpression
-        )
+         // Clean up meta and link tags in head that might cause issues
+         cleanedHTML = cleanedHTML.replacingOccurrences(
+             of: "<(meta|link)[^>]*>",
+             with: "",
+             options: .regularExpression
+         )
 
-        // Remove JavaScript event handlers
-        cleanedHTML = cleanedHTML.replacingOccurrences(
-            of: "on\\w+=[\"'][^\"']*[\"']",
-            with: "",
-            options: .regularExpression
-        )
+         // Remove JavaScript event handlers
+         cleanedHTML = cleanedHTML.replacingOccurrences(
+             of: "on\\w+=[\"'][^\"']*[\"']",
+             with: "",
+             options: .regularExpression
+         )
 
-        // Ensure images have proper styling for mobile display
-        cleanedHTML = cleanedHTML.replacingOccurrences(
-            of: "<img([^>]*)>",
-            with: "<img$1 style=\"max-width: 100%; height: auto;\">",
-            options: .regularExpression
-        )
+         // Ensure images have proper styling for mobile display
+         cleanedHTML = cleanedHTML.replacingOccurrences(
+             of: "<img([^>]*)>",
+             with: "<img$1 style=\"max-width: 100%; height: auto;\">",
+             options: .regularExpression
+         )
 
-        // Add basic CSS for better mobile display
-        let cssStyles = """
-        <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            font-size: 16px;
-            line-height: 1.6;
-            margin: 0;
-            padding: 16px;
-            max-width: 100%;
-            overflow-x: hidden;
-        }
-        img {
-            max-width: 100% !important;
-            height: auto !important;
-            border-radius: 8px;
-        }
-        table {
-            max-width: 100% !important;
-            border-collapse: collapse;
-        }
-        td, th {
-            padding: 8px;
-            text-align: left;
-        }
-        a {
-            color: #007AFF;
-            text-decoration: none;
-        }
-        .email-content {
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-        }
-        </style>
-        """
-
-        // If it's a complete HTML document, add our styles to head
-        if cleanedHTML.contains("<head>") {
-            cleanedHTML = cleanedHTML.replacingOccurrences(
-                of: "</head>",
-                with: "\(cssStyles)</head>"
-            )
-        } else {
-            // If it's just HTML content, wrap it properly
-            cleanedHTML = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            \(cssStyles)
-            </head>
-            <body>
-            <div class="email-content">
-            \(cleanedHTML)
-            </div>
-            </body>
-            </html>
-            """
-        }
-
-        return cleanedHTML
-    }
+         // Return the cleaned HTML without wrapping - ZoomableHTMLView will handle wrapping
+         return cleanedHTML
+     }
 
     private func stripHTMLTags(from html: String) -> String? {
         // Remove HTML tags using regex

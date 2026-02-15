@@ -237,11 +237,11 @@ struct ReceiptStatsView: View {
             set: { if !$0 { selectedCategory = nil } }
         )) {
             if let category = selectedCategory, let breakdown = categoryBreakdown {
-                let categoryReceipts = breakdown.allReceipts.filter { $0.category == category }
-                CategoryBreakdownModal(
-                    monthlyReceipts: categoryReceipts,
-                    monthName: "\(category) - \(currentYear)",
-                    monthlyTotal: categoryReceipts.reduce(0) { $0 + $1.amount }
+                let categoryReceipts = breakdown.allReceipts.filter { $0.category == category }.sorted { $0.date > $1.date }
+                CategoryReceiptsListModal(
+                    receipts: categoryReceipts,
+                    categoryName: "\(category) - \(currentYear)",
+                    total: categoryReceipts.reduce(0) { $0 + $1.amount }
                 )
                 .presentationDetents([.medium, .large])
             }

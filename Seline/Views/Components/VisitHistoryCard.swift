@@ -494,67 +494,50 @@ struct VisitPeoplePickerSheet: View {
     
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Visit info header
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(visit.entryTime.formatted(date: .abbreviated, time: .shortened))
-                            .font(FontManager.geist(size: 18, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                        
-                        if let duration = visit.durationMinutes {
-                            Text("Duration: \(formatDuration(duration))")
-                                .font(FontManager.geist(size: 14, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                        }
-                    }
-                    
-                    Divider()
-                    
-                    // Question
-                    Text("Who was with you?")
-                        .font(FontManager.geist(size: 16, weight: .medium))
+            VStack(alignment: .leading, spacing: 16) {
+                // Visit info header
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(visit.entryTime.formatted(date: .abbreviated, time: .shortened))
+                        .font(FontManager.geist(size: 18, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .padding(.top, 8)
-                    
-                    // People selection
-                    if isLoadingPeople {
-                        HStack {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Loading...")
-                                .font(FontManager.geist(size: 12, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                        }
-                        .padding(.top, 8)
-                    } else if peopleManager.people.isEmpty {
-                        Text("No people added yet. Add people from the People tab.")
+
+                    if let duration = visit.durationMinutes {
+                        Text("Duration: \(formatDuration(duration))")
                             .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                            .padding(.top, 8)
-                    } else {
-                        // Horizontal scrollable people chips
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(peopleManager.people.sorted { $0.name < $1.name }) { person in
-                                    personChip(person: person)
-                                }
-                            }
-                        }
-                        .padding(.top, 8)
-                        
-                        // Show selected people count
-                        if !selectedPeopleIds.isEmpty {
-                            Text("\(selectedPeopleIds.count) \(selectedPeopleIds.count == 1 ? "person" : "people") selected")
-                                .font(FontManager.geist(size: 12, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                                .padding(.top, 4)
-                        }
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     }
-                    
-                    Spacer().frame(height: 40)
                 }
-                .padding(20)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+
+                Divider()
+                    .padding(.horizontal, 20)
+
+                // People selection with search and vertical list
+                if isLoadingPeople {
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Loading...")
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    Spacer()
+                } else {
+                    // Use the improved PeoplePickerView component with search and vertical list
+                    PeoplePickerView(
+                        peopleManager: peopleManager,
+                        selectedPeopleIds: $selectedPeopleIds,
+                        colorScheme: colorScheme,
+                        title: "Who was with you?",
+                        showHeader: true,
+                        maxHeight: nil  // Allow list to expand to fill available space
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)  // Add bottom padding so last item isn't cut off
+                }
             }
             .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
             .navigationTitle("Connect People")
@@ -566,7 +549,7 @@ struct VisitPeoplePickerSheet: View {
                     }
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
-                
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
                         Task {
@@ -585,67 +568,6 @@ struct VisitPeoplePickerSheet: View {
                     isLoadingPeople = false
                 }
             }
-        }
-    }
-    
-    private func personChip(person: Person) -> some View {
-        let isSelected = selectedPeopleIds.contains(person.id)
-        
-        return Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                if isSelected {
-                    selectedPeopleIds.remove(person.id)
-                } else {
-                    selectedPeopleIds.insert(person.id)
-                }
-            }
-        }) {
-            HStack(spacing: 6) {
-                // Avatar or initials
-                Circle()
-                    .fill(colorForRelationship(person.relationship))
-                    .frame(width: 24, height: 24)
-                    .overlay(
-                        Text(person.initials)
-                            .font(FontManager.geist(size: 10, weight: .semibold))
-                            .foregroundColor(.white)
-                    )
-                
-                Text(person.displayName)
-                    .font(FontManager.geist(size: 13, weight: .medium))
-                
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(FontManager.geist(size: 10, weight: .bold))
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                Capsule()
-                    .fill(isSelected ?
-                          (colorScheme == .dark ? Color.white : Color.black) :
-                          (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)))
-            )
-            .foregroundColor(isSelected ?
-                           (colorScheme == .dark ? Color.black : Color.white) :
-                           (colorScheme == .dark ? Color.white : Color.black))
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-    
-    private func colorForRelationship(_ relationship: RelationshipType) -> Color {
-        switch relationship {
-        case .family: return Color(red: 0.8, green: 0.3, blue: 0.3)
-        case .partner: return Color(red: 0.9, green: 0.3, blue: 0.5)
-        case .closeFriend: return Color(red: 0.3, green: 0.6, blue: 0.9)
-        case .friend: return Color(red: 0.3, green: 0.7, blue: 0.5)
-        case .coworker: return Color(red: 0.5, green: 0.5, blue: 0.7)
-        case .classmate: return Color(red: 0.6, green: 0.4, blue: 0.7)
-        case .neighbor: return Color(red: 0.5, green: 0.6, blue: 0.5)
-        case .mentor: return Color(red: 0.8, green: 0.6, blue: 0.2)
-        case .acquaintance: return Color(red: 0.5, green: 0.5, blue: 0.5)
-        case .other: return Color(red: 0.4, green: 0.4, blue: 0.4)
         }
     }
     

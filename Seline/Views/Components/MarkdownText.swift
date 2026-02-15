@@ -40,11 +40,11 @@ struct MarkdownText: View {
         case .heading3(let text):
             renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 18, weight: .semibold)
         case .bold(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 16, weight: .bold)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .bold)
         case .italic(let text):
-            renderItalicText(stripMarkdownFormatting(text), size: 16)
+            renderItalicText(stripMarkdownFormatting(text), size: 14)
         case .underline(let text):
-            renderUnderlinedText(stripMarkdownFormatting(text), size: 16)
+            renderUnderlinedText(stripMarkdownFormatting(text), size: 14)
         case .code(let text):
             Text(text)
                 .font(FontManager.geist(size: 14, weight: .regular))
@@ -54,23 +54,27 @@ struct MarkdownText: View {
                 .cornerRadius(4)
                 .textSelection(.enabled)
         case .bulletPoint(let text):
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("•")
-                    .font(FontManager.geist(size: 16, weight: .bold))
+                    .font(FontManager.geist(size: 14, weight: .bold))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                    .frame(minWidth: 16, alignment: .leading)
-                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 16, weight: .regular)
+                    .frame(width: 12, alignment: .leading)
+                VStack(alignment: .leading, spacing: 0) {
+                    renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
+                }
             }
-            .padding(.leading, 12)
+            .padding(.leading, 16)
         case .numberedPoint(let number, let text):
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("\(number).")
-                    .font(FontManager.geist(size: 16, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                    .frame(minWidth: 16, alignment: .leading)
-                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 16, weight: .regular)
+                    .frame(width: 20, alignment: .leading)
+                VStack(alignment: .leading, spacing: 0) {
+                    renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
+                }
             }
-            .padding(.leading, 12)
+            .padding(.leading, 16)
         case .table(let headers, let rows):
             renderTable(headers: headers, rows: rows)
         case .horizontalRule:
@@ -79,7 +83,7 @@ struct MarkdownText: View {
                 .frame(height: 1)
                 .padding(.vertical, 8)
         case .paragraph(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 16, weight: .regular)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
         case .empty:
             Spacer()
                 .frame(height: 4)
@@ -104,7 +108,7 @@ struct MarkdownText: View {
                 HStack(spacing: 0) {
                     ForEach(headers.indices, id: \.self) { i in
                         Text(stripMarkdownFormatting(headers[i]))
-                            .font(FontManager.geist(size: 14, weight: .semibold))
+                            .font(FontManager.geist(size: 13, weight: .semibold))
                             .foregroundColor(headerTextColor)
                             .lineLimit(1)
                             .frame(minWidth: columnWidth(for: i, headers: headers, rows: rows), alignment: columnAlignments[safe: i] ?? .leading)
@@ -124,9 +128,9 @@ struct MarkdownText: View {
                         HStack(spacing: 0) {
                             ForEach(0..<headers.count, id: \.self) { cellIndex in
                                 let cellText = cellIndex < rows[rowIndex].count ? rows[rowIndex][cellIndex] : ""
-                                
+
                                 Text(stripMarkdownFormatting(cellText))
-                                    .font(FontManager.geist(size: 15, weight: .regular))
+                                    .font(FontManager.geist(size: 14, weight: .regular))
                                     .foregroundColor(cellTextColor)
                                     .lineLimit(1)
                                     .frame(minWidth: columnWidth(for: cellIndex, headers: headers, rows: rows), alignment: columnAlignments[safe: cellIndex] ?? .leading)

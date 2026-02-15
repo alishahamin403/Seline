@@ -26,7 +26,7 @@ class VectorSearchService: ObservableObject {
     // MARK: - Configuration
 
     private let maxBatchSize = 50 // Max documents per batch
-    private let similarityThreshold: Float = 0.30 // Minimum similarity score (increased from 0.15 to filter weak matches)
+    private let similarityThreshold: Float = 0.20 // Minimum similarity score (balanced for good recall without too many weak matches)
     private let defaultResultLimit = 15 // Reduced from 50 to 15 for better UI performance
     // Removed recentDaysThreshold - now embedding ALL historical data
     
@@ -57,41 +57,60 @@ class VectorSearchService: ObservableObject {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return []
         }
-        
+
         var requestBody: [String: Any] = [
             "action": "search",
             "query": query,
             "document_types": documentTypes?.map { $0.rawValue } ?? NSNull(),
-            "limit": limit,
+            "limit": limit * 3, // Get more results to filter client-side
             "similarity_threshold": similarityThreshold
         ]
-        
-        // Add date range filtering if specified
-        if let dateRange = dateRange {
-            let iso = ISO8601DateFormatter()
-            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            requestBody["date_range_start"] = iso.string(from: dateRange.start)
-            requestBody["date_range_end"] = iso.string(from: dateRange.end)
-        }
-        
+
+        // DON'T send date range to edge function - we'll filter client-side
+        // This bypasses the JavaScript date comparison bug
+
         let response: SearchResponse = try await makeRequest(body: requestBody)
 
+        // Filter by date range client-side (Swift date handling is more reliable than JavaScript)
+        var results = response.results
+        if let dateRange = dateRange {
+            results = results.filter { result in
+                guard let metadata = result.metadata,
+                      let dateString = metadata["date"] as? String else {
+                    return false
+                }
+
+                // Parse ISO8601 date
+                let iso = ISO8601DateFormatter()
+                iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                guard let docDate = iso.date(from: dateString) else {
+                    return false
+                }
+
+                // Check if within range
+                return docDate >= dateRange.start && docDate < dateRange.end
+            }
+        }
+
+        // Limit to requested number after filtering
+        results = Array(results.prefix(limit))
+
         // Log search results and similarity scores
-        if !response.results.isEmpty {
-            print("🔍 Vector search returned \(response.results.count) results (threshold: \(similarityThreshold)):")
-            for (index, result) in response.results.prefix(5).enumerated() {
+        if !results.isEmpty {
+            print("🔍 Vector search returned \(results.count) results (threshold: \(similarityThreshold)):")
+            for (index, result) in results.prefix(5).enumerated() {
                 let similarityPercent = Int(result.similarity * 100)
                 print("   \(index + 1). [\(similarityPercent)%] \(result.title ?? result.document_type) - \(result.content.prefix(60))...")
             }
-            if response.results.count > 5 {
-                print("   ... and \(response.results.count - 5) more results")
+            if results.count > 5 {
+                print("   ... and \(results.count - 5) more results")
             }
         } else {
             print("🔍 Vector search returned 0 results (threshold: \(similarityThreshold)) - no matches found")
         }
 
         // Apply recency boost to results before returning
-        let resultsWithRecency = response.results.map { result -> SearchResult in
+        let resultsWithRecency = results.map { result -> SearchResult in
             let baseScore = result.similarity
             let recencyScore = calculateRecencyScore(metadata: result.metadata)
             // Formula: 70% semantic similarity + 30% recency
@@ -146,10 +165,10 @@ class VectorSearchService: ObservableObject {
                     context += "**\(annotatedTitle)**\n"
                 }
 
-                // Add relevant content preview
-                let preview = item.content.prefix(300)
+                // Add relevant content preview (increased from 300 to 800 for full email AI summaries)
+                let preview = item.content.prefix(800)
                 context += "  \(preview)"
-                if item.content.count > 300 {
+                if item.content.count > 800 {
                     context += "..."
                 }
                 context += "\n"
