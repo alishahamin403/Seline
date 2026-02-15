@@ -1279,14 +1279,14 @@ struct ZoomableHTMLView: UIViewRepresentable {
          webView.scrollView.showsHorizontalScrollIndicator = false
          webView.scrollView.contentInset = .zero
          webView.scrollView.contentInsetAdjustmentBehavior = .never
-        
-        // Enable pinch-to-zoom functionality with fit-to-width as default
-        webView.scrollView.minimumZoomScale = 0.5
-        webView.scrollView.maximumZoomScale = 5.0
-        webView.scrollView.zoomScale = 1.0
-        
-        // Enable scrolling to top with status bar tap
-        webView.scrollView.scrollsToTop = true
+         
+         // Disable zoom on WebView - we handle scaling with viewport meta tag
+         webView.scrollView.minimumZoomScale = 1.0
+         webView.scrollView.maximumZoomScale = 1.0
+         webView.scrollView.zoomScale = 1.0
+         
+         // Enable scrolling to top with status bar tap
+         webView.scrollView.scrollsToTop = false
 
         // Disable back/forward navigation gestures that can interfere with toolbar
         webView.allowsBackForwardNavigationGestures = false
@@ -1317,37 +1317,52 @@ struct ZoomableHTMLView: UIViewRepresentable {
             return
         }
 
-        // Wrap HTML with proper viewport and scaling meta tags
-        let wrappedHTML = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
-            <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * data: blob: https: http:;">
-            <style>
-                * {
-                    box-sizing: border-box !important;
-                }
-                 html, body {
+         // Get screen width to properly scale content
+         let screenWidth = UIScreen.main.bounds.width
+         
+         // Wrap HTML with proper viewport and scaling meta tags
+         let wrappedHTML = """
+         <!DOCTYPE html>
+         <html>
+         <head>
+             <meta charset="UTF-8">
+             <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=yes, viewport-fit=cover">
+             <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * data: blob: https: http:;">
+             <style>
+                 * {
+                     box-sizing: border-box !important;
+                 }
+                 html {
                      margin: 0 !important;
                      padding: 0 !important;
+                     width: 100% !important;
+                     max-width: 100% !important;
+                     overflow-x: hidden !important;
+                 }
+                 body {
+                     margin: 0 !important;
+                     padding: 16px !important;
                      width: 100% !important;
                      max-width: 100% !important;
                      min-width: 0 !important;
                      overflow-x: hidden !important;
                      overflow-y: visible !important;
-                     position: relative !important;
                      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
                      font-size: 14px;
                      line-height: 1.5;
                      color: \(colorScheme == .dark ? "#ffffff" : "#202124");
                      background-color: transparent;
-                     -webkit-text-size-adjust: 100%;
+                     -webkit-text-size-adjust: none;
                      word-wrap: break-word !important;
                      overflow-wrap: break-word !important;
                      word-break: break-word !important;
-                     min-height: auto;
+                 }
+                 
+                 /* Wrapper to contain and scale content if needed */
+                 #email-content-wrapper {
+                     width: 100%;
+                     max-width: 100%;
+                     overflow: hidden;
                  }
 
                  /* CRITICAL: Force ALL images to fit within viewport and ensure loading */
@@ -1366,14 +1381,19 @@ struct ZoomableHTMLView: UIViewRepresentable {
                     height: auto !important;
                 }
 
-                /* Handle tables - common in email templates */
-                table {
-                    width: 100% !important;
-                    max-width: 100% !important;
-                    table-layout: auto !important;
-                    border-collapse: collapse !important;
-                    margin: 12px 0 !important;
-                }
+                 /* Handle tables - common in email templates */
+                 table {
+                     max-width: 100% !important;
+                     table-layout: auto !important;
+                     border-collapse: collapse !important;
+                     margin: 12px 0 !important;
+                 }
+                 
+                 /* Fix tables with explicit width attributes */
+                 table[width] {
+                     width: auto !important;
+                     max-width: 100% !important;
+                 }
 
                  /* Table cells need to shrink */
                  td, th {
@@ -1456,54 +1476,69 @@ struct ZoomableHTMLView: UIViewRepresentable {
                 }
             </style>
             <script>
-                // Ensure all content fits properly and measure height
-                function formatEmailContent() {
-                    // Remove fixed dimensions from all images
-                    var images = document.querySelectorAll('img');
-                    images.forEach(function(img) {
-                        img.removeAttribute('width');
-                        img.removeAttribute('height');
-                        img.style.maxWidth = '100%';
-                        img.style.height = 'auto';
-                        img.style.width = 'auto';
+                 // Ensure all content fits properly and scale if needed
+                 function formatEmailContent() {
+                     var wrapper = document.getElementById('email-content-wrapper');
+                     var screenWidth = \(screenWidth) - 32; // Account for body padding
+                     
+                     // Remove fixed dimensions from all images
+                     var images = document.querySelectorAll('img');
+                     images.forEach(function(img) {
+                         img.removeAttribute('width');
+                         img.removeAttribute('height');
+                         img.style.maxWidth = '100%';
+                         img.style.height = 'auto';
+                         img.style.width = 'auto';
 
-                        // Handle image load errors with retry logic
-                        img.onerror = function() {
-                            if (!this.dataset.retried && this.src) {
-                                this.dataset.retried = 'true';
-                                var originalSrc = this.src;
-                                this.referrerPolicy = 'no-referrer';
-                                this.crossOrigin = 'anonymous';
-                                this.src = originalSrc;
-                            }
-                        };
+                         // Handle image load errors with retry logic
+                         img.onerror = function() {
+                             if (!this.dataset.retried && this.src) {
+                                 this.dataset.retried = 'true';
+                                 var originalSrc = this.src;
+                                 this.referrerPolicy = 'no-referrer';
+                                 this.crossOrigin = 'anonymous';
+                                 this.src = originalSrc;
+                             }
+                         };
 
-                        // Ensure images load by triggering a reload if needed
-                        if (img.complete && img.naturalHeight === 0 && img.src) {
-                            img.referrerPolicy = 'no-referrer';
-                            var src = img.src;
-                            img.src = '';
-                            img.src = src;
-                        }
-                    });
+                         // Ensure images load by triggering a reload if needed
+                         if (img.complete && img.naturalHeight === 0 && img.src) {
+                             img.referrerPolicy = 'no-referrer';
+                             var src = img.src;
+                             img.src = '';
+                             img.src = src;
+                         }
+                     });
 
-                    // Fix tables to fit width
-                    var tables = document.querySelectorAll('table');
-                    tables.forEach(function(table) {
-                        table.removeAttribute('width');
-                        table.style.width = '100%';
-                        table.style.maxWidth = '100%';
-                        table.style.tableLayout = 'auto';
-                    });
+                     // Fix tables to fit width
+                     var tables = document.querySelectorAll('table');
+                     tables.forEach(function(table) {
+                         table.removeAttribute('width');
+                         table.style.maxWidth = '100%';
+                     });
 
-                    // Ensure all divs and containers fit
-                    var containers = document.querySelectorAll('div, section, article, td, th');
-                    containers.forEach(function(el) {
-                        if (el.style.width && el.style.width !== '100%') {
-                            el.style.maxWidth = '100%';
-                        }
-                    });
-                }
+                     // Remove fixed widths from containers
+                     var containers = document.querySelectorAll('div, section, article, td, th');
+                     containers.forEach(function(el) {
+                         var width = el.getAttribute('width');
+                         if (width && parseInt(width) > screenWidth) {
+                             el.removeAttribute('width');
+                             el.style.maxWidth = '100%';
+                         }
+                     });
+                     
+                     // Scale content if it's wider than viewport
+                     setTimeout(function() {
+                         var contentWidth = wrapper.scrollWidth;
+                         if (contentWidth > screenWidth) {
+                             var scale = screenWidth / contentWidth;
+                             wrapper.style.transform = 'scale(' + scale + ')';
+                             wrapper.style.transformOrigin = 'top left';
+                             wrapper.style.width = (contentWidth) + 'px';
+                             document.body.style.height = (wrapper.scrollHeight * scale) + 'px';
+                         }
+                     }, 100);
+                 }
 
                 // Initial formatting on DOMContentLoaded
                 document.addEventListener('DOMContentLoaded', formatEmailContent);
@@ -1520,12 +1555,14 @@ struct ZoomableHTMLView: UIViewRepresentable {
                     formatEmailContent();
                 }, 500);
             </script>
-        </head>
-        <body>
-            \(htmlContent)
-        </body>
-        </html>
-        """
+         </head>
+         <body>
+             <div id="email-content-wrapper">
+                 \(htmlContent)
+             </div>
+         </body>
+         </html>
+         """
 
         // Use a base URL to help resolve relative image paths
         let baseURL = URL(string: "https://mail.google.com/")
