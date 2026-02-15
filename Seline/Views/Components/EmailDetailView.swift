@@ -1118,18 +1118,10 @@ struct ModernAttachmentChip: View {
         }
     }
 
-    private var fileColor: Color {
-        switch attachment.fileExtension {
-        case "pdf": return .red
-        case "doc", "docx": return .blue
-        case "xls", "xlsx": return .green
-        case "ppt", "pptx": return .orange
-        case "jpg", "jpeg", "png", "gif", "webp", "heic": return .purple
-        case "mp4", "mov", "avi": return .pink
-        case "mp3", "wav", "m4a": return .cyan
-        default: return colorScheme == .dark ? .white : .black
-        }
-    }
+     private var fileColor: Color {
+         // Use consistent black/white colors based on color scheme for all file types
+         return colorScheme == .dark ? .white : .black
+     }
 
     var body: some View {
         Button(action: downloadAttachment) {
@@ -1358,15 +1350,14 @@ struct ZoomableHTMLView: UIViewRepresentable {
                     min-height: auto;
                 }
 
-                /* CRITICAL: Force ALL images to fit within viewport and ensure loading */
-                img {
-                    max-width: 100% !important;
-                    width: auto !important;
-                    height: auto !important;
-                    display: block !important;
-                    object-fit: contain !important;
-                    margin: 8px 0 !important;
-                }
+                 /* CRITICAL: Force ALL images to fit within viewport and ensure loading */
+                 img {
+                     max-width: 100% !important;
+                     width: auto !important;
+                     height: auto !important;
+                     display: inline-block !important;
+                     object-fit: contain !important;
+                 }
 
                 /* Override inline width/height attributes on images */
                 img[width], img[height], img[style] {
@@ -1384,15 +1375,14 @@ struct ZoomableHTMLView: UIViewRepresentable {
                     margin: 12px 0 !important;
                 }
 
-                /* Table cells need to shrink */
-                td, th {
-                    max-width: 100% !important;
-                    word-wrap: break-word !important;
-                    overflow-wrap: break-word !important;
-                    word-break: break-word !important;
-                    padding: 8px !important;
-                    border: 1px solid \(colorScheme == .dark ? "#444" : "#ddd") !important;
-                }
+                 /* Table cells need to shrink */
+                 td, th {
+                     max-width: 100% !important;
+                     word-wrap: break-word !important;
+                     overflow-wrap: break-word !important;
+                     word-break: break-word !important;
+                     padding: 8px !important;
+                 }
 
                 /* Images inside tables */
                 td img, th img {
@@ -1400,19 +1390,13 @@ struct ZoomableHTMLView: UIViewRepresentable {
                     height: auto !important;
                 }
 
-                /* Base structural elements */
-                div, p, section, article {
-                    max-width: 100% !important;
-                    overflow-wrap: break-word !important;
-                    word-wrap: break-word !important;
-                    word-break: break-word !important;
-                    margin: 0 !important;
-                    padding: 0 !important;
-                }
-
-                p {
-                    margin: 12px 0 !important;
-                }
+                 /* Base structural elements */
+                 div, p, section, article {
+                     max-width: 100% !important;
+                     overflow-wrap: break-word !important;
+                     word-wrap: break-word !important;
+                     word-break: break-word !important;
+                 }
 
                 h1, h2, h3, h4, h5, h6 {
                     margin: 16px 0 12px 0 !important;
