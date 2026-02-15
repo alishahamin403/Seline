@@ -85,10 +85,9 @@ struct EmailDetailView: View {
                             .padding(.top, 12)
                     }
 
-                    // Original Email Content - Expanded by default, full width
-                    gmailEmailBodySection
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
+                     // Original Email Content - Edge-to-edge, full width
+                     gmailEmailBodySection
+                         .padding(.top, 12)
 
                     // Bottom spacing for fixed bottom elements
                     Spacer()
@@ -1273,13 +1272,13 @@ struct ZoomableHTMLView: UIViewRepresentable {
         // CRITICAL: Set autoresizing mask to ensure WebView fills container properly
         webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
-        // Allow scrolling for large content
-        webView.scrollView.isScrollEnabled = true
-        webView.scrollView.bounces = true
-        webView.scrollView.showsVerticalScrollIndicator = true
-        webView.scrollView.showsHorizontalScrollIndicator = true
-        webView.scrollView.contentInset = .zero
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
+         // CRITICAL: Disable WebView's internal scrolling - parent ScrollView handles all scrolling
+         webView.scrollView.isScrollEnabled = false
+         webView.scrollView.bounces = false
+         webView.scrollView.showsVerticalScrollIndicator = false
+         webView.scrollView.showsHorizontalScrollIndicator = false
+         webView.scrollView.contentInset = .zero
+         webView.scrollView.contentInsetAdjustmentBehavior = .never
         
         // Enable pinch-to-zoom functionality with fit-to-width as default
         webView.scrollView.minimumZoomScale = 0.5
@@ -1330,25 +1329,26 @@ struct ZoomableHTMLView: UIViewRepresentable {
                 * {
                     box-sizing: border-box !important;
                 }
-                html, body {
-                    margin: 0 !important;
-                    padding: 12px !important;
-                    width: 100% !important;
-                    max-width: 100% !important;
-                    min-width: 0 !important;
-                    overflow-x: auto !important;
-                    position: relative !important;
-                    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-                    font-size: 14px;
-                    line-height: 1.5;
-                    color: \(colorScheme == .dark ? "#ffffff" : "#202124");
-                    background-color: transparent;
-                    -webkit-text-size-adjust: 100%;
-                    word-wrap: break-word !important;
-                    overflow-wrap: break-word !important;
-                    word-break: break-word !important;
-                    min-height: auto;
-                }
+                 html, body {
+                     margin: 0 !important;
+                     padding: 0 !important;
+                     width: 100% !important;
+                     max-width: 100% !important;
+                     min-width: 0 !important;
+                     overflow-x: hidden !important;
+                     overflow-y: visible !important;
+                     position: relative !important;
+                     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                     font-size: 14px;
+                     line-height: 1.5;
+                     color: \(colorScheme == .dark ? "#ffffff" : "#202124");
+                     background-color: transparent;
+                     -webkit-text-size-adjust: 100%;
+                     word-wrap: break-word !important;
+                     overflow-wrap: break-word !important;
+                     word-break: break-word !important;
+                     min-height: auto;
+                 }
 
                  /* CRITICAL: Force ALL images to fit within viewport and ensure loading */
                  img {
