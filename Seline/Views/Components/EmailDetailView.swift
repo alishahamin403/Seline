@@ -52,8 +52,8 @@ struct EmailDetailView: View {
 
     var body: some View {
         GeometryReader { geometry in
-        VStack(spacing: 0) {
-            // Main unified scrollable content - everything scrolls together
+        ZStack(alignment: .bottom) {
+            // Main scrollable content
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(spacing: 0) {
                     // Subject with Inbox label (Gmail style)
@@ -90,23 +90,24 @@ struct EmailDetailView: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 12)
 
-                    // Attachments Section - Now part of scrollable content
-                    if hasAttachments {
-                        modernAttachmentsSection
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-                    }
-
-                    // Bottom spacing for action bar
+                    // Bottom spacing for fixed bottom elements
                     Spacer()
-                        .frame(height: 100)
+                        .frame(height: hasAttachments ? 160 : 100)
                 }
                 .padding(.top, 8)
                 .frame(width: geometry.size.width) // CRITICAL: Constrain content to screen width
             }
 
-            // Fixed bottom action bar only
-            gmailBottomActionBar
+            // Fixed bottom section with attachments + action bar
+            VStack(spacing: 0) {
+                // Modern floating attachments section
+                if hasAttachments {
+                    modernAttachmentsSection
+                }
+
+                // Reply/Forward bar
+                gmailBottomActionBar
+            }
         }
         } // GeometryReader
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color(UIColor.systemBackground))
@@ -455,14 +456,13 @@ struct EmailDetailView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-         }
-         .padding(.horizontal, 16)
-         .padding(.vertical, 12)
-         .background(colorScheme == .dark ? Color.black : Color.white)
-         .border(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1), width: 1)
-     }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(colorScheme == .dark ? Color.black : Color.white)
+    }
 
-     // MARK: - Unsubscribe Banner
+    // MARK: - Unsubscribe Banner
 
     private func unsubscribeBanner(unsubInfo: UnsubscribeInfo) -> some View {
         HStack(spacing: 12) {
@@ -1118,10 +1118,18 @@ struct ModernAttachmentChip: View {
         }
     }
 
-     private var fileColor: Color {
-         // Use consistent black/white colors based on color scheme for all file types
-         return colorScheme == .dark ? .white : .black
-     }
+    private var fileColor: Color {
+        switch attachment.fileExtension {
+        case "pdf": return .red
+        case "doc", "docx": return .blue
+        case "xls", "xlsx": return .green
+        case "ppt", "pptx": return .orange
+        case "jpg", "jpeg", "png", "gif", "webp", "heic": return .purple
+        case "mp4", "mov", "avi": return .pink
+        case "mp3", "wav", "m4a": return .cyan
+        default: return colorScheme == .dark ? .white : .black
+        }
+    }
 
     var body: some View {
         Button(action: downloadAttachment) {
