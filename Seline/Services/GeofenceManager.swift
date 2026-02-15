@@ -1745,35 +1745,41 @@ class GeofenceManager: NSObject, ObservableObject {
     
     /// Internal method that actually saves to Supabase (without midnight check)
     /// This is called after midnight splitting is done
-    private func saveVisitToSupabaseDirectly(_ visit: LocationVisitRecord) async {
-        // AUTO-DELETE: Skip saving visits under 2 minutes (likely false positives)
-        // Only check if visit is complete (has exit_time and duration)
-        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
-            print("🗑️ Skipping save for short visit: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
-            return
-        }
+     private func saveVisitToSupabaseDirectly(_ visit: LocationVisitRecord) async {
+         // AUTO-DELETE: Skip saving visits under 6 minutes (likely made in error)
+         // UNLESS the user has added visit notes/reason - then keep regardless of duration
+         // Only check if visit is complete (has exit_time and duration)
+         if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes {
+             let hasNotes = visit.visitNotes != nil && !visit.visitNotes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+             
+             if durationMinutes < 6 && !hasNotes {
+                 print("🗑️ Skipping save for short visit: \(visit.id.uuidString) (duration: \(durationMinutes) min < 6 min, no notes)")
+                 return
+             }
+         }
         
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
-        // FIXED: Include session_id, confidence_score, merge_reason which were missing
-        let visitData: [String: PostgREST.AnyJSON] = [
-            "id": .string(visit.id.uuidString),
-            "user_id": .string(visit.userId.uuidString),
-            "saved_place_id": .string(visit.savedPlaceId.uuidString),
-            "session_id": visit.sessionId != nil ? .string(visit.sessionId!.uuidString) : .null,
-            "entry_time": .string(formatter.string(from: visit.entryTime)),
-            "exit_time": visit.exitTime != nil ? .string(formatter.string(from: visit.exitTime!)) : .null,
-            "duration_minutes": visit.durationMinutes != nil ? .double(Double(visit.durationMinutes!)) : .null,
-            "day_of_week": .string(visit.dayOfWeek),
-            "time_of_day": .string(visit.timeOfDay),
-            "month": .double(Double(visit.month)),
-            "year": .double(Double(visit.year)),
-            "confidence_score": visit.confidenceScore != nil ? .double(visit.confidenceScore!) : .null,
-            "merge_reason": visit.mergeReason != nil ? .string(visit.mergeReason!) : .null,
-            "created_at": .string(formatter.string(from: visit.createdAt)),
-            "updated_at": .string(formatter.string(from: visit.updatedAt))
-        ]
+         // FIXED: Include session_id, confidence_score, merge_reason, visit_notes which were missing
+         let visitData: [String: PostgREST.AnyJSON] = [
+             "id": .string(visit.id.uuidString),
+             "user_id": .string(visit.userId.uuidString),
+             "saved_place_id": .string(visit.savedPlaceId.uuidString),
+             "session_id": visit.sessionId != nil ? .string(visit.sessionId!.uuidString) : .null,
+             "entry_time": .string(formatter.string(from: visit.entryTime)),
+             "exit_time": visit.exitTime != nil ? .string(formatter.string(from: visit.exitTime!)) : .null,
+             "duration_minutes": visit.durationMinutes != nil ? .double(Double(visit.durationMinutes!)) : .null,
+             "day_of_week": .string(visit.dayOfWeek),
+             "time_of_day": .string(visit.timeOfDay),
+             "month": .double(Double(visit.month)),
+             "year": .double(Double(visit.year)),
+             "confidence_score": visit.confidenceScore != nil ? .double(visit.confidenceScore!) : .null,
+             "merge_reason": visit.mergeReason != nil ? .string(visit.mergeReason!) : .null,
+             "visit_notes": visit.visitNotes != nil ? .string(visit.visitNotes!) : .null,
+             "created_at": .string(formatter.string(from: visit.createdAt)),
+             "updated_at": .string(formatter.string(from: visit.updatedAt))
+         ]
 
         print("📤 Preparing to insert visit into Supabase: \(visit.id.uuidString)")
 
@@ -1847,23 +1853,29 @@ class GeofenceManager: NSObject, ObservableObject {
             return
         }
 
-        // AUTO-DELETE: Delete visits under 2 minutes instead of updating them
-        // Only check if visit is complete (has exit_time and duration)
-        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
-            print("🗑️ Auto-deleting short visit instead of updating: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
-            await deleteVisitFromSupabase(visit)
-            return
-        }
+         // AUTO-DELETE: Delete visits under 6 minutes instead of updating them
+         // UNLESS the user has added visit notes/reason - then keep regardless of duration
+         // Only check if visit is complete (has exit_time and duration)
+         if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes {
+             let hasNotes = visit.visitNotes != nil && !visit.visitNotes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+             
+             if durationMinutes < 6 && !hasNotes {
+                 print("🗑️ Auto-deleting short visit instead of updating: \(visit.id.uuidString) (duration: \(durationMinutes) min < 6 min, no notes)")
+                 await deleteVisitFromSupabase(visit)
+                 return
+             }
+         }
 
-        // No split needed - proceed with normal update
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+         // No split needed - proceed with normal update
+         let formatter = ISO8601DateFormatter()
+         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
-        let updateData: [String: PostgREST.AnyJSON] = [
-            "exit_time": visit.exitTime != nil ? .string(formatter.string(from: visit.exitTime!)) : .null,
-            "duration_minutes": visit.durationMinutes != nil ? .double(Double(visit.durationMinutes!)) : .null,
-            "updated_at": .string(formatter.string(from: visit.updatedAt))
-        ]
+         let updateData: [String: PostgREST.AnyJSON] = [
+             "exit_time": visit.exitTime != nil ? .string(formatter.string(from: visit.exitTime!)) : .null,
+             "duration_minutes": visit.durationMinutes != nil ? .double(Double(visit.durationMinutes!)) : .null,
+             "visit_notes": visit.visitNotes != nil ? .string(visit.visitNotes!) : .null,
+             "updated_at": .string(formatter.string(from: visit.updatedAt))
+         ]
 
         do {
             print("💾 Updating visit in Supabase - ID: \(visit.id.uuidString), ExitTime: \(visit.exitTime?.description ?? "nil"), Duration: \(visit.durationMinutes ?? 0)min")
