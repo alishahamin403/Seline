@@ -506,15 +506,10 @@ class SearchService: ObservableObject {
         isLoadingQuestionResponse = true
         let thinkStartTime = Date()  // Track when LLM starts thinking
 
-        if useSelineChat {
-            // NEW: Use simplified SelineChat approach
-            await addConversationMessageWithSelineChat(trimmed, thinkStartTime: thinkStartTime, isVoiceMode: isVoiceMode)
-        } else {
-            // OLD: Use legacy system (fallback)
-            await addConversationMessageLegacy(trimmed, thinkStartTime: thinkStartTime)
-        }
+        // Always use SelineChat - legacy path removed
+        await addConversationMessageWithSelineChat(trimmed, thinkStartTime: thinkStartTime, isVoiceMode: isVoiceMode)
     }
-
+    
     // MARK: - SelineChat Implementation (Phase 2)
 
     /// NEW simplified chat using SelineChat with proper streaming support
@@ -1141,13 +1136,8 @@ class SearchService: ObservableObject {
         isLoadingQuestionResponse = true
         let thinkStartTime = Date()
         
-        if useSelineChat {
-            // Use SelineChat to regenerate - the user message is already in chat history
-            await addConversationMessageWithSelineChat(userMessage, thinkStartTime: thinkStartTime, skipUserMessage: true)
-        } else {
-            // Legacy regeneration
-            await addConversationMessageLegacy(userMessage, thinkStartTime: thinkStartTime)
-        }
+        // Always use SelineChat for regeneration
+        await addConversationMessageWithSelineChat(userMessage, thinkStartTime: thinkStartTime, skipUserMessage: true)
     }
 
     /// Start a conversation with an initial question

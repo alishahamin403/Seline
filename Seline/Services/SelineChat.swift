@@ -164,17 +164,11 @@ class SelineChat: ObservableObject {
     }
 
     /// Get context size estimate (for display)
-    /// When vector search is enabled, shows much smaller context size
+    /// Always uses vector search now - legacy path removed
     func getContextSizeEstimate() async -> String {
-        if useVectorSearch {
-            // Sample query to estimate vector context size
-            let result = await vectorContextBuilder.buildContext(forQuery: "example query")
-            return "~\(result.metadata.estimatedTokens) tokens (vector)"
-        } else {
-            let contextPrompt = await appContext.buildContextPrompt()
-            let estimatedTokens = contextPrompt.count / 4  // Rough estimate
-            return "~\(estimatedTokens) tokens (legacy)"
-        }
+        // Always use vector context for estimates
+        let result = await vectorContextBuilder.buildContext(forQuery: "example query")
+        return "~\(result.metadata.estimatedTokens) tokens (vector)"
     }
 
     // MARK: - Greeting
