@@ -1323,36 +1323,46 @@ struct ZoomableHTMLView: UIViewRepresentable {
          <html>
          <head>
              <meta charset="UTF-8">
-             <meta name="viewport" content="width=\(Int(UIScreen.main.bounds.width - 32)), initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
              <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * data: blob: https: http:;">
              <style>
-                 * {
-                     box-sizing: border-box !important;
-                     max-width: 100% !important;
-                 }
-                 html, body {
-                     margin: 0 !important;
-                     padding: 16px !important;
-                     width: 100% !important;
-                     max-width: 100% !important;
-                     overflow-x: hidden !important;
-                     overflow-y: visible !important;
-                     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-                     font-size: 14px !important;
-                     line-height: 1.5 !important;
-                     color: \(colorScheme == .dark ? "#ffffff" : "#202124") !important;
-                     background-color: transparent !important;
-                     -webkit-text-size-adjust: 100% !important;
-                 }
+                * {
+                    box-sizing: border-box !important;
+                    max-width: 100% !important;
+                }
+                html {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    overflow-x: hidden !important;
+                    overflow-y: visible !important;
+                    background: #ffffff !important;
+                }
+                body {
+                    margin: 0 !important;
+                    padding: 16px !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    overflow-x: hidden !important;
+                    overflow-y: visible !important;
+                    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                    font-size: 14px !important;
+                    line-height: 1.5 !important;
+                    color: #202124 !important;
+                    background: #ffffff !important;
+                    -webkit-text-size-adjust: 100% !important;
+                }
                  
                  /* Force ALL images to fit within viewport */
-                 img {
-                     max-width: 100% !important;
-                     width: 100% !important;
-                     height: auto !important;
-                     display: block !important;
-                     object-fit: contain !important;
-                 }
+                img {
+                    max-width: 100% !important;
+                    width: 100% !important;
+                    height: auto !important;
+                    display: block !important;
+                    object-fit: contain !important;
+                    background: transparent !important;
+                }
 
                  /* Remove explicit width/height from images */
                  img[width], img[height] {
@@ -1362,13 +1372,13 @@ struct ZoomableHTMLView: UIViewRepresentable {
                  }
 
                  /* Force tables to fit viewport */
-                 table {
-                     max-width: 100% !important;
-                     width: 100% !important;
-                     table-layout: fixed !important;
-                     border-collapse: collapse !important;
-                     overflow-x: hidden !important;
-                 }
+                table {
+                    max-width: 100% !important;
+                    width: 100% !important;
+                    table-layout: fixed !important;
+                    border-collapse: collapse !important;
+                    overflow-x: hidden !important;
+                }
                  
                  /* Remove explicit width from tables */
                  table[width] {
@@ -1392,14 +1402,15 @@ struct ZoomableHTMLView: UIViewRepresentable {
                  }
 
                  /* Block elements */
-                 div, p, section, article, span {
-                     max-width: 100% !important;
-                     width: auto !important;
-                     overflow-wrap: break-word !important;
-                     word-wrap: break-word !important;
-                     word-break: break-word !important;
-                     font-size: 14px !important;
-                 }
+                div, p, section, article, span {
+                    max-width: 100% !important;
+                    width: auto !important;
+                    overflow-wrap: break-word !important;
+                    word-wrap: break-word !important;
+                    word-break: break-word !important;
+                    font-size: 14px !important;
+                    overflow-x: hidden !important;
+                }
 
                  /* Headers */
                  h1, h2, h3, h4, h5, h6 {
@@ -1408,11 +1419,11 @@ struct ZoomableHTMLView: UIViewRepresentable {
                      word-wrap: break-word !important;
                  }
 
-                 a {
-                     color: #1a73e8 !important;
-                     word-break: break-all !important;
-                     font-size: 14px !important;
-                 }
+                a {
+                    color: #1a73e8 !important;
+                    word-break: break-all !important;
+                    font-size: 14px !important;
+                }
 
                  /* Hide tracking pixels */
                  img[width="1"], img[width="0"], img[height="0"], img[height="1"] {
@@ -1420,10 +1431,24 @@ struct ZoomableHTMLView: UIViewRepresentable {
                  }
 
                  /* Lists */
-                 ul, ol, li {
-                     max-width: 100% !important;
-                     font-size: 14px !important;
-                 }
+                ul, ol, li {
+                    max-width: 100% !important;
+                    font-size: 14px !important;
+                }
+
+                /* Force fixed-width elements to fit viewport */
+                [width], [style*="width"], [style*="min-width"], [style*="max-width"] {
+                    max-width: 100% !important;
+                    width: auto !important;
+                    min-width: 0 !important;
+                }
+
+                /* Prevent inner scrollbars in email body */
+                *::-webkit-scrollbar {
+                    display: none !important;
+                    width: 0 !important;
+                    height: 0 !important;
+                }
              </style>
             <script>
                  // Ensure all content fits properly and scale if needed

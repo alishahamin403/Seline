@@ -7,17 +7,15 @@ class TextToSpeechService: NSObject, ObservableObject {
     static let shared = TextToSpeechService()
 
     private let synthesizer = AVSpeechSynthesizer()
-    private let elevenLabsService = ElevenLabsTTSService.shared
+    private let piperService = PiperTTSService.shared
     @Published var isSpeaking = false
     var onSpeechFinished: (() -> Void)?
 
-    // Queue for incremental speech (like ChatGPT)
     private var speechQueue: [String] = []
     private var isProcessingQueue = false
 
-    // Use ElevenLabs first (high quality), fall back to Apple AVSpeech
-    private var useElevenLabs: Bool {
-        elevenLabsService.isAvailable
+    private var usePiper: Bool {
+        piperService.isAvailable
     }
 
     private var cancellables = Set<AnyCancellable>()
@@ -26,31 +24,33 @@ class TextToSpeechService: NSObject, ObservableObject {
         super.init()
         synthesizer.delegate = self
 
-        // Observe ElevenLabs speaking state
-        elevenLabsService.$isSpeaking
+        piperService.$isSpeaking
             .sink { [weak self] isSpeaking in
-                self?.isSpeaking = isSpeaking
+                if isSpeaking {
+                    self?.isSpeaking = true
+                }
             }
             .store(in: &cancellables)
     }
 
     func speak(_ text: String, completion: (() -> Void)? = nil) {
-        // Stop any current speech
+        print("🎤 TTS speak() called - usePiper: \(usePiper)")
+        
         stopSpeaking()
 
-        // Use ElevenLabs if available (high quality)
-        if useElevenLabs {
+        if usePiper {
+            print("🎤 Using Piper TTS")
             onSpeechFinished = completion
-            elevenLabsService.onSpeechFinished = { [weak self] in
+            piperService.onSpeechFinished = { [weak self] in
                 self?.onSpeechFinished?()
                 self?.onSpeechFinished = nil
             }
-            elevenLabsService.speak(text, completion: nil)
+            piperService.speak(text, completion: nil)
             isSpeaking = true
             return
         }
 
-        // Fall back to system TTS
+        print("🎤 Using Apple TTS")
         Task {
             do {
                 try await AudioSessionCoordinator.shared.requestMode(.playback)
@@ -74,8 +74,8 @@ class TextToSpeechService: NSObject, ObservableObject {
     }
 
     func stopSpeaking() {
-        if useElevenLabs {
-            elevenLabsService.stopSpeaking()
+        if usePiper {
+            piperService.stopSpeaking()
         } else {
             if synthesizer.isSpeaking {
                 synthesizer.stopSpeaking(at: .immediate)
@@ -86,26 +86,25 @@ class TextToSpeechService: NSObject, ObservableObject {
         isSpeaking = false
     }
 
-    /// Speak text incrementally as it streams in (like ChatGPT)
     func speakIncremental(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        
+        print("🎤 TTS speakIncremental() called - usePiper: \(usePiper)")
 
-        // Use ElevenLabs if available (high quality)
-        if useElevenLabs {
-            // Bridge ElevenLabs queue completion into our onSpeechFinished callback.
-            // This is critical for voice mode UX (resume listening after the assistant finishes speaking).
-            if onSpeechFinished != nil && elevenLabsService.onSpeechFinished == nil {
-                elevenLabsService.onSpeechFinished = { [weak self] in
+        if usePiper {
+            print("🎤 Using Piper TTS (incremental)")
+            if onSpeechFinished != nil && piperService.onSpeechFinished == nil {
+                piperService.onSpeechFinished = { [weak self] in
                     self?.onSpeechFinished?()
                     self?.onSpeechFinished = nil
                 }
             }
-            elevenLabsService.speakIncremental(trimmed)
+            piperService.speak(trimmed, completion: nil)
             return
         }
 
-        // Fall back to system TTS queue
+        print("🎤 Using Apple TTS (incremental)")
         speechQueue.append(trimmed)
 
         if !isProcessingQueue {
@@ -143,8 +142,6 @@ class TextToSpeechService: NSObject, ObservableObject {
         synthesizer.speak(utterance)
     }
 
-    // MARK: - Voice Selection
-
     private func bestAvailableVoice() -> AVSpeechSynthesisVoice? {
         let voices = AVSpeechSynthesisVoice.speechVoices()
         let premiumVoiceIdentifiers = [
@@ -175,8 +172,7 @@ class TextToSpeechService: NSObject, ObservableObject {
 
 extension TextToSpeechService: AVSpeechSynthesizerDelegate {
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        // Only handle system TTS callbacks (ElevenLabs handles its own)
-        guard !useElevenLabs else { return }
+        guard !usePiper else { return }
 
         isSpeaking = false
 
@@ -194,8 +190,7 @@ extension TextToSpeechService: AVSpeechSynthesizerDelegate {
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        // Only handle system TTS callbacks (ElevenLabs handles its own)
-        guard !useElevenLabs else { return }
+        guard !usePiper else { return }
 
         isSpeaking = false
         speechQueue.removeAll()

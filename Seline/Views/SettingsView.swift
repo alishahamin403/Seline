@@ -5,7 +5,6 @@ struct SettingsView: View {
     @ObservedObject var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
     @StateObject private var geofenceManager = GeofenceManager.shared
-    @StateObject private var elevenLabsService = ElevenLabsTTSService.shared
 
     // Computed property to get current theme state
     private var isDarkMode: Bool {

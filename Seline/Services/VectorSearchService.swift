@@ -3,15 +3,18 @@ import Foundation
 /**
  * VectorSearchService - Semantic Search for LLM Context
  *
- * This service provides vector-based semantic search using OpenAI embeddings
- * stored in Supabase pgvector. It replaces keyword matching with AI-powered
- * similarity search for much more relevant context retrieval.
+ * This service provides vector-based semantic search using OpenAI text-embedding-3-small
+ * (1536 dimensions) stored in Supabase pgvector with HNSW indexing.
+ * It replaces keyword matching with AI-powered similarity search.
  *
  * Key features:
- * - Semantic search across notes, emails, tasks, and locations
+ * - 1536-dimension embeddings (supports HNSW index for fast search)
+ * - Semantic search across notes, emails, tasks, locations, receipts, visits, people
  * - Automatic embedding generation and caching
  * - Background sync to keep embeddings up-to-date
  * - Efficient batch processing
+ *
+ * IMPORTANT: After updating embedding model, run syncEmbeddingsImmediately() to re-index all documents
  */
 @MainActor
 class VectorSearchService: ObservableObject {
@@ -23,10 +26,15 @@ class VectorSearchService: ObservableObject {
     @Published var lastSyncTime: Date?
     @Published var embeddingsCount: Int = 0
     
+    // MARK: - Embedding Progress Tracking
+    @Published var embeddingProgress: Double = 0.0 // 0.0 to 1.0
+    @Published var embeddingStatus: String = "Ready" // Status message
+    @Published var hasCompletedFirstSync: Bool = false // Track if first sync done
+    
     // MARK: - Configuration
 
     private let maxBatchSize = 50 // Max documents per batch
-    private let similarityThreshold: Float = 0.20 // Minimum similarity score (balanced for good recall without too many weak matches)
+    private let similarityThreshold: Float = 0.10 // Lowered from 0.20 for better recall
     private let defaultResultLimit = 15 // Reduced from 50 to 15 for better UI performance
     // Removed recentDaysThreshold - now embedding ALL historical data
     
@@ -72,48 +80,43 @@ class VectorSearchService: ObservableObject {
         let response: SearchResponse = try await makeRequest(body: requestBody)
 
         // Filter by date range client-side (Swift date handling is more reliable than JavaScript)
-        var results = response.results
+        var rawResults = response.results
+        let beforeFilterCount = rawResults.count
         if let dateRange = dateRange {
-            results = results.filter { result in
-                guard let metadata = result.metadata,
-                      let dateString = metadata["date"] as? String else {
-                    return false
-                }
-
-                // Parse ISO8601 date
-                let iso = ISO8601DateFormatter()
-                iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                guard let docDate = iso.date(from: dateString) else {
-                    return false
-                }
-
-                // Check if within range
-                return docDate >= dateRange.start && docDate < dateRange.end
+            rawResults = rawResults.filter { result in
+                matchesDateRange(metadata: result.metadata, dateRange: dateRange)
+            }
+        }
+        
+        // Debug logging for filtering
+        if let dateRange = dateRange {
+            print("🔍 Vector search: \(beforeFilterCount) raw results, \(rawResults.count) after date filter")
+            if beforeFilterCount > 0 && rawResults.count == 0 {
+                print("⚠️ ALL results filtered by date - metadata may be missing date fields")
             }
         }
 
         // Limit to requested number after filtering
-        results = Array(results.prefix(limit))
+        rawResults = Array(rawResults.prefix(limit))
 
         // Log search results and similarity scores
-        if !results.isEmpty {
-            print("🔍 Vector search returned \(results.count) results (threshold: \(similarityThreshold)):")
-            for (index, result) in results.prefix(5).enumerated() {
+        if !rawResults.isEmpty {
+            print("🔍 Vector search returned \(rawResults.count) results (threshold: \(similarityThreshold)):")
+            for (index, result) in rawResults.prefix(5).enumerated() {
                 let similarityPercent = Int(result.similarity * 100)
                 print("   \(index + 1). [\(similarityPercent)%] \(result.title ?? result.document_type) - \(result.content.prefix(60))...")
             }
-            if results.count > 5 {
-                print("   ... and \(results.count - 5) more results")
+            if rawResults.count > 5 {
+                print("   ... and \(rawResults.count - 5) more results")
             }
         } else {
             print("🔍 Vector search returned 0 results (threshold: \(similarityThreshold)) - no matches found")
         }
 
-        // Apply recency boost to results before returning
-        let resultsWithRecency = results.map { result -> SearchResult in
+        // Apply recency boost to vector results
+        let vectorResults = rawResults.map { result -> SearchResult in
             let baseScore = result.similarity
             let recencyScore = calculateRecencyScore(metadata: result.metadata)
-            // Formula: 70% semantic similarity + 30% recency
             let boostedScore = (0.7 * baseScore) + (0.3 * recencyScore)
 
             return SearchResult(
@@ -122,12 +125,28 @@ class VectorSearchService: ObservableObject {
                 title: result.title,
                 content: result.content,
                 metadata: result.metadata,
-                similarity: boostedScore  // Use boosted score
+                similarity: boostedScore
             )
         }
 
-        // Re-sort by boosted score
-        return resultsWithRecency.sorted { $0.similarity > $1.similarity }
+        // Hybrid keyword search (in-memory) for better recall
+        let keywordResults = await keywordSearch(query: query, dateRange: dateRange, documentTypes: documentTypes)
+
+        // Merge results (dedupe by type + id, keep highest score)
+        var merged: [String: SearchResult] = [:]
+        for result in vectorResults + keywordResults {
+            let key = "\(result.documentType.rawValue)::\(result.documentId)"
+            if let existing = merged[key] {
+                if result.similarity > existing.similarity {
+                    merged[key] = result
+                }
+            } else {
+                merged[key] = result
+            }
+        }
+
+        let mergedResults = merged.values.sorted { $0.similarity > $1.similarity }
+        return mergedResults
     }
     
     /// Search and return formatted context for LLM
@@ -149,13 +168,24 @@ class VectorSearchService: ObservableObject {
         // Fetch all memories once for batch annotation (performance optimization)
         let memories = await fetchAllMemories()
 
-        // Group by document type
+        // Group by document type with per-type caps
         let grouped = Dictionary(grouping: results) { $0.documentType }
+        let perTypeCaps: [DocumentType: Int] = [
+            // NOTE: Emails excluded from embeddings to save space
+            .task: 10,
+            .visit: 10,
+            .receipt: 8,
+            .note: 8,
+            .location: 6,
+            .person: 6
+        ]
 
         for (type, items) in grouped.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
-            context += "**\(type.displayName) (\(items.count) matches):**\n"
+            let cap = perTypeCaps[type] ?? 6
+            let limitedItems = Array(items.prefix(cap))
+            context += "**\(type.displayName) (\(limitedItems.count) matches):**\n"
 
-            for item in items {
+            for item in limitedItems {
                 let similarity = String(format: "%.0f%%", item.similarity * 100)
                 context += "• [\(similarity) match] "
 
@@ -190,6 +220,248 @@ class VectorSearchService: ObservableObject {
         }
 
         return context
+    }
+
+    // MARK: - Date Filtering Helpers
+
+    private func matchesDateRange(metadata: [String: Any]?, dateRange: (start: Date, end: Date)) -> Bool {
+        // If no metadata, include the document - let semantic similarity decide
+        guard let metadata = metadata else { return true }
+
+        // Prefer explicit date fields when available
+        if let date = parseISODate(metadata["date"]) {
+            return date >= dateRange.start && date < dateRange.end
+        }
+
+        // Visits: use entry/exit overlap
+        if let entry = parseISODate(metadata["entry_time"]) {
+            let exit = parseISODate(metadata["exit_time"]) ?? entry
+            return entry < dateRange.end && exit >= dateRange.start
+        }
+
+        // Tasks/events: use start/target/scheduled times
+        if let start = parseISODate(metadata["start"]) {
+            return start >= dateRange.start && start < dateRange.end
+        }
+        if let target = parseISODate(metadata["target_date"]) {
+            return target >= dateRange.start && target < dateRange.end
+        }
+        if let scheduled = parseISODate(metadata["scheduled_time"]) {
+            return scheduled >= dateRange.start && scheduled < dateRange.end
+        }
+
+        // Fallbacks - if no date fields found, include document
+        // This ensures semantic similarity can still find relevant results
+        if let createdAt = parseISODate(metadata["created_at"]) {
+            return createdAt >= dateRange.start && createdAt < dateRange.end
+        }
+
+        // No date fields found - include document, let semantic matching decide
+        return true
+    }
+
+    private func parseISODate(_ value: Any?) -> Date? {
+        guard let dateString = value as? String else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: dateString) {
+            return date
+        }
+
+        // Fallback format (YYYY-MM-DD)
+        let fallback = DateFormatter()
+        fallback.dateFormat = "yyyy-MM-dd"
+        return fallback.date(from: dateString)
+    }
+
+    // MARK: - Hybrid Keyword Search
+
+    private func keywordSearch(
+        query: String,
+        dateRange: (start: Date, end: Date)?,
+        documentTypes: [DocumentType]?
+    ) async -> [SearchResult] {
+        let normalizedQuery = normalizeWhitespace(query.lowercased())
+        guard !normalizedQuery.isEmpty else { return [] }
+
+        let tokens = normalizedQuery
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 2 }
+
+        guard !tokens.isEmpty else { return [] }
+
+        let typeFilter = documentTypes.map { Set($0) }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        func score(for text: String) -> Float {
+            let lower = text.lowercased()
+            var hits = 0
+            for token in tokens {
+                if lower.contains(token) {
+                    hits += 1
+                }
+            }
+            if hits == 0 { return 0 }
+            let base = min(0.85, 0.55 + (0.05 * Float(hits)))
+            return base
+        }
+
+        var results: [SearchResult] = []
+
+        // Notes
+        if typeFilter == nil || typeFilter?.contains(.note) == true {
+            for note in NotesManager.shared.notes {
+                let content = "\(note.title)\n\n\(note.content)"
+                let s = score(for: content)
+                if s > 0 {
+                    let metadata: [String: Any] = [
+                        "date": iso.string(from: note.dateModified)
+                    ]
+                    if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
+                        let boosted = (0.7 * s) + (0.3 * calculateRecencyScore(metadata: metadata))
+                        results.append(SearchResult(
+                            documentType: .note,
+                            documentId: note.id.uuidString,
+                            title: note.title,
+                            content: content,
+                            metadata: metadata,
+                            similarity: boosted
+                        ))
+                    }
+                }
+            }
+        }
+
+        // NOTE: Emails removed from keyword search (use vector search for emails instead)
+        // This saves significant context space for more relevant data
+
+        // Tasks
+        if typeFilter == nil || typeFilter?.contains(.task) == true {
+            let allTasks = TaskManager.shared.tasks.values.flatMap { $0 }.filter { !$0.isDeleted }
+            for task in allTasks {
+                var content = task.title
+                if let desc = task.description, !desc.isEmpty {
+                    content += "\n\(desc)"
+                }
+                if let location = task.location, !location.isEmpty {
+                    content += "\nLocation: \(location)"
+                }
+
+                let s = score(for: content)
+                if s > 0 {
+                    let metadata: [String: Any] = [
+                        "start": task.scheduledTime.map { iso.string(from: $0) } ?? NSNull(),
+                        "target_date": task.targetDate.map { iso.string(from: $0) } ?? NSNull(),
+                        "scheduled_time": task.scheduledTime.map { iso.string(from: $0) } ?? NSNull(),
+                        "created_at": iso.string(from: task.createdAt)
+                    ]
+                    if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
+                        let boosted = (0.7 * s) + (0.3 * calculateRecencyScore(metadata: metadata))
+                        results.append(SearchResult(
+                            documentType: .task,
+                            documentId: task.id,
+                            title: task.title,
+                            content: content,
+                            metadata: metadata,
+                            similarity: boosted
+                        ))
+                    }
+                }
+            }
+        }
+
+        // Locations
+        if typeFilter == nil || typeFilter?.contains(.location) == true {
+            let places = LocationsManager.shared.savedPlaces
+            for place in places {
+                let content = "\(place.displayName)\n\(place.address)\n\(place.category)"
+                let s = score(for: content)
+                if s > 0 {
+                    let metadata: [String: Any] = [
+                        "location": place.displayName
+                    ]
+                    let boosted = (0.7 * s) + (0.3 * calculateRecencyScore(metadata: metadata))
+                    results.append(SearchResult(
+                        documentType: .location,
+                        documentId: place.id.uuidString,
+                        title: place.displayName,
+                        content: content,
+                        metadata: metadata,
+                        similarity: boosted
+                    ))
+                }
+            }
+        }
+
+        // Receipts (notes under receipts folder)
+        if typeFilter == nil || typeFilter?.contains(.receipt) == true {
+            let notesManager = NotesManager.shared
+            let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+
+            func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
+                guard let folderId else { return false }
+                if folderId == receiptsFolderId { return true }
+                if let folder = notesManager.folders.first(where: { $0.id == folderId }),
+                   let parentId = folder.parentFolderId {
+                    return isUnderReceiptsFolderHierarchy(folderId: parentId)
+                }
+                return false
+            }
+
+            let receiptNotes = notesManager.notes.filter { isUnderReceiptsFolderHierarchy(folderId: $0.folderId) }
+            for note in receiptNotes {
+                let content = "\(note.title)\n\n\(note.content)"
+                let s = score(for: content)
+                if s > 0 {
+                    let metadata: [String: Any] = [
+                        "date": iso.string(from: note.dateCreated),
+                        "merchant": note.title
+                    ]
+                    if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
+                        let boosted = (0.7 * s) + (0.3 * calculateRecencyScore(metadata: metadata))
+                        results.append(SearchResult(
+                            documentType: .receipt,
+                            documentId: note.id.uuidString,
+                            title: "Receipt: \(note.title)",
+                            content: content,
+                            metadata: metadata,
+                            similarity: boosted
+                        ))
+                    }
+                }
+            }
+        }
+
+        // People
+        if typeFilter == nil || typeFilter?.contains(.person) == true {
+            for person in PeopleManager.shared.people {
+                var content = "\(person.name)\n\(person.relationshipDisplayText)"
+                if let nickname = person.nickname, !nickname.isEmpty {
+                    content += "\nNickname: \(nickname)"
+                }
+                if let food = person.favouriteFood, !food.isEmpty {
+                    content += "\nFavourite Food: \(food)"
+                }
+                let s = score(for: content)
+                if s > 0 {
+                    let metadata: [String: Any] = [
+                        "person": person.name
+                    ]
+                    let boosted = (0.7 * s) + (0.3 * calculateRecencyScore(metadata: metadata))
+                    results.append(SearchResult(
+                        documentType: .person,
+                        documentId: person.id.uuidString,
+                        title: person.name,
+                        content: content,
+                        metadata: metadata,
+                        similarity: boosted
+                    ))
+                }
+            }
+        }
+
+        return results
     }
 
     /// Calculate recency boost score (1.0 for today, decays to 0.1 for 1+ year ago)
@@ -312,7 +584,14 @@ class VectorSearchService: ObservableObject {
     /// Force sync all embeddings
     func syncAllEmbeddings() async {
         isIndexing = true
-        defer { isIndexing = false }
+        embeddingProgress = 0.0
+        embeddingStatus = "Starting sync..."
+        defer { 
+            isIndexing = false 
+            if embeddingProgress >= 1.0 {
+                hasCompletedFirstSync = true
+            }
+        }
 
         print("🔄 Starting embedding sync...")
         print("⚠️  NOTE: Embedding sync requires 'embeddings-proxy' edge function to be deployed")
@@ -320,21 +599,42 @@ class VectorSearchService: ObservableObject {
         
         do {
             // Sync each document type - COMPREHENSIVE coverage
+            // NOTE: Emails removed from embeddings to save space for more relevant data
+            
+            embeddingStatus = "Syncing notes..."
             let notesCount = await syncNoteEmbeddings()
-            let emailsCount = await syncEmailEmbeddings()
+            embeddingProgress = 0.2
+            
+            embeddingStatus = "Syncing tasks..."
             let tasksCount = await syncTaskEmbeddings()
+            embeddingProgress = 0.4
+            
+            embeddingStatus = "Syncing locations..."
             let locationsCount = await syncLocationEmbeddings()
+            embeddingProgress = 0.6
+            
+            embeddingStatus = "Syncing receipts..."
             let receiptsCount = await syncReceiptEmbeddings()
+            embeddingProgress = 0.8
+            
+            embeddingStatus = "Syncing visits..."
             let visitsCount = await syncLocationVisitEmbeddings()
+            
+            embeddingStatus = "Syncing people..."
             let peopleCount = await syncPeopleEmbeddings()
             
-            let totalCount = notesCount + emailsCount + tasksCount + locationsCount + receiptsCount + visitsCount + peopleCount
+            embeddingProgress = 1.0
+            embeddingStatus = "Complete"
+            
+            let totalCount = notesCount + tasksCount + locationsCount + receiptsCount + visitsCount + peopleCount
             embeddingsCount = totalCount
             lastSyncTime = Date()
+            hasCompletedFirstSync = true
             
             let duration = Date().timeIntervalSince(startTime)
             print("✅ Embedding sync complete: \(totalCount) documents in \(String(format: "%.1f", duration))s")
-            print("   Notes: \(notesCount), Emails: \(emailsCount), Tasks: \(tasksCount), Locations: \(locationsCount), Receipts: \(receiptsCount), Visits: \(visitsCount), People: \(peopleCount)")
+            print("   Notes: \(notesCount), Tasks: \(tasksCount), Locations: \(locationsCount), Receipts: \(receiptsCount), Visits: \(visitsCount), People: \(peopleCount)")
+            print("   (Emails excluded from embeddings)")
             
             // Log any potential issues
             if totalCount == 0 {
@@ -345,6 +645,7 @@ class VectorSearchService: ObservableObject {
             }
             
         } catch {
+            embeddingStatus = "Failed: \(error.localizedDescription)"
             print("❌ Embedding sync failed: \(error)")
             print("   Error details: \(error.localizedDescription)")
             if let vectorError = error as? VectorSearchError {
@@ -412,70 +713,13 @@ class VectorSearchService: ObservableObject {
         }
     }
     
-    /// Sync email embeddings - embed ALL emails (no date limit)
+    /// Email embeddings disabled - emails take too much space
+    /// Keeping function for future reference
     private func syncEmailEmbeddings() async -> Int {
-        let allEmails = EmailService.shared.inboxEmails + EmailService.shared.sentEmails
-        guard !allEmails.isEmpty else { return 0 }
-
-        print("📧 Emails: Syncing all \(allEmails.count) emails (no date limit)")
-        
-        let documents = allEmails.map { email -> [String: Any] in
-            let content = """
-            Subject: \(email.subject)
-            From: \(email.sender.displayName)
-            \(email.aiSummary ?? email.snippet)
-            """
-            return [
-                "document_type": "email",
-                "document_id": email.id,
-                "title": email.subject,
-                "content": content,
-                "metadata": [
-                    "date": ISO8601DateFormatter().string(from: email.timestamp),
-                    "sender": email.sender.displayName,
-                    "sender_email": email.sender.email,
-                    "is_important": email.isImportant,
-                    "is_read": email.isRead
-                ] as [String: Any]
-            ]
-        }
-        
-        // Check which emails need embedding (content changed or new)
-        do {
-            let userId = try await SupabaseManager.shared.authClient.session.user.id
-            let ids = documents.compactMap { $0["document_id"] as? String }
-            let hashes = documents.compactMap { doc -> Int64? in
-                guard let content = doc["content"] as? String else { return nil }
-                return hashContent32BitDjb2(content)
-            }
-            
-            let neededIds = try await checkDocumentsNeedingEmbedding(
-                userId: userId,
-                documentType: "email",
-                documentIds: ids,
-                contentHashes: hashes
-            )
-            
-            guard !neededIds.isEmpty else {
-                print("📧 Emails: All \(documents.count) already embedded, skipping")
-                return 0
-            }
-            
-            let neededSet = Set(neededIds)
-            let docsToEmbed = documents.filter { doc in
-                guard let id = doc["document_id"] as? String else { return false }
-                return neededSet.contains(id)
-            }
-            
-            print("📧 Emails: Embedding \(docsToEmbed.count) of \(documents.count) (\(documents.count - docsToEmbed.count) unchanged)")
-            return await batchEmbed(documents: docsToEmbed, type: "email")
-        } catch {
-            print("❌ Error checking email embeddings: \(error)")
-            // Fall back to full embed on error
-            return await batchEmbed(documents: documents, type: "email")
-        }
+        print("📧 Emails: Disabled - emails excluded from embeddings")
+        return 0
     }
-    
+
     /// Sync task embeddings - embed ALL tasks (no date limit)
     private func syncTaskEmbeddings() async -> Int {
         let allTasks = TaskManager.shared.tasks.values
@@ -914,6 +1158,12 @@ class VectorSearchService: ObservableObject {
         return response.needs_embedding
     }
     
+    private func normalizeWhitespace(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let collapsed = trimmed.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
     /// Match the edge function's djb2 32-bit hash (signed int32), returned as Int64.
     private func hashContent32BitDjb2(_ content: String) -> Int64 {
         var hash: Int32 = 5381
@@ -966,6 +1216,16 @@ class VectorSearchService: ObservableObject {
             
             // Build documents (one per visit) - break up complex expression
             var documents: [[String: Any]] = []
+            
+            // Pre-fetch people for all visits to avoid repeated queries
+            var visitPeopleMap: [String: [Person]] = [:]
+            for visit in visits {
+                let people = await PeopleManager.shared.getPeopleForVisit(visitId: visit.id)
+                if !people.isEmpty {
+                    visitPeopleMap[visit.id.uuidString] = people
+                }
+            }
+            
             for visit in visits {
                 let place = locations.first(where: { $0.id == visit.savedPlaceId })
                 let placeName = place?.displayName ?? "Unknown Location"
@@ -1004,6 +1264,15 @@ class VectorSearchService: ObservableObject {
                 content += "\nDay: \(visit.dayOfWeek)"
                 content += "\nTime of day: \(visit.timeOfDay)"
                 
+                // Add people who were at this visit
+                if let people = visitPeopleMap[visit.id.uuidString], !people.isEmpty {
+                    let personNames = people.map { $0.name }.joined(separator: ", ")
+                    content += "\nWith: \(personNames)"
+                    // Also add relationship context for better semantic search
+                    let relationships = people.map { $0.relationshipDisplayText }.joined(separator: ", ")
+                    content += " (\(relationships))"
+                }
+                
                 if let notes = visit.visitNotes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     content += "\nReason/Notes: \(notes)"
                 }
@@ -1017,6 +1286,9 @@ class VectorSearchService: ObservableObject {
                 }
                 
                 content += "\nMonth: \(monthYearFormatter.string(from: start))"
+                
+                // Get people names for metadata
+                let peopleNames = visitPeopleMap[visit.id.uuidString]?.map { $0.name } ?? []
                 
                 let document: [String: Any] = [
                     "document_type": "visit",
@@ -1038,7 +1310,8 @@ class VectorSearchService: ObservableObject {
                         "session_id": visit.sessionId?.uuidString ?? NSNull(),
                         "confidence_score": visit.confidenceScore ?? NSNull(),
                         "merge_reason": visit.mergeReason ?? NSNull(),
-                        "visit_notes": visit.visitNotes ?? NSNull()
+                        "visit_notes": visit.visitNotes ?? NSNull(),
+                        "people": peopleNames.isEmpty ? NSNull() : peopleNames
                     ] as [String: Any]
                 ]
                 documents.append(document)
@@ -1084,6 +1357,47 @@ class VectorSearchService: ObservableObject {
         
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "MMMM d"
+        
+        // Pre-fetch visit IDs for all people to include in embeddings
+        var personVisitsMap: [UUID: [UUID]] = [:]
+        for person in people {
+            let visitIds = await PeopleManager.shared.getVisitIdsForPerson(personId: person.id)
+            if !visitIds.isEmpty {
+                personVisitsMap[person.id] = visitIds
+            }
+        }
+        
+        // Pre-fetch location names for visits
+        let allVisitIds = personVisitsMap.values.flatMap { $0 }
+        var visitLocationsMap: [UUID: String] = [:]
+        let locations = LocationsManager.shared.savedPlaces
+        
+        // Get all visits from Supabase to find location names
+        if !allVisitIds.isEmpty {
+            do {
+                let client = await SupabaseManager.shared.getPostgrestClient()
+                let response = try await client
+                    .from("location_visits")
+                    .select("id, saved_place_id")
+                    .in("id", values: allVisitIds.map { $0.uuidString })
+                    .execute()
+                
+                // Parse as generic JSON to avoid needing a new struct
+                if let jsonArray = try? JSONSerialization.jsonObject(with: response.data) as? [[String: Any]] {
+                    for record in jsonArray {
+                        if let idStr = record["id"] as? String,
+                           let id = UUID(uuidString: idStr),
+                           let placeIdStr = record["saved_place_id"] as? String,
+                           let placeId = UUID(uuidString: placeIdStr),
+                           let place = locations.first(where: { $0.id == placeId }) {
+                            visitLocationsMap[id] = place.displayName
+                        }
+                    }
+                }
+            } catch {
+                print("⚠️ Failed to fetch visit locations for people: \(error)")
+            }
+        }
         
         let documents = people.map { person -> [String: Any] in
             var content = """
@@ -1158,6 +1472,14 @@ class VectorSearchService: ObservableObject {
                 content += "\nMarked as Favorite"
             }
             
+            // Add visit history - places they've been together
+            if let visitIds = personVisitsMap[person.id], !visitIds.isEmpty {
+                let locationNames = visitIds.compactMap { visitLocationsMap[$0] }
+                if !locationNames.isEmpty {
+                    content += "\nPlaces visited together: \(locationNames.joined(separator: ", "))"
+                }
+            }
+            
             return [
                 "document_type": "person",
                 "document_id": person.id.uuidString,
@@ -1171,7 +1493,8 @@ class VectorSearchService: ObservableObject {
                     "favourite_food": person.favouriteFood ?? NSNull(),
                     "favourite_gift": person.favouriteGift ?? NSNull(),
                     "favourite_color": person.favouriteColor ?? NSNull(),
-                    "is_favourite": person.isFavourite
+                    "is_favourite": person.isFavourite,
+                    "visit_count": personVisitsMap[person.id]?.count ?? 0
                 ] as [String: Any]
             ]
         }
@@ -1329,7 +1652,7 @@ class VectorSearchService: ObservableObject {
     
     enum DocumentType: String, CaseIterable {
         case note = "note"
-        case email = "email"
+        // case email = "email" // Disabled - emails excluded from embeddings
         case task = "task"
         case location = "location"
         case receipt = "receipt"
@@ -1339,7 +1662,7 @@ class VectorSearchService: ObservableObject {
         var displayName: String {
             switch self {
             case .note: return "Notes"
-            case .email: return "Emails"
+            // case .email: return "Emails" // Disabled
             case .task: return "Events/Tasks"
             case .location: return "Locations"
             case .receipt: return "Receipts"
@@ -1475,4 +1798,3 @@ private struct VectorSearchAnyCodable: Decodable {
         }
     }
 }
-

@@ -16,6 +16,7 @@ struct Config {
     // OpenWeatherMap API Key - Get from: https://openweathermap.org/api
     static let openWeatherMapAPIKey = "YOUR_OPENWEATHERMAP_API_KEY_HERE"
     
-    // ElevenLabs API Key - Get from: https://elevenlabs.io/app/settings/api-keys
-    static let elevenLabsAPIKey = "YOUR_ELEVENLABS_API_KEY_HERE"
+    // Piper TTS Base URL (self-hosted). Example: "http://localhost:5002"
+    // Leave empty to disable Piper and use Apple TTS.
+    static let piperTTSBaseURL = ""
 }

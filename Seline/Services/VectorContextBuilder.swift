@@ -174,35 +174,57 @@ class VectorContextBuilder {
             return ContextResult(context: context, metadata: metadata)
         }
 
-        // 4. PURE SEMANTIC SEARCH: No hard-coded logic, just vector similarity + optional date filtering
-        // No more complex query planning - let vector similarity naturally find relevant data
+        // 4. For date-specific queries, use DIRECT DATABASE QUERY for accurate results
+        // For general queries, use vector semantic search
+        // This hybrid approach gives the best of both worlds
         print("🔍 Performing unified semantic search...")
 
         do {
             // Extract date range if mentioned in query
             let dateRange = await extractDateRange(from: query)
+            
+            var relevantContext = ""
+            
             if let dateRange = dateRange {
                 print("📅 Date range extracted: \(dateRange.start) to \(dateRange.end)")
+                
+                // For date-specific queries, use DIRECT DB query (more accurate than vector)
+                let dayContext = await buildDayCompletenessContext(dateRange: dateRange)
+                if !dayContext.isEmpty {
+                    relevantContext = dayContext
+                    metadata.usedCompleteDayData = true
+                    print("✅ Found complete day data via direct DB query")
+                } else {
+                    // Fallback to vector search if direct query returns nothing
+                    print("⚠️ Direct DB query returned nothing, falling back to vector search")
+                    let limit = determineSearchLimit(forQuery: query)
+                    relevantContext = try await vectorSearch.getRelevantContext(
+                        forQuery: query,
+                        limit: limit,
+                        dateRange: dateRange
+                    )
+                    metadata.usedVectorSearch = true
+                }
             } else {
                 print("⚠️ No date range extracted from query")
+                // For non-date queries, use vector semantic search
+                let limit = determineSearchLimit(forQuery: query)
+                relevantContext = try await vectorSearch.getRelevantContext(
+                    forQuery: query,
+                    limit: limit,
+                    dateRange: nil
+                )
+                metadata.usedVectorSearch = true
             }
-
-            // Determine search limit based on query complexity
-            let limit = determineSearchLimit(forQuery: query)
-            print("🔍 Search limit: \(limit)")
-
-            // Single semantic search across ALL document types
-            // Vector similarity will naturally rank emails, receipts, visits, etc.
-            let relevantContext = try await vectorSearch.getRelevantContext(
-                forQuery: query,
-                limit: limit,
-                dateRange: dateRange
-            )
 
             if !relevantContext.isEmpty {
                 context += "\n" + relevantContext
-                metadata.usedVectorSearch = true
-                print("✅ Found relevant data via semantic search")
+                if metadata.usedCompleteDayData {
+                    print("✅ Added complete day data to context")
+                } else {
+                    metadata.usedVectorSearch = true
+                    print("✅ Found relevant data via semantic search")
+                }
             } else {
                 print("⚠️ No relevant data found")
                 context += "\n[No relevant data found for this query]\n"
@@ -318,11 +340,12 @@ class VectorContextBuilder {
 
         
         // Critical instruction to prevent hallucination
-        context += "🚨 CRITICAL INSTRUCTION:\n"
-        context += "- ONLY answer questions using data explicitly provided in this context.\n"
-        context += "- If data for a specific time period is NOT in the context, say \"I don't have data for that period.\"\n"
-        context += "- NEVER invent, fabricate, or estimate data that isn't explicitly shown.\n"
-        context += "- When comparing time periods, check if BOTH periods have data before answering.\n\n"
+        context += "🚨 CRITICAL INSTRUCTIONS:\n"
+        context += "- ONLY use data explicitly provided in this context below.\n"
+        context += "- If the context shows \"No relevant data found\", tell the user you don't have that information.\n"
+        context += "- NEVER invent, fabricate, estimate, or guess data that isn't in the context.\n"
+        context += "- NEVER reference emails, events, or data from future dates (after today).\n"
+        context += "- When in doubt, say \"I don't have that information\" instead of guessing.\n\n"
         
         return context
     }
@@ -380,6 +403,22 @@ class VectorContextBuilder {
             let dayEnd = todayStart  // Yesterday's end is today's start
             print("📅 Date extraction (pattern): Detected 'yesterday' - Range: \(yesterday) to \(dayEnd)")
             return (start: yesterday, end: dayEnd)
+        }
+
+        // "my weekend" / "the weekend" - treat same as "this weekend"
+        if lower.contains("weekend") && !lower.contains("last weekend") {
+            let weekday = calendar.component(.weekday, from: today) // 1=Sun...7=Sat
+            let daysToLastSat = weekday % 7 // 0 for Sat, 1 for Sun, 2 for Mon, etc.
+            let isWeekend = weekday == 1 || weekday == 7
+            let saturday: Date
+            if isWeekend {
+                saturday = calendar.date(byAdding: .day, value: -daysToLastSat, to: todayStart)!
+            } else {
+                saturday = calendar.date(byAdding: .day, value: 7 - daysToLastSat, to: todayStart)!
+            }
+            guard let mondayAfter = calendar.date(byAdding: .day, value: 2, to: saturday) else { return nil }
+            print("📅 Date extraction (pattern): Detected 'weekend' - Range: \(saturday) to \(mondayAfter)")
+            return (start: saturday, end: mondayAfter)
         }
 
         // "this weekend" — check BEFORE "this week" ("this weekend" contains "this week" as substring)
@@ -468,23 +507,24 @@ class VectorContextBuilder {
         }
 
         // Month names with optional year (e.g., "January 2026", "Dec 2025", "February")
+        // Use word boundaries to avoid matching "mar" in "weekend"
         let monthPatterns = [
-            ("january", 1), ("jan", 1),
-            ("february", 2), ("feb", 2),
-            ("march", 3), ("mar", 3),
-            ("april", 4), ("apr", 4),
-            ("may", 5),
-            ("june", 6), ("jun", 6),
-            ("july", 7), ("jul", 7),
-            ("august", 8), ("aug", 8),
-            ("september", 9), ("sep", 9), ("sept", 9),
-            ("october", 10), ("oct", 10),
-            ("november", 11), ("nov", 11),
-            ("december", 12), ("dec", 12)
+            ("january", 1), ("january\\b", 1), ("\\bjan\\b", 1),
+            ("february", 2), ("february\\b", 2), ("\\bfeb\\b", 2),
+            ("march", 3), ("march\\b", 3), ("\\bmar\\b", 3),
+            ("april", 4), ("april\\b", 4), ("\\bapr\\b", 4),
+            ("\\bmay\\b", 5),
+            ("june", 6), ("june\\b", 6), ("\\bjun\\b", 6),
+            ("july", 7), ("july\\b", 7), ("\\bjul\\b", 7),
+            ("august", 8), ("august\\b", 8), ("\\baug\\b", 8),
+            ("september", 9), ("september\\b", 9), ("\\bsep\\b", 9), ("\\bsept\\b", 9),
+            ("october", 10), ("october\\b", 10), ("\\boct\\b", 10),
+            ("november", 11), ("november\\b", 11), ("\\bnov\\b", 11),
+            ("december", 12), ("december\\b", 12), ("\\bdec\\b", 12)
         ]
 
         for (monthName, monthNumber) in monthPatterns {
-            if lower.contains(monthName) {
+            if lower.range(of: monthName, options: .regularExpression) != nil {
                 // Try to extract year from query (e.g., "January 2026", "Dec 2025")
                 let yearPattern = "\\b(\\d{4})\\b"
                 var targetYear = calendar.component(.year, from: today)  // Default to current year

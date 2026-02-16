@@ -47,16 +47,15 @@ class SearchService: ObservableObject {
     @Published var useSelineChat: Bool = true  // Use new simplified chat system
     private var selineChat: SelineChat? = nil
 
-    // DEPRECATION: Phase 3 - Disable semantic query system (fallback to direct conversation)
-    @Published var useSemanticQueryFallback: Bool = false  // DEPRECATED: Keep disabled, only use if SelineChat fails
+    // DEPRECATED: Semantic query system removed - SelineChat handles all queries directly
+    // @Published var useSemanticQueryFallback: Bool = false
     // NOTE: Semantic query system is being phased out in favor of simpler SelineChat approach
     // Reason: Semantic query parsing is complex, error-prone, and the LLM can handle all logic directly
 
-    /// Disable semantic query system completely (Phase 3.2)
-    /// Called on initialization to ensure semantic queries are not used
-    func disableSemanticQuerySystem() {
-        useSemanticQueryFallback = false
-    }
+    /// DEPRECATED: Semantic query system removed
+    // func disableSemanticQuerySystem() {
+    //     useSemanticQueryFallback = false
+    // }
 
     // Track recently created items for context in follow-up actions
     private var lastCreatedEventTitle: String? = nil
@@ -71,8 +70,8 @@ class SearchService: ObservableObject {
     private let infoExtractor = InformationExtractor.shared
 
     private init() {
-        // Phase 3.2: Disable semantic query system on initialization
-        disableSemanticQuerySystem()
+        // DEPRECATED: Semantic query system removed
+        // disableSemanticQuerySystem()
 
         // Load saved conversations from local storage
         loadConversationHistoryLocally()
@@ -429,71 +428,22 @@ class SearchService: ObservableObject {
         isSearching = false
     }
 
-    // MARK: - Semantic Query Processing (Universal Intent System)
-
-    /// Try to process a query using the semantic query engine first
-    /// This handles queries across all app data types, not just expenses
-    /// Returns (success, formattedResponse, relatedItems) or nil if semantic query didn't apply
+    // MARK: - Semantic Query Processing (DEPRECATED - Moved to LLMArchitecture_deprecated/)
+    // The entire semantic query system has been deprecated in favor of SelineChat + VectorContextBuilder.
+    // SelineChat handles all query types directly without pre-processing.
+    
+    /*
+    /// DEPRECATED: Try to process a query using the semantic query engine first
     func processWithSemanticQuery(_ userQuery: String) async -> (text: String, items: [RelatedDataItem])? {
-        // Step 1: Generate semantic query from user input
-        guard let semanticQuery = await GeminiService.shared.generateSemanticQuery(from: userQuery) else {
-            print("⚠️ Semantic query generation failed, falling back to conversation")
-            return nil
-        }
-
-        // Check if we have reasonable confidence
-        guard semanticQuery.confidence > 0.5 else {
-            print("⚠️ Low confidence semantic query (\(String(format: "%.0f%%", semanticQuery.confidence * 100))), falling back to conversation")
-            return nil
-        }
-
-        // Step 2: Execute the semantic query
-        let queryResult = await UniversalQueryExecutor.shared.execute(semanticQuery)
-
-        // Step 3: Format the response intelligently
-        let formattedResponse = UniversalResponseFormatter.shared.format(queryResult, rules: semanticQuery.presentation)
-
-        // Step 4: Convert formatted items to RelatedDataItem for UI
-        var relatedItems: [RelatedDataItem] = []
-        for item in formattedResponse.items {
-            // Convert string ID to UUID
-            let uuid = UUID(uuidString: item.id) ?? UUID()
-            relatedItems.append(RelatedDataItem(
-                id: uuid,
-                type: mapItemType(item.type),
-                title: item.displayTitle,
-                subtitle: item.category,
-                date: item.date,
-                amount: item.amount > 0 ? item.amount : nil,
-                merchant: item.merchant
-            ))
-        }
-
-        print("✅ Semantic query succeeded:")
-        print("   Intent: \(semanticQuery.intent)")
-        print("   Response: \(formattedResponse.text.prefix(100))...")
-        print("   Items to show: \(relatedItems.count)")
-
-        return (text: formattedResponse.text, items: relatedItems)
+        // Moved to LLMArchitecture_deprecated/
+        return nil
     }
 
-    /// Map RelatedItem type to RelatedDataItem.DataType
+    /// DEPRECATED: Map RelatedItem type to RelatedDataItem.DataType
     private func mapItemType(_ type: String) -> RelatedDataItem.DataType {
-        switch type {
-        case "receipt":
-            return .receipt
-        case "email":
-            return .email
-        case "event":
-            return .event
-        case "note":
-            return .note
-        case "location":
-            return .location
-        default:
-            return .receipt
-        }
+        return .receipt
     }
+    */
 
     // MARK: - Conversation Management
 
@@ -730,7 +680,23 @@ class SearchService: ObservableObject {
             DispatchQueue.main.async {
                 // Update final message with completion time and fetch related data
                 if let lastIndex = self?.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                    let responseText = self?.conversationHistory[lastIndex].text ?? ""
+                    let rawResponseText = self?.conversationHistory[lastIndex].text ?? ""
+                    let responseText = self?.normalizeAssistantResponse(rawResponseText, isVoiceMode: isVoiceMode) ?? rawResponseText
+
+                    if responseText != rawResponseText {
+                        let updatedMsg = ConversationMessage(
+                            id: streamingMessageID,
+                            isUser: false,
+                            text: responseText,
+                            timestamp: self?.conversationHistory[lastIndex].timestamp ?? Date(),
+                            intent: self?.conversationHistory[lastIndex].intent ?? .general,
+                            timeStarted: self?.conversationHistory[lastIndex].timeStarted,
+                            locationInfo: chat.appContext.lastETALocationInfo,
+                            eventCreationInfo: chat.appContext.lastEventCreationInfo,
+                            relevantContent: chat.appContext.lastRelevantContent
+                        )
+                        self?.conversationHistory[lastIndex] = updatedMsg
+                    }
 
                     // For voice mode: speak any remaining text that wasn't spoken during streaming
                     // If nothing was spoken during streaming (no sentence breaks found), speak the full response
@@ -758,7 +724,7 @@ class SearchService: ObservableObject {
                                 let finalMsg = ConversationMessage(
                                     id: streamingMessageID,
                                     isUser: false,
-                                    text: self?.conversationHistory[lastIndex].text ?? "",
+                                    text: self?.conversationHistory[lastIndex].text ?? responseText,
                                     timestamp: self?.conversationHistory[lastIndex].timestamp ?? Date(),
                                     intent: self?.conversationHistory[lastIndex].intent ?? .general,
                                     relatedData: relatedData.isEmpty ? nil : relatedData,
@@ -783,22 +749,23 @@ class SearchService: ObservableObject {
     }
     
     private func handleNonStreamingResponse(response: String, thinkStartTime: Date, isVoiceMode: Bool = false) {
-        
+        let finalResponse = normalizeAssistantResponse(response, isVoiceMode: isVoiceMode)
+
         if !enableStreamingResponses {
             // If voice mode is active and we're not streaming, trigger TTS here
             if isVoiceMode {
                 print("🎤 Non-streaming response in voice mode - triggering TTS")
-                TextToSpeechService.shared.speak(response)
+                TextToSpeechService.shared.speak(finalResponse)
             }
             
             Task {
-                let relatedData = await fetchRelatedDataForResponse(response)
+                let relatedData = await fetchRelatedDataForResponse(finalResponse)
                 
                 await MainActor.run {
                     let assistantMsg = ConversationMessage(
                         id: UUID(),
                         isUser: false,
-                        text: response,
+                        text: finalResponse,
                         timestamp: Date(),
                         intent: .general,
                         relatedData: relatedData.isEmpty ? nil : relatedData,
@@ -815,6 +782,38 @@ class SearchService: ObservableObject {
                 }
             }
         }
+    }
+
+    private func normalizeAssistantResponse(_ text: String, isVoiceMode: Bool) -> String {
+        guard !isVoiceMode else { return text }
+
+        var normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Normalize bullets
+        let lines = normalized.components(separatedBy: "\n")
+        var rebuilt: [String] = []
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("• ") {
+                rebuilt.append("- " + trimmed.dropFirst(2))
+            } else if trimmed.hasPrefix("* ") {
+                rebuilt.append("- " + trimmed.dropFirst(2))
+            } else if trimmed.hasPrefix("– ") {
+                rebuilt.append("- " + trimmed.dropFirst(2))
+            } else {
+                rebuilt.append(trimmed)
+            }
+        }
+
+        normalized = rebuilt.joined(separator: "\n")
+        normalized = normalized.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+
+        // Ensure blank line before section headers
+        let headerPattern = "\\n(?=\\*\\*[^\\n]+\\*\\*)"
+        normalized = normalized.replacingOccurrences(of: headerPattern, with: "\n\n", options: .regularExpression)
+
+        return normalized
     }
 
     /// Generate a proactive morning briefing
@@ -1039,6 +1038,17 @@ class SearchService: ObservableObject {
 
         isLoadingQuestionResponse = false
     }
+
+    // MARK: - Legacy Implementation (DEPRECATED - Moved to LLMArchitecture_deprecated/)
+    // addConversationMessageLegacy() has been deprecated in favor of SelineChat
+    // Keeping the method signature but it now calls the active SelineChat path
+    /*
+    /// DEPRECATED: Old legacy chat system
+    private func addConversationMessageLegacy(_ userMessage: String, thinkStartTime: Date) async {
+        // Moved to LLMArchitecture_deprecated/
+        // This path is never reached since useSelineChat is always true
+    }
+    */
 
     /// Generate quick reply suggestions for follow-up questions
     /// Clear conversation state completely (called when user dismisses conversation modal)

@@ -44,6 +44,19 @@ struct SelineApp: App {
         // This ensures the widget shows current data even if the app was killed
         refreshWidgetDataOnLaunch()
 
+        // One-time embedding reindex on next launch (improves LLM recall)
+        Task.detached(priority: .utility) {
+            let flagKey = "didRunEmbeddingReindex_v1"
+            let defaults = UserDefaults.standard
+            if defaults.bool(forKey: flagKey) { return }
+            guard SupabaseManager.shared.getCurrentUser()?.id != nil else { return }
+
+            print("🔁 One-time embedding reindex starting...")
+            await VectorSearchService.shared.syncAllEmbeddings()
+            defaults.set(true, forKey: flagKey)
+            print("✅ One-time embedding reindex complete")
+        }
+
         // DISABLED: Nuclear reset was causing app to hang on startup
         // DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
         //     Task {

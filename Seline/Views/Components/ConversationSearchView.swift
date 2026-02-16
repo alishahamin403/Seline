@@ -15,6 +15,7 @@ struct ConversationSearchView: View {
     @StateObject private var searchService = SearchService.shared
     @StateObject private var authManager = AuthenticationManager.shared
     @StateObject private var deepSeekService = GeminiService.shared
+    @StateObject private var vectorSearchService = VectorSearchService.shared
     @State private var messageText = ""
     @FocusState private var isInputFocused: Bool
     @State private var scrollToBottom: UUID?
@@ -30,7 +31,6 @@ struct ConversationSearchView: View {
     @StateObject private var speechService = SpeechRecognitionService.shared
     @StateObject private var ttsService = TextToSpeechService.shared
     @StateObject private var emailService = EmailService.shared
-    @StateObject private var elevenLabsService = ElevenLabsTTSService.shared
     @State private var selectedEmail: Email? = nil
     @State private var isProcessingResponse = false // Track if LLM is responding
     @State private var isVoiceMode = false // Track if we're in voice/speak mode
@@ -44,6 +44,11 @@ struct ConversationSearchView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
+                // Embedding sync indicator - show when indexing
+                if vectorSearchService.isIndexing {
+                    embeddingSyncIndicator
+                }
+                
                 // Removed streaming indicator bar - user doesn't want it
                 headerView
                 conversationScrollView
@@ -752,6 +757,33 @@ struct ConversationSearchView: View {
         }
     }
     
+    // MARK: - Embedding Sync Indicator
+    private var embeddingSyncIndicator: some View {
+        VStack(spacing: 4) {
+            ProgressView(value: vectorSearchService.embeddingProgress)
+                .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                .padding(.horizontal, 16)
+            
+            HStack {
+                Image(systemName: "brain")
+                    .font(.system(size: 12))
+                    .foregroundColor(.blue)
+                
+                Text(vectorSearchService.embeddingStatus)
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Text("\(Int(vectorSearchService.embeddingProgress * 100))%")
+                    .font(FontManager.geist(size: 11, weight: .regular))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 16)
+        }
+        .padding(.vertical, 8)
+        .background(Color.blue.opacity(0.1))
+    }
 
     private var inputAreaView: some View {
         VStack(spacing: 0) {
@@ -894,8 +926,6 @@ struct ConversationSearchView: View {
 
     private var voiceModeInputView: some View {
         let isDark = colorScheme == .dark
-        let isMaleSelected = elevenLabsService.selectedVoiceGender == .male
-        let isFemaleSelected = elevenLabsService.selectedVoiceGender == .female
 
         let selectedTextColor: Color = isDark ? .black : .white
         let unselectedTextColor: Color = isDark ? .white.opacity(0.6) : .black.opacity(0.6)
@@ -928,46 +958,6 @@ struct ConversationSearchView: View {
                 }
             )
             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: computedVoiceModeState)
-
-            // Voice gender toggle (below orb, smaller)
-            HStack(spacing: 0) {
-                Button(action: {
-                    HapticManager.shared.selection()
-                    elevenLabsService.setVoice(gender: .male)
-                }) {
-                    Text("Male")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(isMaleSelected ? selectedTextColor : unselectedTextColor)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(isMaleSelected ? selectedBgColor : Color.clear)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                Button(action: {
-                    HapticManager.shared.selection()
-                    elevenLabsService.setVoice(gender: .female)
-                }) {
-                    Text("Female")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(isFemaleSelected ? selectedTextColor : unselectedTextColor)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(isFemaleSelected ? selectedBgColor : Color.clear)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            .padding(3)
-            .background(
-                Capsule()
-                    .fill(toggleBgColor)
-            )
         }
         .padding(.vertical, 20)
         .padding(.horizontal, 16)

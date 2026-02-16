@@ -1392,7 +1392,13 @@ class SelineAppContext {
         return []
     }
 
-    /// Build context with intelligent filtering based on user query
+    // ============================================================================
+    // DEPRECATED: buildContextPrompt() methods moved to LLMArchitecture_deprecated/
+    // These methods are NEVER called - SelineChat uses VectorContextBuilder instead
+    // ============================================================================
+    /*
+    /// DEPRECATED: Build context with intelligent filtering based on user query
+    /// This method is NEVER called - SelineChat uses VectorContextBuilder.buildContext() instead
     func buildContextPrompt(forQuery userQuery: String) async -> String {
         // Reset ETA location info for each new query - prevents map card from persisting on unrelated follow-ups
         self.lastETALocationInfo = nil
@@ -2892,7 +2898,10 @@ class SelineAppContext {
 
         return context
     }
+    */
 
+    // DEPRECATED: buildContextPrompt() - Never called, use VectorContextBuilder instead
+    /*
     func buildContextPrompt() async -> String {
         return await buildContextPromptInternal()
     }
@@ -4517,4 +4526,5 @@ class SelineAppContext {
             }
         }
     }
+    */
 }
