@@ -1760,6 +1760,7 @@ class GeofenceManager: NSObject, ObservableObject {
         
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(identifier: "UTC")
 
          // FIXED: Include session_id, confidence_score, merge_reason, visit_notes which were missing
          let visitData: [String: PostgREST.AnyJSON] = [
@@ -1869,6 +1870,7 @@ class GeofenceManager: NSObject, ObservableObject {
          // No split needed - proceed with normal update
          let formatter = ISO8601DateFormatter()
          formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+         formatter.timeZone = TimeZone(identifier: "UTC")
 
          let updateData: [String: PostgREST.AnyJSON] = [
              "exit_time": visit.exitTime != nil ? .string(formatter.string(from: visit.exitTime!)) : .null,
@@ -1903,12 +1905,13 @@ class GeofenceManager: NSObject, ObservableObject {
             return
         }
 
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+         let formatter = ISO8601DateFormatter()
+         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+         formatter.timeZone = TimeZone(identifier: "UTC")
 
-        let updateData: [String: PostgREST.AnyJSON] = [
-            "visit_notes": visit.visitNotes != nil ? .string(visit.visitNotes!) : .null,
-            "updated_at": .string(formatter.string(from: visit.updatedAt))
+         let updateData: [String: PostgREST.AnyJSON] = [
+             "visit_notes": visit.visitNotes != nil ? .string(visit.visitNotes!) : .null,
+             "updated_at": .string(formatter.string(from: visit.updatedAt))
         ]
 
         do {
