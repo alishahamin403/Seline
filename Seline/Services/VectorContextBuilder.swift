@@ -879,6 +879,18 @@ class VectorContextBuilder {
                 context += "\n"
             }
         }
+        
+        // 3.5. SPENDING SUMMARY - Match receipts to visits with smart connections
+        do {
+            // Match receipts to visits using time + location name scoring
+            let receiptMatches = matchReceiptsToVisits(receipts: receiptNotes, visits: visitsForDay)
+            
+            // Build spending summary grouped by location
+            let spendingSummary = await buildSpendingSummary(matches: receiptMatches, visits: visitsForDay)
+            if !spendingSummary.isEmpty {
+                context += spendingSummary + "\n"
+            }
+        }
 
         // 4. RELATED CONTEXT - Synthesize connections across data types
         context += "RELATED CONTEXT (Smart Connections):\n"
@@ -946,6 +958,158 @@ class VectorContextBuilder {
         }
 
         return Array(Set(allPeople))  // Remove duplicates
+    }
+    
+    /// Enhanced receipt-to-visit matching with time + location name scoring
+    /// Matches within ±2 hours OR if receipt title contains location name (loose matching)
+    private struct ReceiptVisitMatch {
+        let receipt: (note: Note, date: Date, amount: Double, category: String)
+        let visit: LocationVisitRecord?
+        let matchType: String // "time", "location", or nil
+    }
+    
+    private func matchReceiptsToVisits(
+        receipts: [(note: Note, date: Date, amount: Double, category: String)],
+        visits: [LocationVisitRecord]
+    ) -> [ReceiptVisitMatch] {
+        var matches: [ReceiptVisitMatch] = []
+        let twoHours: TimeInterval = 2 * 60 * 60
+        
+        for receipt in receipts {
+            var bestMatch: LocationVisitRecord?
+            var matchType: String?
+            var bestScore: Double = 0
+            
+            for visit in visits {
+                var score: Double = 0
+                var currentMatchType: String?
+                
+                // Score 1: Time proximity (within ±2 hours)
+                let timeDiff = abs(visit.entryTime.timeIntervalSince(receipt.date))
+                if timeDiff <= twoHours {
+                    // Closer time = higher score
+                    score = 1.0 - (timeDiff / twoHours)  // 1.0 for exact match, 0 for 2 hours away
+                    currentMatchType = "time"
+                }
+                
+                // Score 2: Location name match (loose matching)
+                if let place = LocationsManager.shared.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) {
+                    let receiptTitle = receipt.note.title.lowercased()
+                    let locationName = place.displayName.lowercased()
+                    
+                    // Check various matching strategies
+                    let hasLocationMatch = 
+                        receiptTitle.contains(locationName) ||
+                        locationName.contains(receiptTitle) ||
+                        receiptTitle.split(separator: " ").contains(where: { locationName.contains($0) }) ||
+                        locationName.split(separator: " ").contains(where: { receiptTitle.contains($0) })
+                    
+                    if hasLocationMatch {
+                        // Location match is very strong signal
+                        if score > 0 {
+                            score += 0.5  // Bonus for time + location match
+                            currentMatchType = "location+time"
+                        } else {
+                            // Location match without time - still consider it
+                            score = 0.3
+                            currentMatchType = "location"
+                        }
+                    }
+                }
+                
+                if score > bestScore {
+                    bestScore = score
+                    bestMatch = visit
+                    matchType = currentMatchType
+                }
+            }
+            
+            // Only include matches with meaningful score
+            if bestScore >= 0.1 {
+                matches.append(ReceiptVisitMatch(
+                    receipt: receipt,
+                    visit: bestMatch,
+                    matchType: matchType ?? "time"
+                ))
+            } else {
+                // Receipt with no matching visit
+                matches.append(ReceiptVisitMatch(
+                    receipt: receipt,
+                    visit: nil,
+                    matchType: nil
+                ))
+            }
+        }
+        
+        return matches
+    }
+    
+    /// Build spending summary grouped by location with visit connections
+    private func buildSpendingSummary(
+        matches: [ReceiptVisitMatch],
+        visits: [LocationVisitRecord]
+    ) -> String {
+        guard !matches.isEmpty else { return "" }
+        
+        // Group receipts by visit location
+        var locationSpending: [String: (amount: Double, receipts: [(note: Note, amount: Double)], visitTime: Date?)] = [:]
+        
+        for match in matches {
+            let receipt = match.receipt
+            let locationName: String
+            
+            if let visit = match.visit, let place = LocationsManager.shared.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) {
+                locationName = place.displayName
+            } else {
+                locationName = receipt.note.title  // Use receipt title if no visit match
+            }
+            
+            if var existing = locationSpending[locationName] {
+                existing.amount += receipt.amount
+                existing.receipts.append((note: receipt.note, amount: receipt.amount))
+                if let visit = match.visit {
+                    existing.visitTime = visit.entryTime
+                }
+                locationSpending[locationName] = existing
+            } else {
+                locationSpending[locationName] = (
+                    amount: receipt.amount,
+                    receipts: [(note: receipt.note, amount: receipt.amount)],
+                    visitTime: match.visit?.entryTime
+                )
+            }
+        }
+        
+        // Build output
+        var output = "SPENDING BY LOCATION (Smart Connections):\n"
+        let totalSpending = locationSpending.values.reduce(0.0) { $0 + $1.amount }
+        output += "Total: $\(String(format: "%.2f", totalSpending)) across \(matches.count) purchases\n\n"
+        
+        // Sort by amount descending
+        for (location, data) in locationSpending.sorted(by: { $0.value.amount > $1.value.amount }) {
+            output += "📍 \(location): $\(String(format: "%.2f", data.amount))\n"
+            
+            // Show individual receipts
+            for receipt in data.receipts.sorted(by: { $0.amount > $1.amount }) {
+                output += "   • \(receipt.note.title) — $\(String(format: "%.2f", receipt.amount))\n"
+            }
+            
+            // Link to visit if available
+            if let visitTime = data.visitTime {
+                let timeStr = timeFormatter.string(from: visitTime)
+                if let visit = visits.first(where: { $0.entryTime == visitTime }),
+                   let place = LocationsManager.shared.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) {
+                    let people = await PeopleManager.shared.getPeopleForVisit(visitId: visit.id)
+                    if !people.isEmpty {
+                        let peopleNames = people.map { $0.name }.joined(separator: ", ")
+                        output += "   → Visit at \(timeStr) with \(peopleNames)\n"
+                    }
+                }
+            }
+            output += "\n"
+        }
+        
+        return output
     }
 
     /// Estimate token count (rough: ~4 chars per token)
