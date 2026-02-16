@@ -1323,148 +1323,108 @@ struct ZoomableHTMLView: UIViewRepresentable {
          <html>
          <head>
              <meta charset="UTF-8">
-             <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=yes, viewport-fit=cover">
+             <meta name="viewport" content="width=\(Int(UIScreen.main.bounds.width - 32)), initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
              <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * data: blob: https: http:;">
              <style>
                  * {
                      box-sizing: border-box !important;
-                 }
-                 html {
-                     margin: 0 !important;
-                     padding: 0 !important;
-                     width: 100% !important;
                      max-width: 100% !important;
-                     overflow-x: hidden !important;
                  }
-                 body {
+                 html, body {
                      margin: 0 !important;
                      padding: 16px !important;
                      width: 100% !important;
                      max-width: 100% !important;
-                     min-width: 0 !important;
                      overflow-x: hidden !important;
                      overflow-y: visible !important;
                      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-                     font-size: 14px;
-                     line-height: 1.5;
-                     color: \(colorScheme == .dark ? "#ffffff" : "#202124");
-                     background-color: transparent;
-                     -webkit-text-size-adjust: none;
-                     word-wrap: break-word !important;
-                     overflow-wrap: break-word !important;
-                     word-break: break-word !important;
+                     font-size: 14px !important;
+                     line-height: 1.5 !important;
+                     color: \(colorScheme == .dark ? "#ffffff" : "#202124") !important;
+                     background-color: transparent !important;
+                     -webkit-text-size-adjust: 100% !important;
                  }
                  
-                  /* CRITICAL: Force ALL images to fit within viewport and ensure loading */
+                 /* Force ALL images to fit within viewport */
                  img {
                      max-width: 100% !important;
-                     width: auto !important;
+                     width: 100% !important;
                      height: auto !important;
-                     display: inline-block !important;
+                     display: block !important;
                      object-fit: contain !important;
                  }
 
-                /* Override inline width/height attributes on images */
-                img[width], img[height], img[style] {
-                    max-width: 100% !important;
-                    width: auto !important;
-                    height: auto !important;
-                }
+                 /* Remove explicit width/height from images */
+                 img[width], img[height] {
+                     width: auto !important;
+                     height: auto !important;
+                     max-width: 100% !important;
+                 }
 
-                 /* Handle tables - common in email templates */
+                 /* Force tables to fit viewport */
                  table {
                      max-width: 100% !important;
-                     table-layout: auto !important;
+                     width: 100% !important;
+                     table-layout: fixed !important;
                      border-collapse: collapse !important;
-                     margin: 12px 0 !important;
+                     overflow-x: hidden !important;
                  }
                  
-                 /* Fix tables with explicit width attributes */
+                 /* Remove explicit width from tables */
                  table[width] {
                      width: auto !important;
-                     max-width: 100% !important;
                  }
 
-                 /* Table cells need to shrink */
+                 /* Table cells */
                  td, th {
                      max-width: 100% !important;
+                     width: auto !important;
                      word-wrap: break-word !important;
                      overflow-wrap: break-word !important;
-                     word-break: break-word !important;
-                     padding: 8px !important;
+                     padding: 6px !important;
+                     font-size: 14px !important;
                  }
 
-                /* Images inside tables */
-                td img, th img {
-                    max-width: 100% !important;
-                    height: auto !important;
-                }
-
-                 /* Base structural elements */
-                 div, p, section, article {
+                 /* Images inside tables */
+                 td img, th img {
                      max-width: 100% !important;
+                     width: 100% !important;
+                 }
+
+                 /* Block elements */
+                 div, p, section, article, span {
+                     max-width: 100% !important;
+                     width: auto !important;
                      overflow-wrap: break-word !important;
                      word-wrap: break-word !important;
                      word-break: break-word !important;
+                     font-size: 14px !important;
                  }
 
-                h1, h2, h3, h4, h5, h6 {
-                    margin: 16px 0 12px 0 !important;
-                    word-wrap: break-word !important;
-                }
+                 /* Headers */
+                 h1, h2, h3, h4, h5, h6 {
+                     max-width: 100% !important;
+                     font-size: 16px !important;
+                     word-wrap: break-word !important;
+                 }
 
-                a {
-                    color: #1a73e8 !important;
-                    word-break: break-word !important;
-                }
+                 a {
+                     color: #1a73e8 !important;
+                     word-break: break-all !important;
+                     font-size: 14px !important;
+                 }
 
-                blockquote {
-                    margin: 12px 0 !important;
-                    padding-left: 12px !important;
-                    border-left: 3px solid \(colorScheme == .dark ? "#555" : "#ddd") !important;
-                    opacity: 0.8 !important;
-                }
+                 /* Hide tracking pixels */
+                 img[width="1"], img[width="0"], img[height="0"], img[height="1"] {
+                     display: none !important;
+                 }
 
-                pre, code {
-                    white-space: pre-wrap !important;
-                    word-wrap: break-word !important;
-                    max-width: 100% !important;
-                    overflow-x: auto !important;
-                    background-color: \(colorScheme == .dark ? "#1a1a1a" : "#f5f5f5") !important;
-                    padding: 8px !important;
-                    border-radius: 4px !important;
-                }
-
-                /* Hide problematic tracking pixels but keep other images visible */
-                img[width="1"][height="1"],
-                img[width="0"][height="0"] {
-                    display: none !important;
-                }
-
-                /* Horizontal rules */
-                hr {
-                    border: none !important;
-                    border-top: 1px solid \(colorScheme == .dark ? "#444" : "#ddd") !important;
-                    margin: 12px 0 !important;
-                }
-
-                /* Support for iframes in email */
-                iframe {
-                    max-width: 100% !important;
-                    width: 100% !important;
-                    height: auto !important;
-                }
-
-                /* List styles */
-                ul, ol {
-                    margin: 12px 0 !important;
-                    padding-left: 24px !important;
-                }
-
-                li {
-                    margin: 4px 0 !important;
-                }
-            </style>
+                 /* Lists */
+                 ul, ol, li {
+                     max-width: 100% !important;
+                     font-size: 14px !important;
+                 }
+             </style>
             <script>
                  // Ensure all content fits properly and scale if needed
                  function formatEmailContent() {
