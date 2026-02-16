@@ -1317,9 +1317,6 @@ struct ZoomableHTMLView: UIViewRepresentable {
             return
         }
 
-         // Get screen width to properly scale content
-         let screenWidth = UIScreen.main.bounds.width
-         
          // Wrap HTML with proper viewport and scaling meta tags
          let wrappedHTML = """
          <!DOCTYPE html>
@@ -1358,14 +1355,7 @@ struct ZoomableHTMLView: UIViewRepresentable {
                      word-break: break-word !important;
                  }
                  
-                 /* Wrapper to contain and scale content if needed */
-                 #email-content-wrapper {
-                     width: 100%;
-                     max-width: 100%;
-                     overflow: hidden;
-                 }
-
-                 /* CRITICAL: Force ALL images to fit within viewport and ensure loading */
+                  /* CRITICAL: Force ALL images to fit within viewport and ensure loading */
                  img {
                      max-width: 100% !important;
                      width: auto !important;
@@ -1478,9 +1468,6 @@ struct ZoomableHTMLView: UIViewRepresentable {
             <script>
                  // Ensure all content fits properly and scale if needed
                  function formatEmailContent() {
-                     var wrapper = document.getElementById('email-content-wrapper');
-                     var screenWidth = \(screenWidth) - 32; // Account for body padding
-                     
                      // Remove fixed dimensions from all images
                      var images = document.querySelectorAll('img');
                      images.forEach(function(img) {
@@ -1516,28 +1503,6 @@ struct ZoomableHTMLView: UIViewRepresentable {
                          table.removeAttribute('width');
                          table.style.maxWidth = '100%';
                      });
-
-                     // Remove fixed widths from containers
-                     var containers = document.querySelectorAll('div, section, article, td, th');
-                     containers.forEach(function(el) {
-                         var width = el.getAttribute('width');
-                         if (width && parseInt(width) > screenWidth) {
-                             el.removeAttribute('width');
-                             el.style.maxWidth = '100%';
-                         }
-                     });
-                     
-                     // Scale content if it's wider than viewport
-                     setTimeout(function() {
-                         var contentWidth = wrapper.scrollWidth;
-                         if (contentWidth > screenWidth) {
-                             var scale = screenWidth / contentWidth;
-                             wrapper.style.transform = 'scale(' + scale + ')';
-                             wrapper.style.transformOrigin = 'top left';
-                             wrapper.style.width = (contentWidth) + 'px';
-                             document.body.style.height = (wrapper.scrollHeight * scale) + 'px';
-                         }
-                     }, 100);
                  }
 
                 // Initial formatting on DOMContentLoaded
@@ -1554,12 +1519,10 @@ struct ZoomableHTMLView: UIViewRepresentable {
                 setTimeout(function() {
                     formatEmailContent();
                 }, 500);
-            </script>
+             </script>
          </head>
          <body>
-             <div id="email-content-wrapper">
-                 \(htmlContent)
-             </div>
+             \(htmlContent)
          </body>
          </html>
          """
