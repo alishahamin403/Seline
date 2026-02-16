@@ -886,7 +886,7 @@ class VectorContextBuilder {
             let receiptMatches = matchReceiptsToVisits(receipts: receiptNotes, visits: visitsForDay)
             
             // Build spending summary grouped by location
-            let spendingSummary = await buildSpendingSummary(matches: receiptMatches, visits: visitsForDay)
+            let spendingSummary = await buildSpendingSummary(matches: receiptMatches, visits: visitsForDay, timeFormatter: timeFormatter)
             if !spendingSummary.isEmpty {
                 context += spendingSummary + "\n"
             }
@@ -1036,7 +1036,7 @@ class VectorContextBuilder {
                 matches.append(ReceiptVisitMatch(
                     receipt: receipt,
                     visit: nil,
-                    matchType: nil
+                    matchType: ""
                 ))
             }
         }
@@ -1047,8 +1047,9 @@ class VectorContextBuilder {
     /// Build spending summary grouped by location with visit connections
     private func buildSpendingSummary(
         matches: [ReceiptVisitMatch],
-        visits: [LocationVisitRecord]
-    ) -> String {
+        visits: [LocationVisitRecord],
+        timeFormatter: DateFormatter
+    ) async -> String {
         guard !matches.isEmpty else { return "" }
         
         // Group receipts by visit location
