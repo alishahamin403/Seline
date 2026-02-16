@@ -3645,31 +3645,6 @@ class SelineAppContext {
         return context
     }
 
-    // MARK: - Helper Methods
-
-    private func isUnderReceiptsFolderHierarchy(folderId: UUID?, receiptsFolderId: UUID) -> Bool {
-        guard let folderId = folderId else { return false }
-
-        if folderId == receiptsFolderId {
-            return true
-        }
-
-        if let folder = notesManager.folders.first(where: { $0.id == folderId }),
-           let parentId = folder.parentFolderId {
-            return isUnderReceiptsFolderHierarchy(folderId: parentId, receiptsFolderId: receiptsFolderId)
-        }
-
-        return false
-    }
-
-    private func formatDate(_ date: Date) -> String {
-        return mediumDateFormatter.string(from: date)
-    }
-
-    private func formatTime(_ date: Date) -> String {
-        return timeFormatter.string(from: date)
-    }
-
     /// Fetch latest news headlines from web sources
     private func fetchWebNews(topic: String) async throws -> [String] {
         // Use DuckDuckGo news search as a free web source (no API key needed)
@@ -4527,4 +4502,92 @@ class SelineAppContext {
         }
     }
     */
+
+    // ============================================================================
+    // ACTIVE HELPER METHODS - Needed by active code (refresh, etc.)
+    // ============================================================================
+    
+    private func isUnderReceiptsFolderHierarchy(folderId: UUID?, receiptsFolderId: UUID) -> Bool {
+        guard let folderId = folderId else { return false }
+
+        if folderId == receiptsFolderId {
+            return true
+        }
+
+        if let folder = notesManager.folders.first(where: { $0.id == folderId }),
+           let parentId = folder.parentFolderId {
+            return isUnderReceiptsFolderHierarchy(folderId: parentId, receiptsFolderId: receiptsFolderId)
+        }
+
+        return false
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        return mediumDateFormatter.string(from: date)
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        return timeFormatter.string(from: date)
+    }
+
+    private func extractDateFromTitle(_ title: String) -> Date? {
+        let datePatterns = [
+            "\\w+ \\d{1,2}(?:st|nd|rd|th)?",  // "January 15th" or "Jan 15"
+            "\\d{1,2}/\\d{1,2}/\\d{2,4}",      // "01/15/2024"
+            "\\d{4}-\\d{2}-\\d{2}"              // "2024-01-15"
+        ]
+
+        for pattern in datePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+               let match = regex.firstMatch(in: title, options: [], range: NSRange(title.startIndex..., in: title)),
+               let range = Range(match.range, in: title) {
+                let dateString = String(title[range])
+                let formatter = DateFormatter()
+                formatter.dateFormat = "MMMM d"
+                if let date = formatter.date(from: dateString) {
+                    return date
+                }
+                formatter.dateFormat = "MMM d"
+                if let date = formatter.date(from: dateString) {
+                    return date
+                }
+            }
+        }
+        return nil
+    }
+
+    private func getNextOccurrenceDate(for event: TaskItem, after minimumDate: Date = Date.distantPast) -> Date? {
+        guard event.isRecurring, let frequency = event.recurrenceFrequency else { return nil }
+
+        let baseDate = event.targetDate ?? event.createdAt
+        let calendar = Calendar.current
+        var currentDate = baseDate
+
+        while currentDate < minimumDate {
+            switch frequency {
+            case .daily:
+                currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+            case .weekly:
+                currentDate = calendar.date(byAdding: .weekOfYear, value: 1, to: currentDate)!
+            case .biweekly:
+                currentDate = calendar.date(byAdding: .weekOfYear, value: 2, to: currentDate)!
+            case .monthly:
+                currentDate = calendar.date(byAdding: .month, value: 1, to: currentDate)!
+            case .yearly:
+                currentDate = calendar.date(byAdding: .year, value: 1, to: currentDate)!
+            case .weekdays:
+                repeat {
+                    currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+                } while calendar.isDateInWeekend(currentDate)
+            @unknown default:
+                return nil
+            }
+
+            if let endDate = event.recurrenceEndDate, currentDate > endDate {
+                return nil
+            }
+        }
+
+        return currentDate
+    }
 }
