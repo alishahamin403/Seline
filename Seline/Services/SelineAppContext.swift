@@ -4563,6 +4563,7 @@ class SelineAppContext {
         let calendar = Calendar.current
         var currentDate = baseDate
 
+
         while currentDate < minimumDate {
             switch frequency {
             case .daily:
@@ -4575,10 +4576,9 @@ class SelineAppContext {
                 currentDate = calendar.date(byAdding: .month, value: 1, to: currentDate)!
             case .yearly:
                 currentDate = calendar.date(byAdding: .year, value: 1, to: currentDate)!
-            case .weekdays:
-                repeat {
-                    currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
-                } while calendar.isDateInWeekend(currentDate)
+            case .custom:
+                // Custom recurrence - skip for now
+                return nil
             @unknown default:
                 return nil
             }
