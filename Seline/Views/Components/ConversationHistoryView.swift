@@ -99,7 +99,7 @@ struct ConversationHistoryView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(searchService.savedConversations) { conversation in
                             conversationRow(conversation)
                         }
@@ -173,6 +173,7 @@ struct ConversationHistoryView: View {
             .background(selectedConversationIds.contains(conversation.id) ? Color.gray.opacity(0.1) : Color.clear)
         }
         .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
         .contextMenu {
             if !isEditMode {
                 Button(role: .destructive, action: {

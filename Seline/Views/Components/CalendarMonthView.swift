@@ -13,11 +13,15 @@ struct CalendarMonthView: View {
     @State private var currentMonth: Date
     @State private var dragOffset: CGFloat = 0
     @State private var cachedEventsForMonth: [String: [TaskItem]] = [:] // Cache: dateKey -> filtered events
-    @State private var cachedMonthKey: String = "" // Track which month is cached
     @State private var cachedTagId: String? = nil // Track which tag filter is cached
     
     private let calendar = Calendar.current
     private let maxEventsPerCell = 2
+    private static let cacheKeyDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
     
     init(
         selectedDate: Binding<Date>,
@@ -123,7 +127,6 @@ struct CalendarMonthView: View {
             
             // Calendar grid
             calendarGrid
-                .id("\(currentMonth.timeIntervalSince1970)-\(selectedTagId ?? "nil")") // Force refresh when month or filter changes
         }
         .background(backgroundColor)
         .simultaneousGesture(
@@ -164,20 +167,9 @@ struct CalendarMonthView: View {
         .onChange(of: currentMonth) { _ in
             // Rebuild cache when month changes
             rebuildCacheForCurrentMonth()
-            cachedMonthKey = monthKeyFor(currentMonth)
         }
-        .onChange(of: selectedTagId) { newTagId in
-            // CRITICAL: Update cached tag ID FIRST before clearing cache
-            // This ensures getFilteredEvents knows the filter matches when rebuilding
-            cachedTagId = newTagId
-
-            // Clear old cache - UI updates immediately with new filter state
-            cachedEventsForMonth.removeAll()
-
-            // Rebuild cache on background thread for smooth UI
-            Task.detached(priority: .userInitiated) {
-                await rebuildCacheAsync()
-            }
+        .onChange(of: selectedTagId) { _ in
+            rebuildCacheForCurrentMonth()
         }
         .onChange(of: taskManager.tasks) { _ in
             // Rebuild cache when tasks change
@@ -186,8 +178,6 @@ struct CalendarMonthView: View {
         .onAppear {
             // Build initial cache
             rebuildCacheForCurrentMonth()
-            cachedMonthKey = monthKeyFor(currentMonth)
-            cachedTagId = selectedTagId
         }
     }
     
@@ -297,7 +287,6 @@ struct CalendarMonthView: View {
             }
         }
         .offset(x: dragOffset * 0.3)
-        .id("\(currentMonth.timeIntervalSince1970)-\(selectedTagId ?? "nil")") // Force refresh when month or filter changes
     }
     
     // MARK: - Week Row
@@ -365,7 +354,7 @@ struct CalendarMonthView: View {
                     
                     // More indicator if there are more events than displayed
                     if events.count > maxEventsPerCell {
-                        Text("+\(events.count - maxEventsPerCell) more")
+                        Text("+\(events.count - maxEventsPerCell)")
                             .font(FontManager.geist(size: 9, weight: .medium))
                             .foregroundColor(secondaryTextColor)
                             .padding(.horizontal, 4)
@@ -443,19 +432,15 @@ struct CalendarMonthView: View {
     }
     
     private func getFilteredEvents(for date: Date) -> [TaskItem] {
-        // Create cache key for this date
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        dateFormatter.timeZone = calendar.timeZone
-        let dateKey = dateFormatter.string(from: calendar.startOfDay(for: date))
+        let dateKey = dateCacheKey(for: date)
         
         // CRITICAL FIX: Always compare against the current selectedTagId property, not cached state
         // If they don't match, we MUST compute fresh results - never use cache
         let filterMatches = (cachedTagId == nil && selectedTagId == nil) || (cachedTagId == selectedTagId)
         
-        // If filter changed or no cached data, compute fresh
+        // If filter changed, avoid expensive per-cell recomputation during transition.
+        // onChange(selectedTagId) immediately rebuilds cache for the new filter.
         if !filterMatches {
-            // Filter has changed - compute fresh results, don't cache (will be rebuilt by onChange)
             let allTasks = taskManager.getAllTasks(for: date)
             return applyFilter(to: allTasks)
         }
@@ -472,55 +457,26 @@ struct CalendarMonthView: View {
         return filtered
     }
     
-    private func monthKeyFor(_ month: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM"
-        formatter.timeZone = calendar.timeZone
-        return formatter.string(from: month)
-    }
-    
     private func rebuildCacheForCurrentMonth() {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        dateFormatter.timeZone = calendar.timeZone
-
-        // Get all dates in the current month
-        let dates = daysInMonth
-
-        // Batch compute events for all dates in the month
-        // Use the current selectedTagId from the closure context
-        for date in dates {
-            let dateKey = dateFormatter.string(from: calendar.startOfDay(for: date))
-            let allTasks = taskManager.getAllTasks(for: date)
-            let filtered = applyFilter(to: allTasks)
-            cachedEventsForMonth[dateKey] = filtered
-        }
-    }
-
-    private func rebuildCacheAsync() async {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        dateFormatter.timeZone = calendar.timeZone
-
         let dates = daysInMonth
         let currentTagId = selectedTagId
+        var nextCache: [String: [TaskItem]] = [:]
+        nextCache.reserveCapacity(dates.count)
 
-        // Compute on background thread
-        var newCache: [String: [TaskItem]] = [:]
         for date in dates {
-            let dateKey = dateFormatter.string(from: calendar.startOfDay(for: date))
+            let dateKey = dateCacheKey(for: date)
             let allTasks = taskManager.getAllTasks(for: date)
             let filtered = applyFilter(to: allTasks, tagId: currentTagId)
-            newCache[dateKey] = filtered
+            nextCache[dateKey] = filtered
         }
 
-        // Update cache on main thread
-        await MainActor.run {
-            // Only update if filter hasn't changed during computation
-            if cachedTagId == currentTagId {
-                cachedEventsForMonth = newCache
-            }
-        }
+        cachedEventsForMonth = nextCache
+        cachedTagId = currentTagId
+    }
+
+    private func dateCacheKey(for date: Date) -> String {
+        Self.cacheKeyDateFormatter.timeZone = calendar.timeZone
+        return Self.cacheKeyDateFormatter.string(from: calendar.startOfDay(for: date))
     }
 
     private func applyFilter(to tasks: [TaskItem], tagId: String? = nil) -> [TaskItem] {
@@ -530,10 +486,14 @@ struct CalendarMonthView: View {
         if let tagId = filterTagId {
             if tagId == "" {
                 // Personal filter - show events with nil tagId (default/personal events) AND excluding synced calendar events
-                return tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
+                return tasks.filter { task in
+                    task.tagId == nil && !isSyncedCalendarTask(task)
+                }
             } else if tagId == "cal_sync" {
                 // Personal - Sync filter - show only synced calendar events
-                return tasks.filter { $0.id.hasPrefix("cal_") }
+                return tasks.filter { task in
+                    isSyncedCalendarTask(task)
+                }
             } else {
                 // Specific tag filter
                 return tasks.filter { $0.tagId == tagId }
@@ -541,6 +501,13 @@ struct CalendarMonthView: View {
         }
         // No filter - show all tasks
         return tasks
+    }
+
+    private func isSyncedCalendarTask(_ task: TaskItem) -> Bool {
+        task.id.hasPrefix("cal_")
+            || task.isFromCalendar
+            || task.calendarEventId != nil
+            || task.tagId == "cal_sync"
     }
     
     private func previousMonth() {
@@ -565,4 +532,3 @@ struct CalendarMonthView: View {
         onTapEvent: { _ in }
     )
 }
-

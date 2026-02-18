@@ -11,6 +11,7 @@ struct MarkdownText: View {
             ForEach(parseMarkdown(markdown)) { element in
                 renderElement(element)
                     .padding(.top, topPadding(for: element))
+                    .padding(.bottom, bottomPadding(for: element))
             }
         }
     }
@@ -18,10 +19,11 @@ struct MarkdownText: View {
     /// Element-specific top padding for ChatGPT-like visual rhythm
     private func topPadding(for element: MarkdownElement) -> CGFloat {
         switch element {
-        case .heading1: return 20
-        case .heading2: return 16
+        case .heading1: return 24
+        case .heading2: return 18
         case .heading3: return 14
-        case .bulletPoint, .numberedPoint: return 6
+        case .heading4: return 12
+        case .bulletPoint(_, _), .numberedPoint: return 6
         case .paragraph: return 12
         case .table: return 14
         case .empty: return 4
@@ -30,15 +32,27 @@ struct MarkdownText: View {
         }
     }
 
+    /// Bottom padding after element (e.g. under headings to group with following content)
+    private func bottomPadding(for element: MarkdownElement) -> CGFloat {
+        switch element {
+        case .heading1: return 8
+        case .heading2: return 6
+        case .heading3, .heading4: return 4
+        default: return 0
+        }
+    }
+
     @ViewBuilder
     private func renderElement(_ element: MarkdownElement) -> some View {
         switch element {
         case .heading1(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 22, weight: .bold)
+            headingView(level: 1, text: text)
         case .heading2(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 20, weight: .semibold)
+            headingView(level: 2, text: text)
         case .heading3(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 18, weight: .semibold)
+            headingView(level: 3, text: text)
+        case .heading4(let text):
+            headingView(level: 4, text: text)
         case .bold(let text):
             renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .bold)
         case .italic(let text):
@@ -53,19 +67,10 @@ struct MarkdownText: View {
                 .background(colorScheme == .dark ? Color.black.opacity(0.3) : Color.gray.opacity(0.1))
                 .cornerRadius(4)
                 .textSelection(.enabled)
-        case .bulletPoint(let text):
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("•")
-                    .font(FontManager.geist(size: 14, weight: .bold))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                    .frame(width: 12, alignment: .leading)
-                VStack(alignment: .leading, spacing: 0) {
-                    renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
-                }
-            }
-            .padding(.leading, 16)
+        case .bulletPoint(let level, let text):
+            bulletRow(level: level, text: text)
         case .numberedPoint(let number, let text):
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .top, spacing: 6) {
                 Text("\(number).")
                     .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
@@ -73,6 +78,7 @@ struct MarkdownText: View {
                 VStack(alignment: .leading, spacing: 0) {
                     renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.leading, 16)
         case .table(let headers, let rows):
@@ -87,6 +93,51 @@ struct MarkdownText: View {
         case .empty:
             Spacer()
                 .frame(height: 4)
+        }
+    }
+
+    /// ChatGPT-style bullet row: hanging indent (wrapped lines align with first line) and optional sub-bullet hierarchy
+    @ViewBuilder
+    private func bulletRow(level: Int, text: String) -> some View {
+        let bulletChar = level == 0 ? "•" : "◦"
+        let leadingPadding: CGFloat = 16 + CGFloat(level) * 20
+        let bulletWidth: CGFloat = level == 0 ? 12 : 14
+        HStack(alignment: .top, spacing: 6) {
+            Text(bulletChar)
+                .font(FontManager.geist(size: 14, weight: level == 0 ? .bold : .medium))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(level == 0 ? 0.6 : 0.5) : .black.opacity(level == 0 ? 0.6 : 0.5))
+                .frame(width: bulletWidth, alignment: .leading)
+            VStack(alignment: .leading, spacing: 0) {
+                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, leadingPadding)
+    }
+
+    /// ChatGPT-style heading hierarchy: size/weight/color steps + H1 accent
+    private func headingView(level: Int, text: String) -> some View {
+        let (size, weight): (CGFloat, Font.Weight) = level == 1 ? (22, .bold) : level == 2 ? (18, .semibold) : level == 3 ? (16, .semibold) : (15, .medium)
+        let opacity: Double = level == 1 ? 1.0 : level == 2 ? 0.92 : level == 3 ? 0.82 : 0.75
+        let content = renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: size, weight: weight)
+        let contentWithOpacity = level == 1 ? AnyView(content) : AnyView(content.opacity(opacity))
+
+        return Group {
+            if level == 1 {
+                HStack(alignment: .top, spacing: 8) {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(Color.accentColor.opacity(0.8))
+                        .frame(width: 3)
+                    contentWithOpacity
+                }
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                        .frame(height: 1)
+                }
+            } else {
+                contentWithOpacity
+            }
         }
     }
 
@@ -412,6 +463,28 @@ struct MarkdownText: View {
                 elements.append(.heading3(String(trimmed.dropFirst(4))))
                 i += 1; continue
             }
+            if trimmed.hasPrefix("#### ") {
+                elements.append(.heading4(String(trimmed.dropFirst(5))))
+                i += 1; continue
+            }
+
+            // Standalone bold line as section heading (e.g. "**Saturday, February 14th:**" or "**Spending on Saturday:**")
+            if trimmed.hasPrefix("**"), trimmed.count > 4 {
+                let afterOpen = String(trimmed.dropFirst(2))
+                let label: String?
+                if afterOpen.hasSuffix(":**") {
+                    label = String(afterOpen.dropLast(3)).trimmingCharacters(in: .whitespaces)
+                } else if afterOpen.hasSuffix("**") {
+                    label = String(afterOpen.dropLast(2)).trimmingCharacters(in: .whitespaces)
+                } else {
+                    label = nil
+                }
+                if let label = label, !label.isEmpty {
+                    elements.append(.heading2(label))
+                    i += 1
+                    continue
+                }
+            }
 
             // Table Detection - Modified for streaming
             if looksLikeTableStart(trimmed, at: i, in: lines) {
@@ -426,15 +499,12 @@ struct MarkdownText: View {
                 // but good for safety.
             }
             
-            // Bullets
+            // Bullets: sub-bullets need 2+ leading spaces (2 or 3 = level 1, 4 or 5 = level 2, etc.)
+            let leadingSpaces = line.prefix(while: { $0 == " " }).count
+            let bulletLevel: Int = leadingSpaces >= 2 ? min(1 + (leadingSpaces - 2) / 2, 4) : 0
             if trimmed.hasPrefix("- ") || trimmed.hasPrefix("• ") || trimmed.hasPrefix("* ") {
-                var text: String
-                if trimmed.hasPrefix("- ") || trimmed.hasPrefix("• ") {
-                    text = String(trimmed.dropFirst(2))
-                } else {
-                    text = String(trimmed.dropFirst(2))
-                }
-                elements.append(.bulletPoint(text))
+                let text = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                elements.append(.bulletPoint(level: bulletLevel, text: text))
                 i += 1
                 continue
             }
@@ -538,11 +608,12 @@ enum MarkdownElement: Hashable, Identifiable {
     case heading1(String)
     case heading2(String)
     case heading3(String)
+    case heading4(String)
     case bold(String)
     case italic(String)
     case underline(String)
     case code(String)
-    case bulletPoint(String)
+    case bulletPoint(level: Int, text: String)
     case numberedPoint(Int, String)
     case table(headers: [String], rows: [[String]])
     case horizontalRule
@@ -555,11 +626,12 @@ enum MarkdownElement: Hashable, Identifiable {
         case .heading1(let text): return "h1-\(text.hashValue)"
         case .heading2(let text): return "h2-\(text.hashValue)"
         case .heading3(let text): return "h3-\(text.hashValue)"
+        case .heading4(let text): return "h4-\(text.hashValue)"
         case .bold(let text): return "b-\(text.hashValue)"
         case .italic(let text): return "i-\(text.hashValue)"
         case .underline(let text): return "u-\(text.hashValue)"
         case .code(let text): return "code-\(text.hashValue)"
-        case .bulletPoint(let text): return "bullet-\(text.hashValue)"
+        case .bulletPoint(let level, let text): return "bullet-\(level)-\(text.hashValue)"
         case .numberedPoint(let num, let text): return "num-\(num)-\(text.hashValue)"
         case .table(let headers, let rows): return "table-\(headers.hashValue)-\(rows.hashValue)"
         case .horizontalRule: return "hr-\(UUID().uuidString)"

@@ -232,7 +232,7 @@ struct SearchView: View {
     
     private var searchResultsListView: some View {
         ScrollView {
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 ForEach(searchResults) { result in
                     searchResultRow(result)
                     

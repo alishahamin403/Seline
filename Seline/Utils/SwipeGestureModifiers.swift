@@ -56,6 +56,12 @@ struct SwipeableRowModifier: ViewModifier {
     @State private var hasPlayedThresholdHaptic = false
     @State private var hasPlayedFullSwipeHaptic = false
     @State private var isExecuting = false
+    @State private var activeAxis: DragAxis? = nil
+
+    private enum DragAxis {
+        case horizontal
+        case vertical
+    }
 
     private var animation: Animation {
         .spring(response: 0.3, dampingFraction: 0.75)
@@ -71,13 +77,13 @@ struct SwipeableRowModifier: ViewModifier {
             // Main content with offset
             content
                 .offset(x: offset)
-                .gesture(
+                .simultaneousGesture(
                     DragGesture(minimumDistance: 10)
                         .onChanged { value in
-                            handleDragChanged(value)
+                            handleDragChangedWithAxisLock(value)
                         }
                         .onEnded { value in
-                            handleDragEnded(value)
+                            handleDragEndedWithAxisLock(value)
                         }
                 )
         }
@@ -120,6 +126,41 @@ struct SwipeableRowModifier: ViewModifier {
     }
 
     // MARK: - Gesture Handlers
+
+    private func handleDragChangedWithAxisLock(_ value: DragGesture.Value) {
+        guard !isExecuting else { return }
+
+        let horizontalMovement = abs(value.translation.width)
+        let verticalMovement = abs(value.translation.height)
+
+        if activeAxis == nil {
+            // Prefer vertical scroll unless the user makes a deliberate horizontal swipe.
+            if horizontalMovement > 14 && horizontalMovement > verticalMovement * 2.2 {
+                activeAxis = .horizontal
+            } else if verticalMovement > 8 && verticalMovement > horizontalMovement * 1.05 {
+                activeAxis = .vertical
+                return
+            } else {
+                return
+            }
+        }
+
+        guard activeAxis == .horizontal else { return }
+        handleDragChanged(value)
+    }
+
+    private func handleDragEndedWithAxisLock(_ value: DragGesture.Value) {
+        defer { activeAxis = nil }
+
+        guard activeAxis == .horizontal else {
+            if offset != 0 {
+                resetState()
+            }
+            return
+        }
+
+        handleDragEnded(value)
+    }
 
     private func handleDragChanged(_ value: DragGesture.Value) {
         guard !isExecuting else { return }

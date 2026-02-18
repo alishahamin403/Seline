@@ -1,837 +1,958 @@
 import SwiftUI
+import CoreLocation
 
 struct DailyOverviewWidget: View {
-    @StateObject private var emailService = EmailService.shared
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var tagManager = TagManager.shared
-    @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var weatherService = WeatherService.shared
+    @StateObject private var locationService = LocationService.shared
     @StateObject private var quickNoteManager = QuickNoteManager.shared
-    @StateObject private var widgetManager = WidgetManager.shared
     @Environment(\.colorScheme) var colorScheme
 
     @Binding var isExpanded: Bool
-    @State private var expensesAndInstances: [(expense: RecurringExpense, instance: RecurringInstance)] = []
-    @State private var showingAddQuickNote = false
-    @State private var quickNoteText = ""
-    @State private var editingQuickNote: QuickNote?
-    @FocusState private var isQuickNoteFocused: Bool
-    @State private var refreshTrigger: UUID = UUID() // Force refresh when notes change
 
-    // Navigation callbacks
     var onNoteSelected: ((Note) -> Void)?
     var onEmailSelected: ((Email) -> Void)?
     var onTaskSelected: ((TaskItem) -> Void)?
+    var onAddTask: (() -> Void)?
+    var onAddTaskFromPhoto: (() -> Void)?
+    var onAddNote: (() -> Void)?
 
-    private var today: Date {
+    @State private var cachedTasks: [TaskItem] = []
+    @State private var cachedTodayTasks: [TaskItem] = []
+    @State private var lastWeatherFetch: Date?
+    @State private var isTodoScrollInProgress = false
+    @State private var expandedSection: ExpandedSection? = nil
+    @State private var quickNoteInput: String = ""
+    @State private var editingQuickNote: QuickNote? = nil
+
+    @AppStorage("dismissedHomeMissedTodoIds") private var dismissedMissedTodoIdsString: String = ""
+    
+    private enum TodoRowMode {
+        case today
+        case missed
+    }
+
+    private enum ExpandedSection {
+        case date
+        case weather
+        case quickNotes
+    }
+
+    private struct AllTodoCategoryGroup: Identifiable {
+        let title: String
+        let iconName: String
+        let tasks: [TaskItem]
+        var id: String { title.lowercased().replacingOccurrences(of: " ", with: "-") }
+    }
+
+    private var dayStart: Date {
         Calendar.current.startOfDay(for: Date())
     }
 
-    private var tomorrow: Date {
-        Calendar.current.date(byAdding: .day, value: 1, to: today)!
+    private var dayEnd: Date {
+        Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
     }
 
-    private var weekEnd: Date {
-        Calendar.current.date(byAdding: .day, value: 7, to: today)!
+    private var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d"
+        return formatter.string(from: Date())
     }
 
-    // MARK: - Data Filtering
+    private var weatherSummary: String {
+        guard let weather = weatherService.weatherData else {
+            return "Weather unavailable"
+        }
 
-    private var expensesDueToday: [(expense: RecurringExpense, instance: RecurringInstance)] {
-        expensesAndInstances
-            .filter { item in
-                Calendar.current.isDate(item.instance.occurrenceDate, inSameDayAs: today) &&
-                item.instance.status == .pending
-            }
-            .sorted { $0.expense.title < $1.expense.title }
+        let desc = weather.description.capitalized
+        let temp = "\(weather.temperature)°"
+        let feelsLike = "Feels like \(weather.feelsLike)°"
+        let location = weather.locationName.isEmpty ? locationService.locationName : weather.locationName
+        return "\(location) • \(desc) • \(temp) • \(feelsLike)"
     }
 
-    private var expensesDueTomorrow: [(expense: RecurringExpense, instance: RecurringInstance)] {
-        expensesAndInstances
-            .filter { item in
-                Calendar.current.isDate(item.instance.occurrenceDate, inSameDayAs: tomorrow) &&
-                item.instance.status == .pending
-            }
-            .sorted { $0.expense.title < $1.expense.title }
+    private var weatherChipText: String {
+        guard let weather = weatherService.weatherData else {
+            return "Weather --"
+        }
+        return "\(weather.temperature)° Feels \(weather.feelsLike)°"
     }
 
-    private var upcomingExpenses: [(expense: RecurringExpense, instance: RecurringInstance)] {
-        let calendar = Calendar.current
-        let dayAfterTomorrow = calendar.date(byAdding: .day, value: 2, to: today)!
-        let sevenDaysFromNow = calendar.date(byAdding: .day, value: 7, to: today)!
-
-        return expensesAndInstances
-            .filter { item in
-                let instanceDay = calendar.startOfDay(for: item.instance.occurrenceDate)
-                return instanceDay >= dayAfterTomorrow &&
-                       instanceDay < sevenDaysFromNow &&
-                       item.instance.status == .pending
-            }
-            .sorted { $0.instance.occurrenceDate < $1.instance.occurrenceDate }
+    private var dismissedMissedTodoIds: Set<String> {
+        Set(dismissedMissedTodoIdsString.split(separator: ",").map(String.init))
     }
 
-    private var importantUnreadEmails: [Email] {
-        emailService.inboxEmails
-            .filter { $0.isImportant && !$0.isRead }
-            .sorted { $0.timestamp > $1.timestamp }
-            .prefix(5)
-            .map { $0 }
-    }
-
-    private var birthdaysThisWeek: [TaskItem] {
-        // OPTIMIZATION: Use CacheManager with 5-minute TTL
-        return CacheManager.shared.getOrCompute(
-            forKey: CacheManager.CacheKey.birthdaysThisWeek,
-            ttl: CacheManager.TTL.medium
-        ) {
-            let birthdayTag = tagManager.tags.first { $0.name.lowercased() == "birthday" }
-
-            return taskManager.getAllFlattenedTasks().filter { task in
-                // Check if task has birthday tag or contains "birthday" in title
-                let isBirthdayEvent = (birthdayTag != nil && task.tagId == birthdayTag?.id) ||
-                                     task.title.lowercased().contains("birthday")
-
-                guard isBirthdayEvent, let targetDate = task.targetDate else { return false }
-
-                return targetDate >= today && targetDate < weekEnd
-            }
-            .sorted { ($0.targetDate ?? Date()) < ($1.targetDate ?? Date()) }
+    private var todayTodos: [TaskItem] {
+        cachedTodayTasks.filter { task in
+            !task.isDeleted
         }
     }
 
-    private var todaysReceipts: [Note] {
-        // Use refreshTrigger to force cache invalidation when notes change
-        let _ = refreshTrigger // Access refreshTrigger to make this computed property depend on it
-        
-        // Use shorter TTL (1 minute) for today's receipts to ensure new receipts appear quickly
-        return CacheManager.shared.getOrCompute(
-            forKey: CacheManager.CacheKey.todaysReceipts,
-            ttl: CacheManager.TTL.short // Changed from .medium (5 min) to .short (1 min)
-        ) {
-            let calendar = Calendar.current
-            let receiptsFolder = notesManager.folders.first { $0.name == "Receipts" }
+    private var upNextTodos: [TaskItem] {
+        let now = Date()
 
-            return notesManager.notes.filter { note in
-                // Only include notes that are in the Receipts folder hierarchy
-                guard let folderId = note.folderId,
-                      let receiptsFolderId = receiptsFolder?.id else {
-                    return false
+        return todayTodos
+            .filter { task in
+                guard !isTaskCompleted(task, mode: .today) else { return false }
+                let due = todayOccurrenceDate(for: task)
+                return due >= now && due < dayEnd
+            }
+            .sorted { todayOccurrenceDate(for: $0) < todayOccurrenceDate(for: $1) }
+    }
+
+    private var upNextShown: [TaskItem] {
+        Array(upNextTodos.prefix(3))
+    }
+
+    private var allTodosExcludingUpNext: [TaskItem] {
+        let upNextIds = Set(upNextShown.map(\.id))
+
+        return todayTodos
+            .filter { !upNextIds.contains($0.id) }
+            .sorted { lhs, rhs in
+                let lhsCompleted = isTaskCompleted(lhs, mode: .today)
+                let rhsCompleted = isTaskCompleted(rhs, mode: .today)
+                if lhsCompleted != rhsCompleted { return !lhsCompleted }
+                return todayOccurrenceDate(for: lhs) < todayOccurrenceDate(for: rhs)
+            }
+    }
+
+    private var allTodoGroups: [AllTodoCategoryGroup] {
+        let orderedTasks = allTodosExcludingUpNext
+        var firstSeenOrder: [String: Int] = [:]
+
+        for task in orderedTasks {
+            let title = allTodoCategoryTitle(for: task)
+            if firstSeenOrder[title] == nil {
+                firstSeenOrder[title] = firstSeenOrder.count
+            }
+        }
+
+        let grouped = Dictionary(grouping: orderedTasks, by: allTodoCategoryTitle(for:))
+
+        return grouped.map { title, tasks in
+            AllTodoCategoryGroup(
+                title: title,
+                iconName: allTodoCategoryIconName(for: title),
+                tasks: tasks.sorted { lhs, rhs in
+                    let lhsCompleted = isTaskCompleted(lhs, mode: .today)
+                    let rhsCompleted = isTaskCompleted(rhs, mode: .today)
+                    if lhsCompleted != rhsCompleted { return !lhsCompleted }
+                    return todayOccurrenceDate(for: lhs) < todayOccurrenceDate(for: rhs)
                 }
+            )
+        }
+        .sorted { lhs, rhs in
+            (firstSeenOrder[lhs.title] ?? Int.max) < (firstSeenOrder[rhs.title] ?? Int.max)
+        }
+    }
 
-                // Check if this note is in the Receipts folder or any of its subfolders
-                var currentFolderId: UUID? = folderId
-                var isInReceiptsFolder = false
+    private var missedTodos: [TaskItem] {
+        cachedTasks
+            .filter { task in
+                guard !task.isDeleted else { return false }
 
-                while let currentId = currentFolderId {
-                    if currentId == receiptsFolderId {
-                        isInReceiptsFolder = true
-                        break
-                    }
-                    currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
-                }
+                // Missed section should only include non-recurring non-expense todos.
+                guard !task.isRecurring else { return false }
+                guard task.parentRecurringTaskId == nil else { return false }
+                guard !isRecurringExpenseTask(task) else { return false }
+                guard !task.isCompletedOn(date: completionDate(for: task, mode: .missed)) else { return false }
 
-                guard isInReceiptsFolder else { return false }
-
-                let content = note.content ?? ""
-                let amount = CurrencyParser.extractAmount(from: content)
-                guard amount > 0 else { return false }
-
-                // Extract the actual receipt transaction date from the title
-                // Try to extract date from title first (e.g., "Store Name - November 08, 2025")
-                // Fall back to dateModified if no date found in title
-                var receiptDate = note.dateModified
-                if let extractedDate = notesManager.extractFullDateFromTitle(note.title) {
-                    receiptDate = extractedDate
-                }
-                
-                // Compare the receipt's actual date (not dateCreated) to today
-                let receiptDay = calendar.startOfDay(for: receiptDate)
-                return receiptDay == today
-            }.sorted { note1, note2 in
-                // Sort by actual receipt date, not dateCreated
-                let date1 = notesManager.extractFullDateFromTitle(note1.title) ?? note1.dateModified
-                let date2 = notesManager.extractFullDateFromTitle(note2.title) ?? note2.dateModified
-                return date1 > date2
+                return dueDate(for: task) < dayStart && !dismissedMissedTodoIds.contains(task.id)
             }
-        }
+            .sorted { dueDate(for: $0) > dueDate(for: $1) }
     }
-    
-    private var upcomingNoteReminders: [Note] {
-        // Use refreshTrigger to cache invalidation
-        let _ = refreshTrigger
-        
-        return CacheManager.shared.getOrCompute(
-            forKey: CacheManager.CacheKey.upcomingNoteReminders,
-            ttl: CacheManager.TTL.short
-        ) {
-            let calendar = Calendar.current
-            let now = Date()
-            let sevenDaysFromNow = calendar.date(byAdding: .day, value: 7, to: now)!
-            
-            return notesManager.notes.filter { note in
-                guard let reminderDate = note.reminderDate else { return false }
-                
-                // Show if due in next 7 days or is overdue (past)
-                return reminderDate < sevenDaysFromNow
-            }
-            .sorted { ($0.reminderDate ?? Date()) < ($1.reminderDate ?? Date()) }
-        }
-    }
-
-    private var todaysTotalSpending: Double {
-        // Use shorter TTL (1 minute) to match receipts cache
-        return CacheManager.shared.getOrCompute(
-            forKey: CacheManager.CacheKey.todaysSpending,
-            ttl: CacheManager.TTL.short // Changed from .medium (5 min) to .short (1 min)
-        ) {
-            // Compute from cached receipts
-            return todaysReceipts.compactMap { note in
-                let amount = CurrencyParser.extractAmount(from: note.content ?? "")
-                return amount > 0 ? amount : nil
-            }.reduce(0.0, +)
-        }
-    }
-
-    // MARK: - Computed Properties
-
-    private var hasAnyContent: Bool {
-        !expensesDueToday.isEmpty ||
-        !expensesDueTomorrow.isEmpty ||
-        !upcomingExpenses.isEmpty ||
-        !importantUnreadEmails.isEmpty ||
-        !birthdaysThisWeek.isEmpty ||
-        !todaysReceipts.isEmpty ||
-        !quickNoteManager.quickNotes.isEmpty ||
-        true // Always show to allow adding quick notes
-    }
-
-    private var totalItemsCount: Int {
-        expensesDueToday.count +
-        expensesDueTomorrow.count +
-        importantUnreadEmails.count +
-        (birthdaysThisWeek.isEmpty ? 0 : 1) + // Count birthdays section as 1 if there are any
-        (todaysReceipts.isEmpty ? 0 : 1) // Count today's spending as 1 if there are any
-    }
-
-    private var summaryText: String {
-        var parts: [String] = []
-
-        if !todaysReceipts.isEmpty {
-            parts.append("\(CurrencyParser.formatAmount(todaysTotalSpending)) today")
-        }
-        if !expensesDueToday.isEmpty {
-            parts.append("\(expensesDueToday.count) today")
-        }
-        if !expensesDueTomorrow.isEmpty {
-            parts.append("\(expensesDueTomorrow.count) tom")
-        }
-        if !upcomingExpenses.isEmpty {
-            parts.append("\(upcomingExpenses.count) upcoming")
-        }
-        if !importantUnreadEmails.isEmpty {
-            parts.append("\(importantUnreadEmails.count) email\(importantUnreadEmails.count > 1 ? "s" : "")")
-        }
-        if !birthdaysThisWeek.isEmpty {
-            parts.append("\(birthdaysThisWeek.count) birthday\(birthdaysThisWeek.count > 1 ? "s" : "")")
-        }
-
-        return parts.joined(separator: " • ")
-    }
-
-    // MARK: - Body
 
     var body: some View {
-        if hasAnyContent {
-            VStack(alignment: .leading, spacing: 0) {
-                headerView
+        VStack(alignment: .leading, spacing: 14) {
+            header
 
-                if isExpanded {
-                    Divider()
-                        .padding(.vertical, 12)
-                        .opacity(0.3)
+            if expandedSection != nil {
+                Divider()
+                    .overlay(colorScheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.1))
 
-                    VStack(alignment: .leading, spacing: 16) {
-                        if !todaysReceipts.isEmpty {
-                            todaysSpendingSection
-                        }
-
-                        if !expensesDueToday.isEmpty {
-                            expensesDueTodaySection
-                        }
-
-                        if !expensesDueTomorrow.isEmpty {
-                            expensesDueTomorrowSection
-                        }
-
-                        if !upcomingExpenses.isEmpty {
-                            upcomingExpensesSection
-                        }
-
-                        if !importantUnreadEmails.isEmpty {
-                            importantEmailsSection
-                        }
-
-                        if !birthdaysThisWeek.isEmpty {
-                            birthdaysSection
-                        }
-
-                        if !upcomingNoteReminders.isEmpty {
-                            noteRemindersSection
-                        }
-
-                        // Quick Notes section - always show at bottom
-                        quickNotesSection
-                    }
-                }
-            }
-            .padding(16)
-            .shadcnTileStyle(colorScheme: colorScheme)
-            .onAppear {
-                // Invalidate cache to ensure fresh data when widget appears
-                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysReceipts)
-                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysSpending)
-                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.upcomingNoteReminders)
-                
-                loadData()
-                Task {
-                    do {
-                        try await quickNoteManager.fetchQuickNotes()
-                    } catch {
-                        print("Error loading quick notes: \(error)")
-                    }
-                }
-            }
-            .onChange(of: notesManager.notes.count) { _ in
-                // Invalidate cache when notes change (new receipt added)
-                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysReceipts)
-                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysSpending)
-                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.upcomingNoteReminders)
-                // Force view refresh by updating refreshTrigger
-                refreshTrigger = UUID()
-            }
-            .onChange(of: refreshTrigger) { _ in
-                // This ensures the view refreshes when refreshTrigger changes
-                // The computed properties will re-evaluate
+                expandedPanelContent
             }
         }
-    }
-
-    // MARK: - Header View
-
-    private var headerView: some View {
-        HStack(spacing: 12) {
-            // Clickable area for expanding/collapsing
-            Button(action: {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded.toggle()
-                }
-                HapticManager.shared.light()
-            }) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Quick Access")
-                            .font(FontManager.geist(size: 12, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                            .textCase(.uppercase)
-                            .tracking(0.5)
-
-                        if !isExpanded {
-                            Text(summaryText)
-                                .font(FontManager.geist(size: 12, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
-                        }
-                    }
-                    
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PlainButtonStyle())
-            .allowsParentScrolling()
-            
-            // Edit button inside widget (only show when not in edit mode)
-            if !widgetManager.isEditMode {
-                Button(action: {
-                    HapticManager.shared.selection()
-                    widgetManager.enterEditMode()
-                }) {
-                    Text("Edit")
-                        .font(FontManager.geist(size: 13, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white : Color.black)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-        }
-    }
-
-    // MARK: - Section Views
-
-    private var todaysSpendingSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Spent Today: \(CurrencyParser.formatAmount(todaysTotalSpending))")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                .textCase(.uppercase)
-                .tracking(0.5)
-
-            // Show all receipts from today, not just 5
-            ForEach(todaysReceipts, id: \.id) { note in
-                receiptRow(note)
-            }
-        }
-    }
-
-    private var expensesDueTodaySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Due Today")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                .textCase(.uppercase)
-                .tracking(0.5)
-
-            ForEach(expensesDueToday.prefix(5), id: \.instance.id) { item in
-                expenseRow(item.expense, instance: item.instance)
-            }
-        }
-    }
-
-    private var expensesDueTomorrowSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Due Tomorrow")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                .textCase(.uppercase)
-                .tracking(0.5)
-
-            ForEach(expensesDueTomorrow.prefix(5), id: \.instance.id) { item in
-                expenseRow(item.expense, instance: item.instance)
-            }
-        }
-    }
-
-    private var upcomingExpensesSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Upcoming (Next 7 Days)")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                .textCase(.uppercase)
-                .tracking(0.5)
-
-            ForEach(upcomingExpenses.prefix(10), id: \.instance.id) { item in
-                upcomingExpenseRow(item.expense, instance: item.instance)
-            }
-        }
-    }
-
-    private var importantEmailsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Important Emails")
-                .font(FontManager.geist(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-
-            ForEach(importantUnreadEmails.prefix(3), id: \.id) { email in
-                emailRow(email)
-            }
-        }
-    }
-
-    private var birthdaysSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Birthdays This Week")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                .textCase(.uppercase)
-                .tracking(0.5)
-
-            ForEach(birthdaysThisWeek.prefix(3), id: \.id) { birthday in
-                birthdayRow(birthday)
-            }
-        }
-    }
-
-    private var noteRemindersSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Note Reminders")
-                .font(FontManager.geist(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-            
-            ForEach(upcomingNoteReminders.prefix(5), id: \.id) { note in
-                noteReminderRow(note)
-            }
-        }
-    }
-    
-    private var quickNotesSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Header with Quick Notes text and + button
-            HStack(spacing: 12) {
-                Text("Quick Notes")
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-
-                Spacer()
-
-                if quickNoteManager.quickNotes.count < 4 {
-                    Button(action: {
-                        showingAddQuickNote = true
-                        quickNoteText = ""
-                        editingQuickNote = nil
-                        isQuickNoteFocused = true
-                    }) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(FontManager.geist(size: 16, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
-                }
-            }
-
-            if quickNoteManager.quickNotes.isEmpty && !showingAddQuickNote {
-                Text("Tap + to add a quick note")
-                    .font(FontManager.geist(size: 11, weight: .regular))
-                    .foregroundColor(.gray)
-                    .italic()
-            }
-
-            if showingAddQuickNote || editingQuickNote != nil {
-                quickNoteInput
-            }
-
-            ForEach(quickNoteManager.quickNotes.prefix(4), id: \.id) { note in
-                quickNoteRow(note)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(colorScheme == .dark ? Color.yellow.opacity(0.15) : Color.yellow.opacity(0.1))
+            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
+                .fill(Color.shadcnTileBackground(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
+                .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 0.5)
+        )
+        .shadow(
+            color: colorScheme == .dark ? .black.opacity(0.18) : Color.black.opacity(0.08),
+            radius: colorScheme == .dark ? 4 : 10,
+            x: 0,
+            y: colorScheme == .dark ? 2 : 4
+        )
+        .onAppear {
+            refreshCardData()
+            loadQuickNotes()
+            locationService.requestLocationPermission()
+            if let location = locationService.currentLocation {
+                refreshWeatherIfNeeded(location: location)
+            }
+            if isExpanded && expandedSection == nil {
+                expandedSection = .date
+            }
+        }
+        .onReceive(taskManager.$tasks) { _ in
+            refreshCardData()
+        }
+        .onChange(of: locationService.currentLocation) { location in
+            guard let location else { return }
+            refreshWeatherIfNeeded(location: location)
+        }
+        .onChange(of: isExpanded) { expanded in
+            if expanded {
+                if expandedSection == nil {
+                    expandedSection = .date
+                }
+            } else {
+                expandedSection = nil
+            }
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Today")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.62))
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+
+                    Text(formattedDate)
+                        .font(FontManager.geist(size: 20, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+
+                Spacer(minLength: 8)
+
+                quickAddMenuButton
+            }
+
+            HStack(spacing: 8) {
+                summaryChip(
+                    title: "Todo \(todayTodos.count)",
+                    isActive: expandedSection == .date,
+                    action: {
+                        toggleSection(.date)
+                        HapticManager.shared.selection()
+                    }
+                )
+
+                summaryChip(
+                    title: weatherChipText,
+                    isActive: expandedSection == .weather,
+                    action: {
+                        toggleSection(.weather)
+                        HapticManager.shared.selection()
+                    }
+                )
+
+                summaryChip(
+                    title: "Notes \(quickNoteManager.quickNotes.count)",
+                    isActive: expandedSection == .quickNotes,
+                    action: {
+                        toggleSection(.quickNotes)
+                        HapticManager.shared.selection()
+                    }
+                )
+            }
+        }
+    }
+
+    private func summaryChip(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(
+                    isActive
+                    ? (colorScheme == .dark ? .black : .white)
+                    : (colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.72))
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    Capsule()
+                        .fill(
+                            isActive
+                            ? (colorScheme == .dark ? Color.white : Color.black)
+                            : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                        )
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
+    }
+
+    private var quickAddMenuButton: some View {
+        Menu {
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddTask?()
+            }) {
+                Label("Todo", systemImage: "checklist")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddTaskFromPhoto?()
+            }) {
+                Label("Todo Camera", systemImage: "camera.fill")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddNote?()
+            }) {
+                Label("New Note", systemImage: "note.text.badge.plus")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(FontManager.geist(size: 14, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .frame(width: 34, height: 34)
+                .background(
+                    Circle()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.06))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.1), lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
+    }
+
+    @ViewBuilder
+    private var expandedPanelContent: some View {
+        switch expandedSection {
+        case .date:
+            dateExpandedContent
+        case .weather:
+            weatherExpandedContent
+        case .quickNotes:
+            quickNotesExpandedContent
+        case .none:
+            EmptyView()
+        }
+    }
+
+    private var dateExpandedContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Up Next", count: upNextShown.count)
+            if upNextShown.isEmpty {
+                emptyState("No upcoming events for today")
+            } else {
+                ForEach(upNextShown, id: \.id) { task in
+                    todoRow(task, allowsDismiss: false, mode: .today)
+                }
+            }
+
+            Divider()
+                .overlay(colorScheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.1))
+
+            sectionHeader("All Todos", count: allTodosExcludingUpNext.count)
+            if allTodosExcludingUpNext.isEmpty {
+                emptyState("No additional todos for today")
+            } else {
+                ForEach(Array(allTodoGroups.enumerated()), id: \.element.id) { index, group in
+                    allTodoGroupHeader(title: group.title, iconName: group.iconName)
+
+                    ForEach(group.tasks, id: \.id) { task in
+                        todoRow(task, allowsDismiss: false, mode: .today)
+                    }
+
+                    if index < allTodoGroups.count - 1 {
+                        Divider()
+                            .overlay(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.07))
+                    }
+                }
+            }
+
+            Divider()
+                .overlay(colorScheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.1))
+
+            sectionHeader("Missed Todos", count: missedTodos.count)
+            if missedTodos.isEmpty {
+                emptyState("No missed todos")
+            } else {
+                ForEach(missedTodos.prefix(20), id: \.id) { task in
+                    todoRow(task, allowsDismiss: true, mode: .missed)
+                }
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 4)
+                .onChanged { _ in
+                    isTodoScrollInProgress = true
+                }
+                .onEnded { _ in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        isTodoScrollInProgress = false
+                    }
+                }
         )
     }
 
-    private var quickNoteInput: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            TextField("Type your note...", text: $quickNoteText, axis: .vertical)
-                .textFieldStyle(PlainTextFieldStyle())
-                .padding(8)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.1))
-                )
-                .focused($isQuickNoteFocused)
-                .lineLimit(3...5)
-
-            HStack(spacing: 8) {
-                Button("Cancel") {
-                    showingAddQuickNote = false
-                    editingQuickNote = nil
-                    quickNoteText = ""
-                }
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(.gray)
-                .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
-
-                Button(editingQuickNote != nil ? "Update" : "Save") {
-                    Task {
-                        do {
-                            if let editing = editingQuickNote {
-                                try await quickNoteManager.updateQuickNote(editing, content: quickNoteText)
-                            } else {
-                                try await quickNoteManager.createQuickNote(content: quickNoteText)
-                            }
-                            showingAddQuickNote = false
-                            editingQuickNote = nil
-                            quickNoteText = ""
-                        } catch {
-                            print("Error saving quick note: \(error)")
-                        }
-                    }
-                }
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(.blue)
-                .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
-                .disabled(quickNoteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-    }
-
-    private func quickNoteRow(_ note: QuickNote) -> some View {
-        HStack(spacing: 8) {
-            Text(note.content)
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-                .lineLimit(2)
-
-            Spacer()
-
-            Menu {
-                Button(action: {
-                    editingQuickNote = note
-                    quickNoteText = note.content
-                    showingAddQuickNote = false
-                    isQuickNoteFocused = true
-                }) {
-                    Label("Edit", systemImage: "pencil")
-                }
-
-                Button(role: .destructive, action: {
-                    Task {
-                        do {
-                            try await quickNoteManager.deleteQuickNote(note)
-                        } catch {
-                            print("Error deleting quick note: \(error)")
-                        }
-                    }
-                }) {
-                    Label("Delete", systemImage: "trash")
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(FontManager.geist(size: 14, weight: .regular))
-                    .foregroundColor(.gray)
-            }
-            .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
-        }
-        .padding(.vertical, 4)
-    }
-
-    // MARK: - Row Views
-
-    private func expenseRow(_ expense: RecurringExpense, instance: RecurringInstance) -> some View {
-        HStack(spacing: 8) {
-            Text(expense.title)
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-
-            Spacer()
-
-            Text(instance.formattedAmount)
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-        }
-    }
-
-    private func upcomingExpenseRow(_ expense: RecurringExpense, instance: RecurringInstance) -> some View {
-        HStack(spacing: 8) {
-            Text(expense.title)
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-
-            Spacer()
-
-            Text(formatUpcomingDate(instance.occurrenceDate))
-                .font(FontManager.geist(size: 11, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
-
-            Text(instance.formattedAmount)
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-        }
-    }
-
-    private func emailRow(_ email: Email) -> some View {
-        Button(action: {
-            onEmailSelected?(email)
-            HapticManager.shared.light()
-        }) {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(email.subject)
-                        .font(FontManager.geist(size: 12, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-                        .lineLimit(1)
-
-                    Text(email.sender.displayName)
-                        .font(FontManager.geist(size: 10, weight: .regular))
-                        .foregroundColor(.gray)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
-    }
-
-    private func birthdayRow(_ birthday: TaskItem) -> some View {
-        Button(action: {
-            onTaskSelected?(birthday)
-            HapticManager.shared.light()
-        }) {
-            HStack(spacing: 8) {
-                Text(birthday.title)
-                    .font(FontManager.geist(size: 12, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-                    .lineLimit(1)
-
-                Spacer()
-
-                if let targetDate = birthday.targetDate {
-                    Text(formatBirthdayDate(targetDate))
-                        .font(FontManager.geist(size: 10, weight: .regular))
-                        .foregroundColor(.gray)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
-    }
-
-    private func receiptRow(_ note: Note) -> some View {
-        Button(action: {
-            onNoteSelected?(note)
-            HapticManager.shared.light()
-        }) {
-            HStack(spacing: 8) {
-                Text(note.title)
-                    .font(FontManager.geist(size: 12, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-                    .lineLimit(1)
-
-                Spacer()
-
-                let amount = CurrencyParser.extractAmount(from: note.content ?? "")
-                if amount > 0 {
-                    Text(CurrencyParser.formatAmount(amount))
-                        .font(FontManager.geist(size: 12, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
-    }
-
-    private func noteReminderRow(_ note: Note) -> some View {
-        Button(action: {
-            onNoteSelected?(note)
-            HapticManager.shared.light()
-        }) {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
+    private var weatherExpandedContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let weather = weatherService.weatherData {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
-                        Text(note.title)
-                            .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
+                        Image(systemName: "mappin.and.ellipse")
+                            .font(FontManager.geist(size: 11, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.58))
+
+                        Text(weather.locationName.isEmpty ? locationService.locationName : weather.locationName)
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.82) : Color.black.opacity(0.82))
                             .lineLimit(1)
-                        
-                        if let reminderNote = note.reminderNote {
-                            Text("• \(reminderNote)")
-                                .font(FontManager.geist(size: 11, weight: .regular))
-                                .foregroundColor(.gray)
-                                .lineLimit(1)
-                        }
+
+                        Spacer(minLength: 8)
                     }
-                    
-                    if let reminderDate = note.reminderDate {
-                        Text(formatReminderDate(reminderDate))
-                            .font(FontManager.geist(size: 10, weight: .medium))
-                            .foregroundColor(note.isReminderDue ? .orange : .gray)
+
+                    HStack(spacing: 8) {
+                        weatherMetaChip(
+                            iconName: weather.iconName,
+                            text: weather.description.capitalized
+                        )
+
+                        weatherMetaChip(
+                            iconName: "thermometer.medium",
+                            text: "Feels \(weather.feelsLike)°"
+                        )
                     }
                 }
-                
+
+                weatherForecastSectionTitle("Next Hours")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(weather.hourlyForecasts.prefix(8).enumerated()), id: \.offset) { _, hour in
+                            hourlyForecastChip(hour)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .padding(.horizontal, -16)
+                .allowsParentScrolling()
+
+                weatherForecastSectionTitle("Next Days")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(weather.dailyForecasts.prefix(8).enumerated()), id: \.offset) { _, day in
+                            dailyForecastChip(day)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .padding(.horizontal, -16)
+                .allowsParentScrolling()
+            } else {
+                emptyState(weatherService.isLoading ? "Loading forecast..." : "Weather unavailable")
+            }
+        }
+    }
+
+    private func weatherForecastSectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(FontManager.geist(size: 12, weight: .semibold))
+            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.62))
+            .textCase(.uppercase)
+            .tracking(0.5)
+    }
+
+    private func weatherMetaChip(iconName: String, text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: iconName)
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.7))
+
+            Text(text)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.7))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+        )
+    }
+
+    private func hourlyForecastChip(_ hour: HourlyForecast) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: hour.iconName)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.72))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(hour.hour)
+                    .font(FontManager.geist(size: 11, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.58) : Color.black.opacity(0.58))
+                    .lineLimit(1)
+
+                Text("\(hour.temperature)°")
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+        )
+    }
+
+    private func dailyForecastChip(_ day: DailyForecast) -> some View {
+        HStack(spacing: 6) {
+            Text(day.day)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.58) : Color.black.opacity(0.58))
+
+            Image(systemName: day.iconName)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.72))
+
+            Text("\(day.temperature)°")
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+        )
+    }
+
+    private var quickNotesExpandedContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                TextField(editingQuickNote == nil ? "Add quick note..." : "Update quick note...", text: $quickNoteInput)
+                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .textInputAutocapitalization(.sentences)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        saveQuickNote()
+                    }
+
+                Button(action: {
+                    saveQuickNote()
+                }) {
+                    Text(editingQuickNote == nil ? "Add" : "Save")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .allowsParentScrolling()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+            )
+
+            if quickNoteManager.quickNotes.isEmpty {
+                emptyState("No quick notes yet")
+            } else {
+                ForEach(quickNoteManager.quickNotes.prefix(8), id: \.id) { note in
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            editingQuickNote = note
+                            quickNoteInput = note.content
+                            HapticManager.shared.selection()
+                        }) {
+                            Text(note.content)
+                                .font(FontManager.geist(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .allowsParentScrolling()
+
+                        Button(action: {
+                            deleteQuickNote(note)
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(FontManager.geist(size: 15, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.4))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .allowsParentScrolling()
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .onAppear {
+            loadQuickNotes()
+        }
+    }
+
+    private func todoRow(_ task: TaskItem, allowsDismiss: Bool, mode: TodoRowMode) -> some View {
+        let isCompleted = isTaskCompleted(task, mode: mode)
+
+        return HStack(spacing: 8) {
+            Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
+                .font(FontManager.geist(size: 15, weight: .medium))
+                .foregroundColor(
+                    isCompleted
+                    ? (colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.78))
+                    : (colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.4))
+                )
+                .contentShape(Rectangle())
+                .scrollSafeTapAction(minimumDragDistance: 3) {
+                    guard !isTodoScrollInProgress else { return }
+                    HapticManager.shared.selection()
+                    taskManager.toggleTaskCompletion(task, forDate: completionDate(for: task, mode: mode))
+                }
+                .allowsParentScrolling()
+
+            HStack(spacing: 8) {
+                Text(timeLabel(for: task, mode: mode))
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.6))
+                    .frame(width: 88, alignment: .leading)
+
+                Text(task.title)
+                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .foregroundColor(
+                        isCompleted
+                        ? (colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.55))
+                        : (colorScheme == .dark ? .white : .black)
+                    )
+                    .strikethrough(isCompleted, color: colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.4))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
                 Spacer()
-                
-                Image(systemName: "bell.fill")
-                    .font(FontManager.geist(size: 10, weight: .medium))
-                    .foregroundColor(note.isReminderDue ? .orange : .gray)
             }
             .contentShape(Rectangle())
-        }
-        .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
-    }
-    
-    // MARK: - Helper Methods
+            .scrollSafeTapAction(minimumDragDistance: 3) {
+                guard !isTodoScrollInProgress else { return }
+                onTaskSelected?(task)
+                HapticManager.shared.cardTap()
+            }
+            .allowsParentScrolling()
 
-    private func loadData() {
+            if allowsDismiss {
+                Image(systemName: "xmark.circle.fill")
+                    .font(FontManager.geist(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.4))
+                    .contentShape(Rectangle())
+                    .scrollSafeTapAction(minimumDragDistance: 3) {
+                        guard !isTodoScrollInProgress else { return }
+                        HapticManager.shared.selection()
+                        dismissMissedTodo(task.id)
+                    }
+                    .allowsParentScrolling()
+            }
+        }
+        .padding(.vertical, 2)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 2)
+                .onChanged { _ in
+                    isTodoScrollInProgress = true
+                }
+                .onEnded { _ in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        isTodoScrollInProgress = false
+                    }
+                }
+        )
+    }
+
+    private func sectionHeader(_ title: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.62))
+                .textCase(.uppercase)
+                .tracking(0.5)
+
+            Text("\(count)")
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.58))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                )
+        }
+    }
+
+    private func allTodoGroupHeader(title: String, iconName: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: iconName)
+                .font(FontManager.geist(size: 10, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.62))
+
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.68) : Color.black.opacity(0.66))
+        }
+        .padding(.top, 2)
+    }
+
+    private func emptyState(_ text: String) -> some View {
+        Text(text)
+            .font(FontManager.geist(size: 13, weight: .regular))
+            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.55))
+            .padding(.vertical, 2)
+    }
+
+    private func refreshCardData() {
+        let allTasks = taskManager.getAllFlattenedTasks()
+        let tasksForToday = taskManager.getTasksForDate(dayStart)
+        cachedTasks = allTasks
+        cachedTodayTasks = tasksForToday
+    }
+
+    private func toggleSection(_ section: ExpandedSection) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if expandedSection == section {
+                expandedSection = nil
+                isExpanded = false
+            } else {
+                expandedSection = section
+                isExpanded = true
+            }
+        }
+    }
+
+    private func loadQuickNotes() {
         Task {
             do {
-                let recurringExpenses = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
-                let calendar = Calendar.current
-                let now = Date()
-                var items: [(expense: RecurringExpense, instance: RecurringInstance)] = []
-
-                // Fetch instances within the next 7 days (to cover "tomorrow" and birthdays this week)
-                let sevenDaysFromNow = calendar.date(byAdding: .day, value: 7, to: now)!
-
-                for expense in recurringExpenses {
-                    let instances = try await RecurringExpenseService.shared.fetchInstances(for: expense.id)
-
-                    for instance in instances {
-                        let instanceDay = calendar.startOfDay(for: instance.occurrenceDate)
-
-                        // Only include instances within the next 7 days
-                        if instanceDay >= calendar.startOfDay(for: now) && instanceDay < sevenDaysFromNow {
-                            items.append((expense: expense, instance: instance))
-                        }
-                    }
-                }
-
-                await MainActor.run {
-                    expensesAndInstances = items
-                }
+                try await quickNoteManager.fetchQuickNotes()
             } catch {
-                print("Error loading recurring expenses: \(error)")
+                print("❌ QuickNotes fetch failed: \(error)")
             }
         }
     }
 
-    private func formatBirthdayDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE, MMM d"
-        return formatter.string(from: date)
-    }
+    private func saveQuickNote() {
+        let trimmed = quickNoteInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
 
-    private func formatUpcomingDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE, MMM d"
-        return formatter.string(from: date)
-    }
-    
-    private func formatReminderDate(_ date: Date) -> String {
-        let calendar = Calendar.current
-        let now = Date()
-        
-        if calendar.isDate(date, inSameDayAs: now) {
-            let formatter = DateFormatter()
-            formatter.timeStyle = .short
-            return "Today \(formatter.string(from: date))"
-        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
-                  calendar.isDate(date, inSameDayAs: tomorrow) {
-            let formatter = DateFormatter()
-            formatter.timeStyle = .short
-            return "Tomorrow \(formatter.string(from: date))"
-        } else {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "MMM d, h:mm a"
-            return formatter.string(from: date)
+        let noteToEdit = editingQuickNote
+        quickNoteInput = ""
+        editingQuickNote = nil
+
+        Task {
+            do {
+                if let noteToEdit {
+                    try await quickNoteManager.updateQuickNote(noteToEdit, content: trimmed)
+                } else {
+                    try await quickNoteManager.createQuickNote(content: trimmed)
+                }
+                HapticManager.shared.success()
+            } catch {
+                print("❌ QuickNotes save failed: \(error)")
+            }
         }
     }
 
-}
+    private func deleteQuickNote(_ note: QuickNote) {
+        Task {
+            do {
+                try await quickNoteManager.deleteQuickNote(note)
+                if editingQuickNote?.id == note.id {
+                    editingQuickNote = nil
+                    quickNoteInput = ""
+                }
+                HapticManager.shared.selection()
+            } catch {
+                print("❌ QuickNotes delete failed: \(error)")
+            }
+        }
+    }
 
-// MARK: - Preview
+    private func dismissMissedTodo(_ taskId: String) {
+        var ids = dismissedMissedTodoIds
+        ids.insert(taskId)
+        dismissedMissedTodoIdsString = ids.joined(separator: ",")
+    }
+
+    private func refreshWeatherIfNeeded(location: CLLocation) {
+        if let lastFetch = lastWeatherFetch,
+           Date().timeIntervalSince(lastFetch) < 1800 {
+            return
+        }
+
+        Task {
+            await weatherService.fetchWeather(for: location)
+            lastWeatherFetch = Date()
+        }
+    }
+
+    private func dueDate(for task: TaskItem) -> Date {
+        guard let targetDate = task.targetDate else { return task.createdAt }
+
+        guard let scheduledTime = task.scheduledTime else {
+            return Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: targetDate) ?? targetDate
+        }
+
+        let components = Calendar.current.dateComponents([.hour, .minute, .second], from: scheduledTime)
+        return Calendar.current.date(
+            bySettingHour: components.hour ?? 12,
+            minute: components.minute ?? 0,
+            second: components.second ?? 0,
+            of: targetDate
+        ) ?? targetDate
+    }
+
+    private func todayOccurrenceDate(for task: TaskItem) -> Date {
+        guard let scheduledTime = task.scheduledTime else {
+            return Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: dayStart) ?? dayStart
+        }
+
+        let components = Calendar.current.dateComponents([.hour, .minute, .second], from: scheduledTime)
+        return Calendar.current.date(
+            bySettingHour: components.hour ?? 12,
+            minute: components.minute ?? 0,
+            second: components.second ?? 0,
+            of: dayStart
+        ) ?? dayStart
+    }
+
+    private func timeLabel(for task: TaskItem, mode: TodoRowMode) -> String {
+        switch mode {
+        case .today:
+            if task.scheduledTime == nil { return "Today" }
+            let formatter = DateFormatter()
+            formatter.timeStyle = .short
+            return formatter.string(from: todayOccurrenceDate(for: task))
+        case .missed:
+            let due = dueDate(for: task)
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEE, MMM d"
+            return formatter.string(from: due)
+        }
+    }
+
+    private func completionDate(for task: TaskItem, mode: TodoRowMode) -> Date {
+        switch mode {
+        case .today:
+            return task.isRecurring ? dayStart : (task.targetDate ?? dayStart)
+        case .missed:
+            return task.targetDate ?? dueDate(for: task)
+        }
+    }
+
+    private func isTaskCompleted(_ task: TaskItem, mode: TodoRowMode) -> Bool {
+        task.isCompletedOn(date: completionDate(for: task, mode: mode))
+    }
+
+    private func isRecurringExpenseTask(_ task: TaskItem) -> Bool {
+        if task.id.hasPrefix("recurring_") {
+            return true
+        }
+
+        if let tagId = task.tagId,
+           let tag = tagManager.getTag(by: tagId),
+           tag.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "recurring" {
+            return true
+        }
+
+        if let description = task.description?.lowercased(),
+           description.contains("amount:") && description.contains("category:") {
+            return true
+        }
+
+        return false
+    }
+
+    private func allTodoCategoryTitle(for task: TaskItem) -> String {
+        let trimmedTagId = task.tagId?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let tagId = trimmedTagId, !tagId.isEmpty {
+            if let tagName = tagManager.getTag(by: tagId)?.name.trimmingCharacters(in: .whitespacesAndNewlines),
+               !tagName.isEmpty {
+                return tagName
+            }
+
+            if tagId == "cal_sync" {
+                if let calendarTitle = task.calendarTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !calendarTitle.isEmpty {
+                    return calendarTitle
+                }
+                return "Sync"
+            }
+
+            return "Uncategorized"
+        }
+
+        if task.isFromCalendar || task.calendarEventId != nil || task.id.hasPrefix("cal_") {
+            if let calendarTitle = task.calendarTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !calendarTitle.isEmpty {
+                return calendarTitle
+            }
+
+            if let sourceTitle = task.calendarSourceType?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !sourceTitle.isEmpty {
+                return sourceTitle
+            }
+
+            return "Sync"
+        }
+
+        return "Personal"
+    }
+
+    private func allTodoCategoryIconName(for title: String) -> String {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if normalized.contains("work") {
+            return "briefcase"
+        }
+        if normalized.contains("personal") {
+            return "person"
+        }
+        if normalized.contains("recurring") {
+            return "arrow.triangle.2.circlepath"
+        }
+        if normalized.contains("calendar") || normalized.contains("sync") {
+            return "calendar"
+        }
+        if normalized.contains("expense") || normalized.contains("bill") || normalized.contains("payment") {
+            return "creditcard"
+        }
+        return "tag"
+    }
+}
 
 struct DailyOverviewWidget_Previews: PreviewProvider {
     static var previews: some View {
         VStack {
-            DailyOverviewWidget(isExpanded: .constant(false))
+            DailyOverviewWidget(isExpanded: .constant(true))
                 .padding()
             Spacer()
         }

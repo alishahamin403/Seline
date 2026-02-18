@@ -1,21 +1,12 @@
 import SwiftUI
 import UIKit
 
-// Voice mode state machine for clean coordination
-enum VoiceModeState {
-    case idle       // Not actively in voice mode
-    case listening  // Actively listening for speech
-    case processing // LLM is thinking/generating response
-    case speaking   // TTS is playing response
-}
-
 struct ConversationSearchView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
     @StateObject private var searchService = SearchService.shared
     @StateObject private var authManager = AuthenticationManager.shared
     @StateObject private var deepSeekService = GeminiService.shared
-    @StateObject private var vectorSearchService = VectorSearchService.shared
     @State private var messageText = ""
     @FocusState private var isInputFocused: Bool
     @State private var scrollToBottom: UUID?
@@ -28,37 +19,24 @@ struct ConversationSearchView: View {
     @State private var showingSettings = false
     @State private var showingTokenDetails = false
     @State private var showingHistorySheet = false
+    @State private var showingHistorySidebar = false
     @StateObject private var speechService = SpeechRecognitionService.shared
     @StateObject private var ttsService = TextToSpeechService.shared
     @StateObject private var emailService = EmailService.shared
     @State private var selectedEmail: Email? = nil
+    @State private var selectedNote: Note? = nil
+    @State private var selectedTask: TaskItem? = nil
+    @State private var selectedLocation: SavedPlace? = nil
     @State private var isProcessingResponse = false // Track if LLM is responding
-    @State private var isVoiceMode = false // Track if we're in voice/speak mode
-    @State private var voiceModeState: VoiceModeState = .idle // State machine for voice mode
-    @State private var voiceModeListeningPulse = false // Animation state for listening indicator
     @State private var lastMeaningfulTranscript = ""
-
-    private let voiceDraftScrollId = "voiceDraftScrollId"
-
+    @State private var streamingElapsedTimer: Timer?
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                // Embedding sync indicator - show when indexing
-                if vectorSearchService.isIndexing {
-                    embeddingSyncIndicator
-                }
-                
-                // Removed streaming indicator bar - user doesn't want it
                 headerView
                 conversationScrollView
-                // Show different input area based on mode
-                // Voice mode stays until user manually switches back to chat
-                if isVoiceMode {
-                    voiceModeInputView
-                } else {
-                    inputAreaView
-                }
+                inputAreaView
             }
         }
         .background(colorScheme == .dark ? Color.black : Color.white)
@@ -86,7 +64,7 @@ struct ConversationSearchView: View {
             }
 
             // Set up timer to update elapsed time while streaming
-            Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            streamingElapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                 if isStreamingResponse {
                     elapsedTimeUpdateTrigger = UUID()
                 }
@@ -97,36 +75,18 @@ struct ConversationSearchView: View {
                 messageText = text
             }
 
-            // Set up auto-send callback for silence detection
-            speechService.onAutoSend = {
-                // Only auto-send if not already processing and we have text
-                let trimmed = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !isProcessingResponse && !ttsService.isSpeaking && !trimmed.isEmpty {
-                    print("🎙️ Auto-send callback triggered with text: '\(trimmed.prefix(50))...'")
-                    sendMessage()
-                } else {
-                    print("🎙️ Auto-send skipped - isProcessing: \(isProcessingResponse), isSpeaking: \(ttsService.isSpeaking), isEmpty: \(trimmed.isEmpty)")
-                }
-            }
+            // Auto-send on silence disabled (speak mode removed); user sends with button
+            speechService.onAutoSend = { }
         }
         .onDisappear {
-            // Generate final title and save conversation before clearing
+            streamingElapsedTimer?.invalidate()
+            streamingElapsedTimer = nil
+            // Persist current chat: save title and to Supabase. Do not clear conversation
+            // so the same chat stays open when user switches tabs or reopens the app.
             Task {
                 await searchService.generateFinalConversationTitle()
-
-                // Save conversation to Supabase
                 await searchService.saveConversationToSupabase()
-
-                // Clear conversation state (which handles saving to local history)
                 DispatchQueue.main.async {
-                    searchService.isInConversationMode = false
-                    searchService.clearConversation()
-
-                    // Reset voice mode
-                    isVoiceMode = false
-
-                    // Stop any ongoing speech
-                    ttsService.stopSpeaking()
                     speechService.stopRecording()
                 }
             }
@@ -137,18 +97,15 @@ struct ConversationSearchView: View {
                 await showProactiveQuestionIfNeeded()
             }
         }
-        .onChange(of: ttsService.isSpeaking) { speaking in
-            // Stop recording when TTS starts to prevent echo
-            if speaking && speechService.isRecording {
-                speechService.stopRecording()
-            }
-        }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingTokenDetails) {
             TokenUsageDetailsSheet()
                 .presentationDetents([.height(300)])
+                .presentationDragIndicator(.visible)
                 .presentationBg()
         }
         .sheet(isPresented: $showingHistorySheet) {
@@ -162,13 +119,43 @@ struct ConversationSearchView: View {
                 }
             )
             .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
             .presentationBg()
         }
+        .overlay(historySidebarOverlay)
         .fullScreenCover(item: $selectedEmail) { email in
             NavigationView {
                 EmailDetailView(email: email)
             }
             .presentationBg()
+        }
+        .sheet(item: $selectedNote) { note in
+            NoteEditView(note: note, isPresented: Binding<Bool>(
+                get: { selectedNote != nil },
+                set: { if !$0 { selectedNote = nil } }
+            ))
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBg()
+        }
+        .sheet(item: $selectedTask) { task in
+            NavigationStack {
+                ViewEventView(
+                    task: task,
+                    onEdit: { selectedTask = nil },
+                    onDelete: { _ in selectedTask = nil },
+                    onDeleteRecurringSeries: { _ in selectedTask = nil }
+                )
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBg()
+        }
+        .sheet(item: $selectedLocation) { place in
+            PlaceDetailSheet(place: place, onDismiss: { selectedLocation = nil }, isFromRanking: false)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBg()
         }
     }
 
@@ -483,9 +470,14 @@ struct ConversationSearchView: View {
                     isStreamingResponse = false
                     searchService.stopCurrentRequest()
                 }) {
-                    Image(systemName: "stop.circle.fill")
-                        .font(FontManager.geist(size: 18, weight: .semibold))
-                        .foregroundColor(.red)
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.96))
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.black.opacity(0.9))
+                            .frame(width: 10, height: 10)
+                    }
+                    .frame(width: 28, height: 28)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
@@ -503,8 +495,32 @@ struct ConversationSearchView: View {
 
     private var headerView: some View {
         ZStack {
-            // Left side: Token usage pill
+            // Left side: Hamburger (history sidebar)
             HStack {
+                Button(action: {
+                    HapticManager.shared.selection()
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showingHistorySidebar = true
+                    }
+                }) {
+                    Image(systemName: "line.3.horizontal")
+                        .font(FontManager.geist(size: 18, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.8) : Color.claudeTextLight.opacity(0.7))
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Spacer()
+            }
+            
+            // Center: Title
+            Text("Chat")
+                .font(FontManager.geist(size: 16, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+            
+            // Right side: Utilized pill
+            HStack(spacing: 8) {
+                Spacer()
+                
                 Button(action: {
                     HapticManager.shared.selection()
                     showingTokenDetails = true
@@ -520,46 +536,6 @@ struct ConversationSearchView: View {
                         )
                 }
                 .buttonStyle(PlainButtonStyle())
-                
-                Spacer()
-            }
-            
-            // Center: Title "Chat" or "Speak"
-            Text(isVoiceMode ? "Speak" : "Chat")
-                .font(FontManager.geist(size: 16, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
-            
-            // Right side: History button + Mode switch
-            HStack(spacing: 8) {
-                Spacer()
-                
-                // History button
-                Button(action: {
-                    HapticManager.shared.selection()
-                    showingHistorySheet = true
-                }) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.8) : Color.claudeTextLight.opacity(0.7))
-                }
-                .buttonStyle(PlainButtonStyle())
-                
-                // Mode toggle - text only, no icons
-                Button(action: {
-                    HapticManager.shared.selection()
-                    toggleMode()
-                }) {
-                    Text(isVoiceMode ? "Chat" : "Speak")
-                        .font(FontManager.geist(size: 13, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(.horizontal, 16)
@@ -569,90 +545,26 @@ struct ConversationSearchView: View {
         )
     }
     
-    private func toggleMode() {
-        Task {
-            if isVoiceMode {
-                await exitVoiceMode()
-            } else {
-                await enterVoiceMode()
-            }
-        }
-    }
-
-    private func enterVoiceMode() async {
-        // Stop TTS if speaking
-        if ttsService.isSpeaking {
-            ttsService.stopSpeaking()
-            isProcessingResponse = false
-        }
-
-        // Save conversation history in background (don't block mode switch)
-        let historyToSave = searchService.conversationHistory
-        if !historyToSave.isEmpty {
-            Task.detached(priority: .background) {
-                await SearchService.shared.generateFinalConversationTitle()
-                await MainActor.run {
-                    SearchService.shared.saveConversationToHistory()
+    private var historySidebarOverlay: some View {
+        InteractiveSidebarOverlay(
+            isPresented: $showingHistorySidebar,
+            canOpen: true,
+            sidebarWidth: min(300, UIScreen.main.bounds.width * 0.82),
+            colorScheme: colorScheme
+        ) {
+            ConversationHistorySheet(
+                onSelectConversation: { conversation in
+                    searchService.loadConversation(withId: conversation.id)
+                    showingHistorySidebar = false
+                },
+                onDeleteConversation: { conversation in
+                    searchService.deleteConversation(withId: conversation.id)
+                },
+                onDismiss: {
+                    showingHistorySidebar = false
                 }
-            }
+            )
         }
-
-        // Clear for voice mode immediately (don't wait for save)
-        searchService.conversationHistory = []
-        messageText = ""
-        isProcessingResponse = false
-        isStreamingResponse = false
-
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            isVoiceMode = true
-        }
-
-        // Haptic feedback
-        HapticManager.shared.light()
-        
-        // Auto-start listening when entering voice mode
-        Task {
-            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s delay for animation
-            if isVoiceMode && !speechService.isRecording && !isProcessingResponse && !ttsService.isSpeaking {
-                print("🎙️ Auto-starting recording on voice mode entry")
-                speechService.clearTranscription()
-                try? await speechService.startRecording()
-            }
-        }
-    }
-
-    private func exitVoiceMode() async {
-        // Stop recording
-        speechService.stopRecording()
-
-        if ttsService.isSpeaking {
-            ttsService.stopSpeaking()
-        }
-
-        // Save speak mode conversation to history in background (don't block mode switch)
-        let historyToSave = searchService.conversationHistory
-        if !historyToSave.isEmpty {
-            Task.detached(priority: .background) {
-                await SearchService.shared.generateFinalConversationTitle()
-                await MainActor.run {
-                    SearchService.shared.saveConversationToHistory()
-                }
-            }
-        }
-
-        // Clear for fresh chat mode immediately (don't wait for save)
-        searchService.conversationHistory = []
-        messageText = ""
-        speechService.clearTranscription()
-        isProcessingResponse = false
-        isStreamingResponse = false
-
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            isVoiceMode = false
-        }
-
-        // Return to idle
-        try? await AudioSessionCoordinator.shared.requestMode(.idle)
     }
 
     private var conversationScrollView: some View {
@@ -665,7 +577,7 @@ struct ConversationSearchView: View {
                             .frame(minHeight: UIScreen.main.bounds.height * 0.6)
                             .padding(.top, 60)
                     } else {
-                        VStack(alignment: isVoiceMode ? .center : .leading, spacing: 20) {
+                        LazyVStack(alignment: .leading, spacing: 20) {
                             ForEach(searchService.conversationHistory) { message in
                                 ConversationMessageView(
                                     message: message,
@@ -675,29 +587,16 @@ struct ConversationSearchView: View {
                                     onRegenerate: { messageId in
                                         await searchService.regenerateResponse(for: messageId)
                                     },
-                                    isVoiceMode: isVoiceMode,
-                                    selectedEmail: $selectedEmail
+                                    selectedEmail: $selectedEmail,
+                                    selectedNote: $selectedNote,
+                                    selectedTask: $selectedTask,
+                                    selectedLocation: $selectedLocation
                                 )
                                     .id(message.id)
                                     .transition(.asymmetric(
                                         insertion: .opacity.combined(with: .move(edge: .bottom)),
                                         removal: .opacity
                                     ))
-                            }
-                            
-                            // Voice mode: show live transcript as an "in-progress" user message in the main body
-                            // (not above the microphone). Only show while actively recording.
-                            if isVoiceMode && speechService.isRecording && !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(messageText)
-                                    .font(FontManager.geist(size: 14, weight: .regular))
-                                    .italic()
-                                    .foregroundColor(Color.gray.opacity(0.7))
-                                    .multilineTextAlignment(.center)
-                                    .lineLimit(nil)
-                                    .padding(.horizontal, 24)
-                                    .padding(.vertical, 8)
-                                    .id(voiceDraftScrollId)
-                                    .transition(.opacity)
                             }
 
                             // Modern loading indicator
@@ -706,7 +605,8 @@ struct ConversationSearchView: View {
                                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                             }
                         }
-                        .padding(.vertical, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 100)
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
@@ -746,52 +646,34 @@ struct ConversationSearchView: View {
                         }
                     }
                 }
-                // Auto-scroll while user is speaking (live transcript grows word-by-word)
-                .onChange(of: messageText) { _ in
-                    guard isVoiceMode else { return }
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        proxy.scrollTo(voiceDraftScrollId, anchor: .bottom)
+                .onAppear {
+                    // Scroll to bottom when user returns to LLM chat from another tab
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if let lastMessage = searchService.conversationHistory.last {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: searchService.lastMessageContentVersion) { _ in
+                    // Re-scroll when last message gains event card, follow-ups, or sources so they stay visible
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        if let lastMessage = searchService.conversationHistory.last {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                            }
+                        }
                     }
                 }
             }
         }
     }
     
-    // MARK: - Embedding Sync Indicator
-    private var embeddingSyncIndicator: some View {
-        VStack(spacing: 4) {
-            ProgressView(value: vectorSearchService.embeddingProgress)
-                .progressViewStyle(LinearProgressViewStyle(tint: .blue))
-                .padding(.horizontal, 16)
-            
-            HStack {
-                Image(systemName: "brain")
-                    .font(.system(size: 12))
-                    .foregroundColor(.blue)
-                
-                Text(vectorSearchService.embeddingStatus)
-                    .font(FontManager.geist(size: 12, weight: .medium))
-                    .foregroundColor(.secondary)
-                
-                Spacer()
-                
-                Text("\(Int(vectorSearchService.embeddingProgress * 100))%")
-                    .font(FontManager.geist(size: 11, weight: .regular))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 16)
-        }
-        .padding(.vertical, 8)
-        .background(Color.blue.opacity(0.1))
-    }
-
     private var inputAreaView: some View {
         VStack(spacing: 0) {
             // Follow-up question suggestions (based on conversation context)
             if !searchService.conversationHistory.isEmpty && messageText.isEmpty {
                 followUpQuestionBar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .padding(.horizontal, 12)
                     .padding(.bottom, 8)
             }
 
@@ -813,40 +695,39 @@ struct ConversationSearchView: View {
     
     private var followUpQuestionBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 ForEach(generateFollowUpQuestions(), id: \.self) { question in
                     Button(action: {
                         HapticManager.shared.light()
                         messageText = question
                         sendMessage()
                     }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "bubble.left")
-                                .font(FontManager.geist(size: 10, weight: .medium))
-                            Text(question)
-                                .font(FontManager.geist(size: 13, weight: .medium))
-                                .lineLimit(1)
-                        }
-                        .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
-                                .overlay(
-                                    Capsule()
-                                        .stroke(
-                                            colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1),
-                                            lineWidth: 1
-                                        )
-                                )
-                        )
+                        Text(question)
+                            .font(FontManager.geist(size: 13, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(
+                                                colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1),
+                                                lineWidth: 1
+                                            )
+                                    )
+                            )
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var smartSuggestionsBar: some View {
@@ -886,8 +767,9 @@ struct ConversationSearchView: View {
     }
 
     private var inputBoxContainer: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             inputTextEditor
+            chatMicButton
             sendButton
         }
         .padding(.horizontal, 16)
@@ -909,134 +791,13 @@ struct ConversationSearchView: View {
         .padding(.vertical, 8)
     }
     
-    // MARK: - Voice Mode Input View
-    
-    /// Compute voice mode state from actual service states
-    private var computedVoiceModeState: VoiceModeState {
-        if ttsService.isSpeaking {
-            return .speaking
-        } else if isProcessingResponse || searchService.isLoadingQuestionResponse || isStreamingResponse {
-            return .processing
-        } else if speechService.isRecording {
-            return .listening
-        } else {
-            return .idle
-        }
-    }
-
-    private var voiceModeInputView: some View {
-        let isDark = colorScheme == .dark
-
-        let selectedTextColor: Color = isDark ? .black : .white
-        let unselectedTextColor: Color = isDark ? .white.opacity(0.6) : .black.opacity(0.6)
-        let selectedBgColor: Color = isDark ? .white : .black
-        let toggleBgColor: Color = isDark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)
-
-        return VStack(spacing: 16) {
-            // Centered VoiceOrbView
-            VoiceOrbView(
-                state: computedVoiceModeState,
-                audioLevel: speechService.audioLevel,
-                onTap: {
-                    // Ignore taps when processing or AI is speaking
-                    guard !isProcessingResponse && !ttsService.isSpeaking else {
-                        print("🎙️ Orb tap ignored - system is busy")
-                        return
-                    }
-
-                    HapticManager.shared.medium()
-
-                    // Only start recording if not already recording
-                    if !speechService.isRecording {
-                        Task {
-                            print("🎙️ Starting new recording session")
-                            speechService.clearTranscription()
-                            messageText = ""
-                            try? await speechService.startRecording()
-                        }
-                    }
-                }
-            )
-            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: computedVoiceModeState)
-        }
-        .padding(.vertical, 20)
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .onChange(of: speechService.transcribedText) { newText in
-            // Keep messageText in sync with transcription
-            if !newText.isEmpty && !isProcessingResponse {
-                messageText = newText
-                updateInputHeight()
-            }
-        }
-        .onDisappear {
-            voiceModeListeningPulse = false
-            voiceModeState = .idle
-        }
-        .onChange(of: isVoiceMode) { newValue in
-            if newValue {
-                voiceModeState = .listening
-            } else {
-                voiceModeState = .idle
-            }
-        }
-        .onChange(of: ttsService.isSpeaking) { isSpeaking in
-            if isSpeaking {
-                // Stop recording when TTS starts to prevent echo
-                if speechService.isRecording {
-                    print("🎙️ TTS started - stopping recording to prevent echo")
-                    speechService.stopRecording()
-                }
-            } else {
-                // TTS finished - reset processing state and auto-start listening in voice mode
-                if isVoiceMode {
-                    print("🎙️ TTS finished - auto-starting recording for next input")
-                    isProcessingResponse = false
-
-                    // Auto-start listening after TTS finishes
-                    Task {
-                        // Small delay to ensure audio session is ready
-                        try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s delay
-
-                        // Only start if still in voice mode and not already recording
-                        if isVoiceMode && !speechService.isRecording && !isProcessingResponse && !ttsService.isSpeaking {
-                            print("🎙️ Auto-resuming recording after TTS")
-                            speechService.clearTranscription()
-                            messageText = ""
-                            try? await speechService.startRecording()
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    private var voiceModeStatusText: String {
-        // Show clear states with distinct text
-        if speechService.isRecording {
-            if !messageText.isEmpty {
-                return "📝 Listening... (stop when done)"
-            } else {
-                return "👂 Start speaking..."
-            }
-        }
-        if isProcessingResponse || searchService.isLoadingQuestionResponse || isStreamingResponse {
-            return "🤔 Processing..."
-        }
-        if ttsService.isSpeaking {
-            return "💬 Seline is speaking..."
-        }
-        return "🎤 Ready - tap to speak"
-    }
-
     private var inputTextEditor: some View {
         ZStack(alignment: .leading) {
             // Claude-style placeholder - only show when not focused and text is empty
             if messageText.isEmpty && !isInputFocused {
                 HStack {
                     Text(searchService.conversationHistory.isEmpty ? "Chat with Seline" : "Reply to Seline")
-                        .font(FontManager.geist(size: 16, weight: .regular))
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.4) : Color.claudeTextLight.opacity(0.4))
                     Spacer()
                 }
@@ -1046,53 +807,32 @@ struct ConversationSearchView: View {
             AlignedTextEditor(
                 text: $messageText,
                 colorScheme: colorScheme,
-                // Ensure the editor has enough vertical space so text isn't clipped
-                height: max(inputHeight - 24, 36),
+                height: max(inputHeight - 20, 36),
                 onFocusChange: { focused in
                     isInputFocused = focused
-                    // Exit voice mode if user manually focuses text editor (without recording)
-                    if focused && !speechService.isRecording && isVoiceMode {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            isVoiceMode = false
-                        }
-                    }
                 },
                 onSend: {
                     sendMessage()
                 }
             )
-            .onChange(of: messageText) { newValue in
+            .onChange(of: messageText) { _ in
                 updateInputHeight()
-                // Exit voice mode if user manually types (not from voice transcription)
-                if !newValue.isEmpty && !speechService.isRecording && isVoiceMode && isInputFocused {
-                    // Check if this is manual typing by checking if it's different from transcribed text
-                    if newValue != speechService.transcribedText {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            isVoiceMode = false
-                        }
-                    }
-                }
             }
             .onChange(of: speechService.transcribedText) { newText in
+                if speechService.shouldIgnoreTranscriptionUpdates { return }
                 // If user starts speaking while TTS is active or LLM is generating, stop everything.
-                // Guard against accidental TTS interruption from tiny/noisy partials.
                 let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
                 let isMeaningful = trimmed.count >= 3 && trimmed.rangeOfCharacter(from: .letters) != nil
                 let isNewEnough = trimmed != lastMeaningfulTranscript
                 
                 if isMeaningful && isNewEnough && (ttsService.isSpeaking || searchService.isLoadingQuestionResponse || isStreamingResponse) {
-                    // Stop TTS
                     ttsService.stopSpeaking()
-                    // Stop LLM streaming response
                     searchService.stopCurrentRequest()
                     isStreamingResponse = false
                     isProcessingResponse = false
-                    
-                    // Provide haptic feedback that we heard the user
                     HapticManager.shared.light()
                 }
                 
-                // Update message text with transcription
                 if !trimmed.isEmpty {
                     messageText = newText
                     updateInputHeight()
@@ -1103,8 +843,8 @@ struct ConversationSearchView: View {
             }
             .onAppear {
                 updateInputHeight()
-                // Set up speech recognition callback
                 speechService.onTranscriptionUpdate = { text in
+                    if speechService.shouldIgnoreTranscriptionUpdates { return }
                     messageText = text
                     updateInputHeight()
                 }
@@ -1117,12 +857,12 @@ struct ConversationSearchView: View {
         let estimatedHeight = messageText.boundingRect(
             with: size,
             options: .usesLineFragmentOrigin,
-            attributes: [.font: UIFont.systemFont(ofSize: 16, weight: .regular)],
+            attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .regular)],
             context: nil
         ).height + 28
 
-        let maxHeight: CGFloat = 120  // ~3 lines
-        let minHeight: CGFloat = 44   // Compact default height
+        let maxHeight: CGFloat = 120
+        let minHeight: CGFloat = 44
         inputHeight = min(max(estimatedHeight, minHeight), maxHeight)
     }
 
@@ -1151,48 +891,24 @@ struct ConversationSearchView: View {
         HapticManager.shared.medium()
         let query = messageText
 
-        // Clear UI immediately
+        // Clear UI immediately so previous prompt doesn't stay in the box
         messageText = ""
         speechService.clearTranscription()
+        speechService.shouldIgnoreTranscriptionUpdates = true
         updateInputHeight()
         isInputFocused = false
 
         isProcessingResponse = true
 
-        // Update state machine for voice mode
-        if isVoiceMode {
-            voiceModeState = .processing
-        }
-
-        print("🎙️ Sending message: '\(query.prefix(50))...'")
-
         Task {
-            // Pass voice mode to the service
-            await searchService.addConversationMessage(query, isVoiceMode: isVoiceMode)
+            await searchService.addConversationMessage(query)
 
-            // Wait for response to finish streaming
             await waitForResponseToComplete()
 
-            print("🎙️ Response complete, TTS speaking: \(ttsService.isSpeaking)")
-
-            if isVoiceMode {
-                // Give TTS a moment to start (speech queue processes synchronously on main)
-                if !ttsService.isSpeaking {
-                    try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s grace period
-                }
-
-                // Update state to speaking if TTS is active
-                if ttsService.isSpeaking {
-                    voiceModeState = .speaking
-                } else {
-                    // TTS already finished or never started - go back to listening
-                    isProcessingResponse = false
-                    voiceModeState = .listening
-                    print("🎙️ Ready for next message")
-                }
-            } else {
-                isProcessingResponse = false
-            }
+            isProcessingResponse = false
+            // Re-enable transcription updates after a short delay so next voice input works
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            speechService.shouldIgnoreTranscriptionUpdates = false
         }
     }
     
@@ -1216,6 +932,43 @@ struct ConversationSearchView: View {
         }
     }
 
+    private var chatMicButton: some View {
+        Button(action: {
+            HapticManager.shared.selection()
+            if speechService.isRecording {
+                speechService.stopRecording()
+            } else {
+                Task {
+                    speechService.shouldIgnoreTranscriptionUpdates = false
+                    speechService.clearTranscription()
+                    messageText = ""
+                    try? await speechService.startRecording()
+                }
+            }
+        }) {
+            if speechService.isRecording {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.96))
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.black.opacity(0.9))
+                        .frame(width: 12, height: 12)
+                }
+            } else {
+                Image(systemName: "mic.fill")
+                    .font(FontManager.geist(size: 17, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.82) : Color.claudeTextLight.opacity(0.82))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                    )
+            }
+        }
+        .frame(width: 36, height: 36)
+        .buttonStyle(PlainButtonStyle())
+    }
+
     private var sendButton: some View {
         Button(action: {
             // If loading, stop the request; otherwise send the message
@@ -1229,28 +982,32 @@ struct ConversationSearchView: View {
         }) {
             // Claude-style: stop button when streaming, send arrow when ready
             if searchService.isLoadingQuestionResponse || isStreamingResponse {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
-                    .frame(width: 20, height: 20)
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.96))
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.black.opacity(0.9))
+                        .frame(width: 12, height: 12)
+                }
             } else {
-                Image(systemName: "arrow.up")
-                    .font(FontManager.geist(size: 16, weight: .semibold))
-                    .foregroundColor(
-                        messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty 
-                            ? (colorScheme == .dark ? Color.claudeTextDark.opacity(0.4) : Color.claudeTextLight.opacity(0.4))
-                            : (colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
-                    )
+                ZStack {
+                    Circle()
+                        .fill(
+                            messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                                : (colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.1))
+                        )
+                    Image(systemName: "arrow.up")
+                        .font(FontManager.geist(size: 16, weight: .semibold))
+                        .foregroundColor(
+                            messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? (colorScheme == .dark ? Color.claudeTextDark.opacity(0.5) : Color.claudeTextLight.opacity(0.5))
+                                : (colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+                        )
+                }
             }
         }
-        .frame(width: 30, height: 30)
-        .background(
-            Circle()
-                .fill(
-                    (searchService.isLoadingQuestionResponse || isStreamingResponse || !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        ? (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
-                        : Color.clear
-                )
-        )
+        .frame(width: 36, height: 36)
         .buttonStyle(PlainButtonStyle())
         .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !(searchService.isLoadingQuestionResponse || isStreamingResponse))
         .animation(.easeInOut(duration: 0.15), value: messageText)
@@ -1353,15 +1110,23 @@ struct ConversationMessageView: View {
     let message: ConversationMessage
     let onSendMessage: (String) async -> Void
     let onRegenerate: ((UUID) async -> Void)?
-    var isVoiceMode: Bool = false
     @Environment(\.colorScheme) var colorScheme
     @State private var showContextMenu = false
     @StateObject private var searchService = SearchService.shared
     @StateObject private var emailService = EmailService.shared
+    @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var taskManager = TaskManager.shared
+    @StateObject private var locationsManager = LocationsManager.shared
     @Binding var selectedEmail: Email?
+    @Binding var selectedNote: Note?
+    @Binding var selectedTask: TaskItem?
+    @Binding var selectedLocation: SavedPlace?
     @State private var showingEventCreationResult = false
     @State private var eventCreationMessage = ""
     @State private var eventCreationIsError = false
+    @State private var revealTokens: [String] = []
+    @State private var revealedWordCount: Int = 0
+    @State private var wordRevealTimer: Timer?
 
     // Determine if message has complex formatting
     private var hasComplexFormatting: Bool {
@@ -1407,15 +1172,64 @@ struct ConversationMessageView: View {
         return nil
     }
 
+    private var displayedMessageText: String {
+        message.text
+    }
+
+    private func tokenizeWordsPreservingWhitespace(_ text: String) -> [String] {
+        guard !text.isEmpty else { return [] }
+        let pattern = "\\S+\\s*"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return [text]
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = regex.matches(in: text, range: range)
+        let tokens = matches.compactMap { match -> String? in
+            guard let tokenRange = Range(match.range, in: text) else { return nil }
+            return String(text[tokenRange])
+        }
+        return tokens.isEmpty ? [text] : tokens
+    }
+
+    private func syncWordRevealState(initial: Bool = false) {
+        let tokens = tokenizeWordsPreservingWhitespace(message.text)
+        revealTokens = tokens
+        revealedWordCount = tokens.count
+        stopWordRevealTimer()
+    }
+
+    private func startWordRevealTimerIfNeeded() {
+        guard wordRevealTimer == nil else { return }
+        wordRevealTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            if revealedWordCount < revealTokens.count {
+                withAnimation(.easeInOut(duration: 0.1)) {
+                    revealedWordCount += 1
+                }
+            } else if !isStreaming {
+                stopWordRevealTimer()
+            }
+        }
+    }
+
+    private func stopWordRevealTimer() {
+        wordRevealTimer?.invalidate()
+        wordRevealTimer = nil
+    }
+
     var body: some View {
         VStack {
-            // In voice mode, center both input and output
-            if isVoiceMode {
+            HStack {
+                if message.isUser {
+                    Spacer()
+                }
+
                 messageContent
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, message.isUser ? 14 : 0)
+                    .padding(.vertical, message.isUser ? 12 : 4)
+                    .background(messageBackground)
+                    .overlay(messageBorder)
+                    .contentShape(Rectangle())
                     .contextMenu {
                         Button(action: {
                             UIPasteboard.general.string = message.text
@@ -1423,57 +1237,33 @@ struct ConversationMessageView: View {
                         }) {
                             Label("Copy", systemImage: "doc.on.doc")
                         }
-                    }
-            } else {
-                // Chat mode: original layout with bubbles
-                HStack {
-                    if message.isUser {
-                        Spacer()
-                    }
 
-                    messageContent
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, message.isUser ? 14 : 0)
-                        .padding(.vertical, message.isUser ? 12 : 4)
-                        .background(messageBackground)
-                        .overlay(messageBorder)
-                        .contentShape(Rectangle())
-                        .contextMenu {
+                        if !message.isUser, let regenerate = onRegenerate {
                             Button(action: {
-                                UIPasteboard.general.string = message.text
-                                HapticManager.shared.selection()
+                                HapticManager.shared.medium()
+                                Task {
+                                    await regenerate(message.id)
+                                }
                             }) {
-                                Label("Copy", systemImage: "doc.on.doc")
-                            }
-
-                            // Regenerate option for assistant messages
-                            if !message.isUser, let regenerate = onRegenerate {
-                                Button(action: {
-                                    HapticManager.shared.medium()
-                                    Task {
-                                        await regenerate(message.id)
-                                    }
-                                }) {
-                                    Label("Regenerate", systemImage: "arrow.clockwise")
-                                }
-                            }
-
-                            if message.isUser {
-                                Button(role: .destructive, action: {
-                                    HapticManager.shared.delete()
-                                }) {
-                                    Label("Delete", systemImage: "trash")
-                                }
+                                Label("Regenerate", systemImage: "arrow.clockwise")
                             }
                         }
 
-                    if !message.isUser {
-                        Spacer()
+                        if message.isUser {
+                            Button(role: .destructive, action: {
+                                HapticManager.shared.delete()
+                            }) {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
+
+                if !message.isUser {
+                    Spacer()
                 }
-                .padding(.leading, message.isUser ? 48 : 16)
-                .padding(.trailing, message.isUser ? 16 : 16)
             }
+            .padding(.leading, message.isUser ? 48 : 16)
+            .padding(.trailing, message.isUser ? 16 : 16)
         }
         .alert(isPresented: $showingEventCreationResult) {
             Alert(
@@ -1482,10 +1272,25 @@ struct ConversationMessageView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .onAppear {
+            syncWordRevealState(initial: true)
+        }
+        .onChange(of: message.text) { _ in
+            syncWordRevealState()
+        }
+        .onChange(of: isLastAssistantMessage) { _ in
+            syncWordRevealState()
+        }
+        .onChange(of: isStreaming) { _ in
+            syncWordRevealState()
+        }
+        .onDisappear {
+            stopWordRevealTimer()
+        }
     }
 
     private var messageContent: some View {
-        VStack(alignment: isVoiceMode ? .center : .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             messageText
             
             // ETA Map Card - shows when there's location data
@@ -1674,70 +1479,439 @@ struct ConversationMessageView: View {
         return nil
     }
 
-    private var messageText: some View {
-        VStack(alignment: isVoiceMode ? .center : .leading, spacing: 12) {
-            ForEach(parseMessageSegments(message.text), id: \.id) { segment in
-                switch segment.type {
-                case .text(let content):
-                    Group {
-                        if isVoiceMode {
-                            // Voice mode: centered text with different styling for user/assistant
-                            // Strip markdown formatting for clean voice display
-                            let cleanContent = stripMarkdown(content)
-                            if message.isUser {
-                                // User: italic, smaller, light gray
-                                Text(cleanContent)
-                                    .font(FontManager.geist(size: 13, weight: .regular))
-                                    .italic()
-                                    .foregroundColor(Color.gray.opacity(0.7))
-                                    .multilineTextAlignment(.center)
-                                    .lineLimit(nil)
-                            } else {
-                                // Assistant: white, centered
-                                Text(cleanContent)
-                                    .font(FontManager.geist(size: 13, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white : Color.black.opacity(0.8))
-                                    .multilineTextAlignment(.center)
-                                    .lineLimit(nil)
-                            }
-                        } else if hasComplexFormatting && !message.isUser {
-                            MarkdownText(markdown: content, colorScheme: colorScheme)
-                        } else if !message.isUser {
-                            SimpleTextWithPhoneLinks(text: content, colorScheme: colorScheme)
-                        } else {
-                            Text(content)
-                                .font(FontManager.geist(size: 14, weight: .regular))
-                                .foregroundColor(
-                                    message.isUser
-                                        ? (colorScheme == .dark ? Color.white.opacity(0.92) : Color.black.opacity(0.88))
-                                        : Color.shadcnForeground(colorScheme)
-                                )
-                                .lineLimit(nil)
+    @ViewBuilder
+    private var entityPillsRow: some View {
+        let contentPills: [RelevantContentInfo] = message.relevantContent ?? []
+        let eventPills: [EventCreationInfo] = message.eventCreationInfo ?? []
+        if contentPills.isEmpty && eventPills.isEmpty {
+            EmptyView()
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(contentPills) { item in
+                        sourcePill(
+                            sourceLabel: sourceLabelForContentType(item),
+                            title: displayTitle(for: item),
+                            icon: iconForContentType(item.contentType)
+                        ) {
+                            openRelevantContent(item)
                         }
                     }
-                    .mask(
-                        LinearGradient(
-                            gradient: Gradient(stops: [
-                                .init(color: .black, location: 0),
-                                .init(color: .black, location: isStreaming ? 0.85 : 1.0),
-                                .init(color: .black.opacity(isStreaming ? 0.4 : 1.0), location: isStreaming ? 0.95 : 1.0),
-                                .init(color: .clear, location: 1.0)
-                            ]),
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                case .widget(let type):
-                    renderWidget(type)
-                        .transition(.scale.combined(with: .opacity))
+                    ForEach(eventPills) { event in
+                        sourcePill(sourceLabel: "Calendar", title: event.title, icon: "calendar") {
+                            // Event creation items don't have a TaskItem yet
+                        }
+                    }
                 }
             }
-            
+            .padding(.top, 6)
+        }
+    }
+
+    private func sourceLabelForContentType(_ item: RelevantContentInfo) -> String {
+        switch item.contentType {
+        case .email: return "Email"
+        case .note:
+            let folder = (item.noteFolder ?? "").lowercased()
+            return folder.contains("receipt") ? "Receipt" : "Note"
+        case .event: return "Calendar"
+        case .location: return "Place"
+        }
+    }
+
+    private func displayTitle(for item: RelevantContentInfo) -> String {
+        switch item.contentType {
+        case .email: return item.emailSubject ?? "Email"
+        case .note: return item.noteTitle ?? "Note"
+        case .event: return item.eventTitle ?? "Event"
+        case .location: return item.locationName ?? "Place"
+        }
+    }
+
+    private func iconForContentType(_ type: RelevantContentInfo.ContentType) -> String {
+        switch type {
+        case .email: return "envelope"
+        case .note: return "note.text"
+        case .event: return "calendar"
+        case .location: return "mappin"
+        }
+    }
+
+    private func openRelevantContent(_ item: RelevantContentInfo) {
+        HapticManager.shared.cardTap()
+        switch item.contentType {
+        case .email:
+            if let id = item.emailId {
+                let all = emailService.inboxEmails + emailService.sentEmails
+                if let email = all.first(where: { $0.id == id }) {
+                    selectedEmail = email
+                }
+            }
+        case .note:
+            if let id = item.noteId,
+               let note = notesManager.notes.first(where: { $0.id == id }) {
+                selectedNote = note
+            }
+        case .event:
+            if let id = item.eventId {
+                let all = taskManager.getAllTasksIncludingArchived()
+                if let task = all.first(where: { $0.id == id.uuidString }) {
+                    selectedTask = task
+                }
+            }
+        case .location:
+            if let id = item.locationId,
+               let place = locationsManager.savedPlaces.first(where: { $0.id == id }) {
+                selectedLocation = place
+            }
+        }
+    }
+
+    /// Inline source pill (no icon): text-only, horizontal, where [[0]] appears in the message. Tappable to open the item.
+    private func inlineSourcePill(citationIndex index: Int) -> some View {
+        let content = message.relevantContent ?? []
+        guard index >= 0, index < content.count else { return AnyView(EmptyView()) }
+        let item = content[index]
+        let label = sourceLabelForContentType(item)
+        return AnyView(
+            Button(action: { openRelevantContent(item) }) {
+                Text(label)
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color(white: 0.25))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(colorScheme == .dark ? Color(white: 0.25) : Color(white: 0.86))
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+            .fixedSize(horizontal: true, vertical: true)
+        )
+    }
+
+    /// Text-only source pill for the row below message (no icon). Horizontal label only.
+    private func sourcePill(sourceLabel: String, title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(sourceLabel)
+                .font(FontManager.geist(size: 12, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color(white: 0.25))
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(colorScheme == .dark ? Color(white: 0.22) : Color(white: 0.88))
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .fixedSize(horizontal: true, vertical: true)
+    }
+
+    private func entityPill(title: String, icon: String, action: @escaping () -> Void) -> some View {
+        sourcePill(sourceLabel: title, title: "", icon: icon, action: action)
+    }
+
+    private var messageText: some View {
+        let segments = parseMessageSegments(displayedMessageText)
+        let hasWidgets = segments.contains {
+            if case .widget = $0.type { return true }
+            return false
+        }
+
+        return VStack(alignment: .leading, spacing: 12) {
+            if !message.isUser && !hasWidgets {
+                inlineCitationTextContent(segments: segments)
+            } else {
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                    segmentView(segment)
+                }
+            }
+
             if isStreaming {
                 StreamingCursor(colorScheme: colorScheme)
             }
         }
-        .animation(.easeOut(duration: 0.2), value: message.text)
+        .animation(.easeInOut(duration: 0.22), value: displayedMessageText)
+    }
+
+    @ViewBuilder
+    private func segmentView(_ segment: MessageSegment) -> some View {
+        switch segment.type {
+        case .text(let content):
+            Group {
+                if hasComplexFormatting && !message.isUser {
+                    MarkdownText(markdown: content, colorScheme: colorScheme)
+                } else if !message.isUser {
+                    SimpleTextWithPhoneLinks(text: content, colorScheme: colorScheme)
+                } else {
+                    Text(content)
+                        .font(FontManager.geist(size: 14, weight: .regular))
+                        .foregroundColor(
+                            message.isUser
+                                ? (colorScheme == .dark ? Color.white.opacity(0.92) : Color.black.opacity(0.88))
+                                : Color.shadcnForeground(colorScheme)
+                        )
+                        .lineLimit(nil)
+                }
+            }
+            .mask(
+                LinearGradient(
+                    gradient: Gradient(stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: isStreaming ? 0.92 : 1.0),
+                        .init(color: .black.opacity(isStreaming ? 0.7 : 1.0), location: isStreaming ? 0.98 : 1.0),
+                        .init(color: .clear, location: 1.0)
+                    ]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .animation(.easeOut(duration: 0.18), value: content.count)
+        case .citation(let index):
+            inlineSourcePill(citationIndex: index)
+        case .widget(let type):
+            renderWidget(type)
+                .transition(.scale.combined(with: .opacity))
+        }
+    }
+
+    private enum InlineRun {
+        case text(String)
+        case citation(Int)
+    }
+
+    @ViewBuilder
+    private func inlineCitationTextContent(segments: [MessageSegment]) -> some View {
+        let lines = buildInlineCitationLines(from: segments)
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { index, lineRuns in
+                if isInlineLineBlank(lineRuns) {
+                    Color.clear.frame(height: 10)
+                } else {
+                    let parsed = parseBulletLine(from: lineRuns)
+                    let heading = detectInlineHeading(from: parsed.runs)
+                    let showBullet = parsed.hasBullet && !heading.consumeBullet
+                    if hasRenderableInlineContent(parsed.runs) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if shouldShowSectionDivider(for: index, in: lines) {
+                                Rectangle()
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.10))
+                                    .frame(height: 0.5)
+                                    .padding(.bottom, 4)
+                            }
+
+                            HStack(alignment: .top, spacing: 6) {
+                                if showBullet {
+                                    Text(parsed.level == 0 ? "•" : "◦")
+                                        .font(FontManager.geist(size: 14, weight: parsed.level == 0 ? .bold : .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                        .padding(.top, 1)
+                                }
+
+                                WrappingInlineLayout(spacing: 0, rowSpacing: 6) {
+                                    ForEach(Array(parsed.runs.enumerated()), id: \.offset) { _, run in
+                                        switch run {
+                                        case .text(let token):
+                                            let cleaned = cleanInlineMarkdownToken(token)
+                                            if !cleaned.isEmpty {
+                                                Text(cleaned)
+                                                    .font(
+                                                        heading.level > 0
+                                                            ? FontManager.geist(size: heading.level == 1 ? 20 : 16, weight: heading.level == 1 ? .bold : .semibold)
+                                                            : FontManager.geist(size: 14, weight: .regular)
+                                                    )
+                                                    .foregroundColor(
+                                                        heading.level == 1
+                                                            ? (colorScheme == .dark ? .white : .black)
+                                                            : heading.level == 2
+                                                                ? (colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.9))
+                                                                : Color.shadcnForeground(colorScheme)
+                                                    )
+                                            }
+                                        case .citation(let index):
+                                            inlineSourcePill(citationIndex: index)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.leading, showBullet ? CGFloat(parsed.level) * 18 : 0)
+                            .padding(.top, heading.level == 1 ? 5 : heading.level == 2 ? 2 : 0)
+                            .padding(.bottom, heading.level > 0 ? 2 : 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func buildInlineCitationLines(from segments: [MessageSegment]) -> [[InlineRun]] {
+        var lines: [[InlineRun]] = [[]]
+
+        func appendTextTokenized(_ text: String) {
+            let splitLines = text.components(separatedBy: "\n")
+            for (lineIndex, part) in splitLines.enumerated() {
+                let leadingWhitespaceCount = part.prefix { $0 == " " || $0 == "\t" }.count
+                if leadingWhitespaceCount > 0 {
+                    lines[lines.count - 1].append(.text(String(repeating: " ", count: leadingWhitespaceCount)))
+                }
+                if !part.isEmpty {
+                    let tokens = tokenizeWordsPreservingWhitespace(part)
+                    for token in tokens where !token.isEmpty {
+                        lines[lines.count - 1].append(.text(token))
+                    }
+                }
+
+                if lineIndex < splitLines.count - 1 {
+                    lines.append([])
+                }
+            }
+        }
+
+        for segment in segments {
+            switch segment.type {
+            case .text(let content):
+                appendTextTokenized(content)
+            case .citation(let index):
+                lines[lines.count - 1].append(.citation(index))
+                lines[lines.count - 1].append(.text(" "))
+            case .widget:
+                break
+            }
+        }
+
+        return lines
+    }
+
+    private func parseBulletLine(from runs: [InlineRun]) -> (hasBullet: Bool, level: Int, runs: [InlineRun]) {
+        var mutableRuns = runs
+        var leadingSpaces = 0
+
+        if case .text(let token)? = mutableRuns.first, token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            leadingSpaces = token.count
+            mutableRuns.removeFirst()
+        }
+
+        let level = max(0, leadingSpaces / 2)
+
+        guard case .text(let firstToken)? = mutableRuns.first else {
+            return (false, level, mutableRuns)
+        }
+
+        let trimmed = firstToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("-") || trimmed.hasPrefix("*") || trimmed.hasPrefix("•") else {
+            return (false, level, mutableRuns)
+        }
+
+        var updated = firstToken
+        if let range = updated.range(of: #"^\s*[-*•]\s*"#, options: .regularExpression) {
+            updated.removeSubrange(range)
+        }
+        mutableRuns.removeFirst()
+        if !updated.isEmpty {
+            mutableRuns.insert(.text(updated), at: 0)
+        }
+
+        return (true, level, mutableRuns)
+    }
+
+    private func cleanInlineMarkdownToken(_ token: String) -> String {
+        var cleaned = token
+        cleaned = cleaned.replacingOccurrences(of: "^\\s*#{1,6}\\s*", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "\\*\\*", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "__", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "`", with: "")
+        cleaned = cleaned.replacingOccurrences(of: "\\[\\s*\\d+\\s*\\]", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "\\*+", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "\\s+([,.!?;:])", with: "$1", options: .regularExpression)
+        return cleaned
+    }
+
+    private struct InlineHeading {
+        let level: Int
+        let consumeBullet: Bool
+    }
+
+    private func detectInlineHeading(from runs: [InlineRun]) -> InlineHeading {
+        let text = runs.compactMap { run -> String? in
+            if case .text(let token) = run { return token }
+            return nil
+        }.joined()
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return InlineHeading(level: 0, consumeBullet: false) }
+        if trimmed.hasPrefix("# ") { return InlineHeading(level: 1, consumeBullet: false) }
+        if trimmed.hasPrefix("## ") { return InlineHeading(level: 2, consumeBullet: false) }
+        if trimmed.hasPrefix("### ") { return InlineHeading(level: 3, consumeBullet: false) }
+        if trimmed.hasPrefix("#### ") { return InlineHeading(level: 4, consumeBullet: false) }
+
+        let dayPattern = #"^(?:\*\*)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|yesterday|tomorrow|[A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?)(?:\*\*)?:\s*$"#
+        if trimmed.range(of: dayPattern, options: [.regularExpression, .caseInsensitive]) != nil {
+            return InlineHeading(level: 1, consumeBullet: true)
+        }
+
+        if trimmed.hasPrefix("**"), trimmed.hasSuffix("**") || trimmed.hasSuffix(":**") {
+            return InlineHeading(level: 2, consumeBullet: true)
+        }
+        if trimmed.hasPrefix("*"), trimmed.hasSuffix(":") {
+            return InlineHeading(level: 2, consumeBullet: true)
+        }
+        let plain = cleanInlineMarkdownToken(trimmed)
+        if plain.hasSuffix(":") {
+            let words = plain.dropLast().split(separator: " ")
+            if words.count <= 6 {
+                return InlineHeading(level: 2, consumeBullet: true)
+            }
+        }
+        return InlineHeading(level: 0, consumeBullet: false)
+    }
+
+    private func hasRenderableInlineContent(_ runs: [InlineRun]) -> Bool {
+        for run in runs {
+            switch run {
+            case .citation:
+                return true
+            case .text(let token):
+                let cleaned = cleanInlineMarkdownToken(token)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: ".,:;!-•◦"))
+                if !cleaned.isEmpty {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func isInlineLineBlank(_ runs: [InlineRun]) -> Bool {
+        var hasCitation = false
+        let text = runs.compactMap { run -> String? in
+            switch run {
+            case .citation:
+                hasCitation = true
+                return nil
+            case .text(let token):
+                return token
+            }
+        }.joined()
+        if hasCitation { return false }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func shouldShowSectionDivider(for index: Int, in lines: [[InlineRun]]) -> Bool {
+        guard index > 0 else { return false }
+
+        let currentParsed = parseBulletLine(from: lines[index])
+        let currentHeading = detectInlineHeading(from: currentParsed.runs)
+        guard currentHeading.level == 1 else { return false }
+
+        for previous in stride(from: index - 1, through: 0, by: -1) {
+            if isInlineLineBlank(lines[previous]) { continue }
+            let previousParsed = parseBulletLine(from: lines[previous])
+            if hasRenderableInlineContent(previousParsed.runs) {
+                return true
+            }
+        }
+        return false
     }
 
     @ViewBuilder
@@ -1777,51 +1951,98 @@ struct ConversationMessageView: View {
         enum SegmentType {
             case text(String)
             case widget(String)
+            case citation(Int)  // inline source pill index into message.relevantContent
         }
     }
 
     private func parseMessageSegments(_ text: String) -> [MessageSegment] {
-        // Find all widget tags
-        let pattern = "\\[WIDGET: (.*?)\\]"
-        let regex = try! NSRegularExpression(pattern: pattern)
-        let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
-        
+        // Normalize mixed citation formats like [[0]], [0], and [[0], [1]] into [0], [1].
+        let normalized = text.replacingOccurrences(of: "[[", with: "[").replacingOccurrences(of: "]]", with: "]")
+        let citationRegex = try! NSRegularExpression(pattern: "\\[\\s*(\\d+)\\s*\\]")
+        let citationMatches = citationRegex.matches(in: normalized, range: NSRange(normalized.startIndex..., in: normalized))
+
         var segments: [MessageSegment] = []
-        var lastIndex = text.startIndex
-        
-        for match in matches {
-            let range = match.range
-            guard let rangeInText = Range(range, in: text) else { continue }
-            
-            // Add preceding text
+        var lastIndex = normalized.startIndex
+
+        for match in citationMatches {
+            guard
+                let rangeInText = Range(match.range, in: normalized),
+                let numRange = Range(match.range(at: 1), in: normalized),
+                let index = Int(String(normalized[numRange]))
+            else { continue }
+
             if rangeInText.lowerBound > lastIndex {
-                let textContent = String(text[lastIndex..<rangeInText.lowerBound])
-                if !textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let textContent = String(normalized[lastIndex..<rangeInText.lowerBound])
+                if shouldRenderTextSegment(textContent) {
                     segments.append(.init(type: .text(textContent)))
                 }
             }
-            
-            // Add widget
-            if let typeRange = Range(match.range(at: 1), in: text) {
-                let type = String(text[typeRange])
-                segments.append(.init(type: .widget(type)))
-            } else {
-                // Fallback if capturing group fails (unlikely)
-                segments.append(.init(type: .widget("Unknown")))
-            }
-            
+            segments.append(.init(type: .citation(index)))
             lastIndex = rangeInText.upperBound
         }
-        
-        // Remaining text
-        if lastIndex < text.endIndex {
-             let textContent = String(text[lastIndex...])
-             if !textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                 segments.append(.init(type: .text(textContent)))
-             }
+
+        // Parse [WIDGET: ...] tags in the remaining text segments.
+        let widgetRegex = try! NSRegularExpression(pattern: "\\[WIDGET: (.*?)\\]")
+        if !citationMatches.isEmpty, lastIndex < normalized.endIndex {
+            let remainderStr = String(normalized[lastIndex...])
+            var segLast = remainderStr.startIndex
+            for match in widgetRegex.matches(in: remainderStr, range: NSRange(remainderStr.startIndex..., in: remainderStr)) {
+                guard let rangeInText = Range(match.range, in: remainderStr) else { continue }
+                if rangeInText.lowerBound > segLast {
+                    let textContent = String(remainderStr[segLast..<rangeInText.lowerBound])
+                    if shouldRenderTextSegment(textContent) {
+                        segments.append(.init(type: .text(textContent)))
+                    }
+                }
+                if let typeRange = Range(match.range(at: 1), in: remainderStr) {
+                    segments.append(.init(type: .widget(String(remainderStr[typeRange]))))
+                } else {
+                    segments.append(.init(type: .widget("Unknown")))
+                }
+                segLast = rangeInText.upperBound
+            }
+            if segLast < remainderStr.endIndex {
+                let textContent = String(remainderStr[segLast...])
+                if shouldRenderTextSegment(textContent) {
+                    segments.append(.init(type: .text(textContent)))
+                }
+            }
         }
-        
-        return segments.isEmpty ? [.init(type: .text(text))] : segments
+
+        if citationMatches.isEmpty {
+            segments = []
+            lastIndex = normalized.startIndex
+            for match in widgetRegex.matches(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)) {
+                guard let rangeInText = Range(match.range, in: normalized) else { continue }
+                if rangeInText.lowerBound > lastIndex {
+                    let textContent = String(normalized[lastIndex..<rangeInText.lowerBound])
+                    if shouldRenderTextSegment(textContent) {
+                        segments.append(.init(type: .text(textContent)))
+                    }
+                }
+                if let typeRange = Range(match.range(at: 1), in: normalized) {
+                    segments.append(.init(type: .widget(String(normalized[typeRange]))))
+                } else {
+                    segments.append(.init(type: .widget("Unknown")))
+                }
+                lastIndex = rangeInText.upperBound
+            }
+            if lastIndex < normalized.endIndex {
+                let textContent = String(normalized[lastIndex...])
+                if shouldRenderTextSegment(textContent) {
+                    segments.append(.init(type: .text(textContent)))
+                }
+            }
+        }
+
+        return segments.isEmpty ? [.init(type: .text(normalized))] : segments
+    }
+
+    private func shouldRenderTextSegment(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let bracketJunk = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "[],"))
+        return !bracketJunk.isEmpty
     }
     
     /// Strip markdown formatting for voice mode display
@@ -1967,24 +2188,22 @@ struct ConversationMessageView: View {
                 await onSendMessage(suggestion.text)
             }
         }) {
-            HStack(spacing: 8) {
-                Text(suggestion.emoji).font(FontManager.geist(size: 14, weight: .regular))
-                Text(suggestion.text)
-                    .font(FontManager.geist(size: 12, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
-                Spacer()
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(
-                        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08),
-                        lineWidth: 0.5
-                    )
-            )
+            Text(suggestion.text)
+                .font(FontManager.geist(size: 13, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(
+                            colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08),
+                            lineWidth: 0.5
+                        )
+                )
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -2415,6 +2634,8 @@ struct TypingIndicatorView: View {
     let colorScheme: ColorScheme
     @State private var animationIndex = 0
     @State private var messageIndex = 0
+    @State private var waveTimer: Timer?
+    @State private var messageCycleTimer: Timer?
 
     var thinkingMessages = ["Thinking...", "Analyzing your data...", "Getting insights..."]
 
@@ -2439,19 +2660,22 @@ struct TypingIndicatorView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .onAppear {
-            // Wave animation for dots
-            Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { _ in
+            waveTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { _ in
                 withAnimation(.easeInOut(duration: 0.4)) {
                     animationIndex = (animationIndex + 1) % 3
                 }
             }
-
-            // Cycle through thinking messages
-            Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            messageCycleTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
                 withAnimation {
                     messageIndex = (messageIndex + 1) % thinkingMessages.count
                 }
             }
+        }
+        .onDisappear {
+            waveTimer?.invalidate()
+            messageCycleTimer?.invalidate()
+            waveTimer = nil
+            messageCycleTimer = nil
         }
     }
 
@@ -2633,18 +2857,77 @@ struct DataTypeCardView: View {
 
 struct StreamingCursor: View {
     let colorScheme: ColorScheme
-    @State private var isVisible = true
+    @State private var opacity: Double = 0.85
 
     var body: some View {
         Rectangle()
-            .fill(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
+            .fill(colorScheme == .dark ? Color.white : Color.black)
             .frame(width: 2, height: 14)
-            .opacity(isVisible ? 1 : 0)
+            .opacity(opacity)
             .onAppear {
-                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                    isVisible = false
+                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                    opacity = 0.35
                 }
             }
+    }
+}
+
+// MARK: - Wrapping Inline Layout
+
+struct WrappingInlineLayout: Layout {
+    let spacing: CGFloat
+    let rowSpacing: CGFloat
+
+    init(spacing: CGFloat = 0, rowSpacing: CGFloat = 4) {
+        self.spacing = spacing
+        self.rowSpacing = rowSpacing
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        var currentX: CGFloat = 0
+        var currentRowHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var usedWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX > 0 && currentX + size.width > maxWidth {
+                totalHeight += currentRowHeight + rowSpacing
+                usedWidth = max(usedWidth, currentX - spacing)
+                currentX = 0
+                currentRowHeight = 0
+            }
+
+            currentX += size.width + spacing
+            currentRowHeight = max(currentRowHeight, size.height)
+        }
+
+        totalHeight += currentRowHeight
+        usedWidth = max(usedWidth, currentX > 0 ? currentX - spacing : 0)
+
+        let finalWidth = proposal.width ?? usedWidth
+        return CGSize(width: finalWidth, height: max(0, totalHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let maxWidth = bounds.width
+        var x = bounds.minX
+        var y = bounds.minY
+        var currentRowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX && (x + size.width) > (bounds.minX + maxWidth) {
+                x = bounds.minX
+                y += currentRowHeight + rowSpacing
+                currentRowHeight = 0
+            }
+
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: size.width, height: size.height))
+            x += size.width + spacing
+            currentRowHeight = max(currentRowHeight, size.height)
+        }
     }
 }
 
@@ -2714,40 +2997,57 @@ struct AlignedTextEditor: UIViewRepresentable {
         let textView = UITextView()
         textView.delegate = context.coordinator
         textView.backgroundColor = .clear
-        textView.font = UIFont.systemFont(ofSize: 16, weight: .regular)
+        textView.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        textView.text = text
         textView.textColor = colorScheme == .dark ? .white : .black
         textView.tintColor = colorScheme == .dark ? UIColor.white.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.8)
         
-        // Use zero left/right inset because SwiftUI already pads the container.
-        // This fixes the cursor starting "a few spaces ahead".
-        textView.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+        textView.contentInset = .zero
+        textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.widthTracksTextView = true
+        if #available(iOS 16.0, *) {
+            textView.verticalScrollIndicatorInsets = .zero
+        } else {
+            textView.scrollIndicatorInsets = .zero
+        }
 
-        // Enable scrolling so users can see all text as they type
-        textView.isScrollEnabled = true
+        textView.isScrollEnabled = false
+        updateTextInsets(for: textView)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         
         return textView
     }
     
     func updateUIView(_ textView: UITextView, context: Context) {
-        // Update text if it changed externally
         if textView.text != text {
             textView.text = text
         }
         
-        // Update colors if color scheme changed
         textView.textColor = colorScheme == .dark ? .white : .black
         textView.tintColor = colorScheme == .dark ? UIColor.white.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.8)
-        
-        // Ensure insets are maintained (important for cursor alignment)
-        textView.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+        textView.layoutIfNeeded()
+        updateTextInsets(for: textView)
         textView.textContainer.lineFragmentPadding = 0
+
+        let availableTextHeight = max(36, height - 16)
+        textView.isScrollEnabled = textView.contentSize.height > availableTextHeight
     }
     
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
+    }
+
+    private func updateTextInsets(for textView: UITextView) {
+        let lineHeight = textView.font?.lineHeight ?? 18
+        let isSingleLine = !text.contains("\n") && textView.contentSize.height <= lineHeight * 1.4
+
+        if isSingleLine {
+            let verticalInset = max(6, (height - lineHeight) / 2)
+            textView.textContainerInset = UIEdgeInsets(top: verticalInset, left: 0, bottom: verticalInset, right: 0)
+        } else {
+            textView.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+        }
     }
     
     class Coordinator: NSObject, UITextViewDelegate {
@@ -3042,22 +3342,62 @@ struct TokenUsageDetailsSheet: View {
     }
 }
 
-// MARK: - Conversation History Sheet
+// MARK: - Conversation History Sheet (ChatGPT-style minimal sidebar)
 
 struct ConversationHistorySheet: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
     @StateObject private var searchService = SearchService.shared
-    
-    @State private var isSelectionMode = false
-    @State private var selectedConversationIds: Set<UUID> = []
-    @State private var showDeleteAllConfirmation = false
+    @State private var searchText = ""
+
+    private var sidebarBackgroundColor: Color {
+        colorScheme == .dark ? Color.black : Color(white: 0.99)
+    }
     
     let onSelectConversation: (SavedConversation) -> Void
     let onDeleteConversation: (SavedConversation) -> Void
+    var onDismiss: (() -> Void)? = nil
+    
+    private var groupedConversations: [(String, [SavedConversation])] {
+        let calendar = Calendar.current
+        let now = Date()
+        var groups: [(String, [SavedConversation])] = []
+        let sorted = searchService.savedConversations.sorted { $0.createdAt > $1.createdAt }
+        
+        let today = sorted.filter { calendar.isDateInToday($0.createdAt) }
+        if !today.isEmpty { groups.append(("Today", today)) }
+        
+        let yesterday = sorted.filter { calendar.isDateInYesterday($0.createdAt) }
+        if !yesterday.isEmpty { groups.append(("Yesterday", yesterday)) }
+        
+        let weekAgo = calendar.date(byAdding: .day, value: -7, to: now)!
+        let last7Days = sorted.filter { $0.createdAt >= weekAgo && !calendar.isDateInToday($0.createdAt) && !calendar.isDateInYesterday($0.createdAt) }
+        if !last7Days.isEmpty { groups.append(("Previous 7 days", last7Days)) }
+        
+        let older = sorted.filter { $0.createdAt < weekAgo }
+        if !older.isEmpty { groups.append(("Older", older)) }
+        
+        return groups
+    }
+
+    private var filteredGroupedConversations: [(String, [SavedConversation])] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return groupedConversations }
+
+        return groupedConversations.compactMap { section, conversations in
+            let filtered = conversations.filter { conversation in
+                let title = conversation.title.lowercased()
+                let firstUser = conversation.messages.first(where: { $0.isUser })?.text.lowercased() ?? ""
+                return title.contains(query) || firstUser.contains(query)
+            }
+            return filtered.isEmpty ? nil : (section, filtered)
+        }
+    }
     
     var body: some View {
-        NavigationView {
+        VStack(spacing: 0) {
+            searchBar
+
             Group {
                 if searchService.savedConversations.isEmpty {
                     emptyHistoryView
@@ -3065,138 +3405,134 @@ struct ConversationHistorySheet: View {
                     conversationListView
                 }
             }
-            .background(colorScheme == .dark ? Color.black : Color(white: 0.98))
-            .navigationTitle("Chat History")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    if !searchService.savedConversations.isEmpty {
-                        if isSelectionMode {
-                            Button("Cancel") {
-                                isSelectionMode = false
-                                selectedConversationIds.removeAll()
-                            }
-                            .font(FontManager.geist(size: 14, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
-                        } else {
-                            Menu {
-                                Button(action: {
-                                    isSelectionMode = true
-                                }) {
-                                    Label("Select", systemImage: "checkmark.circle")
-                                }
-                                
-                                Button(role: .destructive, action: {
-                                    showDeleteAllConfirmation = true
-                                }) {
-                                    Label("Delete All", systemImage: "trash")
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis.circle")
-                                    .font(FontManager.geist(size: 18, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
-                            }
-                        }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(sidebarBackgroundColor)
+        }
+        .background(sidebarBackgroundColor)
+        .onAppear { searchService.loadConversationHistoryLocally() }
+        .gesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    let horizontal = value.translation.width
+                    let vertical = abs(value.translation.height)
+                    if horizontal < -60 && vertical < 60 {
+                        if let onDismiss = onDismiss { onDismiss() } else { dismiss() }
                     }
                 }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if isSelectionMode && !selectedConversationIds.isEmpty {
-                        Button("Delete (\(selectedConversationIds.count))") {
-                            HapticManager.shared.delete()
-                            searchService.deleteConversations(withIds: selectedConversationIds)
-                            selectedConversationIds.removeAll()
-                            isSelectionMode = false
-                        }
-                        .font(FontManager.geist(size: 14, weight: .semibold))
-                        .foregroundColor(.red)
-                    } else {
-                        Button("Done") {
-                            dismiss()
-                        }
-                        .font(FontManager.geist(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                    }
-                }
+        )
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
+
+                TextField("Search chats", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
             }
-        }
-        .onAppear {
-            // Load conversation history when sheet appears
-            searchService.loadConversationHistoryLocally()
-        }
-        .alert("Delete All Conversations?", isPresented: $showDeleteAllConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete All", role: .destructive) {
-                HapticManager.shared.delete()
-                searchService.deleteAllConversations()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+            )
+
+            Button(action: {
+                HapticManager.shared.selection()
+                searchService.startNewConversation()
+                if let onDismiss = onDismiss { onDismiss() } else { dismiss() }
+            }) {
+                Image(systemName: "square.and.pencil")
+                    .font(FontManager.geist(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                    )
             }
-        } message: {
-            Text("This will permanently delete all \(searchService.savedConversations.count) conversations. This action cannot be undone.")
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(sidebarBackgroundColor)
+    }
+
+    private var isShowingSearchResults: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hasAnyVisibleConversations: Bool {
+        !filteredGroupedConversations.isEmpty
+    }
+
+    private var noSearchResultsView: some View {
+        VStack(spacing: 8) {
+            Text("No chats found")
+                .font(FontManager.geist(size: 15, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.6))
+            Text("Try another search term")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.45) : .black.opacity(0.45))
         }
     }
     
     private var emptyHistoryView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 48, weight: .light))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
-            
+        VStack(spacing: 12) {
+            Image(systemName: "message")
+                .font(.system(size: 36, weight: .light))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.25) : .black.opacity(0.2))
             Text("No conversations yet")
-                .font(FontManager.geist(size: 17, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7))
-            
-            Text("Your chat history will appear here")
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
+                .font(FontManager.geist(size: 15, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.5))
+            Text("Start a new chat and it will appear here")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     private var conversationListView: some View {
         ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(searchService.savedConversations) { conversation in
-                    HStack(spacing: 12) {
-                        // Selection checkbox (only in selection mode)
-                        if isSelectionMode {
-                            Image(systemName: selectedConversationIds.contains(conversation.id) ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 22, weight: .medium))
-                                .foregroundColor(selectedConversationIds.contains(conversation.id) 
-                                    ? .blue 
-                                    : (colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2)))
-                        }
+            LazyVStack(alignment: .leading, spacing: 20) {
+                ForEach(filteredGroupedConversations, id: \.0) { sectionTitle, conversations in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(sectionTitle)
+                            .font(FontManager.geist(size: 11, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                            .textCase(.uppercase)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 6)
                         
-                        ConversationHistoryRow(conversation: conversation)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if isSelectionMode {
-                            // Toggle selection
-                            if selectedConversationIds.contains(conversation.id) {
-                                selectedConversationIds.remove(conversation.id)
-                            } else {
-                                selectedConversationIds.insert(conversation.id)
+                        ForEach(conversations) { conversation in
+                            ConversationHistoryRow(conversation: conversation)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                HapticManager.shared.selection()
+                                onSelectConversation(conversation)
                             }
-                            HapticManager.shared.selection()
-                        } else {
-                            HapticManager.shared.selection()
-                            onSelectConversation(conversation)
-                        }
-                    }
-                    .contextMenu {
-                        if !isSelectionMode {
-                            Button(role: .destructive) {
-                                HapticManager.shared.delete()
-                                onDeleteConversation(conversation)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    HapticManager.shared.delete()
+                                    onDeleteConversation(conversation)
+                                } label: { Label("Delete", systemImage: "trash") }
                             }
                         }
                     }
                 }
             }
-            .padding(.top, 8)
-            .padding(.horizontal, isSelectionMode ? 16 : 0)
+            .padding(.vertical, 16)
+        }
+        .overlay {
+            if isShowingSearchResults && !hasAnyVisibleConversations {
+                noSearchResultsView
+            }
         }
     }
 }
@@ -3207,94 +3543,30 @@ struct ConversationHistoryRow: View {
     
     private var displayTitle: String {
         if conversation.title.isEmpty {
-            // Fallback to first user message
             if let firstUserMessage = conversation.messages.first(where: { $0.isUser }) {
-                let words = firstUserMessage.text.split(separator: " ").prefix(6).joined(separator: " ")
-                return words + (firstUserMessage.text.split(separator: " ").count > 6 ? "..." : "")
+                return firstUserMessage.text
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            return "Untitled conversation"
+            return "New chat"
         }
         return conversation.title
-    }
-    
-    private var previewText: String {
-        if let firstUserMessage = conversation.messages.first(where: { $0.isUser }) {
-            let preview = String(firstUserMessage.text.prefix(80))
-            return preview + (firstUserMessage.text.count > 80 ? "..." : "")
-        }
-        return "No messages"
-    }
-    
-    private var formattedDate: String {
-        let calendar = Calendar.current
-        let now = Date()
-        
-        if calendar.isDateInToday(conversation.createdAt) {
-            let formatter = DateFormatter()
-            formatter.timeStyle = .short
-            return formatter.string(from: conversation.createdAt)
-        } else if calendar.isDateInYesterday(conversation.createdAt) {
-            return "Yesterday"
-        } else if let daysAgo = calendar.dateComponents([.day], from: conversation.createdAt, to: now).day, daysAgo < 7 {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE"
-            return formatter.string(from: conversation.createdAt)
-        } else {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .short
-            return formatter.string(from: conversation.createdAt)
-        }
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Icon
-            ZStack {
-                Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                    .frame(width: 40, height: 40)
-                
-                Image(systemName: "bubble.left.fill")
-                    .font(FontManager.geist(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
-            }
-            
-            // Content
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(displayTitle)
-                        .font(FontManager.geist(size: 15, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .lineLimit(1)
-                    
-                    Spacer()
-                    
-                    Text(formattedDate)
-                        .font(FontManager.geist(size: 12, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
-                }
-                
-                Text(previewText)
-                    .font(FontManager.geist(size: 13, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
-                    .lineLimit(2)
-                
-                // Message count
-                Text("\(conversation.messages.count) messages")
-                    .font(FontManager.geist(size: 11, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.35) : Color.black.opacity(0.35))
-                    .padding(.top, 2)
-            }
-            
-            // Chevron
-            Image(systemName: "chevron.right")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.25) : Color.black.opacity(0.2))
-                .padding(.top, 4)
+        HStack(spacing: 0) {
+            Text(displayTitle)
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(colorScheme == .dark ? Color.black : Color.white)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
     }
 }
 

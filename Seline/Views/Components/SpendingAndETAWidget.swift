@@ -3,6 +3,16 @@ import CoreLocation
 import WidgetKit
 
 struct SpendingAndETAWidget: View {
+    private struct SelectedCategory: Identifiable {
+        let id = UUID()
+        let name: String
+        let receipts: [ReceiptStat]
+
+        var total: Double {
+            receipts.reduce(0) { $0 + $1.amount }
+        }
+    }
+
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var insightsService = SpendingInsightsService.shared
     @Environment(\.colorScheme) var colorScheme
@@ -15,6 +25,12 @@ struct SpendingAndETAWidget: View {
     @State private var spendingInsights: [SpendingInsightsService.SpendingInsight] = []
     @State private var selectedInsight: SpendingInsightsService.SpendingInsight?
     @State private var showInsightDetail = false
+    @State private var selectedCategory: SelectedCategory?
+    @State private var isCategoryScrollInProgress = false
+
+    private var cardHeadingFont: Font {
+        FontManager.geist(size: 20, weight: .semibold)
+    }
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
@@ -97,17 +113,10 @@ struct SpendingAndETAWidget: View {
     }
 
     @State private var categoryBreakdownCache: [(category: String, amount: Double, percentage: Double)] = []
+    @State private var categoryReceiptsMapCache: [String: [ReceiptStat]] = [:]
 
     private var categoryBreakdown: [(category: String, amount: Double, percentage: Double)] {
         return categoryBreakdownCache
-    }
-
-    private func categoryIcon(_ category: String) -> String {
-        return CategoryIconProvider.icon(for: category)
-    }
-
-    private func categoryColor(_ category: String) -> Color {
-        return CategoryIconProvider.color(for: category)
     }
 
     private func updateCategoryBreakdown() {
@@ -121,6 +130,7 @@ struct SpendingAndETAWidget: View {
             guard let stats = currentYearStats else {
                 DispatchQueue.main.async {
                     self.categoryBreakdownCache = []
+                    self.categoryReceiptsMapCache = [:]
                 }
                 return
             }
@@ -138,6 +148,7 @@ struct SpendingAndETAWidget: View {
             guard !currentMonthReceipts.isEmpty else {
                 DispatchQueue.main.async {
                     self.categoryBreakdownCache = []
+                    self.categoryReceiptsMapCache = [:]
                 }
                 return
             }
@@ -160,6 +171,7 @@ struct SpendingAndETAWidget: View {
 
             DispatchQueue.main.async {
                 self.categoryBreakdownCache = result
+                self.categoryReceiptsMapCache = breakdown.categoryReceipts
                 // Update widget with spending data
                 Self.updateWidgetWithSpendingData(
                     monthlyTotal: self.monthlyTotal,
@@ -298,6 +310,14 @@ struct SpendingAndETAWidget: View {
                     .presentationDetents([.medium, .large])
             }
         }
+        .sheet(item: $selectedCategory) { category in
+            CategoryReceiptsListModal(
+                receipts: category.receipts,
+                categoryName: category.name,
+                total: category.total
+            )
+            .presentationDetents([.medium, .large])
+        }
     }
 
     private func generateSpendingInsights() {
@@ -349,85 +369,87 @@ struct SpendingAndETAWidget: View {
     }
 
     private func spendingCard() -> some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 12) {
-                // Monthly spending amount and % on same line
-                HStack(alignment: .bottom, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("This Month")
-                            .font(FontManager.geist(size: 12, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                            .textCase(.uppercase)
-                            .tracking(0.5)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Spending")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.62))
+                        .textCase(.uppercase)
+                        .tracking(0.5)
 
-                        Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                            .font(FontManager.geist(size: 20, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                    }
-
-                    // Month over month percentage
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 4) {
-                            Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up" : "arrow.down")
-                                .font(FontManager.geist(size: 9, weight: .semibold))
-                            Text(String(format: "%.0f%%", monthOverMonthPercentage.percentage))
-                                .font(FontManager.geist(size: 12, weight: .semibold))
-                        }
-                        .foregroundColor(monthOverMonthPercentage.isIncrease ? Color.red.opacity(0.85) : Color.green.opacity(0.85))
-
-                        Text("vs last month")
-                            .font(FontManager.geist(size: 10, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
-                    }
-                    .padding(.leading, 8)
-
-                    Spacer()
+                    Text("This Month")
+                        .font(cardHeadingFont)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
 
-                // Categories - below % text
-                topCategoryView
-
-                // Spending Insights - horizontally scrollable
-                if !spendingInsights.isEmpty {
-                    insightsScrollView
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                showReceiptStats = true
+                Spacer(minLength: 8)
+                addReceiptMenuButton
             }
 
-            // Add receipt button (camera/gallery) - Menu with options
-            Menu {
-                Button(action: {
-                    HapticManager.shared.selection()
-                    onAddReceipt?()
-                }) {
-                    Label("Camera", systemImage: "camera.fill")
-                }
-                
-                Button(action: {
-                    HapticManager.shared.selection()
-                    onAddReceiptFromGallery?()
-                }) {
-                    Label("Gallery", systemImage: "photo.fill")
-                }
-            } label: {
-                Image(systemName: "plus")
-                    .font(FontManager.geist(size: 14, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
-                    )
+            HStack(spacing: 8) {
+                spendingStatPill(
+                    title: "Month",
+                    value: CurrencyParser.formatAmountNoDecimals(monthlyTotal)
+                )
+
+                spendingStatPill(
+                    title: "Today",
+                    value: CurrencyParser.formatAmountNoDecimals(dailyTotal)
+                )
+
+                trendPill
             }
-            .buttonStyle(PlainButtonStyle())
-            .allowsParentScrolling()
+
+            topCategoryView
+
+            if !spendingInsights.isEmpty {
+                insightsScrollView
+            }
         }
         .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !isCategoryScrollInProgress else { return }
+            showReceiptStats = true
+        }
         .shadcnTileStyle(colorScheme: colorScheme)
+    }
+
+    private var addReceiptMenuButton: some View {
+        Menu {
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddReceipt?()
+            }) {
+                Label("Camera", systemImage: "camera.fill")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddReceiptFromGallery?()
+            }) {
+                Label("Gallery", systemImage: "photo.fill")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(FontManager.geist(size: 14, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .frame(width: 34, height: 34)
+                .background(
+                    Circle()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.1), lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
     }
 
     private var daysLeftInMonth: Int {
@@ -458,49 +480,72 @@ struct SpendingAndETAWidget: View {
                         .textCase(.uppercase)
                         .tracking(0.5)
                     
-                    // Spread categories end to end horizontally
-                    HStack(spacing: 0) {
-                        ForEach(Array(categoryBreakdown.prefix(3).enumerated()), id: \.element.category) { index, category in
-                            // Category pill - will flex to fill space
-                            HStack(spacing: 6) {
-                                // Category icon with background
-                                ZStack {
-                                    Circle()
-                                        .fill(categoryColor(category.category).opacity(0.2))
-                                        .frame(width: 22, height: 22)
-                                    
-                                    Text(categoryIcon(category.category))
-                                        .font(FontManager.geist(size: 11, weight: .regular))
-                                }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(categoryBreakdown.prefix(5).enumerated()), id: \.element.category) { _, category in
+                                let iconColor = CategoryIconProvider.color(for: category.category)
+                                HStack(spacing: 8) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(iconColor.opacity(colorScheme == .dark ? 0.24 : 0.16))
+                                            .frame(width: 20, height: 20)
+                                        Image(systemName: categorySymbol(category.category))
+                                            .font(FontManager.geist(size: 9, weight: .semibold))
+                                            .foregroundColor(iconColor)
+                                    }
 
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(category.category)
-                                        .font(FontManager.geist(size: 11, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                        .lineLimit(1)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(category.category)
+                                            .font(FontManager.geist(size: 11, weight: .semibold))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            .lineLimit(1)
 
-                                    Text(String(format: "%.0f%%", category.percentage))
-                                        .font(FontManager.geist(size: 11, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                        Text(CurrencyParser.formatAmountNoDecimals(category.amount))
+                                            .font(FontManager.geist(size: 11, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                            .lineLimit(1)
+                                    }
                                 }
-                                
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 8)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
-                            )
-                            
-                            // Add spacing between pills (but not after the last one)
-                            if index < min(categoryBreakdown.count, 3) - 1 {
-                                Spacer()
-                                    .frame(width: 8)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
+                                )
+                                .contentShape(RoundedRectangle(cornerRadius: 10))
+                                .scrollSafeTapAction(minimumDragDistance: 3) {
+                                    guard !isCategoryScrollInProgress else { return }
+                                    openCategoryExpenses(for: category.category)
+                                }
+                                .simultaneousGesture(
+                                    DragGesture(minimumDistance: 2)
+                                        .onChanged { _ in
+                                            isCategoryScrollInProgress = true
+                                        }
+                                        .onEnded { _ in
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                                                isCategoryScrollInProgress = false
+                                            }
+                                        }
+                                )
+                                .allowsParentScrolling()
                             }
                         }
+                        .padding(.horizontal, 16)
                     }
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 2)
+                            .onChanged { _ in
+                                isCategoryScrollInProgress = true
+                            }
+                            .onEnded { _ in
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                                    isCategoryScrollInProgress = false
+                                }
+                            }
+                    )
+                    .padding(.horizontal, -16)
+                    .allowsParentScrolling()
                 }
             }
         }
@@ -522,9 +567,11 @@ struct SpendingAndETAWidget: View {
                         }
                 }
             }
+            .padding(.horizontal, 16)
         }
-        .padding(.horizontal, -16) // Extend scroll area so cards touch widget edges
-        .padding(.top, 8)
+        .padding(.horizontal, -16)
+        .allowsParentScrolling()
+        .padding(.top, 2)
     }
 
     private func insightChip(_ insight: SpendingInsightsService.SpendingInsight) -> some View {
@@ -541,13 +588,90 @@ struct SpendingAndETAWidget: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .frame(minWidth: 180)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
         )
+    }
+
+    private func spendingStatPill(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(FontManager.geist(size: 10, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.52) : Color.black.opacity(0.5))
+
+            Text(value)
+                .font(FontManager.geist(size: 14, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
+        )
+    }
+
+    private var trendPill: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("MoM")
+                .font(FontManager.geist(size: 10, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.52) : Color.black.opacity(0.5))
+
+            HStack(spacing: 4) {
+                Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
+                    .font(FontManager.geist(size: 10, weight: .semibold))
+                Text(String(format: "%.0f%%", monthOverMonthPercentage.percentage))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+            }
+            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.85))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
+        )
+    }
+
+    private func categorySymbol(_ category: String) -> String {
+        let cat = category.lowercased()
+        if cat.contains("food") || cat.contains("dining") || cat.contains("restaurant") {
+            return "fork.knife"
+        } else if cat.contains("grocery") {
+            return "cart"
+        } else if cat.contains("transport") || cat.contains("gas") || cat.contains("uber") || cat.contains("lyft") || cat.contains("auto") {
+            return "car.fill"
+        } else if cat.contains("shopping") || cat.contains("retail") || cat.contains("store") {
+            return "bag"
+        } else if cat.contains("entertainment") || cat.contains("movie") || cat.contains("netflix") {
+            return "film"
+        } else if cat.contains("health") || cat.contains("medical") || cat.contains("pharmacy") {
+            return "cross.case"
+        } else if cat.contains("travel") || cat.contains("hotel") || cat.contains("flight") {
+            return "airplane"
+        } else if cat.contains("utilities") || cat.contains("internet") || cat.contains("electric") || cat.contains("water") {
+            return "bolt"
+        } else if cat.contains("software") || cat.contains("subscription") || cat.contains("app") {
+            return "laptopcomputer"
+        }
+        return "creditcard"
+    }
+
+    private func openCategoryExpenses(for categoryName: String) {
+        let matchingReceipts = (categoryReceiptsMapCache[categoryName] ?? [])
+            .sorted { $0.date > $1.date }
+
+        guard !matchingReceipts.isEmpty else { return }
+        HapticManager.shared.selection()
+        selectedCategory = SelectedCategory(name: categoryName, receipts: matchingReceipts)
     }
 
 

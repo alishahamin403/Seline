@@ -16,6 +16,7 @@ struct HourlyForecast {
 
 struct WeatherData {
     let temperature: Int
+    let feelsLike: Int
     let description: String
     let iconName: String
     let sunrise: Date
@@ -38,6 +39,7 @@ struct OpenMeteoResponse: Codable {
 struct CurrentWeather: Codable {
     let time: String
     let temperature_2m: Double
+    let apparent_temperature: Double
     let weather_code: Int
 }
 
@@ -92,7 +94,7 @@ class WeatherService: ObservableObject {
         components.queryItems = [
             URLQueryItem(name: "latitude", value: "\(location.coordinate.latitude)"),
             URLQueryItem(name: "longitude", value: "\(location.coordinate.longitude)"),
-            URLQueryItem(name: "current", value: "temperature_2m,weather_code"),
+            URLQueryItem(name: "current", value: "temperature_2m,apparent_temperature,weather_code"),
             URLQueryItem(name: "hourly", value: "temperature_2m,weather_code"),
             URLQueryItem(name: "daily", value: "temperature_2m_mean,weather_code,sunrise,sunset"),
             URLQueryItem(name: "timezone", value: "auto"),
@@ -203,6 +205,7 @@ class WeatherService: ObservableObject {
         // Convert to our WeatherData model
         return WeatherData(
             temperature: Int(meteoResponse.current.temperature_2m.rounded()),
+            feelsLike: Int(meteoResponse.current.apparent_temperature.rounded()),
             description: weatherCodeToDescription(meteoResponse.current.weather_code),
             iconName: mapWeatherCodeToIcon(meteoResponse.current.weather_code),
             sunrise: sunrise,

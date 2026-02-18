@@ -454,7 +454,7 @@ struct LocationTimelineView: View {
 
             // Vertical timeline - cleaner spacing
             ScrollView {
-                VStack(spacing: 12) {
+                LazyVStack(spacing: 12) {
                     ForEach(visitState.selectedDayVisits.sorted(by: { $0.entryTime < $1.entryTime })) { visit in
                         visitCard(for: visit)
                     }

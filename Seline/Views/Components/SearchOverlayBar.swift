@@ -69,7 +69,7 @@ struct SearchOverlayBar: View {
             // Search results
             if isPresented && !searchText.isEmpty {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(searchResults) { result in
                             Button(action: {
                                 handleResultTap(result)

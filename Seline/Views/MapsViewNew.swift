@@ -240,8 +240,8 @@ struct MapsViewNew: View, Searchable {
                     .buttonStyle(PlainButtonStyle())
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 12)
                 .background(
                     colorScheme == .dark ? Color.black : Color.white
                 )

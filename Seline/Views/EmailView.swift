@@ -15,6 +15,7 @@ struct EmailView: View, Searchable {
     @State private var selectedSearchEmail: Email? = nil
     @State private var isSearchActive: Bool = false
     @State private var showNewCompose = false
+    @State private var cachedDaySections: [EmailDaySection] = []
 
     // Events tab state
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
@@ -48,12 +49,7 @@ struct EmailView: View, Searchable {
     }
 
     var currentDaySections: [EmailDaySection] {
-        if let selectedCategory = selectedCategory {
-            return emailService.getDayCategorizedEmails(for: selectedTab.folder, category: selectedCategory, unreadOnly: showUnreadOnly)
-        } else {
-            // Show all emails when no category is selected
-            return emailService.getDayCategorizedEmails(for: selectedTab.folder, unreadOnly: showUnreadOnly)
-        }
+        cachedDaySections
     }
 
 
@@ -66,6 +62,7 @@ struct EmailView: View, Searchable {
             SearchService.shared.registerSearchableProvider(self, for: .email)
             // Also register EmailService to provide saved emails for LLM access
             SearchService.shared.registerSearchableProvider(EmailService.shared, for: .email)
+            rebuildDaySections()
 
             // Clear any email notifications when user opens email view
             Task {
@@ -73,10 +70,30 @@ struct EmailView: View, Searchable {
 
                 // Load emails for current tab - will show cached content immediately
                 await emailService.loadEmailsForFolder(selectedTab.folder)
+                rebuildDaySections()
 
                 // Update app badge to reflect current unread count
                 let unreadCount = emailService.inboxEmails.filter { !$0.isRead }.count
                 emailService.notificationService.updateAppBadge(count: unreadCount)
+            }
+        }
+        .onChange(of: selectedCategory) { _ in
+            rebuildDaySections()
+        }
+        .onChange(of: showUnreadOnly) { _ in
+            rebuildDaySections()
+        }
+        .onChange(of: selectedTab) { _ in
+            rebuildDaySections()
+        }
+        .onReceive(emailService.$inboxEmails) { _ in
+            if selectedTab.folder == .inbox {
+                rebuildDaySections()
+            }
+        }
+        .onReceive(emailService.$sentEmails) { _ in
+            if selectedTab.folder == .sent {
+                rebuildDaySections()
             }
         }
     }
@@ -92,13 +109,14 @@ struct EmailView: View, Searchable {
             contentSection
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(Animation.smoothTabTransition, value: selectedTab)
         .background(
             (colorScheme == .dark ? Color.black : Color.white)
                 .ignoresSafeArea()
         )
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .overlay(composeButtonOverlay)
-        .overlay(folderSidebarOverlay(geometry: geometry))
+        .overlay(interactiveFolderSidebarOverlay(geometry: geometry))
         .sheet(item: $selectedSearchEmail) { email in
             EmailDetailView(email: email)
                 .presentationBg()
@@ -326,7 +344,7 @@ struct EmailView: View, Searchable {
                 showingEmailFolderSidebar.toggle()
             }
         }) {
-            Image(systemName: "folder")
+            Image(systemName: "line.3.horizontal")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .padding(.horizontal, 12)
@@ -426,6 +444,21 @@ struct EmailView: View, Searchable {
             }
         )
     }
+
+    private func rebuildDaySections() {
+        if let selectedCategory {
+            cachedDaySections = emailService.getDayCategorizedEmails(
+                for: selectedTab.folder,
+                category: selectedCategory,
+                unreadOnly: showUnreadOnly
+            )
+        } else {
+            cachedDaySections = emailService.getDayCategorizedEmails(
+                for: selectedTab.folder,
+                unreadOnly: showUnreadOnly
+            )
+        }
+    }
     
     private var composeButtonOverlay: some View {
         VStack {
@@ -455,37 +488,16 @@ struct EmailView: View, Searchable {
         }
     }
     
-    @ViewBuilder
-    private func folderSidebarOverlay(geometry: GeometryProxy) -> some View {
-        if showingEmailFolderSidebar {
-            ZStack {
-                NavigationStack {
-                    HStack(spacing: 0) {
-                        EmailFolderSidebarView(isPresented: $showingEmailFolderSidebar)
-                            .frame(width: geometry.size.width * 0.85)
-                            .transition(.move(edge: .leading))
-                            .gesture(
-                                DragGesture()
-                                    .onEnded { value in
-                                        if value.translation.width < -100 {
-                                            withAnimation {
-                                                showingEmailFolderSidebar = false
-                                            }
-                                        }
-                                    }
-                            )
-
-                        Color.black.opacity(0.3)
-                            .ignoresSafeArea()
-                            .onTapGesture {
-                                withAnimation {
-                                    showingEmailFolderSidebar = false
-                                }
-                            }
-                    }
-                }
+    private func interactiveFolderSidebarOverlay(geometry: GeometryProxy) -> some View {
+        InteractiveSidebarOverlay(
+            isPresented: $showingEmailFolderSidebar,
+            canOpen: selectedTab != .events,
+            sidebarWidth: min(300, geometry.size.width * 0.82),
+            colorScheme: colorScheme
+        ) {
+            NavigationStack {
+                EmailFolderSidebarView(isPresented: $showingEmailFolderSidebar)
             }
-            .allowsHitTesting(showingEmailFolderSidebar)
         }
     }
 
@@ -514,9 +526,7 @@ struct EmailView: View, Searchable {
             HStack(spacing: 8) {
                 // "All" button
                 Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedTagId = nil
-                    }
+                    selectedTagId = nil
                 }) {
                     let isSelected = selectedTagId == nil
                     let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme)
@@ -532,9 +542,7 @@ struct EmailView: View, Searchable {
 
                 // Personal button
                 Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedTagId = ""
-                    }
+                    selectedTagId = ""
                 }) {
                     let isSelected = selectedTagId == ""
                     let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme)
@@ -550,9 +558,7 @@ struct EmailView: View, Searchable {
 
                 // Sync button
                 Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedTagId = "cal_sync"
-                    }
+                    selectedTagId = "cal_sync"
                 }) {
                     let isSelected = selectedTagId == "cal_sync"
                     let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme)
@@ -569,9 +575,7 @@ struct EmailView: View, Searchable {
                 // User-created tags
                 ForEach(tagManager.tags, id: \.id) { tag in
                     Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedTagId = tag.id
-                        }
+                        selectedTagId = tag.id
                     }) {
                         let isSelected = selectedTagId == tag.id
                         let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex)

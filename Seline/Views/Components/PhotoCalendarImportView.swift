@@ -3,9 +3,11 @@ import PhotosUI
 
 struct PhotoCalendarImportView: View {
     @Environment(\.dismiss) var dismiss
+    var initialSourceType: UIImagePickerController.SourceType? = nil
     @State private var selectedImage: UIImage?
     @State private var showImagePicker = false
     @State private var sourceType: UIImagePickerController.SourceType = .camera
+    @State private var didAutoOpenPicker = false
     @State private var isProcessing = false
     @State private var extractionResponse: CalendarPhotoExtractionResponse?
     @State private var errorMessage: String?
@@ -224,6 +226,14 @@ struct PhotoCalendarImportView: View {
                         processImage()
                     }
                 }
+        }
+        .onAppear {
+            guard !didAutoOpenPicker, let initialSourceType else { return }
+            didAutoOpenPicker = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                sourceType = initialSourceType
+                showImagePicker = true
+            }
         }
     .presentationBg()
         .alert("Error", isPresented: $showErrorAlert) {

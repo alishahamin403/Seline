@@ -76,34 +76,9 @@ struct CalendarAgendaView: View {
     
     // Cache for events to avoid recomputing on every render
     @State private var cachedEvents: [TaskItem] = []
-    @State private var cachedDate: Date?
-    @State private var cachedTagId: String?
-    @State private var refreshTrigger: Int = 0
     
     private var eventsForDate: [TaskItem] {
-        let calendar = Calendar.current
-        
-        // CRITICAL: Always check if the filter has changed
-        let filterChanged = cachedTagId != selectedTagId
-        
-        // Return cached if date matches AND filter hasn't changed
-        if !filterChanged, let cached = cachedDate, calendar.isDate(cached, inSameDayAs: selectedDate) {
-            return cachedEvents
-        }
-        
-        // Compute fresh events when filter or date changes
-        let allTasks = taskManager.getAllTasks(for: selectedDate)
-        let filtered = applyFilter(to: allTasks)
-        let sorted = filtered.sorted { task1, task2 in
-            let hasTime1 = task1.scheduledTime != nil
-            let hasTime2 = task2.scheduledTime != nil
-            if hasTime1 != hasTime2 { return !hasTime1 }
-            if hasTime1, let time1 = task1.scheduledTime, let time2 = task2.scheduledTime {
-                return time1 < time2
-            }
-            return false
-        }
-        return sorted
+        cachedEvents
     }
     
     // Group events by time period
@@ -154,7 +129,6 @@ struct CalendarAgendaView: View {
             }
         }
         .background(backgroundColor)
-        .id("\(selectedDate.timeIntervalSince1970)-\(selectedTagId ?? "nil")-\(refreshTrigger)") // Force refresh when date, filter, or completion changes
         .onChange(of: selectedDate) { newDate in
             updateCache(for: newDate)
         }
@@ -374,9 +348,6 @@ struct CalendarAgendaView: View {
                 // Completion checkbox
                 Button(action: { 
                     onToggleCompletion(event)
-                    // Force UI update
-                    refreshTrigger += 1
-                    cachedDate = nil
                 }) {
                     Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                         .font(FontManager.geist(size: 24, weight: .regular))
@@ -419,14 +390,25 @@ struct CalendarAgendaView: View {
     private func applyFilter(to tasks: [TaskItem]) -> [TaskItem] {
         if let tagId = selectedTagId {
             if tagId == "" {
-                return tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
+                return tasks.filter { task in
+                    task.tagId == nil && !isSyncedCalendarTask(task)
+                }
             } else if tagId == "cal_sync" {
-                return tasks.filter { $0.id.hasPrefix("cal_") }
+                return tasks.filter { task in
+                    isSyncedCalendarTask(task)
+                }
             } else {
                 return tasks.filter { $0.tagId == tagId }
             }
         }
         return tasks
+    }
+
+    private func isSyncedCalendarTask(_ task: TaskItem) -> Bool {
+        task.id.hasPrefix("cal_")
+            || task.isFromCalendar
+            || task.calendarEventId != nil
+            || task.tagId == "cal_sync"
     }
     
     private func updateCache(for date: Date) {
@@ -441,8 +423,6 @@ struct CalendarAgendaView: View {
             }
             return false
         }
-        cachedDate = date
-        cachedTagId = selectedTagId
     }
 }
 

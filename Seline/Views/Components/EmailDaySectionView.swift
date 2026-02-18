@@ -119,11 +119,12 @@ struct EmailDaySectionView: View {
         }
         .padding(.vertical, 14)
         .contentShape(Rectangle())
-        .onTapGesture {
+        .scrollSafeTapAction(minimumDragDistance: 3) {
             withAnimation(.easeInOut(duration: 0.25)) {
                 isExpanded.toggle()
             }
         }
+        .allowsParentScrolling()
     }
     
     // MARK: - Email List
@@ -258,13 +259,15 @@ struct EmailRowWithSummary: View {
                             .frame(width: 24, height: 24)
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .allowsParentScrolling()
                 }
             }
             .padding(8)
             .contentShape(Rectangle())
-            .onTapGesture {
+            .scrollSafeTapAction(minimumDragDistance: 3) {
                 onTap()
             }
+            .allowsParentScrolling()
             
             // Expanded AI Summary section - matches AISummaryCard styling
             if isSummaryExpanded {
@@ -320,7 +323,7 @@ struct EmailRowWithSummary: View {
                         Text("Tap to generate summary")
                             .font(FontManager.geist(size: .small, weight: .regular))
                             .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                            .onTapGesture {
+                            .scrollSafeTapAction(minimumDragDistance: 3) {
                                 Task {
                                     await loadAISummary()
                                 }

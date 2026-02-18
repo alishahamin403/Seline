@@ -21,11 +21,6 @@ class VectorContextBuilder {
 
     // MARK: - Configuration
 
-    /// Date extraction cache: query text -> (date range, extraction timestamp)
-    /// TTL: 5 minutes
-    private var dateExtractionCache: [String: (result: (start: Date, end: Date)?, timestamp: Date)] = [:]
-    private let dateExtractionCacheTTL: TimeInterval = 300  // 5 minutes
-
     /// Determine dynamic search limit based on query complexity
     private func determineSearchLimit(forQuery query: String) -> Int {
         let lowercased = query.lowercased()
@@ -45,94 +40,112 @@ class VectorContextBuilder {
         return 30
     }
 
-    // MARK: - Clarifying Questions
+    // MARK: - Query Understanding (single LLM decides: date range vs vector vs clarify)
 
-    /// Detect vague queries and generate clarifying questions using conversation context
-    private func shouldAskClarifyingQuestion(query: String, conversationHistory: [(role: String, content: String)]) async -> String? {
-        let lowercased = query.lowercased()
+    /// Result of the query-understanding LLM: use DB for this date range, vector search, or ask for clarification.
+    private enum QueryUnderstandingResult {
+        case dateRange(start: Date, end: Date)
+        case vectorSearch
+        case clarify(question: String)
+    }
 
-        // Check if query has vagueness indicators
-        let hasPronouns = lowercased.contains("them") || lowercased.contains("it") ||
-                         lowercased.contains("that") || lowercased.contains("this")
-        let hasVagueReference = lowercased.contains("the email") || lowercased.contains("my email") ||
-                               lowercased.contains("the order") || lowercased.contains("my order")
+    /// Single LLM call: decide if the query is about a specific date/range (→ DB), general (→ vector), or vague (→ clarify).
+    /// Uses conversation history to resolve "that", "last weekend", "last last weekend", etc. No pattern list.
+    private func understandQuery(query: String, conversationHistory: [(role: String, content: String)]) async -> QueryUnderstandingResult {
+        let calendar = Calendar.current
+        let today = Date()
+        let todayStart = calendar.startOfDay(for: today)
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = TimeZone.current
+        df.dateFormat = "yyyy-MM-dd"
+        let todayStr = df.string(from: todayStart)
 
-        // Check if query has SPECIFIC entities (even if it has vague words, specifics override)
-        let hasSpecificLocation = lowercased.contains("mall") || lowercased.contains("outlet") ||
-                                 lowercased.contains("store") || lowercased.contains("restaurant") ||
-                                 lowercased.contains("cafe") || lowercased.contains("shop")
-        let hasPersonName = PeopleManager.shared.people.contains { person in
-            lowercased.contains(person.name.lowercased()) ||
-            (person.nickname != nil && lowercased.contains(person.nickname!.lowercased()))
-        }
-        let hasSpecificAmount = lowercased.contains("$") || lowercased.range(of: "\\d+", options: .regularExpression) != nil
-        let hasSpecificDate = lowercased.contains("january") || lowercased.contains("february") ||
-                             lowercased.contains("march") || lowercased.contains("april") ||
-                             lowercased.contains("may") || lowercased.contains("june") ||
-                             lowercased.contains("july") || lowercased.contains("august") ||
-                             lowercased.contains("september") || lowercased.contains("october") ||
-                             lowercased.contains("november") || lowercased.contains("december")
-
-        // If query has specific entities, it's NOT vague - skip clarification
-        if hasSpecificLocation || hasPersonName || hasSpecificAmount || hasSpecificDate {
-            return nil
-        }
-
-        // If query seems specific enough (no pronouns or vague refs), don't ask
-        if !hasPronouns && !hasVagueReference {
-            return nil
+        // Compute "last weekend" and "weekend before that" so the model has exact reference dates
+        var referenceBlock = ""
+        let weekday = calendar.component(.weekday, from: today) // 1=Sun ... 7=Sat
+        let daysToLastSat = (weekday == 7) ? 0 : (weekday == 1 ? 1 : weekday)
+        if let lastSaturday = calendar.date(byAdding: .day, value: -daysToLastSat, to: todayStart),
+           let lastWeekendEnd = calendar.date(byAdding: .day, value: 2, to: lastSaturday),
+           let weekendBeforeStart = calendar.date(byAdding: .day, value: -7, to: lastSaturday),
+           let weekendBeforeEnd = calendar.date(byAdding: .day, value: -5, to: lastSaturday) {
+            let lastWeekendStartStr = df.string(from: lastSaturday)
+            let lastWeekendEndStr = df.string(from: lastWeekendEnd)
+            let weekendBeforeStartStr = df.string(from: weekendBeforeStart)
+            let weekendBeforeEndStr = df.string(from: weekendBeforeEnd)
+            referenceBlock = "\nReference (use these exact dates): \"Last weekend\" = \(lastWeekendStartStr) to \(lastWeekendEndStr) (output START: \(lastWeekendStartStr), END: \(lastWeekendEndStr)). \"Last last weekend\" or \"the weekend before that\" = \(weekendBeforeStartStr) to \(weekendBeforeEndStr) (output START: \(weekendBeforeStartStr), END: \(weekendBeforeEndStr)).\n\n"
         }
 
-        // If no conversation history, can't generate good clarification
-        if conversationHistory.isEmpty {
-            return nil
-        }
+        let recentTurns = conversationHistory.suffix(6)
+        let historyBlock = recentTurns.isEmpty ? "" : """
+            Recent conversation (use this to resolve references like "that", "last weekend", "the weekend before that"):
+            \(recentTurns.map { "\($0.role): \($0.content)" }.joined(separator: "\n"))
 
-        // Use LLM to generate clarifying question based on context
-        let recentHistory = conversationHistory.suffix(10)
-        let historyText = recentHistory.map { msg in
-            "\(msg.role == "user" ? "User" : "Assistant"): \(msg.content)"
-        }.joined(separator: "\n")
+            """
 
         let prompt = """
-        The user asked a vague question: "\(query)"
+            Today's date is \(todayStr). User's message: "\(query)"
 
-        Recent conversation:
-        \(historyText)
+            \(historyBlock)\(referenceBlock)Decide what the user is asking for. Respond with EXACTLY one of these (no other text):
 
-        The query is vague because it uses pronouns or lacks specifics. Based on the conversation context, generate a SHORT clarifying question to ask the user.
+            1) If they are asking about a SPECIFIC day or date range (e.g. "how was my day yesterday", "what did I do last weekend", "last last weekend", "the weekend before that", "two weeks ago"), output the date range:
+            START: YYYY-MM-DD
+            END: YYYY-MM-DD
+            (START = first day inclusive, END = day after last day. For a single day, END = next day. For a weekend Sat–Sun, END = Monday.)
 
-        Guidelines:
-        - Keep it conversational and friendly
-        - Reference the previous topic from conversation
-        - Ask ONE specific question to clarify what they need
-        - Include likely options if clear from context
-        - If the query is actually clear enough, respond with just "CLEAR"
+            2) If they are asking something general with NO specific date (e.g. "where do I go most", "summarize my spending", "my top locations"), output:
+            NONE
 
-        Examples:
-        - "I see you were asking about Pizza Hut earlier. Are you looking for today's order confirmation email?"
-        - "Which order are you referring to - the Pizza Hut order from today, or something else?"
-        - "When did you place this order? Today, yesterday, or another day?"
+            3) If the request is too vague even with the conversation and you cannot infer what they mean, output:
+            CLARIFY: <one short clarifying question>
 
-        Respond with ONLY the clarifying question, or "CLEAR" if the query is specific enough.
-        """
+            Respond with ONLY the chosen option (START/END lines, or NONE, or CLARIFY: ...).
+            """
 
         do {
             let response = try await GeminiService.shared.simpleChatCompletion(
-                systemPrompt: "You are a helpful assistant that asks clarifying questions when users are vague.",
+                systemPrompt: "You are a query understanding assistant. Output only START/END, NONE, or CLARIFY: as instructed. Use the conversation to resolve time references like 'that' or 'last last weekend'.",
                 messages: [["role": "user", "content": prompt]]
             )
-
             let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if trimmed.uppercased() == "CLEAR" {
-                return nil
+            // CLARIFY
+            if trimmed.uppercased().hasPrefix("CLARIFY:") {
+                let question = trimmed.dropFirst("CLARIFY:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !question.isEmpty {
+                    print("📅 Query understanding: CLARIFY - \(question.prefix(60))...")
+                    return .clarify(question: question)
+                }
             }
 
-            return trimmed
+            // NONE → vector search
+            if trimmed.uppercased().contains("NONE") {
+                print("📅 Query understanding: NONE (vector search)")
+                return .vectorSearch
+            }
+
+            // Parse START/END dates
+            let datePattern = #"\d{4}-\d{2}-\d{2}"#
+            guard let regex = try? NSRegularExpression(pattern: datePattern) else {
+                print("📅 Query understanding: parse failed, falling back to vector search")
+                return .vectorSearch
+            }
+            let matches = regex.matches(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed))
+            let dates = matches.compactMap { match -> Date? in
+                guard let range = Range(match.range, in: trimmed) else { return nil }
+                return df.date(from: String(trimmed[range]))
+            }.map { calendar.startOfDay(for: $0) }
+
+            guard let startDate = dates.first else {
+                print("📅 Query understanding: no dates in response, falling back to vector search")
+                return .vectorSearch
+            }
+            let endDate: Date = dates.count > 1 ? dates[1] : calendar.date(byAdding: .day, value: 1, to: startDate)!
+            print("📅 Query understanding: DATE RANGE \(startDate) to \(endDate)")
+            return .dateRange(start: startDate, end: endDate)
         } catch {
-            print("⚠️ Clarifying question generation failed: \(error)")
-            return nil
+            print("⚠️ Query understanding failed: \(error), falling back to vector search")
+            return .vectorSearch
         }
     }
 
@@ -163,75 +176,103 @@ class VectorContextBuilder {
             context += memoryContext
         }
 
-        // 3. Check if query is vague and needs clarification
-        if let clarification = await shouldAskClarifyingQuestion(query: query, conversationHistory: conversationHistory) {
-            print("❓ Query is vague, asking for clarification")
-            context += "\n=== CLARIFICATION NEEDED ===\n"
-            context += clarification + "\n"
+        // 3. Single LLM decides: date range (→ DB) vs vector search vs clarify
+        print("🔍 Query understanding...")
+        let understanding = await understandQuery(query: query, conversationHistory: conversationHistory)
 
+        switch understanding {
+        case .clarify(let question):
+            context += "\n=== CLARIFICATION NEEDED ===\n"
+            context += question + "\n"
             metadata.estimatedTokens = estimateTokenCount(context)
             metadata.buildTime = Date().timeIntervalSince(startTime)
             return ContextResult(context: context, metadata: metadata)
-        }
 
-        // 4. For date-specific queries, use DIRECT DATABASE QUERY for accurate results
-        // For general queries, use vector semantic search
-        // This hybrid approach gives the best of both worlds
-        print("🔍 Performing unified semantic search...")
+        case .dateRange(let start, let end):
+            let dateRange = (start: start, end: end)
+            let queryLower = query.lowercased()
+            let isComparison = queryLower.contains("compare") || queryLower.contains(" vs ") || queryLower.contains(" versus ") || queryLower.contains("compared to")
 
-        do {
-            // Extract date range if mentioned in query
-            let dateRange = await extractDateRange(from: query)
-            
-            var relevantContext = ""
-            
-            if let dateRange = dateRange {
-                print("📅 Date range extracted: \(dateRange.start) to \(dateRange.end)")
-                
-                // For date-specific queries, use DIRECT DB query (more accurate than vector)
+            // When user asks to "compare to last week" (or similar), also fetch this week so the model has both periods
+            if isComparison {
+                let calendar = Calendar.current
+                let today = Date()
+                let todayStart = calendar.startOfDay(for: today)
+                let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart)!
+                let requestedRangeIsPast = end <= tomorrowStart
+                if requestedRangeIsPast {
+                    let weekday = calendar.component(.weekday, from: today)
+                    let daysSinceMonday = (weekday == 1) ? 6 : (weekday - 2)
+                    if let thisWeekStart = calendar.date(byAdding: .day, value: -daysSinceMonday, to: todayStart) {
+                        let thisWeekEnd = calendar.date(byAdding: .day, value: 1, to: todayStart)!
+                        let baselineRange = (start: thisWeekStart, end: thisWeekEnd)
+                        let baselineContext = await buildDayCompletenessContext(dateRange: baselineRange)
+                        if !baselineContext.isEmpty {
+                            context += "\n=== PERIOD TO COMPARE AGAINST (This week) ===\n"
+                            context += baselineContext
+                            metadata.usedCompleteDayData = true
+                            print("✅ Added comparison baseline period (this week)")
+                        }
+                    }
+                }
+            }
+
+            do {
                 let dayContext = await buildDayCompletenessContext(dateRange: dateRange)
                 if !dayContext.isEmpty {
-                    relevantContext = dayContext
+                    if isComparison {
+                        context += "\n=== OTHER PERIOD (Requested range, e.g. last week) ===\n"
+                    }
+                    context += "\n" + dayContext
                     metadata.usedCompleteDayData = true
                     print("✅ Found complete day data via direct DB query")
                 } else {
-                    // Fallback to vector search if direct query returns nothing
                     print("⚠️ Direct DB query returned nothing, falling back to vector search")
                     let limit = determineSearchLimit(forQuery: query)
-                    relevantContext = try await vectorSearch.getRelevantContext(
+                    let relevantContext = try await vectorSearch.getRelevantContext(
                         forQuery: query,
                         limit: limit,
                         dateRange: dateRange
                     )
+                    context += "\n" + relevantContext
                     metadata.usedVectorSearch = true
                 }
-            } else {
-                print("⚠️ No date range extracted from query")
-                // For non-date queries, use vector semantic search
+            } catch {
+                print("❌ Day completeness / vector search failed: \(error)")
+                context += "\n[Search unavailable for this date range]\n"
+            }
+
+        case .vectorSearch:
+            do {
                 let limit = determineSearchLimit(forQuery: query)
-                relevantContext = try await vectorSearch.getRelevantContext(
+                var relevantContext = try await vectorSearch.getRelevantContext(
                     forQuery: query,
                     limit: limit,
                     dateRange: nil
                 )
-                metadata.usedVectorSearch = true
-            }
-
-            if !relevantContext.isEmpty {
-                context += "\n" + relevantContext
-                if metadata.usedCompleteDayData {
-                    print("✅ Added complete day data to context")
-                } else {
+                if !relevantContext.isEmpty {
+                    context += "\n" + relevantContext
                     metadata.usedVectorSearch = true
-                    print("✅ Found relevant data via semantic search")
+                    // Second pass: if first result is thin, fetch more with expanded limit
+                    if relevantContext.count < 2500 {
+                        let secondLimit = min(limit + 25, 80)
+                        let secondContext = try await vectorSearch.getRelevantContext(
+                            forQuery: query,
+                            limit: secondLimit,
+                            dateRange: nil
+                        )
+                        if !secondContext.isEmpty && secondContext != relevantContext {
+                            context += "\n\n=== ADDITIONAL RELEVANT DATA (second pass) ===\n"
+                            context += secondContext
+                        }
+                    }
+                } else {
+                    context += "\n[No relevant data found for this query]\n"
                 }
-            } else {
-                print("⚠️ No relevant data found")
-                context += "\n[No relevant data found for this query]\n"
+            } catch {
+                print("❌ Vector search failed: \(error)")
+                context += "\n[Search unavailable - using minimal context]\n"
             }
-        } catch {
-            print("❌ Semantic search failed: \(error)")
-            context += "\n[Search unavailable - using minimal context]\n"
         }
         
         // 5. Calculate token estimate
@@ -350,310 +391,6 @@ class VectorContextBuilder {
         return context
     }
     
-    // MARK: - Query Type Detection
-
-    /// Detect if query is date-specific or semantic
-    private func detectQueryType(_ query: String, dateRange: (start: Date, end: Date)?) -> QueryType {
-        // If date range detected, it's date-specific
-        if dateRange != nil {
-            return .dateSpecific
-        }
-
-        // Check for semantic keywords
-        let lowercaseQuery = query.lowercased()
-        let semanticKeywords = ["all", "every", "list", "show me", "history", "past"]
-        let hasSemanticKeyword = semanticKeywords.contains { lowercaseQuery.contains($0) }
-
-        return hasSemanticKeyword ? .semantic : .dateSpecific
-    }
-
-    enum QueryType {
-        case dateSpecific    // "haircut today", "what did I do yesterday"
-        case semantic       // "all haircuts", "meetings with John"
-    }
-
-    // MARK: - Date Extraction
-
-    /// Extract date range from query using LLM intelligence
-    /// This avoids hardcoding date patterns - the LLM understands natural language dates
-    private func extractDateRange(from query: String) async -> (start: Date, end: Date)? {
-        // First, try simple explicit date patterns (fast, no LLM call needed)
-        let calendar = Calendar.current
-        let today = Date()
-        let todayStart = calendar.startOfDay(for: today)
-
-        // Quick checks for common explicit patterns
-        let lower = query.lowercased()
-
-        // EXPLICIT PATTERN MATCHING for "today" (fast path, no LLM needed)
-        if lower.contains("today") || lower.contains("my day") {
-            // Add full day + 1 hour buffer to account for timezone edge cases
-            guard let dayEnd = calendar.date(byAdding: .hour, value: 25, to: todayStart) else {
-                return nil
-            }
-            print("📅 Date extraction (pattern): Detected 'today' - Range: \(todayStart) to \(dayEnd)")
-            return (start: todayStart, end: dayEnd)
-        }
-
-        // EXPLICIT PATTERN MATCHING for "yesterday" (fast path, no LLM needed)
-        if lower.contains("yesterday") {
-            guard let yesterday = calendar.date(byAdding: .day, value: -1, to: todayStart) else {
-                return nil
-            }
-            let dayEnd = todayStart  // Yesterday's end is today's start
-            print("📅 Date extraction (pattern): Detected 'yesterday' - Range: \(yesterday) to \(dayEnd)")
-            return (start: yesterday, end: dayEnd)
-        }
-
-        // "my weekend" / "the weekend" - treat same as "this weekend"
-        if lower.contains("weekend") && !lower.contains("last weekend") {
-            let weekday = calendar.component(.weekday, from: today) // 1=Sun...7=Sat
-            let daysToLastSat = weekday % 7 // 0 for Sat, 1 for Sun, 2 for Mon, etc.
-            let isWeekend = weekday == 1 || weekday == 7
-            let saturday: Date
-            if isWeekend {
-                saturday = calendar.date(byAdding: .day, value: -daysToLastSat, to: todayStart)!
-            } else {
-                saturday = calendar.date(byAdding: .day, value: 7 - daysToLastSat, to: todayStart)!
-            }
-            guard let mondayAfter = calendar.date(byAdding: .day, value: 2, to: saturday) else { return nil }
-            print("📅 Date extraction (pattern): Detected 'weekend' - Range: \(saturday) to \(mondayAfter)")
-            return (start: saturday, end: mondayAfter)
-        }
-
-        // "this weekend" — check BEFORE "this week" ("this weekend" contains "this week" as substring)
-        if lower.contains("this weekend") {
-            let weekday = calendar.component(.weekday, from: today) // 1=Sun...7=Sat
-            let daysToLastSat = weekday % 7 // 0 for Sat, 1 for Sun, 2 for Mon, etc.
-            let isWeekend = weekday == 1 || weekday == 7
-            let saturday: Date
-            if isWeekend {
-                saturday = calendar.date(byAdding: .day, value: -daysToLastSat, to: todayStart)!
-            } else {
-                saturday = calendar.date(byAdding: .day, value: 7 - daysToLastSat, to: todayStart)!
-            }
-            guard let mondayAfter = calendar.date(byAdding: .day, value: 2, to: saturday) else { return nil }
-            print("📅 Date extraction (pattern): Detected 'this weekend' - Range: \(saturday) to \(mondayAfter)")
-            return (start: saturday, end: mondayAfter)
-        }
-
-        // "last weekend" — check BEFORE "last week" (same substring reason)
-        if lower.contains("last weekend") {
-            let weekday = calendar.component(.weekday, from: today)
-            let daysToLastSat = weekday % 7
-            let isWeekend = weekday == 1 || weekday == 7
-            let saturday: Date
-            if isWeekend {
-                saturday = calendar.date(byAdding: .day, value: -(daysToLastSat + 7), to: todayStart)!
-            } else {
-                saturday = calendar.date(byAdding: .day, value: -daysToLastSat, to: todayStart)!
-            }
-            guard let mondayAfter = calendar.date(byAdding: .day, value: 2, to: saturday) else { return nil }
-            print("📅 Date extraction (pattern): Detected 'last weekend' - Range: \(saturday) to \(mondayAfter)")
-            return (start: saturday, end: mondayAfter)
-        }
-
-        // "this week" (Mon–Sun)
-        if lower.contains("this week") {
-            let weekday = calendar.component(.weekday, from: today)
-            let daysFromMonday = weekday == 1 ? 6 : weekday - 2
-            guard let monday = calendar.date(byAdding: .day, value: -daysFromMonday, to: todayStart),
-                  let nextMonday = calendar.date(byAdding: .day, value: 7, to: monday) else { return nil }
-            print("📅 Date extraction (pattern): Detected 'this week' - Range: \(monday) to \(nextMonday)")
-            return (start: monday, end: nextMonday)
-        }
-
-        // "last week"
-        if lower.contains("last week") {
-            let weekday = calendar.component(.weekday, from: today)
-            let daysFromMonday = weekday == 1 ? 6 : weekday - 2
-            guard let monday = calendar.date(byAdding: .day, value: -daysFromMonday - 7, to: todayStart),
-                  let nextMonday = calendar.date(byAdding: .day, value: 7, to: monday) else { return nil }
-            print("📅 Date extraction (pattern): Detected 'last week' - Range: \(monday) to \(nextMonday)")
-            return (start: monday, end: nextMonday)
-        }
-
-        // "this month"
-        if lower.contains("this month") {
-            let components = calendar.dateComponents([.year, .month], from: today)
-            guard let firstOfMonth = calendar.date(from: components),
-                  let firstOfNextMonth = calendar.date(byAdding: .month, value: 1, to: firstOfMonth) else { return nil }
-            print("📅 Date extraction (pattern): Detected 'this month' - Range: \(firstOfMonth) to \(firstOfNextMonth)")
-            return (start: firstOfMonth, end: firstOfNextMonth)
-        }
-
-        // "last month"
-        if lower.contains("last month") {
-            let components = calendar.dateComponents([.year, .month], from: today)
-            guard let firstOfMonth = calendar.date(from: components),
-                  let firstOfLastMonth = calendar.date(byAdding: .month, value: -1, to: firstOfMonth) else { return nil }
-            print("📅 Date extraction (pattern): Detected 'last month' - Range: \(firstOfLastMonth) to \(firstOfMonth)")
-            return (start: firstOfLastMonth, end: firstOfMonth)
-        }
-
-        // Explicit ISO dates (fast path)
-        if let range = lower.range(of: "\\b\\d{4}-\\d{2}-\\d{2}\\b", options: .regularExpression) {
-            let token = String(lower[range])
-            let df = DateFormatter()
-            df.locale = Locale(identifier: "en_US_POSIX")
-            df.timeZone = TimeZone(secondsFromGMT: 0)
-            df.dateFormat = "yyyy-MM-dd"
-            if let targetDate = df.date(from: token) {
-                let dayStart = calendar.startOfDay(for: targetDate)
-                guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return nil }
-                print("📅 Date extraction (pattern): Detected ISO date '\(token)' - Range: \(dayStart) to \(dayEnd)")
-                return (start: dayStart, end: dayEnd)
-            }
-        }
-
-        // Month names with optional year (e.g., "January 2026", "Dec 2025", "February")
-        // Use word boundaries to avoid matching "mar" in "weekend"
-        let monthPatterns = [
-            ("january", 1), ("january\\b", 1), ("\\bjan\\b", 1),
-            ("february", 2), ("february\\b", 2), ("\\bfeb\\b", 2),
-            ("march", 3), ("march\\b", 3), ("\\bmar\\b", 3),
-            ("april", 4), ("april\\b", 4), ("\\bapr\\b", 4),
-            ("\\bmay\\b", 5),
-            ("june", 6), ("june\\b", 6), ("\\bjun\\b", 6),
-            ("july", 7), ("july\\b", 7), ("\\bjul\\b", 7),
-            ("august", 8), ("august\\b", 8), ("\\baug\\b", 8),
-            ("september", 9), ("september\\b", 9), ("\\bsep\\b", 9), ("\\bsept\\b", 9),
-            ("october", 10), ("october\\b", 10), ("\\boct\\b", 10),
-            ("november", 11), ("november\\b", 11), ("\\bnov\\b", 11),
-            ("december", 12), ("december\\b", 12), ("\\bdec\\b", 12)
-        ]
-
-        for (monthName, monthNumber) in monthPatterns {
-            if lower.range(of: monthName, options: .regularExpression) != nil {
-                // Try to extract year from query (e.g., "January 2026", "Dec 2025")
-                let yearPattern = "\\b(\\d{4})\\b"
-                var targetYear = calendar.component(.year, from: today)  // Default to current year
-
-                if let yearRange = lower.range(of: yearPattern, options: .regularExpression) {
-                    if let year = Int(String(lower[yearRange])) {
-                        targetYear = year
-                    }
-                }
-
-                // Create date components for the first day of the month
-                var components = DateComponents()
-                components.year = targetYear
-                components.month = monthNumber
-                components.day = 1
-
-                if let firstOfMonth = calendar.date(from: components),
-                   let firstOfNextMonth = calendar.date(byAdding: .month, value: 1, to: firstOfMonth) {
-                    print("📅 Date extraction (pattern): Detected '\(monthName) \(targetYear)' - Range: \(firstOfMonth) to \(firstOfNextMonth)")
-                    return (start: firstOfMonth, end: firstOfNextMonth)
-                }
-            }
-        }
-        
-        // Check cache first to avoid redundant LLM calls
-        let cacheKey = query.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        if let cached = dateExtractionCache[cacheKey] {
-            let age = Date().timeIntervalSince(cached.timestamp)
-            if age < dateExtractionCacheTTL {
-                print("📅 Date extraction cache hit (age: \(Int(age))s): '\(query)'")
-                return cached.result
-            } else {
-                // Cache expired, remove it
-                dateExtractionCache.removeValue(forKey: cacheKey)
-            }
-        }
-
-        // Use LLM to extract date from natural language query
-        // This handles "two weeks ago", "same day last week", "the last 3 days", etc.
-        do {
-            let yesterdayStr = calendar.date(byAdding: .day, value: -1, to: todayStart)!.ISO8601Format().prefix(10)
-            let twoWeeksAgoStr = calendar.date(byAdding: .day, value: -14, to: todayStart)!.ISO8601Format().prefix(10)
-            let threeDaysAgoStr = calendar.date(byAdding: .day, value: -3, to: todayStart)!.ISO8601Format().prefix(10)
-            let tomorrowStr = calendar.date(byAdding: .day, value: 1, to: todayStart)!.ISO8601Format().prefix(10)
-
-            let dateExtractionPrompt = """
-            Extract the date or date range from this user query. Today is \(DateFormatter.localizedString(from: today, dateStyle: .full, timeStyle: .none)).
-
-            User query: "\(query)"
-
-            Respond with EXACTLY one of these formats:
-
-            For a single day:
-            START: YYYY-MM-DD
-
-            For a date range:
-            START: YYYY-MM-DD
-            END: YYYY-MM-DD
-
-            If no date is mentioned:
-            NONE
-
-            Rules:
-            - START is the first day (inclusive)
-            - END is the day AFTER the last day (exclusive). Example: Saturday+Sunday range → END is Monday.
-            - For a single day, omit the END line.
-
-            Examples:
-            - "yesterday" → START: \(yesterdayStr)
-            - "two weeks ago" → START: \(twoWeeksAgoStr)
-            - "the last 3 days" → START: \(threeDaysAgoStr)\nEND: \(tomorrowStr)
-            - "today and yesterday" → START: \(yesterdayStr)\nEND: \(tomorrowStr)
-            - "no date mentioned" → NONE
-
-            Respond with ONLY the START/END lines or NONE. No other text.
-            """
-
-            let response = try await GeminiService.shared.simpleChatCompletion(
-                systemPrompt: "You are a date extraction assistant. Extract dates from user queries. Respond with START:/END: lines or NONE.",
-                messages: [["role": "user", "content": dateExtractionPrompt]]
-            )
-
-            let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if trimmed.uppercased().contains("NONE") {
-                print("📅 Date extraction: No date found in query (LLM response: 'none')")
-                dateExtractionCache[cacheKey] = (result: nil, timestamp: Date())
-                return nil
-            }
-
-            // Extract all YYYY-MM-DD dates from the response
-            let df = DateFormatter()
-            df.locale = Locale(identifier: "en_US_POSIX")
-            df.timeZone = TimeZone.current
-            df.dateFormat = "yyyy-MM-dd"
-
-            let datePattern = #"\d{4}-\d{2}-\d{2}"#
-            let regex = try NSRegularExpression(pattern: datePattern)
-            let matches = regex.matches(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed))
-            let dates = matches.compactMap { match -> Date? in
-                guard let range = Range(match.range, in: trimmed) else { return nil }
-                return df.date(from: String(trimmed[range]))
-            }.map { calendar.startOfDay(for: $0) }
-
-            guard let startDate = dates.first else {
-                print("⚠️ Date extraction: No valid date found in LLM response: '\(trimmed)'")
-                dateExtractionCache[cacheKey] = (result: nil, timestamp: Date())
-                return nil
-            }
-
-            let endDate: Date
-            if dates.count > 1 {
-                endDate = dates[1]
-                print("📅 Date extraction (LLM): Range \(startDate) to \(endDate) from query: '\(query)'")
-            } else {
-                endDate = calendar.date(byAdding: .day, value: 1, to: startDate)!
-                print("📅 Date extraction (LLM): Single day \(startDate) from query: '\(query)'")
-            }
-
-            let result = (start: startDate, end: endDate)
-            dateExtractionCache[cacheKey] = (result: result, timestamp: Date())
-            return result
-        } catch {
-            print("⚠️ Date extraction (LLM) failed: \(error), falling back to no date filter")
-            dateExtractionCache[cacheKey] = (result: nil, timestamp: Date())
-            return nil
-        }
-    }
-    
     // MARK: - Date Completeness Context
     
     /// Fetch ALL items for a date range to guarantee completeness
@@ -688,9 +425,11 @@ class VectorContextBuilder {
             context = "\n=== COMPLETE DATA ===\n"
             context += "Date range: \(dayLabelFormatter.string(from: dayStart)) – \(dayLabelFormatter.string(from: lastDay))\n"
         }
-        context += "This is the authoritative list of ALL items for this period.\n\n"
+        context += "This is the authoritative list of ALL items for this period. Each day is labeled with its weekday and date — use the exact weekday (e.g. Monday, Sunday) when answering.\n\n"
         
         print("📊 Building day completeness context for: \(dayLabelFormatter.string(from: dayStart))")
+        
+        let calendar = Calendar.current
         
         // 1. Visits (source-of-truth from location_visits)
         var visitsForDay: [LocationVisitRecord] = []
@@ -724,121 +463,47 @@ class VectorContextBuilder {
                 return start < dayEnd && end >= dayStart
             }
             
-            print("📍 Found \(visitsForDay.count) visits for \(dayLabelFormatter.string(from: dayStart))")
-            if !visitsForDay.isEmpty {
-                context += "VISITS (\(visitsForDay.count)):\n"
-                for visit in visitsForDay {
-                    let place = LocationsManager.shared.savedPlaces.first(where: { $0.id == visit.savedPlaceId })
-                    let placeName = place?.displayName ?? "Unknown Location"
-                    let start = visit.entryTime
-                    let end = visit.exitTime
-                    let range = end != nil ? "\(timeFormatter.string(from: start))–\(timeFormatter.string(from: end!))" : "\(timeFormatter.string(from: start))–(ongoing)"
-                    let duration = visit.durationMinutes.map { "\($0)m" } ?? "unknown duration"
-                    let notes = (visit.visitNotes ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    
-                    // Get people connected to this visit
-                    let peopleForVisit = await PeopleManager.shared.getPeopleForVisit(visitId: visit.id)
-                    let peopleNames = peopleForVisit.map { $0.name }
-                    
-                    var visitLine = "- \(range) • \(placeName) • \(duration)"
-                    if !peopleNames.isEmpty {
-                        visitLine += " • With: \(peopleNames.joined(separator: ", "))"
-                    }
-                    if !notes.isEmpty {
-                        visitLine += " • Reason: \(notes)"
-                    }
-                    context += visitLine + "\n"
-                }
-                context += "\n"
-            }
+            print("📍 Found \(visitsForDay.count) visits for range")
         } catch {
             print("⚠️ Failed to fetch visits for day: \(error)")
         }
         
-        // 2. Events/Tasks (source-of-truth from TaskManager)
+        // 2. Events/Tasks (source-of-truth from TaskManager) — build list for per-day output
+        var validTasks: [TaskItem] = []
         do {
             let tagManager = TagManager.shared
-
-            // Collect tasks for ALL days in the date range
             var allTasks = TaskManager.shared.getTasksForDate(dayStart).filter { !$0.isDeleted }
-            var iterDay = Calendar.current.date(byAdding: .day, value: 1, to: dayStart)!
+            var iterDay = calendar.date(byAdding: .day, value: 1, to: dayStart)!
             while iterDay < dayEnd {
                 let moreTasks = TaskManager.shared.getTasksForDate(iterDay).filter { !$0.isDeleted }
                 allTasks.append(contentsOf: moreTasks)
-                guard let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: iterDay) else { break }
+                guard let nextDay = calendar.date(byAdding: .day, value: 1, to: iterDay) else { break }
                 iterDay = nextDay
             }
-
-            // Deduplicate by ID (recurring tasks may appear on multiple days)
             var seenIds = Set<String>()
             let tasks = allTasks.filter { task in
                 if seenIds.contains(task.id) { return false }
                 seenIds.insert(task.id)
                 return true
             }
-
-            // Validate tasks fall within the date range
-            let validTasks = tasks.filter { task in
+            validTasks = tasks.filter { task in
                 if let targetDate = task.targetDate {
                     let isInRange = targetDate >= dayStart && targetDate < dayEnd
-                    if !isInRange {
-                        print("⚠️ MISMATCH: Task '\(task.title)' targetDate \(targetDate) outside range \(dayStart)–\(dayEnd)")
-                    }
+                    if !isInRange { print("⚠️ MISMATCH: Task '\(task.title)' targetDate \(targetDate) outside range \(dayStart)–\(dayEnd)") }
                     return isInRange
                 }
                 if let scheduledTime = task.scheduledTime {
                     let isInRange = scheduledTime >= dayStart && scheduledTime < dayEnd
-                    if !isInRange {
-                        print("⚠️ MISMATCH: Task '\(task.title)' scheduledTime \(scheduledTime) outside range \(dayStart)–\(dayEnd)")
-                    }
+                    if !isInRange { print("⚠️ MISMATCH: Task '\(task.title)' scheduledTime \(scheduledTime) outside range \(dayStart)–\(dayEnd)") }
                     return isInRange
                 }
                 return true
             }
-
-            let rangeLabel = isSingleDay ? dayLabelFormatter.string(from: dayStart) : "\(dayLabelFormatter.string(from: dayStart))–\(dayLabelFormatter.string(from: Calendar.current.date(byAdding: .day, value: -1, to: dayEnd) ?? dayEnd))"
+            let rangeLabel = isSingleDay ? dayLabelFormatter.string(from: dayStart) : "\(dayLabelFormatter.string(from: dayStart))–\(dayLabelFormatter.string(from: calendar.date(byAdding: .day, value: -1, to: dayEnd) ?? dayEnd))"
             print("📋 Day completeness: Found \(validTasks.count) validated events for \(rangeLabel)")
-            for task in validTasks {
-                let timeDesc = task.scheduledTime != nil ? timeFormatter.string(from: task.scheduledTime!) : "all-day"
-                print("   - \(task.title) @ \(timeDesc)")
-            }
-
-            if !validTasks.isEmpty {
-                context += "EVENTS/TASKS (\(validTasks.count)):\n"
-                for t in validTasks.sorted(by: { ($0.scheduledTime ?? $0.targetDate ?? $0.createdAt) < ($1.scheduledTime ?? $1.targetDate ?? $1.createdAt) }) {
-                    let tagName = tagManager.getTag(by: t.tagId)?.name ?? "Personal"
-                    
-                    let timeLabel: String = {
-                        if t.scheduledTime == nil, t.targetDate != nil { return "[All-day]" }
-                        if let st = t.scheduledTime, let et = t.endTime {
-                            let tf = DateFormatter()
-                            tf.timeStyle = .short
-                            let sameDay = Calendar.current.isDate(st, inSameDayAs: et)
-                            if sameDay { return "\(tf.string(from: st)) - \(tf.string(from: et))" }
-                            let df = DateFormatter()
-                            df.dateStyle = .short
-                            df.timeStyle = .short
-                            return "\(df.string(from: st)) → \(df.string(from: et))"
-                        }
-                        if let st = t.scheduledTime {
-                            let tf = DateFormatter()
-                            tf.timeStyle = .short
-                            return tf.string(from: st)
-                        }
-                        return ""
-                    }()
-                    
-                    let loc = (t.location?.isEmpty == false) ? " @ \(t.location!)" : ""
-                    context += "- \(timeLabel) \(t.title) — \(tagName)\(loc)\n"
-                    if let desc = t.description, !desc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        context += "  - \(desc.prefix(160))\n"
-                    }
-                }
-                context += "\n"
-            }
         }
         
-        // 3. Receipts (source-of-truth from receipt notes)
+        // 3. Receipts (source-of-truth from receipt notes) — build list for per-day output
         var receiptNotes: [(note: Note, date: Date, amount: Double, category: String)] = []
         do {
             let notesManager = NotesManager.shared
@@ -863,24 +528,78 @@ class VectorContextBuilder {
                     let category = ReceiptCategorizationService.shared.quickCategorizeReceipt(title: note.title, content: note.content) ?? "Other"
                     return (note, date, amount, category)
                 }
-            
-            if !receiptNotes.isEmpty {
-                let total = receiptNotes.reduce(0.0) { $0 + $1.amount }
-                context += "RECEIPTS (\(receiptNotes.count)) — Total $\(String(format: "%.2f", total)):\n"
-                for r in receiptNotes.sorted(by: { $0.amount > $1.amount }) {
-                    // Link receipt to people via nearby visits
+        }
+        
+        // 4. Per-day blocks (weekday + date so the model reports e.g. "Monday" not "Saturday")
+        var currentDay = dayStart
+        while currentDay < dayEnd {
+            context += "--- \(dayLabelFormatter.string(from: currentDay)) ---\n"
+            let visitsOnDay = visitsForDay.filter { calendar.isDate($0.entryTime, inSameDayAs: currentDay) }
+            if !visitsOnDay.isEmpty {
+                context += "VISITS (\(visitsOnDay.count)):\n"
+                for visit in visitsOnDay {
+                    let place = LocationsManager.shared.savedPlaces.first(where: { $0.id == visit.savedPlaceId })
+                    let placeName = place?.displayName ?? "Unknown Location"
+                    let start = visit.entryTime
+                    let end = visit.exitTime
+                    let range = end != nil ? "\(timeFormatter.string(from: start))–\(timeFormatter.string(from: end!))" : "\(timeFormatter.string(from: start))–(ongoing)"
+                    let duration = visit.durationMinutes.map { "\($0)m" } ?? "unknown duration"
+                    let notes = (visit.visitNotes ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let peopleForVisit = await PeopleManager.shared.getPeopleForVisit(visitId: visit.id)
+                    let peopleNames = peopleForVisit.map { $0.name }
+                    var visitLine = "- \(range) • \(placeName) • \(duration)"
+                    if !peopleNames.isEmpty { visitLine += " • With: \(peopleNames.joined(separator: ", "))" }
+                    if !notes.isEmpty { visitLine += " • Reason: \(notes)" }
+                    context += visitLine + "\n"
+                }
+                context += "\n"
+            }
+            let tagManager = TagManager.shared
+            let taskDate: (TaskItem) -> Date? = { t in t.scheduledTime ?? t.targetDate ?? t.createdAt }
+            let tasksOnDay = validTasks.filter { guard let d = taskDate($0) else { return false }; return calendar.isDate(d, inSameDayAs: currentDay) }
+            if !tasksOnDay.isEmpty {
+                context += "EVENTS/TASKS (\(tasksOnDay.count)):\n"
+                for t in tasksOnDay.sorted(by: { (taskDate($0) ?? .distantPast) < (taskDate($1) ?? .distantPast) }) {
+                    let tagName = tagManager.getTag(by: t.tagId)?.name ?? "Personal"
+                    let timeLabel: String = {
+                        if t.scheduledTime == nil, t.targetDate != nil { return "[All-day]" }
+                        if let st = t.scheduledTime, let et = t.endTime {
+                            let tf = DateFormatter(); tf.timeStyle = .short
+                            if calendar.isDate(st, inSameDayAs: et) { return "\(tf.string(from: st)) - \(tf.string(from: et))" }
+                            let df = DateFormatter(); df.dateStyle = .short; df.timeStyle = .short
+                            return "\(df.string(from: st)) → \(df.string(from: et))"
+                        }
+                        if let st = t.scheduledTime {
+                            let tf = DateFormatter(); tf.timeStyle = .short
+                            return tf.string(from: st)
+                        }
+                        return ""
+                    }()
+                    let loc = (t.location?.isEmpty == false) ? " @ \(t.location!)" : ""
+                    context += "- \(timeLabel) \(t.title) — \(tagName)\(loc)\n"
+                    if let desc = t.description, !desc.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
+                        context += "  - \(desc.prefix(160))\n"
+                    }
+                }
+                context += "\n"
+            }
+            let receiptsOnDay = receiptNotes.filter { calendar.isDate($0.date, inSameDayAs: currentDay) }
+            if !receiptsOnDay.isEmpty {
+                let total = receiptsOnDay.reduce(0.0) { $0 + $1.amount }
+                context += "RECEIPTS (\(receiptsOnDay.count)) — Total $\(String(format: "%.2f", total)):\n"
+                for r in receiptsOnDay.sorted(by: { $0.amount > $1.amount }) {
                     let linkedPeople = await linkReceiptToPeople(receipt: r, visits: visitsForDay)
                     var receiptLine = "- \(r.note.title) — $\(String(format: "%.2f", r.amount)) (\(r.category))"
-                    if !linkedPeople.isEmpty {
-                        receiptLine += " — With: \(linkedPeople.joined(separator: ", "))"
-                    }
+                    if !linkedPeople.isEmpty { receiptLine += " — With: \(linkedPeople.joined(separator: ", "))" }
                     context += receiptLine + "\n"
                 }
                 context += "\n"
             }
+            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
+            currentDay = nextDay
         }
         
-        // 3.5. SPENDING SUMMARY - Match receipts to visits with smart connections
+        // 5. SPENDING SUMMARY - Match receipts to visits with smart connections
         do {
             // Match receipts to visits using time + location name scoring
             let receiptMatches = matchReceiptsToVisits(receipts: receiptNotes, visits: visitsForDay)
@@ -892,7 +611,7 @@ class VectorContextBuilder {
             }
         }
 
-        // 4. RELATED CONTEXT - Synthesize connections across data types
+        // 6. RELATED CONTEXT - Synthesize connections across data types
         context += "RELATED CONTEXT (Smart Connections):\n"
         var hasRelatedData = false
 

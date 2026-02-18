@@ -20,6 +20,9 @@ class SpeechRecognitionService: ObservableObject {
     var onTranscriptionUpdate: ((String) -> Void)?
     var onAutoSend: (() -> Void)? // Callback when silence detected and should auto-send
 
+    /// When true, transcription callbacks should not update the chat input (e.g. right after user sent).
+    var shouldIgnoreTranscriptionUpdates: Bool = false
+
     // Silence detection
     private var lastSpeechTime: Date?
     private var silenceTimer: Timer?

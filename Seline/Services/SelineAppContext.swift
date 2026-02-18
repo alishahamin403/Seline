@@ -745,6 +745,95 @@ class SelineAppContext {
         return events
     }
     
+    /// Populate lastRelevantContent and lastEventCreationInfo for chat UI pills. Call before sending the user message so the response message gets pill data.
+    func prepareRelevantContentForChat(userQuery: String) {
+        lastETALocationInfo = nil
+        lastEventCreationInfo = nil
+        lastRelevantContent = nil
+        
+        if isEventCreationQuery(userQuery) {
+            let extracted = extractEventDetails(from: userQuery)
+            if !extracted.isEmpty {
+                lastEventCreationInfo = extracted
+                print("📅 Set lastEventCreationInfo (\(extracted.count) events) for chat pills")
+            }
+        }
+        
+        let terms = userQuery.lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { $0.count > 2 }
+        guard !terms.isEmpty else { return }
+        
+        var found: [RelevantContentInfo] = []
+        let allEvents = taskManager.getAllTasksIncludingArchived().filter { !$0.isDeleted }
+        let allNotes = notesManager.notes
+        let allEmails = emailService.inboxEmails + emailService.sentEmails
+        let allPlaces = locationsManager.savedPlaces
+        
+        for event in allEvents.prefix(200) {
+            let text = "\(event.title) \(event.description ?? "")".lowercased()
+            if terms.contains(where: { text.contains($0) }) {
+                let category = tagManager.getTag(by: event.tagId)?.name ?? "Personal"
+                found.append(.event(id: UUID(uuidString: event.id) ?? UUID(), title: event.title, date: event.targetDate ?? event.scheduledTime ?? Date(), category: category))
+                if found.filter({ $0.contentType == .event }).count >= 3 { break }
+            }
+        }
+        
+        for note in allNotes.prefix(100) {
+            let text = "\(note.title) \(note.content)".lowercased()
+            if terms.contains(where: { text.contains($0) }) {
+                found.append(.note(id: note.id, title: note.title, snippet: String(note.content.prefix(80)), folder: getCachedFolderName(for: note.folderId)))
+                if found.filter({ $0.contentType == .note }).count >= 3 { break }
+            }
+        }
+        
+        for email in allEmails.prefix(100) {
+            let text = "\(email.subject) \(email.sender.displayName) \(email.sender.email) \(email.snippet)".lowercased()
+            if terms.contains(where: { text.contains($0) }) {
+                found.append(.email(id: email.id, subject: email.subject, sender: email.sender.displayName, snippet: String(email.snippet.prefix(100)), date: email.timestamp))
+                if found.filter({ $0.contentType == .email }).count >= 3 { break }
+            }
+        }
+        
+        for place in allPlaces.prefix(50) {
+            let text = "\(place.name) \(place.address)".lowercased()
+            if terms.contains(where: { text.contains($0) }) {
+                found.append(.location(id: place.id, name: place.name, address: place.address, category: place.category ?? ""))
+                if found.filter({ $0.contentType == .location }).count >= 2 { break }
+            }
+        }
+        
+        // When query implies receipts/spending, add receipt notes (notes under Receipts folder) so source pills show "Receipt"
+        let queryLower = userQuery.lowercased()
+        let receiptQueryTerms = ["receipt", "receipts", "spent", "spend", "purchase", "purchases", "bought", "buy", "expense", "expenses", "haircut", "payment", "payments", "last haircut", "appointment"]
+        let impliesReceipts = receiptQueryTerms.contains { queryLower.contains($0) }
+        if impliesReceipts {
+            let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+            let receiptNotes = allNotes.filter { isUnderReceiptsFolderHierarchy(folderId: $0.folderId, receiptsFolderId: receiptsFolderId) }
+            var receiptCount = found.filter { $0.contentType == .note }.count
+            for note in receiptNotes.prefix(10) {
+                guard receiptCount < 3 else { break }
+                let alreadyInFound = found.contains { $0.noteId == note.id }
+                if alreadyInFound { continue }
+                let text = "\(note.title) \(note.content)".lowercased()
+                let matchesTerms = terms.contains(where: { text.contains($0) })
+                if matchesTerms || receiptNotes.count <= 3 {
+                    found.append(.note(id: note.id, title: note.title, snippet: String(note.content.prefix(80)), folder: getCachedFolderName(for: note.folderId)))
+                    receiptCount += 1
+                }
+            }
+            // If no term-matched receipts, add most recent receipt(s) so "from your receipts" still gets a pill
+            if receiptCount == 0, let first = receiptNotes.first {
+                found.append(.note(id: first.id, title: first.title, snippet: String(first.content.prefix(80)), folder: getCachedFolderName(for: first.folderId)))
+            }
+        }
+        
+        if !found.isEmpty {
+            lastRelevantContent = found
+            print("🔍 Set lastRelevantContent (\(found.count) items) for chat pills")
+        }
+    }
+    
     /// Parse a single event from a query part
     private func parseSingleEvent(from query: String) -> EventCreationInfo? {
         let lowercaseQuery = query.lowercased()

@@ -95,6 +95,7 @@ struct SavedPlaceRow: View {
             .padding(.vertical, 12)
         }
         .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
         .contextMenu {
             Button(action: {
                 locationsManager.toggleFavourite(for: place.id)

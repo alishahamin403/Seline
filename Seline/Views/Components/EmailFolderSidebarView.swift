@@ -9,6 +9,7 @@ struct EmailFolderSidebarView: View {
     @State private var selectedColor = "#333333"
     @State private var showCreationError = false
     @State private var creationErrorMessage = ""
+    @State private var searchText = ""
 
     let colors = [
         "#333333", // Dark gray
@@ -16,98 +17,106 @@ struct EmailFolderSidebarView: View {
         "#4a4a4a", // Medium gray
     ]
 
+    private var filteredFolders: [CustomEmailFolder] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return viewModel.folders }
+        return viewModel.folders.filter { $0.name.lowercased().contains(query) }
+    }
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 12) {
-                Text("Email Folders")
-                    .font(FontManager.geist(size: 16, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+            HStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
 
-                Spacer()
-
-                Button(action: { showCreateFolderSheet = true }) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(FontManager.geist(size: 18, weight: .regular))
+                    TextField("Search folders", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(
+                    Capsule()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                )
+
+                Button(action: {
+                    HapticManager.shared.buttonTap()
+                    showCreateFolderSheet = true
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .medium))
+                        Text("Folder")
+                            .font(FontManager.geist(size: 13, weight: .medium))
+                    }
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                    .padding(.horizontal, 12)
+                    .frame(height: 36)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                    )
                 }
                 .buttonStyle(PlainButtonStyle())
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color.clear)
+            .background(colorScheme == .dark ? Color.black : Color(white: 0.99))
 
             // Folders list
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 4) {
-                    if viewModel.isLoading {
-                        ProgressView()
-                            .padding()
-                    } else if viewModel.folders.isEmpty {
-                        VStack(spacing: 12) {
-                            Image(systemName: "folder")
-                                .font(FontManager.geist(size: 28, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-
-                            Text("No Folders")
-                                .font(FontManager.geist(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-
-                            Text("Create your first folder")
-                                .font(FontManager.geist(size: 12, weight: .regular))
+            Group {
+                if viewModel.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if viewModel.folders.isEmpty {
+                    emptyStateView
+                } else if isSearching && filteredFolders.isEmpty {
+                    noSearchResultsView
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("FOLDERS")
+                                .font(FontManager.geist(size: 11, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 24)
-                    } else {
-                        ForEach(viewModel.folders) { folder in
-                            NavigationLink(destination: SavedEmailsListView(folder: folder)) {
-                                HStack(spacing: 12) {
-                                    // Folder icon
-                                    Image(systemName: "folder")
-                                        .font(FontManager.geist(size: 16, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                        .frame(width: 20, height: 20)
+                                .textCase(.uppercase)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 6)
 
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(folder.name)
-                                            .font(FontManager.geist(size: 14, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            .lineLimit(1)
-
-                                        if let count = viewModel.folderEmailCounts[folder.id] {
-                                            Text("\(count) email\(count != 1 ? "s" : "")")
-                                                .font(FontManager.geist(size: 11, weight: .regular))
-                                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                                        }
-                                    }
-
-                                    Spacer()
+                            ForEach(filteredFolders) { folder in
+                                NavigationLink(destination: SavedEmailsListView(folder: folder)) {
+                                    EmailFolderRow(
+                                        folder: folder,
+                                        emailCount: viewModel.folderEmailCounts[folder.id],
+                                        colorScheme: colorScheme
+                                    )
                                 }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    viewModel.deleteFolder(folder)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
+                                .buttonStyle(PlainButtonStyle())
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        viewModel.deleteFolder(folder)
+                                    } label: { Label("Delete", systemImage: "trash") }
                                 }
                             }
                         }
+                        .padding(.vertical, 16)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
             }
-
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(colorScheme == .dark ? Color.black : Color(white: 0.99))
         }
-        .background(
-            colorScheme == .dark ?
-                Color(red: 0.03, green: 0.03, blue: 0.03) :
-                Color.white
-        )
+        .background(colorScheme == .dark ? Color.black : Color(white: 0.99))
         .onAppear {
             viewModel.loadFolders()
         }
@@ -147,7 +156,7 @@ struct EmailFolderSidebarView: View {
                 }
             }
         }
-    .presentationBg()
+        .presentationBg()
         .alert("Error Creating Folder", isPresented: $showCreationError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -155,6 +164,60 @@ struct EmailFolderSidebarView: View {
         }
     }
 
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "folder")
+                .font(.system(size: 36, weight: .light))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.25) : .black.opacity(0.2))
+            Text("No folders yet")
+                .font(FontManager.geist(size: 15, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.5))
+            Text("Create your first folder to organize emails")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var noSearchResultsView: some View {
+        VStack(spacing: 8) {
+            Text("No folders found")
+                .font(FontManager.geist(size: 15, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.6))
+            Text("Try another search term")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.45) : .black.opacity(0.45))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Email Folder Row (ChatGPT-style minimal row)
+
+struct EmailFolderRow: View {
+    let folder: CustomEmailFolder
+    let emailCount: Int?
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(folder.name)
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            if let count = emailCount, count > 0 {
+                Text("\(count)")
+                    .font(FontManager.geist(size: 12, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
 }
 
 // MARK: - View Model

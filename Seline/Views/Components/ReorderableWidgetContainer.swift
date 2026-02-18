@@ -43,10 +43,10 @@ struct ReorderableWidgetContainer<Content: View>: View {
                         )
                 )
 
-            // Control buttons (up, down, remove) - hide up/down for Quick Access since it's fixed
+            // Control buttons (up, down, remove) - hide for fixed top anchor widgets
             HStack(spacing: 8) {
-                // Only show move buttons for widgets that aren't Quick Access
-                if widgetType != .dailyOverview {
+                // Only show move buttons for widgets that aren't fixed top anchors
+                if widgetType != .dailyOverview && widgetType != .events {
                     // Move up button
                     Button(action: {
                         moveWidgetUp()
@@ -82,8 +82,8 @@ struct ReorderableWidgetContainer<Content: View>: View {
                     .disabled(!canMoveDown())
                 }
 
-                // Remove button (hide for dailyOverview - Quick Access cannot be deleted)
-                if widgetType != .dailyOverview {
+                // Remove button (hidden for fixed top anchors)
+                if widgetType != .dailyOverview && widgetType != .events {
                     Button(action: {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                             widgetManager.hideWidget(widgetType)
@@ -116,8 +116,8 @@ struct ReorderableWidgetContainer<Content: View>: View {
     // MARK: - Helper Methods
 
     private func canMoveUp() -> Bool {
-        // CRITICAL: Quick Access (dailyOverview) cannot be moved
-        if widgetType == .dailyOverview {
+        // CRITICAL: Top anchors cannot be moved
+        if widgetType == .dailyOverview || widgetType == .events {
             return false
         }
         
@@ -125,11 +125,15 @@ struct ReorderableWidgetContainer<Content: View>: View {
         guard let currentIndex = visibleWidgets.firstIndex(where: { $0.type == widgetType }) else {
             return false
         }
-        // Can't move to position 0 (reserved for Quick Access)
-        return currentIndex > 1
+        // Can't move to positions 0/1 (reserved for top anchors)
+        return currentIndex > 2
     }
 
     private func canMoveDown() -> Bool {
+        if widgetType == .dailyOverview || widgetType == .events {
+            return false
+        }
+
         let visibleWidgets = widgetManager.visibleWidgets
         guard let currentIndex = visibleWidgets.firstIndex(where: { $0.type == widgetType }) else {
             return false
@@ -138,14 +142,14 @@ struct ReorderableWidgetContainer<Content: View>: View {
     }
 
     private func moveWidgetUp() {
-        // CRITICAL: Quick Access (dailyOverview) cannot be moved
-        if widgetType == .dailyOverview {
+        // CRITICAL: Top anchors cannot be moved
+        if widgetType == .dailyOverview || widgetType == .events {
             return
         }
         
         let visibleWidgets = widgetManager.visibleWidgets
         guard let currentIndex = visibleWidgets.firstIndex(where: { $0.type == widgetType }),
-              currentIndex > 1 else { // Can't move to position 0 (reserved for Quick Access)
+              currentIndex > 2 else { // Can't move to positions 0/1 (reserved for top anchors)
             return
         }
 
@@ -156,6 +160,10 @@ struct ReorderableWidgetContainer<Content: View>: View {
     }
 
     private func moveWidgetDown() {
+        if widgetType == .dailyOverview || widgetType == .events {
+            return
+        }
+
         let visibleWidgets = widgetManager.visibleWidgets
         guard let currentIndex = visibleWidgets.firstIndex(where: { $0.type == widgetType }),
               currentIndex < visibleWidgets.count - 1 else {
@@ -335,4 +343,3 @@ struct WidgetEditModeOverlay: View {
         .padding()
     }
 }
-

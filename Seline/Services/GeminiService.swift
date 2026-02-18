@@ -67,9 +67,9 @@ class GeminiService: ObservableObject {
     /// Low-level chat method
     func chat(
         messages: [Message],
-        model: String = "gemini-2.5-flash-lite",  // Flash-Lite: 33% cheaper than Flash ($0.10/$0.40 per 1M tokens vs $0.15/$0.60)
+        model: String = "gemini-2.5-flash",
         temperature: Double = 0.6,
-        maxTokens: Int = 1024,  // COST OPTIMIZATION: Reduced from 1536 - focuses on concise responses (output tokens are 4x more expensive)
+        maxTokens: Int = 2048,
         operationType: String? = nil
     ) async throws -> Response {
         let request = Request(
@@ -480,7 +480,7 @@ class GeminiService: ObservableObject {
         messages.append(Message(role: "user", content: query))
 
         // Use streamGenerateContent with alt=sse for Server-Sent Events format
-        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent?alt=sse&key=\(apiKey)"
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=\(apiKey)"
         guard let url = URL(string: urlString) else {
             throw GeminiError.invalidURL
         }
@@ -490,8 +490,10 @@ class GeminiService: ObservableObject {
         let requestBody: [String: Any] = [
             "contents": geminiContents,
             "generationConfig": [
-                "temperature": 0.6,
-                "maxOutputTokens": 1024  // COST OPTIMIZATION: Reduced from 1536 for concise streaming responses
+                "temperature": 0.35,
+                "maxOutputTokens": 2048,
+                "topP": 0.95,
+                "topK": 40
             ]
             // NOTE: google_search tool REMOVED - it causes the LLM to web-search
             // instead of using the provided app context data (receipts, visits, etc.)
@@ -577,7 +579,9 @@ class GeminiService: ObservableObject {
     /// Simple chat completion (for SelineChat)
     func simpleChatCompletion(
         systemPrompt: String,
-        messages: [[String: String]]
+        messages: [[String: String]],
+        temperature: Double = 0.6,
+        maxTokens: Int = 2048
     ) async throws -> String {
         var allMessages: [Message] = [Message(role: "system", content: systemPrompt)]
         for msg in messages {
@@ -586,8 +590,31 @@ class GeminiService: ObservableObject {
             }
         }
 
-        let response = try await chat(messages: allMessages, operationType: "simple_chat")
+        let response = try await chat(messages: allMessages, temperature: temperature, maxTokens: maxTokens, operationType: "simple_chat")
         return response.choices.first?.message.content ?? ""
+    }
+
+    /// Summarize older conversation turns into a short paragraph (keeps context while saving tokens)
+    func summarizeConversationTurns(turns: [(role: String, content: String)]) async -> String {
+        guard !turns.isEmpty else { return "" }
+        let block = turns.map { "\($0.role): \($0.content.prefix(500))\($0.content.count > 500 ? "…" : "")" }.joined(separator: "\n")
+        let prompt = """
+        Summarize this conversation in 2–4 sentences. Preserve: what the user asked, what was answered, key facts or decisions, and any time/entity references. Output only the summary, no preamble.
+        Conversation:
+        \(block)
+        """
+        do {
+            let out = try await simpleChatCompletion(
+                systemPrompt: "You are a summarizer. Output only the summary.",
+                messages: [["role": "user", "content": prompt]],
+                temperature: 0.2,
+                maxTokens: 256
+            )
+            return out.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            print("⚠️ Conversation summarization failed: \(error)")
+            return turns.map { "\($0.role): \($0.content.prefix(200))…" }.joined(separator: " ")
+        }
     }
 
     /// Simple chat completion with streaming (for SelineChat)

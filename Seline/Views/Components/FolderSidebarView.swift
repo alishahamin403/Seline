@@ -10,6 +10,11 @@ struct FolderSidebarView: View {
     @State private var collapsedFolders: Set<UUID> = []
     @State private var selectedFolderForNote: NoteFolder? = nil
     @State private var showingTrash = false
+    @State private var searchText = ""
+
+    private var sidebarBackgroundColor: Color {
+        colorScheme == .dark ? Color.black : Color(white: 0.99)
+    }
 
     // Computed property to organize folders by hierarchy (excluding Receipts folder)
     var organizedFolders: [(folder: NoteFolder, depth: Int)] {
@@ -26,6 +31,18 @@ struct FolderSidebarView: View {
         }
 
         return result
+    }
+
+    private var filteredOrganizedFolders: [(folder: NoteFolder, depth: Int)] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return organizedFolders }
+        return organizedFolders.filter { item in
+            item.folder.name.lowercased().contains(query)
+        }
+    }
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func addChildFolders(of parentId: UUID, depth: Int, to result: inout [(folder: NoteFolder, depth: Int)]) {
@@ -64,63 +81,100 @@ struct FolderSidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
+
+                    TextField("Search folders", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(FontManager.geist(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(
+                    Capsule()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                )
+
+                Button(action: {
+                    HapticManager.shared.buttonTap()
+                    showingNewFolderAlert = true
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .medium))
+                        Text("Folder")
+                            .font(FontManager.geist(size: 13, weight: .medium))
+                    }
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                    .padding(.horizontal, 12)
+                    .frame(height: 36)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(sidebarBackgroundColor)
+
             // Scrollable content
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 4) {
+                VStack(alignment: .leading, spacing: 20) {
                     // All Notes option
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        selectedFolderId = nil
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isPresented = false
+                    if !isSearching {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("BROWSE")
+                                .font(FontManager.geist(size: 11, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                .textCase(.uppercase)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 6)
+
+                            Button(action: {
+                                HapticManager.shared.selection()
+                                selectedFolderId = nil
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isPresented = false
+                                }
+                            }) {
+                                HStack(spacing: 12) {
+                                    Text("All Notes")
+                                        .font(FontManager.geist(size: 14, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    Spacer()
+                                    Text("\(nonReceiptNotesCount)")
+                                        .font(FontManager.geist(size: 12, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(colorScheme == .dark ? Color.white.opacity(selectedFolderId == nil ? 0.08 : 0) : Color.black.opacity(selectedFolderId == nil ? 0.04 : 0))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
-                    }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "note.text")
-                                .font(FontManager.geist(size: 16, weight: .medium))
-                                .foregroundColor(.white)
-                                .frame(width: 20)
-
-                            Text("All Notes")
-                                .font(FontManager.geist(size: 14, weight: .medium))
-                                .foregroundColor(.white)
-
-                            Spacer()
-
-                            Text("\(nonReceiptNotesCount)")
-                                .font(FontManager.geist(size: 12, weight: .medium))
-                                .foregroundColor(.white.opacity(0.8))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(selectedFolderId == nil ?
-                                    Color(red: 0.29, green: 0.29, blue: 0.29) :
-                                    Color.clear
-                                )
-                        )
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
 
                     // Folders section
                     if !notesManager.folders.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text("Note Folders")
-                                    .font(FontManager.geist(size: 16, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 8)
-                            .padding(.top, 16)
-                            .padding(.bottom, 4)
+                            Text("FOLDERS")
+                                .font(FontManager.geist(size: 11, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                .textCase(.uppercase)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 6)
 
-                            ForEach(organizedFolders, id: \.folder.id) { item in
+                            ForEach(filteredOrganizedFolders, id: \.folder.id) { item in
                                 FolderRowView(
                                     folder: item.folder,
                                     depth: item.depth,
@@ -160,60 +214,62 @@ struct FolderSidebarView: View {
                         }
                     }
 
+                    if isSearching && filteredOrganizedFolders.isEmpty {
+                        VStack(spacing: 8) {
+                            Text("No folders found")
+                                .font(FontManager.geist(size: 15, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.6))
+                            Text("Try another search term")
+                                .font(FontManager.geist(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.45) : .black.opacity(0.45))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 12)
+                    }
+
                     // Trash section
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
+                    if !isSearching {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text("TRASH")
-                                .font(FontManager.geist(size: 11, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                            Spacer()
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 8)
-                        .padding(.top, 16)
-                        .padding(.bottom, 4)
+                                .font(FontManager.geist(size: 11, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                .textCase(.uppercase)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 6)
 
-                        Button(action: {
-                            HapticManager.shared.selection()
-                            showingTrash = true
-                        }) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "trash")
-                                    .font(FontManager.geist(size: 16, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    .frame(width: 20)
-
-                                Text("Deleted Items")
-                                    .font(FontManager.geist(size: 14, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                                Spacer()
-
-                                if !notesManager.deletedNotes.isEmpty || !notesManager.deletedFolders.isEmpty {
-                                    Text("\(notesManager.deletedNotes.count + notesManager.deletedFolders.count)")
-                                        .font(FontManager.geist(size: 12, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                            Button(action: {
+                                HapticManager.shared.selection()
+                                showingTrash = true
+                            }) {
+                                HStack(spacing: 12) {
+                                    Text("Deleted Items")
+                                        .font(FontManager.geist(size: 14, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    Spacer()
+                                    let count = notesManager.deletedNotes.count + notesManager.deletedFolders.count
+                                    if count > 0 {
+                                        Text("\(count)")
+                                            .font(FontManager.geist(size: 12, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                    }
                                 }
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .contentShape(Rectangle())
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
+                            .buttonStyle(PlainButtonStyle())
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .padding(.horizontal, 12)
                     }
 
                     // Empty state
-                    if notesManager.folders.isEmpty {
+                    if notesManager.folders.isEmpty && !isSearching {
                         VStack(spacing: 12) {
                             Image(systemName: "folder")
-                                .font(FontManager.geist(size: 48, weight: .light))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.2) : .black.opacity(0.2))
-
+                                .font(.system(size: 36, weight: .light))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.25) : .black.opacity(0.2))
                             Text("No folders yet")
                                 .font(FontManager.geist(size: 15, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.5))
                             Text("Create a folder to organize your notes")
                                 .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
@@ -221,49 +277,20 @@ struct FolderSidebarView: View {
                                 .padding(.horizontal, 32)
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.top, 60)
+                        .padding(.top, 40)
                     }
 
                     Spacer()
                         .frame(height: 100)
                 }
+                .padding(.vertical, 16)
             }
-
-            // Sticky Footer - New folder button
-            VStack(spacing: 0) {
-                Divider()
-                    .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
-
-                Button(action: {
-                    HapticManager.shared.buttonTap()
-                    showingNewFolderAlert = true
-                }) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(FontManager.geist(size: 18, weight: .medium))
-                        Text("New Folder")
-                            .font(FontManager.geist(size: 14, weight: .semibold))
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color(red: 0.29, green: 0.29, blue: 0.29))
-                    )
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 12)
-            }
-            .background(colorScheme == .dark ? Color.black : Color.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(sidebarBackgroundColor)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            (colorScheme == .dark ? Color(red: 0.08, green: 0.08, blue: 0.08) : Color(red: 0.98, green: 0.98, blue: 0.98))
-                .ignoresSafeArea()
-        )
-        .shadow(color: .black.opacity(0.3), radius: 20, x: 5, y: 0)
+        .background(sidebarBackgroundColor)
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.5 : 0.12), radius: 24, x: 4, y: 0)
         .onAppear {
             // Initialize with all root folders collapsed
             let rootFolders = notesManager.folders.filter { $0.parentFolderId == nil }
@@ -328,78 +355,59 @@ struct FolderRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-                // Indentation based on depth
-                if depth > 0 {
-                    Spacer()
-                        .frame(width: CGFloat(depth * 24))
-                }
-
-                // Collapse/Expand chevron - always reserve space for alignment
-                Group {
-                    if hasChildren && depth < 2 {
-                        Button(action: {
-                            HapticManager.shared.selection()
-                            onToggleCollapse()
-                        }) {
-                            Image(systemName: "chevron.right")
-                                .font(FontManager.geist(size: 10, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                                .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                                .frame(width: 16, height: 16)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    } else {
-                        // Spacer to maintain alignment for folders without children or at max depth
-                        Spacer()
-                            .frame(width: 16)
-                    }
-                }
-
-                // Folder icon
-                Image(systemName: isSelected ? "folder.fill" : "folder")
-                    .font(FontManager.geist(size: 16, weight: .medium))
-                    .foregroundColor(isSelected ? .white : (colorScheme == .dark ? .white : .black))
-                    .frame(width: 20)
-
-                // Folder name
-                Text(folder.name)
-                    .font(FontManager.geist(size: 14, systemWeight: isSelected ? .semibold : .medium))
-                    .foregroundColor(isSelected ? .white : (colorScheme == .dark ? .white : .black))
-                    .lineLimit(1)
-
+            // Indentation based on depth
+            if depth > 0 {
                 Spacer()
+                    .frame(width: CGFloat(depth * 20))
+            }
 
-                // Note count badge
-                if notesCount > 0 {
-                    Text("\(notesCount)")
-                        .font(FontManager.geist(size: 11, weight: .medium))
-                        .foregroundColor(isSelected ? .white.opacity(0.8) : (colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)))
+            // Collapse/Expand chevron
+            Group {
+                if hasChildren && depth < 2 {
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        onToggleCollapse()
+                    }) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                } else {
+                    Spacer()
+                        .frame(width: 16)
                 }
+            }
 
-                // Add note button - always visible
-                Button(action: {
-                    HapticManager.shared.buttonTap()
-                    onCreateNote(folder)
-                }) {
-                    Image(systemName: "plus")
-                        .font(FontManager.geist(size: 12, weight: .semibold))
-                        .foregroundColor(isSelected ? .white.opacity(0.8) : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
-                        .frame(width: 20, height: 20)
-                }
-                .buttonStyle(PlainButtonStyle())
+            Text(folder.name)
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            if notesCount > 0 {
+                Text("\(notesCount)")
+                    .font(FontManager.geist(size: 12, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+            }
+
+            Button(action: {
+                HapticManager.shared.buttonTap()
+                onCreateNote(folder)
+            }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(PlainButtonStyle())
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(
-                    isSelected ?
-                        Color(red: 0.29, green: 0.29, blue: 0.29) :
-                        Color.clear
-                )
-        )
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(colorScheme == .dark ? Color.white.opacity(isSelected ? 0.08 : 0) : Color.black.opacity(isSelected ? 0.04 : 0))
         .contentShape(Rectangle())
         .onTapGesture {
             HapticManager.shared.selection()

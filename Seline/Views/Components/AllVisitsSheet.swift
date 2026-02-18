@@ -55,7 +55,7 @@ struct AllVisitsSheet: View {
                     Spacer()
                 } else {
                     ScrollView {
-                        VStack(spacing: 0) {
+                        LazyVStack(spacing: 0) {
                             ForEach(Array(visitedLocations.enumerated()), id: \.element.id) { index, location in
                                 Button(action: {
                                     onLocationTap?(location.id)

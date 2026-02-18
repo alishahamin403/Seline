@@ -20,10 +20,10 @@ enum HomeWidgetType: String, CaseIterable, Codable, Identifiable {
         case .dailyOverview: return "Daily Overview"
         case .spending: return "Monthly Spend"
         case .currentLocation: return "Current Location"
-        case .events: return "Next Up"
+        case .events: return "Today's Events"
         case .weather: return "Weather"
         case .unreadEmails: return "Unread Emails"
-        case .pinnedNotes: return "Focus Inbox"
+        case .pinnedNotes: return "Pinned Notes"
         case .favoriteLocations: return "Favorite Locations"
         }
     }
@@ -75,21 +75,28 @@ class WidgetManager: ObservableObject {
     
     /// Get visible widgets sorted by order
     var visibleWidgets: [WidgetConfiguration] {
-        let visible = configurations
+        var widgets = configurations
             .filter { $0.isVisible }
             .sorted { $0.order < $1.order }
-
-        // IMPORTANT: Keep this computed property pure/read-only.
-        // Mutating @Published state here triggers:
-        // "Publishing changes from within view updates is not allowed"
-        let dailyOverview = visible.first(where: { $0.type == .dailyOverview })
-            ?? WidgetConfiguration(type: .dailyOverview, isVisible: true, order: 0)
-        let events = visible.first(where: { $0.type == .events })
-            ?? WidgetConfiguration(type: .events, isVisible: true, order: 1)
-
-        var widgets = visible.filter { $0.type != .dailyOverview && $0.type != .events }
-        widgets.insert(contentsOf: [dailyOverview, events], at: 0)
-
+        
+        // CRITICAL: Ensure Quick Access (dailyOverview) is always first and visible
+        // If it's not visible, make it visible
+        if let dailyOverviewIndex = widgets.firstIndex(where: { $0.type == .dailyOverview }) {
+            // Move it to the front
+            let dailyOverview = widgets.remove(at: dailyOverviewIndex)
+            widgets.insert(dailyOverview, at: 0)
+        } else {
+            // If it's not in the list, add it
+            if let config = configurations.first(where: { $0.type == .dailyOverview }) {
+                widgets.insert(config, at: 0)
+            } else {
+                // Create it if it doesn't exist
+                let newConfig = WidgetConfiguration(type: .dailyOverview, isVisible: true, order: 0)
+                configurations.append(newConfig)
+                widgets.insert(newConfig, at: 0)
+            }
+        }
+        
         return widgets
     }
     
@@ -102,8 +109,8 @@ class WidgetManager: ObservableObject {
     
     /// Toggle widget visibility
     func toggleVisibility(for type: HomeWidgetType) {
-        // CRITICAL: Top anchors cannot be hidden
-        if type == .dailyOverview || type == .events {
+        // CRITICAL: Quick Access (dailyOverview) cannot be hidden
+        if type == .dailyOverview {
             return
         }
         
@@ -116,8 +123,8 @@ class WidgetManager: ObservableObject {
     
     /// Hide a widget
     func hideWidget(_ type: HomeWidgetType) {
-        // CRITICAL: Top anchors cannot be hidden
-        if type == .dailyOverview || type == .events {
+        // CRITICAL: Quick Access (dailyOverview) cannot be hidden
+        if type == .dailyOverview {
             return
         }
         
@@ -143,15 +150,9 @@ class WidgetManager: ObservableObject {
     
     /// Move widget from one position to another
     func moveWidget(from source: IndexSet, to destination: Int) {
-        // Protect top anchors from being moved through generic reordering APIs
-        if source.contains(0) || source.contains(1) {
-            return
-        }
-
         var visible = visibleWidgets
-        let safeDestination = max(destination, 2)
-        visible.move(fromOffsets: source, toOffset: safeDestination)
-
+        visible.move(fromOffsets: source, toOffset: destination)
+        
         // Update orders
         for (index, config) in visible.enumerated() {
             if let configIndex = configurations.firstIndex(where: { $0.type == config.type }) {
@@ -165,8 +166,8 @@ class WidgetManager: ObservableObject {
     
     /// Move widget by dragging (for custom drag gesture)
     func moveWidget(_ type: HomeWidgetType, toIndex newIndex: Int) {
-        // CRITICAL: Top anchors must always stay at positions 0 and 1
-        if type == .dailyOverview || type == .events {
+        // CRITICAL: Quick Access (dailyOverview) must always stay at position 0
+        if type == .dailyOverview {
             return
         }
         
@@ -175,8 +176,8 @@ class WidgetManager: ObservableObject {
         
         var mutableVisible = visible
         let item = mutableVisible.remove(at: currentIndex)
-        // Ensure we don't move anything to positions 0 or 1 (reserved for top anchors)
-        let safeIndex = min(max(newIndex, 2), mutableVisible.count)
+        // Ensure we don't move anything to position 0 (reserved for Quick Access)
+        let safeIndex = min(max(newIndex, 1), mutableVisible.count)
         mutableVisible.insert(item, at: safeIndex)
         
         // Update orders
@@ -215,21 +216,11 @@ class WidgetManager: ObservableObject {
            let saved = try? JSONDecoder().decode([WidgetConfiguration].self, from: data) {
             // Merge with defaults to handle new widget types
             var merged = saved
-
-            // CRITICAL: Hide deprecated widgets if they exist
+            
+            // CRITICAL: Hide unreadEmails and favoriteLocations widgets if they exist
             for (index, config) in merged.enumerated() {
                 if config.type == .unreadEmails || config.type == .favoriteLocations {
                     merged[index].isVisible = false
-                }
-
-                // Ensure top anchors are always visible
-                if config.type == .dailyOverview || config.type == .events {
-                    merged[index].isVisible = true
-                }
-
-                // Show Focus Inbox by default in the new home layout
-                if config.type == .pinnedNotes {
-                    merged[index].isVisible = true
                 }
             }
             
@@ -241,17 +232,7 @@ class WidgetManager: ObservableObject {
                     merged.append(defaultConfig)
                 }
             }
-
-            // Keep top anchors pinned to stable order slots
-            if let dailyIndex = merged.firstIndex(where: { $0.type == .dailyOverview }) {
-                merged[dailyIndex].order = 0
-            }
-            if let eventsIndex = merged.firstIndex(where: { $0.type == .events }) {
-                merged[eventsIndex].order = 1
-            }
-
             configurations = merged
-            normalizeOrder()
             saveConfigurations() // Save the updated config (with removed widgets)
         } else {
             configurations = Self.defaultConfigurations
@@ -282,15 +263,14 @@ class WidgetManager: ObservableObject {
     private static var defaultConfigurations: [WidgetConfiguration] {
         [
             WidgetConfiguration(type: .dailyOverview, isVisible: true, order: 0),
-            WidgetConfiguration(type: .events, isVisible: true, order: 1),
-            WidgetConfiguration(type: .spending, isVisible: true, order: 2),
-            WidgetConfiguration(type: .pinnedNotes, isVisible: true, order: 3),
+            WidgetConfiguration(type: .spending, isVisible: true, order: 1),
+            WidgetConfiguration(type: .currentLocation, isVisible: true, order: 2),
+            WidgetConfiguration(type: .events, isVisible: true, order: 3),
             // New widgets - hidden by default, users can add them
-            WidgetConfiguration(type: .currentLocation, isVisible: false, order: 4),
-            WidgetConfiguration(type: .weather, isVisible: false, order: 5),
+            WidgetConfiguration(type: .weather, isVisible: false, order: 4),
             // Removed: unreadEmails and favoriteLocations widgets
-            WidgetConfiguration(type: .unreadEmails, isVisible: false, order: 6),
-            WidgetConfiguration(type: .favoriteLocations, isVisible: false, order: 7)
+            WidgetConfiguration(type: .pinnedNotes, isVisible: false, order: 5)
         ]
     }
 }
+

@@ -24,8 +24,6 @@ class SelineChat: ObservableObject {
     private let userMemoryService = UserMemoryService.shared
     @Published var isStreaming = false
     private var shouldCancelStreaming = false
-    var isVoiceMode = false // Voice mode for conversational responses
-    
     /// Toggle for using vector search (set to false to use legacy context building)
     /// Default: true for faster, more relevant responses
     var useVectorSearch = true
@@ -59,8 +57,7 @@ class SelineChat: ObservableObject {
     // MARK: - Main Chat Interface
 
     /// Send a message and get a response
-    func sendMessage(_ userMessage: String, streaming: Bool = true, isVoiceMode: Bool = false) async -> String {
-        self.isVoiceMode = isVoiceMode
+    func sendMessage(_ userMessage: String, streaming: Bool = true) async -> String {
         // Add user message to history
         let userMsg = ChatMessage(role: .user, content: userMessage, timestamp: Date())
         conversationHistory.append(userMsg)
@@ -71,8 +68,8 @@ class SelineChat: ObservableObject {
         // Build the system prompt with app context
         let systemPrompt = await buildSystemPrompt()
 
-        // Build messages for API
-        let messages = buildMessagesForAPI()
+        // Build messages for API (with summarized older turns when history is long)
+        let messages = await buildMessagesForAPIAsync()
 
         // Get response
         let response: String
@@ -220,11 +217,7 @@ class SelineChat: ObservableObject {
             let result = await vectorContextBuilder.buildContext(forQuery: userMessage, conversationHistory: historyForContext)
             contextPrompt = result.context
 
-            if isVoiceMode {
-                print("🎤 Voice mode: Using vector context (\(result.metadata.estimatedTokens) tokens)")
-            } else {
-                print("🔍 Vector search: \(result.metadata.estimatedTokens) tokens (optimized from legacy ~10K+)")
-            }
+            print("🔍 Vector search: \(result.metadata.estimatedTokens) tokens (optimized from legacy ~10K+)")
 
             // DEBUG: Log context preview for diagnostics
             #if DEBUG
@@ -257,12 +250,7 @@ class SelineChat: ObservableObject {
         // Get User Profile Context
         let userProfile = userProfileService.getProfileContext()
 
-        // Different prompts for voice vs chat mode
-        if isVoiceMode {
-            return buildVoiceModePrompt(userProfile: userProfile, contextPrompt: contextPrompt)
-        } else {
-            return buildChatModePrompt(userProfile: userProfile, contextPrompt: contextPrompt)
-        }
+        return buildChatModePrompt(userProfile: userProfile, contextPrompt: contextPrompt)
     }
     
     private func buildVoiceModePrompt(userProfile: String, contextPrompt: String) -> String {
@@ -438,12 +426,16 @@ class SelineChat: ObservableObject {
         - Example: If asked "When is Abeer's birthday" but Abeer is not in YOUR PEOPLE, say "I don't see Abeer in your people list"
         - If asked about "other birthdays" or "upcoming birthdays", ONLY show people from YOUR PEOPLE section
 
-        🧠 USER MEMORY (Your Personalized Knowledge):
-        - The DATA CONTEXT may include a "USER MEMORY" section with learned facts about this specific user
-        - USE this memory to understand entity relationships: e.g., "JVM" → "haircuts" means JVM is the user's hair salon
-        - USE merchant categories to understand spending: e.g., "Starbucks" → "coffee"
-        - Apply user preferences when formatting responses
+        🧠 USER MEMORY (Your Personalized Knowledge) — ALWAYS PREFER:
+        - The DATA CONTEXT includes a "USER MEMORY" section with learned facts about this specific user
+        - ALWAYS use this memory when answering about entities, places, or preferences (e.g. "JVM" → haircuts, merchant categories)
+        - Prefer user memory over generic assumptions; apply user preferences when formatting responses
         - Connect the dots using this memory - it's knowledge YOU have learned about this user over time
+
+        📎 CITE YOUR SOURCES:
+        - When using data from the context, briefly cite where it came from so the user knows it's from their data
+        - Examples: "From your calendar…", "In your notes…", "From your receipts…", "In your emails…", "From your visits…"
+        - Keep citations natural and short (e.g. "You have a meeting at 3pm (from your calendar).")
 
         🌍 SELINE'S HOLISTIC VIEW (CRITICAL - READ THIS):
         Seline is NOT just a calendar app or email assistant - it's a unified life management platform that tracks MULTIPLE interconnected aspects of the user's day:
@@ -534,12 +526,22 @@ class SelineChat: ObservableObject {
 
         ✅ FORMAT YOUR RESPONSES EXACTLY LIKE CHATGPT - CLEAN, STRUCTURED, SCANNABLE:
         - Break up long paragraphs into clear sections with line breaks
-        - Use bullet points (*) for lists of 2+ items - CRITICAL: Each bullet should be ONE line, not multiple paragraphs
-        - Use **bold** sparingly for emphasis on key details (names, dates, amounts)
-        - Add blank lines between major sections for breathing room
+        - CRITICAL - NESTED BULLETS: Every list item under a section MUST be a sub-bullet with exactly 2 spaces before the dash. Without the 2 spaces the app cannot show hierarchy.
+        - Format: main section = one line with "- **Section:**"; then on the NEXT line(s) use "  - " (two spaces, then dash space) for each sub-item. Example:
+        ```
+        - **Places you visited:**
+          - Square One Dental from 11:33 AM to 1:03 PM
+          - Suju in the afternoon
+        - **Purchases:**
+          - Square One Dental: $101.60 (Healthcare)
+          - Walmart: $36.09 (Shopping)
+        ```
+        - Never put a sub-item on the same line as the section header. Always use a new line starting with "  - " for sub-items.
+        - Use **bold** for section headers within bullets (e.g. **Places you visited:**, **Purchases:**)
+        - Add blank lines between major date sections (e.g. between Saturday and Sunday)
         - Keep paragraphs to 2-3 sentences MAXIMUM - prefer shorter
         - Use numbers (not spelled out): "3 meetings", "$2500", "January 24th", "2:20 PM"
-        - IMPORTANT: Don't write long run-on bullet points - keep each bullet concise and scannable
+        - Each bullet = ONE line - keep concise and scannable
         
         📝 RESPONSE STRUCTURE:
         - Start with a friendly greeting or acknowledgment
@@ -557,7 +559,7 @@ class SelineChat: ObservableObject {
         ✅ DO write naturally, like you're texting a friend who asked for help:
            - Start with the answer directly
            - Weave in relevant context conversationally
-           - Add a quick source mention if helpful (e.g., "I found this in your emails")
+           - Cite sources INLINE like ChatGPT: where you mention a specific source (receipt, calendar, email, note), put [[0]] for the first source, [[1]] for the second, etc. right there in the sentence (e.g. "From your calendar [[0]] you have..." or "Your last haircut [[0]] was January 28."). Use one number per source in order of first mention.
            - End with a natural follow-up question if relevant
         
         EXAMPLE - BAD (robotic):
@@ -577,8 +579,10 @@ class SelineChat: ObservableObject {
         Hey there! Happy Saturday! 😊 Here's what's going on:
         
         **Today (January 24th):**
-        - You've got your dentist appointment from 2:20 PM to 3:20 PM (should be wrapping up soon!)
-        - Your "Take supplements" task is still open
+        - **Places you visited:**
+          - Square One Dental from 2:20 PM to 3:20 PM (should be wrapping up soon!)
+          - Home for most of the day
+        - **Tasks:** Your "Take supplements" reminder is still open
         
         **This Week:**
         - Tuesday, January 27th: Shirley/Ali drinks at Loose Moose from 4:00 PM to 7:00 PM
@@ -613,7 +617,7 @@ class SelineChat: ObservableObject {
         - **ALWAYS use numbers, never spell them out**: Use "3 meetings", "$2,500", "January 24th", "2:20 PM" (NOT "three meetings", "two thousand five hundred dollars", "twenty-fourth")
         - Break long responses into sections with blank lines between them
         - Use **bold** for section headers or key details: **Today**, **This Week**, **Upcoming**
-        - Use bullet points (-) for lists of 2+ items to make it scannable
+        - Sub-bullets: every item under Places you visited or Purchases MUST start with two spaces then "- " (e.g. "  - Item") on its own line
         - Keep paragraphs to 2-3 sentences max - if longer, break it up
         - Add blank lines between major sections for readability
         - Use tables only for comparing numbers/data side-by-side
@@ -633,17 +637,33 @@ class SelineChat: ObservableObject {
 
     private func buildMessagesForAPI() -> [[String: String]] {
         var messages: [[String: String]] = []
-
-        // System prompt handled separately in API call
-
-        // Add conversation history
         for msg in conversationHistory {
             messages.append([
                 "role": msg.role == .user ? "user" : "assistant",
                 "content": msg.content
             ])
         }
+        return messages
+    }
 
+    /// Build messages for API; when history is long, summarize older turns and keep last N full.
+    private func buildMessagesForAPIAsync() async -> [[String: String]] {
+        let keepLastFull = 4
+        let threshold = 8
+        if conversationHistory.count <= threshold {
+            return buildMessagesForAPI()
+        }
+        let toSummarize = Array(conversationHistory.prefix(conversationHistory.count - keepLastFull))
+        let turns = toSummarize.map { (role: $0.role == .user ? "user" : "assistant", content: $0.content) }
+        let summary = await geminiService.summarizeConversationTurns(turns: turns)
+        var messages: [[String: String]] = []
+        messages.append(["role": "user", "content": "[Previous conversation summary]\n\(summary)"])
+        for msg in conversationHistory.suffix(keepLastFull) {
+            messages.append([
+                "role": msg.role == .user ? "user" : "assistant",
+                "content": msg.content
+            ])
+        }
         return messages
     }
 

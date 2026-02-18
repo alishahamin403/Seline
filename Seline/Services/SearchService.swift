@@ -17,6 +17,8 @@ class SearchService: ObservableObject {
 
     // Conversation state
     @Published var conversationHistory: [ConversationMessage] = []
+    /// Incremented when the last message is updated in place (e.g. eventCreationInfo, followUpSuggestions) so the chat can re-scroll to show new content.
+    @Published var lastMessageContentVersion: Int = 0
     @Published var isInConversationMode: Bool = false
     @Published var conversationTitle: String = "New Conversation"
     @Published var savedConversations: [SavedConversation] = []
@@ -474,7 +476,7 @@ class SearchService: ObservableObject {
     }
 
     /// Add a message to the conversation and process it
-    func addConversationMessage(_ userMessage: String, isVoiceMode: Bool = false) async {
+    func addConversationMessage(_ userMessage: String) async {
         let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -507,13 +509,13 @@ class SearchService: ObservableObject {
         let thinkStartTime = Date()  // Track when LLM starts thinking
 
         // Always use SelineChat - legacy path removed
-        await addConversationMessageWithSelineChat(trimmed, thinkStartTime: thinkStartTime, isVoiceMode: isVoiceMode)
+        await addConversationMessageWithSelineChat(trimmed, thinkStartTime: thinkStartTime)
     }
     
     // MARK: - SelineChat Implementation (Phase 2)
 
     /// NEW simplified chat using SelineChat with proper streaming support
-    private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date, skipUserMessage: Bool = false, isVoiceMode: Bool = false) async {
+    private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date, skipUserMessage: Bool = false) async {
         // Initialize SelineChat if needed
         if selineChat == nil {
             selineChat = SelineChat(appContext: SelineAppContext(), geminiService: GeminiService.shared)
@@ -560,35 +562,58 @@ class SearchService: ObservableObject {
             }
         }
 
-        setupSelineChatCallbacks(chat: chat, thinkStartTime: thinkStartTime, isVoiceMode: isVoiceMode)
+        // Populate relevant content (events, notes, emails, locations) so chat message gets clickable pills
+        chat.appContext.prepareRelevantContentForChat(userQuery: userMessage)
+
+        setupSelineChatCallbacks(chat: chat, thinkStartTime: thinkStartTime)
         
-        // Send message through SelineChat with voice mode
-        let response = await chat.sendMessage(userMessage, streaming: enableStreamingResponses, isVoiceMode: isVoiceMode)
+        let response = await chat.sendMessage(userMessage, streaming: enableStreamingResponses)
         
-        // Handle case where streaming might have been disabled or failed back to non-streaming
-        handleNonStreamingResponse(response: response, thinkStartTime: thinkStartTime, isVoiceMode: isVoiceMode)
+        handleNonStreamingResponse(response: response, thinkStartTime: thinkStartTime)
     }
     
     // Wire up streaming callbacks common to both normal chat and briefing
-    private func setupSelineChatCallbacks(chat: SelineChat, thinkStartTime: Date, isVoiceMode: Bool = false) {
-        print("🎤 Setting up SelineChat callbacks (isVoiceMode: \(isVoiceMode))")
+    private func setupSelineChatCallbacks(chat: SelineChat, thinkStartTime: Date) {
         let streamingMessageID = UUID()
         var messageAdded = false
         var fullResponse = ""
-        var lastSpokenText = "" // Track what we've already spoken for streaming TTS
+        var visibleResponse = ""
+        var revealTimer: Timer?
+        var didReceiveStreamingComplete = false
+        var didFinalizeStreaming = false
+        let wordRevealInterval: TimeInterval = 0.06
 
-        // Callback when a streaming chunk arrives
-        chat.onStreamingChunk = { [weak self] chunk in
-            fullResponse += chunk
+        func nextWordBoundaryCount(in text: String, from currentCount: Int) -> Int {
+            guard currentCount < text.count else { return text.count }
+            let start = text.index(text.startIndex, offsetBy: currentCount)
+            var index = start
+            var sawWordCharacter = false
 
-            // Dispatch to main thread for UI updates
-            DispatchQueue.main.async {
-                // Add message on first chunk
+            while index < text.endIndex {
+                let character = text[index]
+                if character.isWhitespace {
+                    if sawWordCharacter {
+                        repeat {
+                            index = text.index(after: index)
+                        } while index < text.endIndex && text[index].isWhitespace
+                        return text.distance(from: text.startIndex, to: index)
+                    }
+                } else {
+                    sawWordCharacter = true
+                }
+                index = text.index(after: index)
+            }
+            return text.count
+        }
+
+        func commitUpdate(with text: String) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
                 if !messageAdded {
                     let assistantMsg = ConversationMessage(
                         id: streamingMessageID,
                         isUser: false,
-                        text: fullResponse,
+                        text: text,
                         timestamp: Date(),
                         intent: .general,
                         timeStarted: thinkStartTime,
@@ -596,163 +621,154 @@ class SearchService: ObservableObject {
                         eventCreationInfo: chat.appContext.lastEventCreationInfo,
                         relevantContent: chat.appContext.lastRelevantContent
                     )
-                    self?.conversationHistory.append(assistantMsg)
+                    self.conversationHistory.append(assistantMsg)
                     messageAdded = true
-                    self?.saveConversationLocally()
-                } else {
-                    // Update the last message with accumulated response
-                    if let lastIndex = self?.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                        let updatedMsg = ConversationMessage(
-                            id: streamingMessageID,
-                            isUser: false,
-                            text: fullResponse,
-                            timestamp: self?.conversationHistory[lastIndex].timestamp ?? Date(),
-                            intent: self?.conversationHistory[lastIndex].intent ?? .general,
-                            timeStarted: self?.conversationHistory[lastIndex].timeStarted,
-                            locationInfo: chat.appContext.lastETALocationInfo,
-                            eventCreationInfo: chat.appContext.lastEventCreationInfo,
-                            relevantContent: chat.appContext.lastRelevantContent
-                        )
-                        self?.conversationHistory[lastIndex] = updatedMsg
-                        self?.saveConversationLocally()
-                    }
-                }
-                
-                // For voice mode: speak new sentences/phrases as they complete
-                if isVoiceMode {
-                    let ttsService = TextToSpeechService.shared
-                    // Extract new text that hasn't been spoken yet
-                    let newText = String(fullResponse.dropFirst(lastSpokenText.count))
-                    
-                    // Find complete sentences or phrases to speak
-                    // Look for sentence terminators (. ! ? : ,) or natural break points
-                    var textToSpeak = ""
-                    var foundBreak = false
-                    
-                    // Check for sentence terminators followed by space or end
-                    let terminators: [Character] = [".", "!", "?"]
-                    for (index, char) in newText.enumerated() {
-                        if terminators.contains(char) {
-                            // Check if next char is space, newline, end, or we're at end
-                            let nextIndex = newText.index(newText.startIndex, offsetBy: index + 1, limitedBy: newText.endIndex)
-                            if nextIndex == nil || nextIndex == newText.endIndex {
-                                // At end of string
-                                textToSpeak = String(newText[...newText.index(newText.startIndex, offsetBy: index)])
-                                foundBreak = true
-                                break
-                            } else if let next = nextIndex, newText[next] == " " || newText[next] == "\n" {
-                                // Terminator followed by space/newline - complete sentence
-                                textToSpeak = String(newText[...newText.index(newText.startIndex, offsetBy: index)])
-                                foundBreak = true
-                                break
-                            }
-                        }
-                    }
-                    
-                    // Fallback: if we have 100+ chars without a terminator, speak at natural break (comma, colon)
-                    if !foundBreak && newText.count > 100 {
-                        let softBreaks: [Character] = [",", ":", ";", "-"]
-                        for (index, char) in newText.enumerated() {
-                            if softBreaks.contains(char) && index >= 50 {
-                                textToSpeak = String(newText[...newText.index(newText.startIndex, offsetBy: index)])
-                                foundBreak = true
-                                break
-                            }
-                        }
-                    }
-                    
-                    // Speak if we found text to speak
-                    if foundBreak && !textToSpeak.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        ttsService.speakIncremental(textToSpeak.trimmingCharacters(in: .whitespacesAndNewlines))
-                        lastSpokenText += textToSpeak
-                    }
+                    self.saveConversationLocally()
+                } else if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                    let updatedMsg = ConversationMessage(
+                        id: streamingMessageID,
+                        isUser: false,
+                        text: text,
+                        timestamp: self.conversationHistory[lastIndex].timestamp ?? Date(),
+                        intent: self.conversationHistory[lastIndex].intent ?? .general,
+                        timeStarted: self.conversationHistory[lastIndex].timeStarted,
+                        locationInfo: chat.appContext.lastETALocationInfo,
+                        eventCreationInfo: chat.appContext.lastEventCreationInfo,
+                        relevantContent: chat.appContext.lastRelevantContent
+                    )
+                    self.conversationHistory[lastIndex] = updatedMsg
+                    self.lastMessageContentVersion += 1
+                    self.saveConversationLocally()
                 }
             }
         }
 
-        // Callback when streaming completes
-        chat.onStreamingComplete = { [weak self] in
-            DispatchQueue.main.async {
+        func finalizeStreamingIfReady() {
+            guard didReceiveStreamingComplete, !didFinalizeStreaming, visibleResponse.count >= fullResponse.count else { return }
+            didFinalizeStreaming = true
+            revealTimer?.invalidate()
+            revealTimer = nil
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
                 // Update final message with completion time and fetch related data
-                if let lastIndex = self?.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                    let rawResponseText = self?.conversationHistory[lastIndex].text ?? ""
-                    let responseText = self?.normalizeAssistantResponse(rawResponseText, isVoiceMode: isVoiceMode) ?? rawResponseText
+                if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                    let rawResponseText = self.conversationHistory[lastIndex].text
+                    let normalizedResponseText = self.normalizeAssistantResponse(rawResponseText)
+                    let aligned = self.alignCitationsWithRelevantContent(
+                        in: normalizedResponseText,
+                        relevantContent: chat.appContext.lastRelevantContent
+                    )
+                    let responseText = aligned.text
 
-                    if responseText != rawResponseText {
-                        let updatedMsg = ConversationMessage(
-                            id: streamingMessageID,
-                            isUser: false,
-                            text: responseText,
-                            timestamp: self?.conversationHistory[lastIndex].timestamp ?? Date(),
-                            intent: self?.conversationHistory[lastIndex].intent ?? .general,
-                            timeStarted: self?.conversationHistory[lastIndex].timeStarted,
-                            locationInfo: chat.appContext.lastETALocationInfo,
-                            eventCreationInfo: chat.appContext.lastEventCreationInfo,
-                            relevantContent: chat.appContext.lastRelevantContent
-                        )
-                        self?.conversationHistory[lastIndex] = updatedMsg
-                    }
-
-                    // For voice mode: speak any remaining text that wasn't spoken during streaming
-                    // If nothing was spoken during streaming (no sentence breaks found), speak the full response
-                    if isVoiceMode {
-                        let ttsService = TextToSpeechService.shared
-                        let remainingText = String(responseText.dropFirst(lastSpokenText.count))
-                        let textToSpeak = remainingText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        
-                        if !textToSpeak.isEmpty {
-                            print("🎤 Speaking remaining text: \(textToSpeak.prefix(50))...")
-                            ttsService.speakIncremental(textToSpeak)
-                        } else if lastSpokenText.isEmpty && !responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            // If nothing was spoken during streaming (no sentence breaks), speak the full response
-                            print("🎤 No text spoken during streaming, speaking full response")
-                            ttsService.speakIncremental(responseText.trimmingCharacters(in: .whitespacesAndNewlines))
-                        }
-                    }
+                    let updatedMsg = ConversationMessage(
+                        id: streamingMessageID,
+                        isUser: false,
+                        text: responseText,
+                        timestamp: self.conversationHistory[lastIndex].timestamp,
+                        intent: self.conversationHistory[lastIndex].intent ?? .general,
+                        timeStarted: self.conversationHistory[lastIndex].timeStarted,
+                        locationInfo: chat.appContext.lastETALocationInfo,
+                        eventCreationInfo: chat.appContext.lastEventCreationInfo,
+                        relevantContent: aligned.relevantContent
+                    )
+                    self.conversationHistory[lastIndex] = updatedMsg
+                    self.lastMessageContentVersion += 1
 
                     // Fetch related data based on response
-                    Task {
-                        let relatedData = await self?.fetchRelatedDataForResponse(responseText) ?? []
+                    Task { [weak self] in
+                        guard let self = self else { return }
+                        let relatedData = await self.fetchRelatedDataForResponse(responseText)
 
                         DispatchQueue.main.async {
-                            if let lastIndex = self?.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                            if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
                                 let finalMsg = ConversationMessage(
                                     id: streamingMessageID,
                                     isUser: false,
-                                    text: self?.conversationHistory[lastIndex].text ?? responseText,
-                                    timestamp: self?.conversationHistory[lastIndex].timestamp ?? Date(),
-                                    intent: self?.conversationHistory[lastIndex].intent ?? .general,
+                                    text: self.conversationHistory[lastIndex].text,
+                                    timestamp: self.conversationHistory[lastIndex].timestamp,
+                                    intent: self.conversationHistory[lastIndex].intent ?? .general,
                                     relatedData: relatedData.isEmpty ? nil : relatedData,
-                                    timeStarted: self?.conversationHistory[lastIndex].timeStarted,
+                                    timeStarted: self.conversationHistory[lastIndex].timeStarted,
                                     timeFinished: Date(),
                                     followUpSuggestions: nil,
                                     locationInfo: chat.appContext.lastETALocationInfo,
                                     eventCreationInfo: chat.appContext.lastEventCreationInfo,
-                                    relevantContent: chat.appContext.lastRelevantContent
+                                    relevantContent: self.conversationHistory[lastIndex].relevantContent
                                 )
-                                self?.conversationHistory[lastIndex] = finalMsg
-                                self?.saveConversationLocally()
+                                self.conversationHistory[lastIndex] = finalMsg
+                                self.lastMessageContentVersion += 1
+                                self.saveConversationLocally()
                             }
                         }
                     }
                 }
 
-                self?.isLoadingQuestionResponse = false
+                self.isLoadingQuestionResponse = false
                 print("✅ SelineChat streaming completed")
+            }
+        }
+
+        func revealNextWord() {
+            guard visibleResponse.count < fullResponse.count else {
+                if didReceiveStreamingComplete {
+                    finalizeStreamingIfReady()
+                } else {
+                    revealTimer?.invalidate()
+                    revealTimer = nil
+                }
+                return
+            }
+
+            let currentCount = visibleResponse.count
+            let nextCount = nextWordBoundaryCount(in: fullResponse, from: currentCount)
+            let clampedCount = nextCount > currentCount ? nextCount : min(currentCount + 1, fullResponse.count)
+            visibleResponse = String(fullResponse.prefix(clampedCount))
+            commitUpdate(with: visibleResponse)
+            finalizeStreamingIfReady()
+        }
+
+        func startRevealTimerIfNeeded() {
+            guard revealTimer == nil else { return }
+            revealTimer = Timer.scheduledTimer(withTimeInterval: wordRevealInterval, repeats: true) { _ in
+                revealNextWord()
+            }
+        }
+
+        // Callback when a streaming chunk arrives (paced word-by-word reveal)
+        chat.onStreamingChunk = { [weak self] chunk in
+            DispatchQueue.main.async {
+                guard self != nil else { return }
+                fullResponse += chunk
+                if visibleResponse.isEmpty {
+                    revealNextWord()
+                }
+                startRevealTimerIfNeeded()
+            }
+        }
+
+        // Callback when streaming completes (finish paced reveal, then finalize metadata)
+        chat.onStreamingComplete = { [weak self] in
+            DispatchQueue.main.async {
+                guard self != nil else { return }
+                didReceiveStreamingComplete = true
+                if visibleResponse.count < fullResponse.count {
+                    startRevealTimerIfNeeded()
+                }
+                finalizeStreamingIfReady()
             }
         }
     }
     
-    private func handleNonStreamingResponse(response: String, thinkStartTime: Date, isVoiceMode: Bool = false) {
-        let finalResponse = normalizeAssistantResponse(response, isVoiceMode: isVoiceMode)
+    private func handleNonStreamingResponse(response: String, thinkStartTime: Date) {
+        let normalizedResponse = normalizeAssistantResponse(response)
+        let aligned = alignCitationsWithRelevantContent(
+            in: normalizedResponse,
+            relevantContent: selineChat?.appContext.lastRelevantContent
+        )
+        let finalResponse = aligned.text
 
         if !enableStreamingResponses {
-            // If voice mode is active and we're not streaming, trigger TTS here
-            if isVoiceMode {
-                print("🎤 Non-streaming response in voice mode - triggering TTS")
-                TextToSpeechService.shared.speak(finalResponse)
-            }
-            
             Task {
                 let relatedData = await fetchRelatedDataForResponse(finalResponse)
                 
@@ -768,7 +784,7 @@ class SearchService: ObservableObject {
                         timeFinished: Date(),
                         locationInfo: self.selineChat?.appContext.lastETALocationInfo,
                         eventCreationInfo: self.selineChat?.appContext.lastEventCreationInfo,
-                        relevantContent: self.selineChat?.appContext.lastRelevantContent
+                        relevantContent: aligned.relevantContent
                     )
                     self.conversationHistory.append(assistantMsg)
                     self.isLoadingQuestionResponse = false
@@ -779,9 +795,7 @@ class SearchService: ObservableObject {
         }
     }
 
-    private func normalizeAssistantResponse(_ text: String, isVoiceMode: Bool) -> String {
-        guard !isVoiceMode else { return text }
-
+    private func normalizeAssistantResponse(_ text: String) -> String {
         var normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
         normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -789,15 +803,16 @@ class SearchService: ObservableObject {
         let lines = normalized.components(separatedBy: "\n")
         var rebuilt: [String] = []
         for line in lines {
+            let leadingWhitespace = line.prefix { $0 == " " || $0 == "\t" }
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("• ") {
-                rebuilt.append("- " + trimmed.dropFirst(2))
+                rebuilt.append("\(leadingWhitespace)- " + trimmed.dropFirst(2))
             } else if trimmed.hasPrefix("* ") {
-                rebuilt.append("- " + trimmed.dropFirst(2))
+                rebuilt.append("\(leadingWhitespace)- " + trimmed.dropFirst(2))
             } else if trimmed.hasPrefix("– ") {
-                rebuilt.append("- " + trimmed.dropFirst(2))
+                rebuilt.append("\(leadingWhitespace)- " + trimmed.dropFirst(2))
             } else {
-                rebuilt.append(trimmed)
+                rebuilt.append(line)
             }
         }
 
@@ -809,6 +824,136 @@ class SearchService: ObservableObject {
         normalized = normalized.replacingOccurrences(of: headerPattern, with: "\n\n", options: .regularExpression)
 
         return normalized
+    }
+
+    private func alignCitationsWithRelevantContent(
+        in responseText: String,
+        relevantContent: [RelevantContentInfo]?
+    ) -> (text: String, relevantContent: [RelevantContentInfo]?) {
+        let normalizedText = responseText
+            .replacingOccurrences(of: "[[", with: "[")
+            .replacingOccurrences(of: "]]", with: "]")
+        let citationRegex = try! NSRegularExpression(pattern: "\\[\\s*(\\d+)\\s*\\]")
+        let matches = citationRegex.matches(in: normalizedText, range: NSRange(normalizedText.startIndex..., in: normalizedText))
+
+        guard let content = relevantContent, !content.isEmpty else {
+            return (stripCitationMarkers(from: normalizedText), nil)
+        }
+
+        guard !matches.isEmpty else {
+            return (normalizedText, content)
+        }
+
+        struct CitationReplacement {
+            let range: NSRange
+            let mappedIndex: Int
+        }
+
+        var replacements: [CitationReplacement] = []
+        var orderedContent: [RelevantContentInfo] = []
+        var orderedIndexById: [UUID: Int] = [:]
+        var usedIds = Set<UUID>()
+
+        for match in matches {
+            guard
+                let numberRange = Range(match.range(at: 1), in: normalizedText),
+                let citedIndex = Int(String(normalizedText[numberRange]))
+            else { continue }
+
+            let contextSnippet = citationContext(in: normalizedText, around: match.range)
+            let inferredType = inferSourceType(from: contextSnippet)
+            let selectedIndex = selectRelevantContentIndex(
+                citedIndex: citedIndex,
+                inferredType: inferredType,
+                content: content,
+                usedIds: usedIds
+            )
+            let selectedItem = content[selectedIndex]
+            usedIds.insert(selectedItem.id)
+
+            let mappedIndex: Int
+            if let existing = orderedIndexById[selectedItem.id] {
+                mappedIndex = existing
+            } else {
+                mappedIndex = orderedContent.count
+                orderedContent.append(selectedItem)
+                orderedIndexById[selectedItem.id] = mappedIndex
+            }
+
+            replacements.append(CitationReplacement(range: match.range, mappedIndex: mappedIndex))
+        }
+
+        let mutableText = NSMutableString(string: normalizedText)
+        for replacement in replacements.reversed() {
+            mutableText.replaceCharacters(in: replacement.range, with: "[[\(replacement.mappedIndex)]]")
+        }
+
+        let cleanedText = cleanupCitationSpacing(in: mutableText as String)
+        return (cleanedText, orderedContent.isEmpty ? content : orderedContent)
+    }
+
+    private func selectRelevantContentIndex(
+        citedIndex: Int,
+        inferredType: RelevantContentInfo.ContentType?,
+        content: [RelevantContentInfo],
+        usedIds: Set<UUID>
+    ) -> Int {
+        if citedIndex >= 0, citedIndex < content.count {
+            let citedItem = content[citedIndex]
+            if inferredType == nil || citedItem.contentType == inferredType {
+                return citedIndex
+            }
+        }
+
+        if let inferredType = inferredType,
+           let typeMatch = content.firstIndex(where: { $0.contentType == inferredType && !usedIds.contains($0.id) }) {
+            return typeMatch
+        }
+
+        if citedIndex >= 0, citedIndex < content.count {
+            return citedIndex
+        }
+
+        if let firstUnused = content.firstIndex(where: { !usedIds.contains($0.id) }) {
+            return firstUnused
+        }
+
+        return 0
+    }
+
+    private func citationContext(in text: String, around range: NSRange) -> String {
+        guard let rangeInText = Range(range, in: text) else { return "" }
+        let start = text.index(rangeInText.lowerBound, offsetBy: -80, limitedBy: text.startIndex) ?? text.startIndex
+        let end = text.index(rangeInText.upperBound, offsetBy: 80, limitedBy: text.endIndex) ?? text.endIndex
+        return String(text[start..<end]).lowercased()
+    }
+
+    private func inferSourceType(from context: String) -> RelevantContentInfo.ContentType? {
+        if context.contains("calendar") || context.contains("meeting") || context.contains("event") || context.contains("appointment") {
+            return .event
+        }
+        if context.contains("email") || context.contains("inbox") || context.contains("sender") || context.contains("subject") {
+            return .email
+        }
+        if context.contains("note") || context.contains("receipt") || context.contains("purchase") || context.contains("charged") || context.contains("spent") {
+            return .note
+        }
+        if context.contains("visit") || context.contains("place") || context.contains("location") || context.contains("went to") {
+            return .location
+        }
+        return nil
+    }
+
+    private func stripCitationMarkers(from text: String) -> String {
+        let stripped = text.replacingOccurrences(of: "\\[\\s*\\d+\\s*\\]", with: "", options: .regularExpression)
+        return cleanupCitationSpacing(in: stripped)
+    }
+
+    private func cleanupCitationSpacing(in text: String) -> String {
+        var cleaned = text.replacingOccurrences(of: "\\s+([,.!?;:])", with: "$1", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+        return cleaned
     }
 
     /// Generate a proactive morning briefing
@@ -1067,88 +1212,133 @@ class SearchService: ObservableObject {
     /// Called when user exits the conversation
     func generateFinalConversationTitle() async {
         guard !conversationHistory.isEmpty else { return }
-
-        // Build conversation context with both user and AI messages
-        var conversationContext = ""
-        for message in conversationHistory {
-            let speaker = message.isUser ? "User" : "Assistant"
-            conversationContext += "\(speaker): \(message.text)\n"
+        if let generatedTitle = await generateConversationTitleWithGemini(from: conversationHistory) {
+            conversationTitle = generatedTitle
+        } else {
+            conversationTitle = provisionalConversationTitle(from: conversationHistory)
         }
+        _ = upsertCurrentConversationInHistory()
+    }
 
-        guard !conversationContext.isEmpty else { return }
+    private func generateConversationTitleWithGemini(from messages: [ConversationMessage]) async -> String? {
+        guard !messages.isEmpty else { return nil }
+
+        let compactTranscript = messages
+            .prefix(10)
+            .map { message in
+                let role = message.isUser ? "User" : "Assistant"
+                let compact = message.text
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return "\(role): \(compact)"
+            }
+            .joined(separator: "\n")
+
+        let prompt = """
+        Create ONE specific chat title from this transcript.
+
+        Rules:
+        - 4 to 8 words
+        - Concrete and descriptive
+        - Include key topic/timeframe when relevant
+        - DO NOT start with generic phrasing like "Tell me", "What did I do", "Can you"
+        - No quotes, no markdown, no trailing punctuation
+
+        Transcript:
+        \(compactTranscript)
+
+        Title:
+        """
 
         do {
-            // First, create a brief summary of the conversation
-            let summaryPrompt = """
-            Summarize this conversation in 1-2 sentences focusing on the main topic or goal:
-
-            \(conversationContext)
-
-            Respond with ONLY the summary, no additional text.
-            """
-
-            let summaryResponse = try await GeminiService.shared.generateText(
-                systemPrompt: "You are an expert at creating concise conversation summaries.",
-                userPrompt: summaryPrompt,
-                maxTokens: 100,
-                temperature: 0.5
+            let rawTitle = try await GeminiService.shared.generateText(
+                systemPrompt: "You create concise, specific conversation titles.",
+                userPrompt: prompt,
+                maxTokens: 24,
+                temperature: 0.25
             )
-
-            let conversationSummary = summaryResponse.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // Now generate a smart title based on the summary
-            let titlePrompt = """
-            Based on this conversation summary, generate a concise 3-6 word title that captures the main topic or action. Make it specific and meaningful:
-
-            Summary: \(conversationSummary)
-
-            Respond with ONLY the title, no additional text, quotes, or punctuation.
-            """
-
-            let titleResponse = try await GeminiService.shared.generateText(
-                systemPrompt: "You are an expert at creating concise, descriptive, and smart conversation titles that accurately reflect the conversation content.",
-                userPrompt: titlePrompt,
-                maxTokens: 50,
-                temperature: 0.3
-            )
-
-            let cleanedTitle = titleResponse
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "\"", with: "")
-                .replacingOccurrences(of: "'", with: "")
-
-            if !cleanedTitle.isEmpty && cleanedTitle.count < 60 {
-                conversationTitle = cleanedTitle
-                return  // Successfully generated a title, return early
-            }
+            let cleaned = sanitizeConversationTitle(rawTitle)
+            guard !cleaned.isEmpty, cleaned.count <= 80, !isWeakConversationTitle(cleaned) else { return nil }
+            return cleaned
         } catch {
-            // If AI fails, continue to fallback logic
+            return nil
+        }
+    }
+
+    private func provisionalConversationTitle(from messages: [ConversationMessage]) -> String {
+        if let firstUserMessage = messages.first(where: { $0.isUser }) {
+            let compact = firstUserMessage.text
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if compact.isEmpty { return "New chat" }
+            return compact.count > 80 ? String(compact.prefix(79)) + "…" : compact
+        }
+        return "New chat"
+    }
+
+    private func sanitizeConversationTitle(_ raw: String) -> String {
+        var cleaned = raw
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\"", with: "")
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "Title:", with: "", options: [.caseInsensitive])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        cleaned = cleaned.replacingOccurrences(of: "\\s{2,}", with: " ", options: .regularExpression)
+        cleaned = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: ".!?-–— "))
+        return cleaned
+    }
+
+    private func isWeakConversationTitle(_ title: String) -> Bool {
+        let lower = title.lowercased()
+        if title.isEmpty || title == "New Conversation" || title == "New chat" { return true }
+        if lower.hasPrefix("tell me") || lower.hasPrefix("what did i do") || lower.hasPrefix("can you") { return true }
+        if lower.hasPrefix("chat on ") { return true }
+        return false
+    }
+
+    @discardableResult
+    private func upsertCurrentConversationInHistory() -> UUID {
+        let finalTitle = isWeakConversationTitle(conversationTitle)
+            ? provisionalConversationTitle(from: conversationHistory)
+            : conversationTitle
+
+        if let loadedId = currentlyLoadedConversationId,
+           let index = savedConversations.firstIndex(where: { $0.id == loadedId }) {
+            savedConversations[index] = SavedConversation(
+                id: loadedId,
+                title: finalTitle,
+                messages: conversationHistory,
+                createdAt: savedConversations[index].createdAt
+            )
+            saveConversationHistoryLocally()
+            return loadedId
         }
 
-        // Fallback 1: Try to extract from first user message
-        if let firstMessage = conversationHistory.first(where: { $0.isUser }) {
-            let words = firstMessage.text.split(separator: " ").prefix(5).joined(separator: " ")
-            let fallbackTitle = String(words.isEmpty ? "" : words)
-            if !fallbackTitle.isEmpty {
-                conversationTitle = fallbackTitle
-                return
-            }
+        if let firstMessageId = conversationHistory.first?.id,
+           let existingIndex = savedConversations.firstIndex(where: { $0.messages.first?.id == firstMessageId }) {
+            let existingId = savedConversations[existingIndex].id
+            savedConversations[existingIndex] = SavedConversation(
+                id: existingId,
+                title: finalTitle,
+                messages: conversationHistory,
+                createdAt: savedConversations[existingIndex].createdAt
+            )
+            currentlyLoadedConversationId = existingId
+            saveConversationHistoryLocally()
+            return existingId
         }
 
-        // Fallback 2: Extract from first AI message if available
-        if let firstAIMessage = conversationHistory.first(where: { !$0.isUser }) {
-            let words = firstAIMessage.text.split(separator: " ").prefix(5).joined(separator: " ")
-            let fallbackTitle = String(words.isEmpty ? "" : words)
-            if !fallbackTitle.isEmpty {
-                conversationTitle = fallbackTitle
-                return
-            }
-        }
-
-        // Fallback 3: Use timestamp-based title as last resort
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, h:mm a"
-        conversationTitle = "Chat on \(formatter.string(from: Date()))"
+        let newId = UUID()
+        let saved = SavedConversation(
+            id: newId,
+            title: finalTitle,
+            messages: conversationHistory,
+            createdAt: Date()
+        )
+        savedConversations.insert(saved, at: 0)
+        currentlyLoadedConversationId = newId
+        saveConversationHistoryLocally()
+        return newId
     }
 
     /// Save conversation to local storage
@@ -1169,10 +1359,7 @@ class SearchService: ObservableObject {
 
         do {
             conversationHistory = try JSONDecoder().decode([ConversationMessage].self, from: data)
-            if let firstUserMessage = conversationHistory.first(where: { $0.isUser }) {
-                let words = firstUserMessage.text.split(separator: " ").prefix(4).joined(separator: " ")
-                conversationTitle = String(words.isEmpty ? "New Conversation" : words)
-            }
+            conversationTitle = provisionalConversationTitle(from: conversationHistory)
         } catch {
             print("❌ Error loading conversation: \(error)")
         }
@@ -1181,6 +1368,9 @@ class SearchService: ObservableObject {
     /// Save conversation to Supabase
     func saveConversationToSupabase() async {
         guard !conversationHistory.isEmpty else { return }
+        let titleToSave = isWeakConversationTitle(conversationTitle)
+            ? provisionalConversationTitle(from: conversationHistory)
+            : conversationTitle
 
         do {
             let supabaseManager = SupabaseManager.shared
@@ -1212,7 +1402,7 @@ class SearchService: ObservableObject {
 
             let data = ConversationData(
                 user_id: userId,
-                title: conversationTitle,
+                title: titleToSave,
                 messages: historyJson,
                 message_count: conversationHistory.count,
                 first_message: conversationHistory.first?.text ?? "",
@@ -1248,16 +1438,26 @@ class SearchService: ObservableObject {
     /// Save current conversation to history
     func saveConversationToHistory() {
         guard !conversationHistory.isEmpty else { return }
+        let savedId = upsertCurrentConversationInHistory()
+        let snapshotMessages = conversationHistory
 
-        let saved = SavedConversation(
-            id: UUID(),
-            title: conversationTitle,
-            messages: conversationHistory,
-            createdAt: Date()
-        )
-
-        savedConversations.insert(saved, at: 0)  // Add to beginning for chronological order
-        saveConversationHistoryLocally()
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            guard let generatedTitle = await self.generateConversationTitleWithGemini(from: snapshotMessages) else { return }
+            if let index = self.savedConversations.firstIndex(where: { $0.id == savedId }) {
+                let existing = self.savedConversations[index]
+                self.savedConversations[index] = SavedConversation(
+                    id: existing.id,
+                    title: generatedTitle,
+                    messages: existing.messages,
+                    createdAt: existing.createdAt
+                )
+                if self.currentlyLoadedConversationId == savedId {
+                    self.conversationTitle = generatedTitle
+                }
+                self.saveConversationHistoryLocally()
+            }
+        }
     }
 
     /// Load all saved conversations from local storage
@@ -1267,8 +1467,35 @@ class SearchService: ObservableObject {
 
         do {
             savedConversations = try JSONDecoder().decode([SavedConversation].self, from: data)
+            refreshWeakSavedConversationTitlesIfNeeded()
         } catch {
             print("❌ Error loading conversation history: \(error)")
+        }
+    }
+
+    private func refreshWeakSavedConversationTitlesIfNeeded() {
+        let candidates = savedConversations.enumerated().filter { _, conversation in
+            isWeakConversationTitle(conversation.title)
+        }
+        guard !candidates.isEmpty else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            var didUpdate = false
+            for (index, conversation) in candidates.prefix(8) {
+                guard let generatedTitle = await self.generateConversationTitleWithGemini(from: conversation.messages) else { continue }
+                let existing = self.savedConversations[index]
+                self.savedConversations[index] = SavedConversation(
+                    id: existing.id,
+                    title: generatedTitle,
+                    messages: existing.messages,
+                    createdAt: existing.createdAt
+                )
+                didUpdate = true
+            }
+            if didUpdate {
+                self.saveConversationHistoryLocally()
+            }
         }
     }
 
@@ -1291,6 +1518,10 @@ class SearchService: ObservableObject {
             isInConversationMode = true
             isNewConversation = false  // This is a loaded conversation, show title immediately
             currentlyLoadedConversationId = id  // Track which conversation is loaded
+
+            // Reset SelineChat so the next follow-up message re-initializes with this conversation's history.
+            // Otherwise SelineChat keeps stale context and follow-ups get wrong/empty responses.
+            selineChat = nil
 
             // Restore the note being edited from conversation context
             restoreNoteContextFromConversation()

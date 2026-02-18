@@ -26,6 +26,11 @@ struct NotesView: View, Searchable {
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var noteForReminder: Note? = nil
     @State private var recurringExpenses: [RecurringExpense] = []
+    // Cached filtered arrays to avoid recomputing on every body evaluation
+    @State private var cachedFilteredPinned: [Note] = []
+    @State private var cachedAllUnpinned: [Note] = []
+    @State private var cachedRecentNotes: [Note] = []
+    @State private var cachedNotesByMonth: [(month: String, notes: [Note])] = []
 
     var filteredPinnedNotes: [Note] {
         var notes: [Note]
@@ -125,6 +130,13 @@ struct NotesView: View, Searchable {
             }
     }
 
+    private func refreshNoteCaches() {
+        cachedFilteredPinned = filteredPinnedNotes
+        cachedAllUnpinned = allUnpinnedNotes
+        cachedRecentNotes = recentNotes
+        cachedNotesByMonth = notesByMonth
+    }
+
     var hasReceipts: Bool {
         let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
         guard let receiptsFolderId = receiptsFolder?.id else { return false }
@@ -157,7 +169,7 @@ struct NotesView: View, Searchable {
                                             showingFolderSidebar.toggle()
                                         }
                                     }) {
-                                        Image(systemName: "folder")
+                                        Image(systemName: "line.3.horizontal")
                                             .font(FontManager.geist(size: 14, weight: .medium))
                                             .foregroundColor(colorScheme == .dark ? .white : .black)
                                             .padding(.horizontal, 12)
@@ -233,7 +245,7 @@ struct NotesView: View, Searchable {
                                 .buttonStyle(PlainButtonStyle())
                             }
                             .padding(.horizontal, 20)
-                            .padding(.top, 8)
+                            .padding(.top, 4)
                             .padding(.bottom, 12)
                         }
 
@@ -332,6 +344,8 @@ struct NotesView: View, Searchable {
                     .padding(.horizontal, 8)
                     .padding(.top, 8)
                 }
+                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: selectedTab)
+                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: selectedFolderId)
                 .refreshable {
                     // Activate search when pulling down
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -349,11 +363,12 @@ struct NotesView: View, Searchable {
                         .ignoresSafeArea()
                 )
                 .overlay(floatingAddButton)
-                .overlay(folderSidebar)
+                .overlay(interactiveFolderSidebarOverlay(geometry: geometry))
             }
             .navigationDestination(for: Note.self) { note in
                 NoteEditView(note: note, isPresented: .constant(true))
             }
+            .animation(nil, value: navigationPath.count)
             .overlay(alignment: .top) {
                 // Receipt processing toast indicator (only show on receipts tab)
                 if selectedTab == "receipts" && receiptProcessingState != .idle {
@@ -366,6 +381,10 @@ struct NotesView: View, Searchable {
                 }
             }
         }
+        .onAppear { refreshNoteCaches() }
+        .onChange(of: searchText) { _ in refreshNoteCaches() }
+        .onChange(of: selectedFolderId) { _ in refreshNoteCaches() }
+        .onReceive(notesManager.objectWillChange) { _ in refreshNoteCaches() }
         .fullScreenCover(isPresented: $showingNewNoteSheet) {
             NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
         }
@@ -529,16 +548,16 @@ struct NotesView: View, Searchable {
     private var notesTabContent: some View {
         Group {
                         // Pinned section card
-                        if !filteredPinnedNotes.isEmpty {
+                        if !cachedFilteredPinned.isEmpty {
                             VStack(spacing: 0) {
                                 NoteSectionHeader(
                                     title: "PINNED",
-                                    count: filteredPinnedNotes.count,
+                                    count: cachedFilteredPinned.count,
                                     isExpanded: $isPinnedExpanded
                                 )
 
                                 if isPinnedExpanded {
-                                    ForEach(filteredPinnedNotes) { note in
+                                    ForEach(cachedFilteredPinned) { note in
                                         NoteRow(
                                             note: note,
                                             onPinToggle: { note in
@@ -570,11 +589,11 @@ struct NotesView: View, Searchable {
                         }
 
                         // Recent section card (last 7 days)
-                        if !recentNotes.isEmpty {
+                        if !cachedRecentNotes.isEmpty {
                             VStack(spacing: 0) {
                                 NoteSectionHeader(
                                     title: "RECENT",
-                                    count: recentNotes.count,
+                                    count: cachedRecentNotes.count,
                                     isExpanded: Binding(
                                         get: { expandedSections.contains("RECENT") },
                                         set: { isExpanded in
@@ -588,7 +607,7 @@ struct NotesView: View, Searchable {
                                 )
 
                                 if expandedSections.contains("RECENT") {
-                                    ForEach(recentNotes) { note in
+                                    ForEach(cachedRecentNotes) { note in
                                         NoteRow(
                                             note: note,
                                             onPinToggle: { note in
@@ -620,8 +639,8 @@ struct NotesView: View, Searchable {
                         }
 
                         // Monthly sections for older notes
-                        ForEach(notesByMonth.indices, id: \.self) { index in
-                            let monthGroup = notesByMonth[index]
+                        ForEach(cachedNotesByMonth.indices, id: \.self) { index in
+                            let monthGroup = cachedNotesByMonth[index]
 
                             VStack(spacing: 0) {
                                 NoteSectionHeader(
@@ -672,7 +691,7 @@ struct NotesView: View, Searchable {
                         }
 
             // Empty state for notes tab
-            if filteredPinnedNotes.isEmpty && recentNotes.isEmpty && notesByMonth.isEmpty {
+            if cachedFilteredPinned.isEmpty && cachedRecentNotes.isEmpty && cachedNotesByMonth.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "note.text")
                         .font(FontManager.geist(size: 48, weight: .light))
@@ -1048,42 +1067,18 @@ struct NotesView: View, Searchable {
         }
     }
 
-    private var folderSidebar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                // Dimmed background
-                if showingFolderSidebar && selectedTab == "notes" {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            withAnimation {
-                                showingFolderSidebar = false
-                            }
-                        }
-                }
-
-                // Sidebar - only show in notes tab
-                if showingFolderSidebar && selectedTab == "notes" {
-                    FolderSidebarView(
-                        isPresented: $showingFolderSidebar,
-                        selectedFolderId: $selectedFolderId
-                    )
-                    .frame(width: geo.size.width * 0.85)
-                    .transition(.move(edge: .leading))
-                    .gesture(
-                        DragGesture()
-                            .onEnded { value in
-                                if value.translation.width < -100 {
-                                    withAnimation {
-                                        showingFolderSidebar = false
-                                    }
-                                }
-                            }
-                    )
-                }
-            }
+    private func interactiveFolderSidebarOverlay(geometry: GeometryProxy) -> some View {
+        InteractiveSidebarOverlay(
+            isPresented: $showingFolderSidebar,
+            canOpen: selectedTab == "notes",
+            sidebarWidth: min(300, geometry.size.width * 0.82),
+            colorScheme: colorScheme
+        ) {
+            FolderSidebarView(
+                isPresented: $showingFolderSidebar,
+                selectedFolderId: $selectedFolderId
+            )
         }
-        .allowsHitTesting(showingFolderSidebar && selectedTab == "notes")
     }
 
     // MARK: - Tab Color Helpers
@@ -1260,6 +1255,7 @@ struct NoteEditView: View {
     @State private var isProcessingReceipt = false
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var isGeneratingTitle = false
+    @State private var reminderNoteTarget: Note? = nil
 
     // File attachment states
     @State private var attachment: NoteAttachment?
@@ -1332,34 +1328,33 @@ struct NoteEditView: View {
             mainContentView
         }
         .offset(x: swipeOffset)
-        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8, blendDuration: 0), value: swipeOffset)
+        .animation(nil, value: swipeOffset)
         .simultaneousGesture(
-            DragGesture(minimumDistance: 30, coordinateSpace: .local)
+            DragGesture(minimumDistance: 20, coordinateSpace: .local)
                 .updating($isDragging) { _, state, _ in
                     state = true
                 }
                 .onChanged { value in
                     // Only allow right swipe from left edge (x < 50)
                     if value.startLocation.x < 50 && value.translation.width > 0 {
-                        // Apply resistance to make it feel natural
-                        swipeOffset = value.translation.width * 0.8
+                        let raw = value.translation.width
+                        let resisted = raw < 120 ? raw : 120 + (raw - 120) * 0.6
+                        swipeOffset = min(resisted, UIScreen.main.bounds.width * 0.5)
                     }
                 }
                 .onEnded { value in
-                    // If swiped more than 100 points from left edge, dismiss
-                    if value.startLocation.x < 50 && value.translation.width > 100 {
-                        // Animate off screen then save and dismiss
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            swipeOffset = UIScreen.main.bounds.width
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    let threshold: CGFloat = 90
+                    let velocity = value.predictedEndTranslation.width - value.translation.width
+                    let shouldDismiss = value.startLocation.x < 50 && (value.translation.width > threshold || (value.translation.width > 40 && velocity > 200))
+                    if shouldDismiss {
+                        swipeOffset = 0
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
                             saveNoteAndDismiss()
                         }
                     } else {
-                        // Snap back
-                        withAnimation(.interactiveSpring(response: 0.3, dampingFraction: 0.8, blendDuration: 0)) {
-                            swipeOffset = 0
-                        }
+                        swipeOffset = 0
                     }
                 }
         )
@@ -1492,6 +1487,19 @@ struct NoteEditView: View {
             }
             .presentationBg()
         }
+        .sheet(item: $reminderNoteTarget) { note in
+            NoteReminderSheet(
+                note: note,
+                onSave: { date, message in
+                    saveReminderForNote(note, date: date, message: message)
+                },
+                onRemove: {
+                    removeReminderFromNote(note)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showingTablePicker) {
             TableTemplatePickerSheet(isPresented: $showingTablePicker) { template in
                 insertTable(from: template)
@@ -1551,25 +1559,28 @@ struct NoteEditView: View {
             backgroundColor
                 .ignoresSafeArea()
             
-            // Shadow overlay during swipe (appears on left edge)
+            // Shadow overlay during swipe – fades in as you drag for a natural “reveal” feel
             if swipeOffset > 0 {
-                HStack {
+                let shadowOpacity = Double(min(swipeOffset / 120, 1)) * 0.22
+                HStack(spacing: 0) {
                     Rectangle()
                         .fill(
                             LinearGradient(
                                 gradient: Gradient(colors: [
-                                    Color.black.opacity(0.15),
+                                    Color.black.opacity(shadowOpacity),
+                                    Color.black.opacity(shadowOpacity * 0.4),
                                     Color.clear
                                 ]),
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
-                        .frame(width: 20)
-                        .offset(x: -20)
+                        .frame(width: 36)
+                        .offset(x: -36)
                     Spacer()
                 }
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
             }
 
             VStack(spacing: 0) {
@@ -1618,6 +1629,7 @@ struct NoteEditView: View {
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(.horizontal, 4)
                 }
+                .scrollDismissesKeyboard(.immediately)
                 // Removed swipe-to-dismiss-keyboard gesture - it was interfering with normal typing
                 // Users can dismiss keyboard by tapping outside the text field or using the keyboard dismiss key
                 // Removed: Format bar no longer auto-dismisses when tapping content
@@ -2046,7 +2058,6 @@ struct NoteEditView: View {
     // MARK: - Apple Notes Style Floating Pill Toolbar
     private var bottomActionButtons: some View {
         VStack(spacing: 8) {
-            // Formatting bar - appears above main toolbar when Aa is tapped
             if showingFormattingBar {
                 formattingPillBar
                     .transition(.asymmetric(
@@ -2054,11 +2065,281 @@ struct NoteEditView: View {
                         removal: .opacity
                     ))
             }
-            
-            // Main toolbar - floating pill
-            mainToolbarPill
+
+            HStack(spacing: 10) {
+                Menu {
+                    Button {
+                        HapticManager.shared.buttonTap()
+                        showingFileImporter = true
+                    } label: {
+                        Label("Attach File", systemImage: "doc")
+                    }
+
+                    Button {
+                        HapticManager.shared.buttonTap()
+                        showingImagePicker = true
+                    } label: {
+                        Label("Photo Library", systemImage: "photo")
+                    }
+
+                    Button {
+                        HapticManager.shared.buttonTap()
+                        showingCameraPicker = true
+                    } label: {
+                        Label("Camera", systemImage: "camera")
+                    }
+
+                    if !imageAttachments.isEmpty || attachment != nil {
+                        Divider()
+                        Button {
+                            HapticManager.shared.buttonTap()
+                            openAttachmentPreview()
+                        } label: {
+                            Label("View Attachments", systemImage: "eye")
+                        }
+                    }
+                } label: {
+                    sleekPrimaryActionIcon(systemName: "paperclip")
+                }
+
+                Button {
+                    HapticManager.shared.buttonTap()
+                    presentReminderSheet()
+                } label: {
+                    sleekPrimaryActionIcon(
+                        systemName: currentReminderDate != nil ? "bell.badge.fill" : "bell.badge",
+                        isActive: currentReminderDate != nil
+                    )
+                }
+                .disabled(!canPresentReminderSheet)
+                .opacity(canPresentReminderSheet ? 1 : 0.55)
+
+                Menu {
+                    Button {
+                        HapticManager.shared.aiActionStart()
+                        Task { await cleanUpNoteWithAI() }
+                    } label: {
+                        Label("Clean up", systemImage: "sparkles")
+                    }
+                    .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Button {
+                        HapticManager.shared.aiActionStart()
+                        Task { await summarizeNoteWithAI() }
+                    } label: {
+                        Label("Summarize", systemImage: "text.bubble")
+                    }
+                    .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Button {
+                        HapticManager.shared.aiActionStart()
+                        showingAddMorePrompt = true
+                    } label: {
+                        Label("Add More", systemImage: "plus.circle")
+                    }
+                    .disabled(isAnyProcessing)
+                } label: {
+                    sleekPrimaryActionIcon(systemName: "sparkles")
+                }
+                .opacity(isAnyProcessing ? 0.6 : 1)
+
+                Menu {
+                    Button {
+                        HapticManager.shared.selection()
+                        withAnimation {
+                            showingFormattingBar.toggle()
+                        }
+                    } label: {
+                        Label(showingFormattingBar ? "Hide Formatting" : "Show Formatting", systemImage: "textformat.size")
+                    }
+
+                    Button {
+                        HapticManager.shared.buttonTap()
+                        insertTodoAtCursor()
+                    } label: {
+                        Label("Insert Checklist", systemImage: "checklist")
+                    }
+
+                    Button {
+                        HapticManager.shared.buttonTap()
+                        showingTablePicker = true
+                    } label: {
+                        Label("Insert Table", systemImage: "tablecells")
+                    }
+
+                    Divider()
+
+                    Button {
+                        HapticManager.shared.buttonTap()
+                        showingFolderPicker = true
+                    } label: {
+                        Label("Move Folder", systemImage: "folder")
+                    }
+
+                    Button {
+                        HapticManager.shared.selection()
+                        toggleLock()
+                    } label: {
+                        Label(noteIsLocked ? "Unlock Note" : "Lock Note", systemImage: noteIsLocked ? "lock.open" : "lock.fill")
+                    }
+
+                    if note != nil {
+                        Divider()
+                        Button(role: .destructive) {
+                            HapticManager.shared.delete()
+                            deleteNote()
+                        } label: {
+                            Label("Delete Note", systemImage: "trash")
+                        }
+                    }
+
+                    Divider()
+                    Button {
+                        HapticManager.shared.save()
+                        saveNoteAndDismiss()
+                    } label: {
+                        Label("Save and Close", systemImage: "checkmark")
+                    }
+                } label: {
+                    sleekPrimaryActionIcon(systemName: "ellipsis")
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(sleekBottomBarBackground)
+            .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showingFormattingBar)
+    }
+
+    private var sleekBottomBarBackground: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 26)
+                .fill(.ultraThinMaterial)
+
+            RoundedRectangle(cornerRadius: 26)
+                .fill(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.62),
+                            colorScheme == .dark ? Color.white.opacity(0.02) : Color.white.opacity(0.34)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+            RoundedRectangle(cornerRadius: 26)
+                .stroke(
+                    colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08),
+                    lineWidth: 1
+                )
+        }
+    }
+
+    private func sleekPrimaryActionIcon(systemName: String, isActive: Bool = false) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 16, weight: .medium))
+            .foregroundColor(colorScheme == .dark ? .white.opacity(0.92) : .black.opacity(0.88))
+            .frame(width: 40, height: 36)
+            .background(
+                Capsule()
+                    .fill(
+                        isActive
+                            ? (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.13))
+                            : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                    )
+            )
+            .overlay(
+                Capsule()
+                    .stroke(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04), lineWidth: 0.5)
+            )
+    }
+
+    private var canShareNote: Bool {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedTitle.isEmpty || !trimmedContent.isEmpty || !imageAttachments.isEmpty
+    }
+
+    private var canPresentReminderSheet: Bool {
+        canShareNote || editingNote != nil
+    }
+
+    private var currentReminderDate: Date? {
+        reminderNoteTarget?.reminderDate ?? editingNote?.reminderDate ?? note?.reminderDate
+    }
+
+    @MainActor
+    private func presentReminderSheet() {
+        Task { @MainActor in
+            guard let target = await ensureReminderTargetNote() else { return }
+            reminderNoteTarget = target
+        }
+    }
+
+    @MainActor
+    private func ensureReminderTargetNote() async -> Note? {
+        if let existing = editingNote {
+            var noteWithCurrentText = existing
+            noteWithCurrentText.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? existing.title : title.trimmingCharacters(in: .whitespacesAndNewlines)
+            noteWithCurrentText.content = content
+            return noteWithCurrentText
+        }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty || !trimmedContent.isEmpty || !imageAttachments.isEmpty else { return nil }
+
+        let finalTitle = trimmedTitle.isEmpty ? "Note" : trimmedTitle
+        _ = await performSaveInBackground(title: finalTitle, content: content)
+        return editingNote
+    }
+
+    private func saveReminderForNote(_ note: Note, date: Date, message: String) {
+        var updatedNote = note
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        updatedNote.title = trimmedTitle.isEmpty ? "Note" : trimmedTitle
+        updatedNote.content = content
+        updatedNote.reminderDate = date
+        updatedNote.reminderNote = message.isEmpty ? nil : message
+        updatedNote.dateModified = Date()
+        notesManager.updateNote(updatedNote)
+        editingNote = updatedNote
+        reminderNoteTarget = updatedNote
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.upcomingNoteReminders)
+        HapticManager.shared.success()
+    }
+
+    private func removeReminderFromNote(_ note: Note) {
+        var updatedNote = note
+        updatedNote.reminderDate = nil
+        updatedNote.reminderNote = nil
+        updatedNote.dateModified = Date()
+        notesManager.updateNote(updatedNote)
+        editingNote = updatedNote
+        reminderNoteTarget = updatedNote
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.upcomingNoteReminders)
+        HapticManager.shared.success()
+    }
+
+    private func openAttachmentPreview() {
+        if !imageAttachments.isEmpty {
+            showingAttachmentsSheet = true
+            return
+        }
+
+        guard let att = attachment else { return }
+        Task {
+            if let data = try? await AttachmentService.shared.downloadFile(from: att.storagePath) {
+                let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(att.fileName)
+                try? data.write(to: tmp)
+                await MainActor.run {
+                    filePreviewURL = tmp
+                    showingFilePreview = true
+                }
+            }
+        }
     }
     
     // Formatting options pill with glass effect - Order: Body, H1, H2, H3, Bold, Italic, Strikethrough, Bullet, Numbered

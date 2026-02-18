@@ -1,7 +1,6 @@
 import SwiftUI
 import CoreLocation
 import WidgetKit
-import UIKit
 
 struct MainAppView: View {
     @EnvironmentObject var authManager: AuthenticationManager
@@ -26,8 +25,6 @@ struct MainAppView: View {
     @State private var selectedNoteToOpen: Note? = nil
     @State private var showingNewNoteSheet = false
     @State private var showingAddEventPopup = false
-    @State private var showingTodoPhotoImportSheet = false
-    @State private var todoImportSourceType: UIImagePickerController.SourceType = .camera
     @State private var searchText = ""
     @State private var isDailyOverviewExpanded = false
     @State private var searchResults: [OverlaySearchResult] = []  // Cache search results instead of computing every time
@@ -98,8 +95,7 @@ struct MainAppView: View {
     private var isAnySheetPresented: Bool {
         showingNewNoteSheet || searchSelectedNote != nil || authManager.showLocationSetup ||
         searchSelectedEmail != nil || searchSelectedTask != nil ||
-        showingAddEventPopup || showReceiptStats || showAllLocationsSheet ||
-        selectedLocationPlace != nil || showingTodoPhotoImportSheet
+        showingAddEventPopup || showReceiptStats || showAllLocationsSheet || selectedLocationPlace != nil
     }
 
     private func formatTime(_ date: Date) -> String {
@@ -1082,12 +1078,6 @@ struct MainAppView: View {
                 )
                 .presentationBg()
             }
-            .sheet(isPresented: $showingTodoPhotoImportSheet) {
-                PhotoCalendarImportView(initialSourceType: todoImportSourceType)
-                    .presentationDetents([.large])
-                    .presentationDragIndicator(.visible)
-                    .presentationBg()
-            }
             // Removed sheet animation for faster presentation
             .sheet(isPresented: $showReceiptStats) {
                 ReceiptStatsView(isPopup: true)
@@ -1230,6 +1220,24 @@ struct MainAppView: View {
                 }
             }
             .frame(maxHeight: .infinity)
+            .gesture(
+                DragGesture(minimumDistance: 100)
+                    .onEnded { value in
+                        // Only if horizontal > 2x vertical
+                        guard abs(value.translation.width) > abs(value.translation.height) * 2 else { return }
+
+                        // Don't trigger if a sheet is presented
+                        guard !isAnySheetPresented else { return }
+
+                        if value.translation.width > 100 {
+                            // Swipe right - previous tab
+                            previousTab()
+                        } else if value.translation.width < -100 {
+                            // Swipe left - next tab
+                            nextTab()
+                        }
+                    }
+            )
 
             // Fixed Footer - hide when keyboard appears or any sheet is open or viewing note in navigation
             if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup && !notesManager.isViewingNoteInNavigation {
@@ -1244,14 +1252,6 @@ struct MainAppView: View {
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
         .background(colorScheme == .dark ? Color.black : Color.white)
-        .onAppear {
-            applyGlobalScrollInteractionTuning()
-        }
-        .onChange(of: selectedTab) { _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                applyGlobalScrollInteractionTuning()
-            }
-        }
         // Swipe gestures disabled - user requested removal of left/right swipe navigation
     }
 
@@ -1928,88 +1928,56 @@ struct MainAppView: View {
     }
 
     private var mainContentWidgets: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 8) {
-                if locationSuggestionService.hasPendingSuggestion {
-                    NewLocationSuggestionCard()
-                        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .top).combined(with: .opacity),
-                            removal: .move(edge: .top).combined(with: .opacity)
-                        ))
+        ZStack {
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 8) {
+                    // NEW: Location suggestion card (shows when at unsaved location for 5+ min)
+                    if locationSuggestionService.hasPendingSuggestion {
+                        NewLocationSuggestionCard()
+                            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .move(edge: .top).combined(with: .opacity)
+                            ))
+                    }
+                    
+                    // Render widgets based on user configuration
+                    // Note: Edit button is now inside Quick Access widget
+                    ForEach(Array(widgetManager.visibleWidgets.enumerated()), id: \.element.id) { index, config in
+                        widgetView(for: config.type)
+                            .listItemAppearance(delay: Double(index) * 0.03)
+                    }
                 }
-
-                DailyOverviewWidget(
-                    isExpanded: $isDailyOverviewExpanded,
-                    onNoteSelected: { note in
-                        selectedNoteToOpen = note
-                    },
-                    onEmailSelected: { email in
-                        searchSelectedEmail = email
-                    },
-                    onTaskSelected: { task in
-                        searchSelectedTask = task
-                    },
-                    onAddTask: {
-                        showingAddEventPopup = true
-                    },
-                    onAddTaskFromPhoto: {
-                        todoImportSourceType = .camera
-                        showingTodoPhotoImportSheet = true
-                    },
-                    onAddNote: {
-                        showingNewNoteSheet = true
-                    }
-                )
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .zIndex(isDailyOverviewExpanded ? 10 : 1)
-
-                SpendingAndETAWidget(
-                    isVisible: selectedTab == .home,
-                    onAddReceipt: {
-                        showingReceiptCameraPicker = true
-                    },
-                    onAddReceiptFromGallery: {
-                        showingReceiptImagePicker = true
-                    }
-                )
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .allowsHitTesting(!isDailyOverviewExpanded)
-
-                CurrentLocationCardWidget(
-                    currentLocationName: currentLocationName,
-                    nearbyLocation: nearbyLocation,
-                    nearbyLocationFolder: nearbyLocationFolder,
-                    nearbyLocationPlace: nearbyLocationPlace,
-                    distanceToNearest: distanceToNearest,
-                    elapsedTimeString: elapsedTimeString,
-                    todaysVisits: visitState.todaysVisits,
-                    selectedPlace: $selectedLocationPlace,
-                    showAllLocationsSheet: $showAllLocationsSheet
-                )
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .allowsHitTesting(!isDailyOverviewExpanded)
-
+                .padding(.top, 12)
+                .padding(.bottom, 20)
             }
-            .padding(.top, 12)
-            .padding(.bottom, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scrollDismissesKeyboard(.interactively)
+            .scrollContentBackground(.hidden)
+            .refreshable {
+                // Activate search when pulling down
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSearchFocused = true
+                }
+            }
+            // Apply delaysContentTouches via UIScrollView introspection
+            .onAppear {
+                // Find and configure UIScrollView to delay content touches
+                DispatchQueue.main.async {
+                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let window = windowScene.windows.first {
+                        configureScrollViewsForSmoothScrolling(in: window)
+                    }
+                }
+            }
+
+            // Edit mode overlay (only when in edit mode)
+            if widgetManager.isEditMode {
+                WidgetEditModeOverlay(widgetManager: widgetManager)
+                    .allowsHitTesting(true)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .scrollDismissesKeyboard(.interactively)
-        .scrollContentBackground(.hidden)
-        .refreshable {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isSearchFocused = true
-            }
-        }
-        .onAppear {
-            DispatchQueue.main.async {
-                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let window = windowScene.windows.first {
-                    configureScrollViewsForSmoothScrolling(in: window)
-                }
-            }
-        }
     }
     
     // MARK: - Refresh Helper
@@ -2036,20 +2004,9 @@ struct MainAppView: View {
         if let scrollView = view as? UIScrollView {
             scrollView.delaysContentTouches = true
             scrollView.canCancelContentTouches = true
-            scrollView.isDirectionalLockEnabled = true
-            scrollView.panGestureRecognizer.cancelsTouchesInView = true
-            scrollView.panGestureRecognizer.delaysTouchesBegan = true
         }
         for subview in view.subviews {
             configureScrollViewsForSmoothScrolling(in: subview)
-        }
-    }
-
-    private func applyGlobalScrollInteractionTuning() {
-        DispatchQueue.main.async {
-            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let window = windowScene.windows.first else { return }
-            configureScrollViewsForSmoothScrolling(in: window)
         }
     }
     
@@ -2070,16 +2027,6 @@ struct MainAppView: View {
                     },
                     onTaskSelected: { task in
                         searchSelectedTask = task
-                    },
-                    onAddTask: {
-                        showingAddEventPopup = true
-                    },
-                    onAddTaskFromPhoto: {
-                        todoImportSourceType = .camera
-                        showingTodoPhotoImportSheet = true
-                    },
-                    onAddNote: {
-                        showingNewNoteSheet = true
                     }
                 )
             }
@@ -2120,15 +2067,7 @@ struct MainAppView: View {
             
         case .events:
             ReorderableWidgetContainer(widgetManager: widgetManager, type: .events) {
-                EventsCardWidget(
-                    showingAddEventPopup: $showingAddEventPopup,
-                    onTaskSelected: { task in
-                        searchSelectedTask = task
-                    },
-                    onOpenEvents: {
-                        selectedTab = .events
-                    }
-                )
+                EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
             }
             .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .allowsHitTesting(!isDailyOverviewExpanded)
@@ -2153,7 +2092,17 @@ struct MainAppView: View {
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .pinnedNotes:
-            EmptyView()
+            ReorderableWidgetContainer(widgetManager: widgetManager, type: .pinnedNotes) {
+                HomePinnedNotesWidget(
+                    selectedTab: $selectedTab,
+                    showingNewNoteSheet: $showingNewNoteSheet,
+                    onNoteSelected: { note in
+                        selectedNoteToOpen = note
+                    }
+                )
+            }
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+            .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .favoriteLocations:
             ReorderableWidgetContainer(widgetManager: widgetManager, type: .favoriteLocations) {

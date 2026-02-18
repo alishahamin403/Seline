@@ -1,7 +1,11 @@
 import SwiftUI
 
+/// State for voice/speak mode (kept for VoiceOrbView; speak mode UI removed from chat)
+enum VoiceModeState {
+    case idle, listening, processing, speaking
+}
+
 /// Animated central orb for voice/speak mode
-/// Changes appearance based on voice mode state: idle, listening, processing, speaking
 struct VoiceOrbView: View {
     let state: VoiceModeState
     let audioLevel: Float // -160 (silence) to 0 (max)
