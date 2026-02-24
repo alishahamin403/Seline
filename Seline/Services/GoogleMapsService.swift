@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import CoreLocation
 
 class GoogleMapsService: ObservableObject {
     static let shared = GoogleMapsService()
@@ -51,11 +52,23 @@ class GoogleMapsService: ObservableObject {
 
     // MARK: - Search Places
 
-    func searchPlaces(query: String) async throws -> [PlaceSearchResult] {
+    func searchPlaces(query: String, currentLocation: CLLocation? = nil) async throws -> [PlaceSearchResult] {
         guard !query.isEmpty else { return [] }
 
+        let normalizedQuery = query
+            .replacingOccurrences(of: "near me", with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let queryToSearch = normalizedQuery.isEmpty ? query : normalizedQuery
+
+        let cacheKey: String = {
+            guard let currentLocation else { return queryToSearch.lowercased() }
+            let roundedLat = String(format: "%.2f", currentLocation.coordinate.latitude)
+            let roundedLon = String(format: "%.2f", currentLocation.coordinate.longitude)
+            return "\(queryToSearch.lowercased())@\(roundedLat),\(roundedLon)"
+        }()
+
         // Check cache first
-        if let cachedEntry = searchCache[query], isSearchCacheValid(cachedEntry) {
+        if let cachedEntry = searchCache[cacheKey], isSearchCacheValid(cachedEntry) {
             return cachedEntry.results
         }
 
@@ -67,9 +80,28 @@ class GoogleMapsService: ObservableObject {
         }
 
         // Create request body for new API
-        let requestBody: [String: Any] = [
-            "textQuery": query
+        var requestBody: [String: Any] = [
+            "textQuery": queryToSearch,
+            "maxResultCount": 20
         ]
+
+        if let currentLocation {
+            requestBody["locationBias"] = [
+                "circle": [
+                    "center": [
+                        "latitude": currentLocation.coordinate.latitude,
+                        "longitude": currentLocation.coordinate.longitude
+                    ],
+                    "radius": 30000.0
+                ]
+            ]
+            requestBody["rankPreference"] = "DISTANCE"
+        }
+
+        let lowerQuery = queryToSearch.lowercased()
+        if lowerQuery.contains("supercharger") || lowerQuery.contains("ev charger") || lowerQuery.contains("charging station") {
+            requestBody["includedType"] = "electric_vehicle_charging_station"
+        }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
             throw MapsError.invalidURL
@@ -142,7 +174,7 @@ class GoogleMapsService: ObservableObject {
             }
 
             // Cache the results
-            self.searchCache[query] = SearchCacheEntry(results: searchResults, timestamp: Date())
+            self.searchCache[cacheKey] = SearchCacheEntry(results: searchResults, timestamp: Date())
 
             return searchResults
 

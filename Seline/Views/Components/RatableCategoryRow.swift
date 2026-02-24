@@ -39,7 +39,7 @@ struct RatableCategoryRow: View {
         if averageRating >= 8 {
             return .green
         } else if averageRating >= 5 {
-            return .orange
+            return .primary
         } else {
             return .blue
         }
@@ -310,7 +310,7 @@ struct RatableCategoryRow: View {
         if rating >= 8 {
             return Color.green
         } else if rating >= 5 {
-            return Color.orange
+            return Color.primary
         } else {
             return Color.red
         }

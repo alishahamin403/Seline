@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ReceiptItemRow: View {
     let receipt: ReceiptStat
-    let onTap: (UUID) -> Void
+    let onTap: (ReceiptStat) -> Void
     @Environment(\.colorScheme) var colorScheme
 
     var destinationName: String {
@@ -27,17 +27,21 @@ struct ReceiptItemRow: View {
     }
 
 
+    private var iconColor: Color {
+        CategoryIconProvider.color(for: receipt.category)
+    }
+
     var body: some View {
-        Button(action: { onTap(receipt.noteId) }) {
+        Button(action: { onTap(receipt) }) {
             HStack(spacing: 12) {
                 // Category Icon
                 Text(iconForCategory(receipt.category))
                     .font(FontManager.geist(size: 16, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.gray : nil)
+                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
                     .frame(width: 32, height: 32)
                     .background(
                         Circle()
-                            .fill(colorScheme == .dark ? Color.white : Color.black.opacity(0.05))
+                            .fill(iconColor.opacity(colorScheme == .dark ? 0.26 : 0.2))
                     )
 
                 Text(destinationName)
@@ -51,7 +55,7 @@ struct ReceiptItemRow: View {
 
                 Text(CurrencyParser.formatAmount(receipt.amount))
                     .font(FontManager.geist(size: 15, weight: .regular)) // 15pt
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.86) : Color.emailLightTextPrimary)
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 12)

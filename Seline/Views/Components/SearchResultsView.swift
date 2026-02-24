@@ -129,7 +129,7 @@ struct SearchResultRow: View {
         case .events:
             return .green
         case .notes:
-            return .orange
+            return .primary
         case .maps:
             return .purple
         }

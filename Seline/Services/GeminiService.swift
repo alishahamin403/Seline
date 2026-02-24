@@ -4,15 +4,18 @@ import UIKit
 /**
  * GeminiService - Google Gemini LLM Service
  *
- * Primary LLM service for Seline with these capabilities:
- * - Excellent at web search and general knowledge
- * - Strong reasoning capabilities
- * - Good at historical data retrieval
- * - Fast and cost-effective with Gemini 2.5 Flash
+ * Cost-optimized defaults:
+ * - Uses Gemini 2.0 Flash by default
+ * - Limits max output tokens for lower spend
+ * - Logs per-request token usage and estimated USD cost
  */
 @MainActor
 class GeminiService: ObservableObject {
     static let shared = GeminiService()
+    private static let defaultModelName = "gemini-2.0-flash"
+    private static let fallbackModelName = "gemini-2.0-flash-lite"
+    private static let defaultMaxOutputTokens = 1200
+    private static let defaultStreamingOutputTokens = 1200
 
     // Published properties for UI
     @Published var quotaUsed: Int = 0
@@ -32,9 +35,23 @@ class GeminiService: ObservableObject {
     
     // API key
     private let apiKey: String
+    private var hasLoggedPricingConfig = false
+
+    private struct ModelPricing {
+        let inputUSDPerMillion: Double
+        let outputUSDPerMillion: Double
+    }
+
+    // These are pricing assumptions for log visibility. Update if your Gemini billing rates differ.
+    private static let modelPricingTable: [String: ModelPricing] = [
+        "gemini-2.0-flash-lite": ModelPricing(inputUSDPerMillion: 0.075, outputUSDPerMillion: 0.30),
+        "gemini-2.0-flash": ModelPricing(inputUSDPerMillion: 0.10, outputUSDPerMillion: 0.40),
+        "gemini-2.5-flash": ModelPricing(inputUSDPerMillion: 0.30, outputUSDPerMillion: 2.50)
+    ]
 
     private init() {
         self.apiKey = Config.geminiAPIKey
+        logPricingConfigurationIfNeeded()
         Task {
             await loadQuotaStatus()
             await loadDailyUsage()
@@ -67,13 +84,13 @@ class GeminiService: ObservableObject {
     /// Low-level chat method
     func chat(
         messages: [Message],
-        model: String = "gemini-2.5-flash",
+        model: String = GeminiService.defaultModelName,
         temperature: Double = 0.6,
-        maxTokens: Int = 2048,
+        maxTokens: Int = GeminiService.defaultMaxOutputTokens,
         operationType: String? = nil
     ) async throws -> Response {
         let request = Request(
-            model: model,
+            model: normalizedModelName(model),
             messages: messages,
             temperature: temperature,
             max_tokens: maxTokens,
@@ -81,7 +98,22 @@ class GeminiService: ObservableObject {
             stream: false
         )
 
-        let response = try await makeDirectRequest(request)
+        let response: Response
+        do {
+            response = try await makeDirectRequest(request)
+        } catch GeminiError.apiError(let message) where request.model == GeminiService.defaultModelName &&
+            isModelNotFoundError(message) {
+            print("⚠️ Gemini model '\(request.model)' unavailable. Falling back to '\(GeminiService.fallbackModelName)'.")
+            let fallbackRequest = Request(
+                model: GeminiService.fallbackModelName,
+                messages: messages,
+                temperature: temperature,
+                max_tokens: maxTokens,
+                operation_type: operationType,
+                stream: false
+            )
+            response = try await makeDirectRequest(fallbackRequest)
+        }
 
         // Update quota after successful request
         await loadQuotaStatus()
@@ -293,6 +325,64 @@ class GeminiService: ObservableObject {
         }
     }
 
+    private func normalizedModelName(_ model: String?) -> String {
+        guard let model = model?.trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty else {
+            return GeminiService.defaultModelName
+        }
+        return model
+    }
+
+    private func isModelNotFoundError(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        return lower.contains("not found") || lower.contains("unsupported model")
+    }
+
+    private func pricingForModel(_ model: String) -> ModelPricing? {
+        GeminiService.modelPricingTable[model]
+    }
+
+    private func logPricingConfigurationIfNeeded() {
+        guard !hasLoggedPricingConfig else { return }
+        hasLoggedPricingConfig = true
+
+        print("💲 Gemini pricing assumptions (USD per 1M tokens):")
+        for model in GeminiService.modelPricingTable.keys.sorted() {
+            guard let pricing = pricingForModel(model) else { continue }
+            let marker = model == GeminiService.defaultModelName ? " [ACTIVE]" : ""
+            print(
+                "   - \(model)\(marker): input=$\(String(format: "%.3f", pricing.inputUSDPerMillion)) " +
+                "output=$\(String(format: "%.3f", pricing.outputUSDPerMillion))"
+            )
+        }
+    }
+
+    private func logEstimatedRequestCost(
+        model: String,
+        operationType: String?,
+        promptTokens: Int,
+        completionTokens: Int
+    ) {
+        guard let pricing = pricingForModel(model) else {
+            print(
+                "💲 Gemini cost | op=\(operationType ?? "unknown") model=\(model) " +
+                "prompt=\(promptTokens) completion=\(completionTokens) total=\(promptTokens + completionTokens) (pricing unknown)"
+            )
+            return
+        }
+
+        let inputCost = (Double(promptTokens) / 1_000_000.0) * pricing.inputUSDPerMillion
+        let outputCost = (Double(completionTokens) / 1_000_000.0) * pricing.outputUSDPerMillion
+        let totalCost = inputCost + outputCost
+
+        print(
+            "💲 Gemini cost | op=\(operationType ?? "unknown") model=\(model) " +
+            "prompt=\(promptTokens) completion=\(completionTokens) total=\(promptTokens + completionTokens) " +
+            "input=$\(String(format: "%.6f", inputCost)) " +
+            "output=$\(String(format: "%.6f", outputCost)) " +
+            "total=$\(String(format: "%.6f", totalCost))"
+        )
+    }
+
     // MARK: - Private Methods
 
     private func makeDirectRequest(_ request: Request) async throws -> Response {
@@ -308,11 +398,11 @@ class GeminiService: ObservableObject {
 
         // Build request body - NO google_search tool (causes LLM to web-search
         // instead of using the provided app context data)
-        var requestBody: [String: Any] = [
+        let requestBody: [String: Any] = [
             "contents": geminiContents,
             "generationConfig": [
                 "temperature": request.temperature ?? 0.6,
-                "maxOutputTokens": request.max_tokens ?? 2048
+                "maxOutputTokens": request.max_tokens ?? GeminiService.defaultMaxOutputTokens
             ]
         ]
 
@@ -408,6 +498,12 @@ class GeminiService: ObservableObject {
 
         let totalTokens = promptTokens + completionTokens
         await trackTokenUsage(tokens: totalTokens)
+        logEstimatedRequestCost(
+            model: request.model,
+            operationType: request.operation_type,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens
+        )
 
         // Convert to our Response format
         let geminiResponse = Response(
@@ -425,7 +521,7 @@ class GeminiService: ObservableObject {
             )
         )
 
-        print("✅ Gemini: \(totalTokens) tokens used")
+        print("✅ Gemini: \(totalTokens) tokens used (\(request.model))")
 
         return geminiResponse
     }
@@ -455,7 +551,8 @@ class GeminiService: ObservableObject {
         systemPrompt: String? = nil,
         userPrompt: String,
         maxTokens: Int = 500,
-        temperature: Double = 0.7
+        temperature: Double = 0.7,
+        operationType: String = "text_generation"
     ) async throws -> String {
         let fullPrompt = if let systemPrompt = systemPrompt {
             "\(systemPrompt)\n\n\(userPrompt)"
@@ -463,24 +560,31 @@ class GeminiService: ObservableObject {
             userPrompt
         }
 
-        return try await answerQuestion(
-            query: fullPrompt,
-            conversationHistory: [],
-            operationType: "text_generation"
+        let response = try await chat(
+            messages: [Message(role: "user", content: fullPrompt)],
+            temperature: temperature,
+            maxTokens: maxTokens,
+            operationType: operationType
         )
+        return response.choices.first?.message.content ?? ""
     }
 
     /// Answer question with streaming using Gemini's native SSE streaming
     func answerQuestionWithStreaming(
         query: String,
         conversationHistory: [Message] = [],
+        model: String = GeminiService.defaultModelName,
+        temperature: Double = 0.35,
+        maxTokens: Int = GeminiService.defaultStreamingOutputTokens,
+        operationType: String? = "stream_chat",
         onChunk: @escaping (String) -> Void
     ) async throws {
         var messages: [Message] = conversationHistory
         messages.append(Message(role: "user", content: query))
 
         // Use streamGenerateContent with alt=sse for Server-Sent Events format
-        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=\(apiKey)"
+        let selectedModel = normalizedModelName(model)
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(selectedModel):streamGenerateContent?alt=sse&key=\(apiKey)"
         guard let url = URL(string: urlString) else {
             throw GeminiError.invalidURL
         }
@@ -490,8 +594,8 @@ class GeminiService: ObservableObject {
         let requestBody: [String: Any] = [
             "contents": geminiContents,
             "generationConfig": [
-                "temperature": 0.35,
-                "maxOutputTokens": 2048,
+                "temperature": temperature,
+                "maxOutputTokens": maxTokens,
                 "topP": 0.95,
                 "topK": 40
             ]
@@ -519,6 +623,19 @@ class GeminiService: ObservableObject {
             if let errorResponse = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
                let error = errorResponse["error"] as? [String: Any],
                let message = error["message"] as? String {
+                if selectedModel == GeminiService.defaultModelName && isModelNotFoundError(message) {
+                    print("⚠️ Streaming model '\(selectedModel)' unavailable. Falling back to '\(GeminiService.fallbackModelName)'.")
+                    try await answerQuestionWithStreaming(
+                        query: query,
+                        conversationHistory: conversationHistory,
+                        model: GeminiService.fallbackModelName,
+                        temperature: temperature,
+                        maxTokens: maxTokens,
+                        operationType: operationType,
+                        onChunk: onChunk
+                    )
+                    return
+                }
                 throw GeminiError.apiError(message)
             }
             throw GeminiError.apiError("HTTP \(httpResponse.statusCode)")
@@ -552,11 +669,21 @@ class GeminiService: ObservableObject {
         }
 
         // Track token usage
-        let totalTokens = promptTokens + completionTokens > 0
-            ? promptTokens + completionTokens
-            : fullText.count / 4  // Fallback estimate if no usage metadata
+        if promptTokens == 0 {
+            promptTokens = messages.map { $0.content }.joined().count / 4
+        }
+        if completionTokens == 0 {
+            completionTokens = max(1, fullText.count / 4)
+        }
+        let totalTokens = promptTokens + completionTokens
         await trackTokenUsage(tokens: totalTokens)
-        print("✅ Gemini (streaming): \(totalTokens) tokens used, \(fullText.count) chars")
+        logEstimatedRequestCost(
+            model: selectedModel,
+            operationType: operationType,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens
+        )
+        print("✅ Gemini (streaming): \(totalTokens) tokens used, \(fullText.count) chars (\(selectedModel))")
     }
 
     /// Get semantic similarity scores (stub)
@@ -581,7 +708,8 @@ class GeminiService: ObservableObject {
         systemPrompt: String,
         messages: [[String: String]],
         temperature: Double = 0.6,
-        maxTokens: Int = 2048
+        maxTokens: Int = GeminiService.defaultMaxOutputTokens,
+        operationType: String = "simple_chat"
     ) async throws -> String {
         var allMessages: [Message] = [Message(role: "system", content: systemPrompt)]
         for msg in messages {
@@ -590,7 +718,12 @@ class GeminiService: ObservableObject {
             }
         }
 
-        let response = try await chat(messages: allMessages, temperature: temperature, maxTokens: maxTokens, operationType: "simple_chat")
+        let response = try await chat(
+            messages: allMessages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            operationType: operationType
+        )
         return response.choices.first?.message.content ?? ""
     }
 
@@ -608,7 +741,8 @@ class GeminiService: ObservableObject {
                 systemPrompt: "You are a summarizer. Output only the summary.",
                 messages: [["role": "user", "content": prompt]],
                 temperature: 0.2,
-                maxTokens: 256
+                maxTokens: 256,
+                operationType: "conversation_summary"
             )
             return out.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
@@ -621,6 +755,7 @@ class GeminiService: ObservableObject {
     func simpleChatCompletionStreaming(
         systemPrompt: String,
         messages: [[String: String]],
+        operationType: String = "simple_chat_stream",
         onChunk: @escaping (String) -> Void
     ) async throws -> String {
         var allMessages: [Message] = [Message(role: "system", content: systemPrompt)]
@@ -639,6 +774,10 @@ class GeminiService: ObservableObject {
         try await answerQuestionWithStreaming(
             query: allMessages.last?.content ?? "",
             conversationHistory: Array(allMessages.dropLast()),
+            model: GeminiService.defaultModelName,
+            temperature: 0.35,
+            maxTokens: GeminiService.defaultStreamingOutputTokens,
+            operationType: operationType,
             onChunk: chunkHandler
         )
 
@@ -787,16 +926,6 @@ class GeminiService: ObservableObject {
             userPrompt: userPrompt,
             maxTokens: 30,
             temperature: 0.3
-        )
-    }
-
-    /// Generate follow-up questions based on conversation context
-    func generateFollowUpQuestions(prompt: String) async throws -> String {
-        return try await generateText(
-            systemPrompt: nil,
-            userPrompt: prompt,
-            maxTokens: 100,
-            temperature: 0.7
         )
     }
 

@@ -96,7 +96,8 @@ class AuthenticationManager: ObservableObject {
             // Request additional Gmail and People API scopes
             let gmailScopes = [
                 "https://www.googleapis.com/auth/gmail.readonly",
-                "https://www.googleapis.com/auth/contacts.readonly" // For fetching profile pictures
+                "https://www.googleapis.com/auth/contacts.readonly", // For contact search + profile pictures
+                "https://www.googleapis.com/auth/contacts.other.readonly" // For Gmail-style auto-saved recipients
             ]
 
             let result = try await GIDSignIn.sharedInstance.signIn(

@@ -27,96 +27,121 @@ struct EmailFolderSidebarView: View {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var sidebarBackgroundColor: Color {
+        colorScheme == .dark ? Color.black : .white
+    }
+
+    private var topControlFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : .white
+    }
+
+    private var topControlBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
+        ZStack {
+            sidebarBackgroundColor
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
-
-                    TextField("Search folders", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(FontManager.geist(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity)
-                .background(
-                    Capsule()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-                )
-
-                Button(action: {
-                    HapticManager.shared.buttonTap()
-                    showCreateFolderSheet = true
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus")
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
                             .font(.system(size: 14, weight: .medium))
-                        Text("Folder")
-                            .font(FontManager.geist(size: 13, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
+
+                        TextField("Search folders", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
                     }
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
                     .padding(.horizontal, 12)
-                    .frame(height: 36)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
                     .background(
                         Capsule()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                            .fill(topControlFillColor)
+                            .overlay(
+                                Capsule()
+                                    .stroke(topControlBorderColor, lineWidth: 0.8)
+                            )
                     )
+
+                    Button(action: {
+                        HapticManager.shared.buttonTap()
+                        showCreateFolderSheet = true
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .medium))
+                            Text("Folder")
+                                .font(FontManager.geist(size: 13, weight: .medium))
+                        }
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                        .background(
+                            Capsule()
+                                .fill(topControlFillColor)
+                                .overlay(
+                                    Capsule()
+                                        .stroke(topControlBorderColor, lineWidth: 0.8)
+                                )
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(colorScheme == .dark ? Color.black : Color(white: 0.99))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(sidebarBackgroundColor)
 
-            // Folders list
-            Group {
-                if viewModel.isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if viewModel.folders.isEmpty {
-                    emptyStateView
-                } else if isSearching && filteredFolders.isEmpty {
-                    noSearchResultsView
-                } else {
-                    ScrollView(showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("FOLDERS")
-                                .font(FontManager.geist(size: 11, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
-                                .textCase(.uppercase)
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 6)
+                // Folders list
+                Group {
+                    if viewModel.isLoading {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if viewModel.folders.isEmpty {
+                        emptyStateView
+                    } else if isSearching && filteredFolders.isEmpty {
+                        noSearchResultsView
+                    } else {
+                        ScrollView(showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("FOLDERS")
+                                    .font(FontManager.geist(size: 11, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                    .textCase(.uppercase)
+                                    .padding(.horizontal, 20)
+                                    .padding(.bottom, 6)
 
-                            ForEach(filteredFolders) { folder in
-                                NavigationLink(destination: SavedEmailsListView(folder: folder)) {
-                                    EmailFolderRow(
-                                        folder: folder,
-                                        emailCount: viewModel.folderEmailCounts[folder.id],
-                                        colorScheme: colorScheme
-                                    )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .contextMenu {
-                                    Button(role: .destructive) {
-                                        viewModel.deleteFolder(folder)
-                                    } label: { Label("Delete", systemImage: "trash") }
+                                ForEach(filteredFolders) { folder in
+                                    NavigationLink(destination: SavedEmailsListView(folder: folder)) {
+                                        EmailFolderRow(
+                                            folder: folder,
+                                            emailCount: viewModel.folderEmailCounts[folder.id],
+                                            colorScheme: colorScheme
+                                        )
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                    .contextMenu {
+                                        Button(role: .destructive) {
+                                            viewModel.deleteFolder(folder)
+                                        } label: { Label("Delete", systemImage: "trash") }
+                                    }
                                 }
                             }
+                            .padding(.vertical, 16)
                         }
-                        .padding(.vertical, 16)
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(sidebarBackgroundColor)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(colorScheme == .dark ? Color.black : Color(white: 0.99))
         }
-        .background(colorScheme == .dark ? Color.black : Color(white: 0.99))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             viewModel.loadFolders()
         }

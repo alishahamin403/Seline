@@ -82,7 +82,7 @@ struct EmailRow: View {
                             // Sender name
                             Text(email.sender.shortDisplayName)
                                 .font(FontManager.geist(size: 13, systemWeight: email.isRead ? .medium : .semibold))
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
                                 .lineLimit(1)
 
                             // Subject
@@ -90,8 +90,8 @@ struct EmailRow: View {
                                 .font(FontManager.geist(size: 12, systemWeight: email.isRead ? .regular : .medium))
                                 .foregroundColor(
                                     email.isRead ?
-                                    (colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)) :
-                                    (colorScheme == .dark ? Color.white : Color.black)
+                                    (colorScheme == .dark ? Color.white.opacity(0.7) : Color.emailLightTextSecondary) :
+                                    (colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
                                 )
                                 .lineLimit(1)
                         }
@@ -102,19 +102,19 @@ struct EmailRow: View {
                         VStack(alignment: .trailing, spacing: 3) {
                             Text(email.formattedTime)
                                 .font(FontManager.geist(size: 10, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
 
                             HStack(spacing: 3) {
                                 if email.isImportant {
                                     Image(systemName: "exclamationmark")
                                         .font(FontManager.geist(size: 8, weight: .bold))
-                                        .foregroundColor(.orange)
+                                        .foregroundColor(.primary)
                                 }
 
                                 if email.hasAttachments {
                                     Image(systemName: "paperclip")
                                         .font(FontManager.geist(size: 8, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
                                 }
 
                                 if !email.isRead {

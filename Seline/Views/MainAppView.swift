@@ -16,6 +16,7 @@ struct MainAppView: View {
     @StateObject private var weatherService = WeatherService.shared
     @StateObject private var navigationService = NavigationService.shared
     @StateObject private var tagManager = TagManager.shared
+    @StateObject private var peopleManager = PeopleManager.shared
     @StateObject private var widgetManager = WidgetManager.shared
     @StateObject private var locationSuggestionService = LocationSuggestionService.shared
     @StateObject private var visitState = VisitStateManager.shared
@@ -34,6 +35,7 @@ struct MainAppView: View {
     @State private var searchSelectedNote: Note? = nil
     @State private var searchSelectedEmail: Email? = nil
     @State private var searchSelectedTask: TaskItem? = nil
+    @State private var selectedPersonForDetail: Person? = nil
     @State private var searchSelectedLocation: SavedPlace? = nil
     @State private var searchSelectedFolder: String? = nil
     @State private var showingEditTask = false
@@ -69,6 +71,7 @@ struct MainAppView: View {
     @State private var profilePictureUrl: String? = nil
     @State private var hasAppeared = false
     @State private var dismissedVisitReasonIds: Set<UUID> = [] // Track visits where user dismissed the reason popup
+    @State private var isSidebarOverlayVisible = false
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -949,6 +952,10 @@ struct MainAppView: View {
             .onReceive(NotificationCenter.default.publisher(for: .navigateToTask)) { notification in
                 handleTaskNotification(notification)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .interactiveSidebarVisibilityChanged)) { notification in
+                let isVisible = (notification.userInfo?["isVisible"] as? Bool) ?? false
+                isSidebarOverlayVisible = isVisible
+            }
             .fullScreenCover(item: $selectedNoteToOpen) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
                     get: { selectedNoteToOpen != nil },
@@ -1037,6 +1044,20 @@ struct MainAppView: View {
                         )
                     }
                 }
+            }
+            .sheet(item: $selectedPersonForDetail) { person in
+                PersonDetailSheet(
+                    person: person,
+                    peopleManager: peopleManager,
+                    locationsManager: locationsManager,
+                    colorScheme: colorScheme,
+                    onDismiss: {
+                        selectedPersonForDetail = nil
+                    }
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationBg()
             }
             .onChange(of: searchSelectedTask) { newValue in
                 if newValue != nil {
@@ -1167,17 +1188,26 @@ struct MainAppView: View {
                 // The fixed header is removed from here and replaced with a floating bar at the bottom
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .background(colorScheme == .dark ? Color.black : Color.white)
+            .background((colorScheme == .dark ? Color.black : Color.white))
             .blur(radius: isAnySheetPresented ? 5 : 0)
             .animation(.gentleFade, value: isAnySheetPresented)
         }
     }
 
+    private var shouldShowFloatingTabBar: Bool {
+        keyboardHeight == 0 &&
+        selectedNoteToOpen == nil &&
+        !showingNewNoteSheet &&
+        searchSelectedNote == nil &&
+        searchSelectedEmail == nil &&
+        searchSelectedTask == nil &&
+        !authManager.showLocationSetup &&
+        !notesManager.isViewingNoteInNavigation &&
+        !isSidebarOverlayVisible
+    }
+
     private func mainContentVStack(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            // Negative spacing to eliminate separator line
-            // Padding removed - header is now a floating bar at bottom
-
             // Content based on selected tab - instant switch, no transition animation
             ZStack {
                 if selectedTab == .home {
@@ -1231,27 +1261,13 @@ struct MainAppView: View {
             }
             .frame(maxHeight: .infinity)
 
-            // Fixed Footer - hide when keyboard appears or any sheet is open or viewing note in navigation
-            if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup && !notesManager.isViewingNoteInNavigation {
-                
-                // Floating AI Bar (only on home tab) - conditionally render to avoid taking space on other pages
-                // Floating AI Bar moved to homeContentWithoutHeader ZStack above
-
-                
+            // Footer tab bar in the layout flow (pre-overlay behavior)
+            if shouldShowFloatingTabBar {
                 BottomTabBar(selectedTab: $selectedTab)
-                    .padding(.top, -0.5)
             }
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
-        .background(colorScheme == .dark ? Color.black : Color.white)
-        .onAppear {
-            applyGlobalScrollInteractionTuning()
-        }
-        .onChange(of: selectedTab) { _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                applyGlobalScrollInteractionTuning()
-            }
-        }
+        .background((colorScheme == .dark ? Color.black : Color.white))
         // Swipe gestures disabled - user requested removal of left/right swipe navigation
     }
 
@@ -1519,12 +1535,22 @@ struct MainAppView: View {
                         selectedTab = .events
                     }) {
                         HStack(spacing: 6) {
-                            Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                                .font(FontManager.geist(size: 12, weight: .regular))
-                                .foregroundColor(task.isCompleted ?
-                                    (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color.black) :
-                                    (colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                                )
+                            Group {
+                                if task.isCompleted {
+                                    ZStack {
+                                        Circle()
+                                            .fill(colorScheme == .dark ? Color.claudeAccent.opacity(0.95) : Color.claudeAccent)
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 7, weight: .bold))
+                                            .foregroundColor(.white)
+                                    }
+                                } else {
+                                    Image(systemName: "circle")
+                                        .font(FontManager.geist(size: 12, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                                }
+                            }
+                            .frame(width: 12, height: 12)
 
                             Text(task.title)
                                 .font(FontManager.geist(size: 13, weight: .regular))
@@ -1950,6 +1976,9 @@ struct MainAppView: View {
                     onTaskSelected: { task in
                         searchSelectedTask = task
                     },
+                    onPersonSelected: { person in
+                        selectedPersonForDetail = person
+                    },
                     onAddTask: {
                         showingAddEventPopup = true
                     },
@@ -1974,7 +2003,6 @@ struct MainAppView: View {
                     }
                 )
                 .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .allowsHitTesting(!isDailyOverviewExpanded)
 
                 CurrentLocationCardWidget(
                     currentLocationName: currentLocationName,
@@ -2002,14 +2030,6 @@ struct MainAppView: View {
                 isSearchFocused = true
             }
         }
-        .onAppear {
-            DispatchQueue.main.async {
-                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let window = windowScene.windows.first {
-                    configureScrollViewsForSmoothScrolling(in: window)
-                }
-            }
-        }
     }
     
     // MARK: - Refresh Helper
@@ -2031,28 +2051,6 @@ struct MainAppView: View {
         HapticManager.shared.success()
     }
     
-    // Configure all UIScrollViews to delay content touches for smoother scrolling
-    private func configureScrollViewsForSmoothScrolling(in view: UIView) {
-        if let scrollView = view as? UIScrollView {
-            scrollView.delaysContentTouches = true
-            scrollView.canCancelContentTouches = true
-            scrollView.isDirectionalLockEnabled = true
-            scrollView.panGestureRecognizer.cancelsTouchesInView = true
-            scrollView.panGestureRecognizer.delaysTouchesBegan = true
-        }
-        for subview in view.subviews {
-            configureScrollViewsForSmoothScrolling(in: subview)
-        }
-    }
-
-    private func applyGlobalScrollInteractionTuning() {
-        DispatchQueue.main.async {
-            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let window = windowScene.windows.first else { return }
-            configureScrollViewsForSmoothScrolling(in: window)
-        }
-    }
-    
     // MARK: - Widget Views
     
     @ViewBuilder
@@ -2070,6 +2068,9 @@ struct MainAppView: View {
                     },
                     onTaskSelected: { task in
                         searchSelectedTask = task
+                    },
+                    onPersonSelected: { person in
+                        selectedPersonForDetail = person
                     },
                     onAddTask: {
                         showingAddEventPopup = true
@@ -2099,7 +2100,6 @@ struct MainAppView: View {
                 )
             }
             .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-            .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .currentLocation:
             ReorderableWidgetContainer(widgetManager: widgetManager, type: .currentLocation) {
@@ -2219,7 +2219,7 @@ struct MainAppView: View {
                 visitReasonPopupSection
                 mainContentWidgets
             }
-            .background(colorScheme == .dark ? Color.black : Color.white)
+            .background((colorScheme == .dark ? Color.black : Color.white))
             .zIndex(100)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

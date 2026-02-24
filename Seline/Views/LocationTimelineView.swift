@@ -28,8 +28,10 @@ struct LocationTimelineView: View {
     @State private var showDeleteConfirmation = false
     @State private var visitToDelete: LocationVisitRecord? = nil
     @State private var reloadTask: Task<Void, Never>?
+    @State private var monthPageSelection: Int = 1
 
     private let calendar = Calendar.current
+    private let calendarRowHeight: CGFloat = 52
 
     /// Returns visits for the selected day that have notes/reasons
     private var visitsWithNotes: [LocationVisitRecord] {
@@ -57,22 +59,23 @@ struct LocationTimelineView: View {
     }()
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Calendar section
-            calendarSection
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 12) {
+                calendarSection
 
-            // Timeline section for selected day
-            if isLoading {
-                ProgressView()
-                    .padding(.top, 40)
-            } else if visitState.selectedDayVisits.isEmpty {
-                emptyDayView
-            } else {
-                timelineSection
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 32)
+                } else if visitState.selectedDayVisits.isEmpty {
+                    emptyDayView
+                } else {
+                    timelineSection
+                }
             }
-
-            Spacer()
+            .padding(.bottom, 96)
         }
+        .background(colorScheme == .dark ? Color.black : Color.emailLightBackground)
         .onAppear {
             loadVisitsForMonth()
             loadVisitsForSelectedDay()
@@ -179,163 +182,210 @@ struct LocationTimelineView: View {
 
     @ViewBuilder
     private var calendarSection: some View {
-        VStack(spacing: 6) {
-            // Month navigation
-            HStack(spacing: 8) {
-                // Previous month button
-                Button(action: {
-                    withAnimation {
-                        visitState.currentMonth = calendar.date(byAdding: .month, value: -1, to: visitState.currentMonth) ?? visitState.currentMonth
-                        loadVisitsForMonth()
-                    }
-                }) {
-                    Image(systemName: "chevron.left")
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.clear)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                // Month and year
-                Text(dateFormatter.string(from: visitState.currentMonth))
-                    .font(FontManager.geist(size: 14, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(maxWidth: .infinity)
-
-                // Today button
-                Button(action: {
-                    withAnimation {
-                        let today = calendar.startOfDay(for: Date())
-                        visitState.currentMonth = today
-                        visitState.selectedDate = today
-                        loadVisitsForMonth()
-                        loadVisitsForSelectedDay()
-                    }
-                }) {
-                    Text("Today")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                // Next month button
-                Button(action: {
-                    withAnimation {
-                        visitState.currentMonth = calendar.date(byAdding: .month, value: 1, to: visitState.currentMonth) ?? visitState.currentMonth
-                        loadVisitsForMonth()
-                    }
-                }) {
-                    Image(systemName: "chevron.right")
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.clear)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 4)
-
-            // Day headers
-            HStack(spacing: 0) {
-                ForEach(["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"], id: \.self) { day in
-                    Text(day)
-                        .font(FontManager.geist(size: 11, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 2)
-
-            // Calendar grid
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
-                ForEach(daysInMonth(), id: \.self) { date in
-                    if let date = date {
-                        calendarDayCell(for: date)
-                    } else {
-                        Color.clear
-                            .aspectRatio(1, contentMode: .fit)
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
+        VStack(spacing: 0) {
+            calendarMonthHeader
+            calendarWeekdayHeader
+            swipeableMonthGrid
         }
-        .shadcnTileStyle(colorScheme: colorScheme)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1), lineWidth: 1)
+                )
+        )
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.top, 12)
+    }
+
+    private var calendarMonthHeader: some View {
+        HStack {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.26)) {
+                    shiftMonth(by: -1)
+                }
+                HapticManager.shared.selection()
+            }) {
+                Image(systemName: "chevron.left")
+                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Spacer()
+
+            Text(dateFormatter.string(from: visitState.currentMonth))
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+            Spacer()
+
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.26)) {
+                    let today = calendar.startOfDay(for: Date())
+                    visitState.currentMonth = today
+                    visitState.selectedDate = today
+                    monthPageSelection = 1
+                }
+                HapticManager.shared.selection()
+                loadVisitsForMonth()
+                loadVisitsForSelectedDay()
+            }) {
+                Text("Today")
+                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.26)) {
+                    shiftMonth(by: 1)
+                }
+                HapticManager.shared.selection()
+            }) {
+                Image(systemName: "chevron.right")
+                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, 12)
         .padding(.vertical, 12)
     }
 
+    private var calendarWeekdayHeader: some View {
+        HStack(spacing: 0) {
+            ForEach(["S", "M", "T", "W", "T", "F", "S"], id: \.self) { day in
+                Text(day)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private var swipeableMonthGrid: some View {
+        TabView(selection: $monthPageSelection) {
+            calendarMonthGrid(for: monthOffset(-1))
+                .frame(height: CGFloat(weeksInMonth(for: monthOffset(-1)).count) * calendarRowHeight, alignment: .top)
+                .tag(0)
+
+            calendarMonthGrid(for: visitState.currentMonth)
+                .frame(height: CGFloat(weeksInMonth(for: visitState.currentMonth).count) * calendarRowHeight, alignment: .top)
+                .tag(1)
+
+            calendarMonthGrid(for: monthOffset(1))
+                .frame(height: CGFloat(weeksInMonth(for: monthOffset(1)).count) * calendarRowHeight, alignment: .top)
+                .tag(2)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: CGFloat(weeksInMonth(for: visitState.currentMonth).count) * calendarRowHeight)
+        .padding(.bottom, 10)
+        .onChange(of: monthPageSelection) { newSelection in
+            guard newSelection != 1 else { return }
+
+            withAnimation(.easeInOut(duration: 0.26)) {
+                if newSelection == 0 {
+                    shiftMonth(by: -1)
+                } else {
+                    shiftMonth(by: 1)
+                }
+            }
+
+            DispatchQueue.main.async {
+                monthPageSelection = 1
+            }
+        }
+    }
+
+    private func calendarMonthGrid(for month: Date) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(weeksInMonth(for: month).enumerated()), id: \.offset) { _, week in
+                HStack(spacing: 0) {
+                    ForEach(Array(week.enumerated()), id: \.offset) { _, date in
+                        if let date {
+                            calendarDayCell(for: date, in: month)
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Color.clear
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .frame(height: calendarRowHeight)
+            }
+        }
+    }
+
     @ViewBuilder
-    private func calendarDayCell(for date: Date) -> some View {
+    private func calendarDayCell(for date: Date, in month: Date) -> some View {
         let isSelected = calendar.isDate(date, inSameDayAs: visitState.selectedDate)
         let isToday = calendar.isDateInToday(date)
         let visitCount = visitState.monthVisitCounts[normalizeDate(date)] ?? 0
         let hasVisits = visitCount > 0
-        let isInCurrentMonth = calendar.isDate(date, equalTo: visitState.currentMonth, toGranularity: .month)
+        let isInCurrentMonth = calendar.isDate(date, equalTo: month, toGranularity: .month)
 
         Button(action: {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                // Normalize the date to start of day to prevent time-based comparison issues
+            withAnimation(.easeInOut(duration: 0.2)) {
                 visitState.selectedDate = calendar.startOfDay(for: date)
-                loadVisitsForSelectedDay()
             }
+            loadVisitsForSelectedDay()
+            HapticManager.shared.selection()
         }) {
             VStack(spacing: 4) {
                 Text("\(calendar.component(.day, from: date))")
-                    .font(FontManager.geist(size: 13, systemWeight: isToday ? .semibold : .regular))
+                    .font(FontManager.geist(size: 12, weight: isToday || isSelected ? .semibold : .regular))
                     .foregroundColor(
-                        isSelected ? (colorScheme == .dark ? Color.black : Color.white) :
-                        isToday ? (colorScheme == .dark ? Color.white : Color.black) :
-                        !isInCurrentMonth ? (colorScheme == .dark ? Color.white : Color.black).opacity(0.4) :
+                        isSelected ? (colorScheme == .dark ? .black : .white) :
+                        !isInCurrentMonth ? (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.35)) :
                         (colorScheme == .dark ? Color.white : Color.black)
                     )
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Group {
+                            if isSelected {
+                                Circle().fill(colorScheme == .dark ? Color.white : Color.black)
+                            } else if isToday {
+                                Circle().stroke(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.3), lineWidth: 1.5)
+                            }
+                        }
+                    )
 
-                // Visit indicator - show up to 3 dots
                 if hasVisits {
                     HStack(spacing: 2) {
                         ForEach(0..<min(visitCount, 3), id: \.self) { _ in
                             Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                                .frame(width: 4, height: 4)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.75) : Color.black.opacity(0.65))
+                                .frame(width: 3.5, height: 3.5)
                         }
                     }
                 } else {
-                    // Empty space to maintain consistent height
-                    HStack(spacing: 2) {}
-                        .frame(height: 4)
+                    Color.clear
+                        .frame(height: 3.5)
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 36)
-            .background(
-                // Selected gets solid fill, today gets no background (will use border instead)
-                isSelected ? (colorScheme == .dark ? Color.white : Color.black) : Color.clear
-            )
-            .overlay(
-                // Today gets a border if it's not selected
-                Group {
-                    if isToday && !isSelected {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1.5)
-                    }
-                }
-            )
-            .cornerRadius(8)
+            .frame(height: 38)
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -452,16 +502,14 @@ struct LocationTimelineView: View {
                 daySummarySection
             }
 
-            // Vertical timeline - cleaner spacing
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(visitState.selectedDayVisits.sorted(by: { $0.entryTime < $1.entryTime })) { visit in
-                        visitCard(for: visit)
-                    }
+            // Visit cards
+            LazyVStack(spacing: 12) {
+                ForEach(visitState.selectedDayVisits.sorted(by: { $0.entryTime < $1.entryTime })) { visit in
+                    visitCard(for: visit)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
         .shadcnTileStyle(colorScheme: colorScheme)
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
@@ -897,24 +945,40 @@ struct LocationTimelineView: View {
 
     // MARK: - Helper Functions
 
-    private func daysInMonth() -> [Date?] {
-        guard let monthInterval = calendar.dateInterval(of: .month, for: visitState.currentMonth) else {
+    private func weeksInMonth(for month: Date) -> [[Date?]] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: month) else {
             return []
         }
 
-        let daysCount = calendar.component(.weekday, from: monthInterval.start) - 1
-        var days: [Date?] = Array(repeating: nil, count: daysCount)
+        let firstDay = calendar.startOfDay(for: monthInterval.start)
+        let weekday = calendar.component(.weekday, from: firstDay)
+        let leadingEmptyDays = (weekday - calendar.firstWeekday + 7) % 7
 
-        // CRITICAL: Normalize all dates to start of day to ensure proper comparison
-        var date = calendar.startOfDay(for: monthInterval.start)
-        let endDate = calendar.startOfDay(for: monthInterval.end)
+        var days: [Date?] = Array(repeating: nil, count: leadingEmptyDays)
+        var current = firstDay
+        let monthEnd = calendar.startOfDay(for: monthInterval.end)
 
-        while date < endDate {
-            days.append(date)
-            date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
+        while current < monthEnd {
+            days.append(current)
+            current = calendar.date(byAdding: .day, value: 1, to: current) ?? current
         }
 
-        return days
+        while days.count % 7 != 0 {
+            days.append(nil)
+        }
+
+        return stride(from: 0, to: days.count, by: 7).map { index in
+            Array(days[index..<min(index + 7, days.count)])
+        }
+    }
+
+    private func monthOffset(_ value: Int) -> Date {
+        calendar.date(byAdding: .month, value: value, to: visitState.currentMonth) ?? visitState.currentMonth
+    }
+
+    private func shiftMonth(by value: Int) {
+        visitState.currentMonth = calendar.date(byAdding: .month, value: value, to: visitState.currentMonth) ?? visitState.currentMonth
+        loadVisitsForMonth()
     }
 
     private func normalizeDate(_ date: Date) -> Date {
@@ -1118,7 +1182,7 @@ struct LocationTimelineView: View {
         // Simple color mapping based on category
         switch category.lowercased() {
         case let c where c.contains("restaurant") || c.contains("food"):
-            return Color.orange
+            return Color.primary
         case let c where c.contains("coffee") || c.contains("cafe"):
             return Color.brown
         case let c where c.contains("gym") || c.contains("fitness"):

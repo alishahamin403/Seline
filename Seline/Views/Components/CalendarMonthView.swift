@@ -11,12 +11,13 @@ struct CalendarMonthView: View {
     @Environment(\.colorScheme) var colorScheme
     
     @State private var currentMonth: Date
-    @State private var dragOffset: CGFloat = 0
+    @State private var monthPageSelection: Int = 1
     @State private var cachedEventsForMonth: [String: [TaskItem]] = [:] // Cache: dateKey -> filtered events
     @State private var cachedTagId: String? = nil // Track which tag filter is cached
     
     private let calendar = Calendar.current
-    private let maxEventsPerCell = 2
+    private let maxEventsPerCell = 1
+    private let rowHeight: CGFloat = 64
     private static let cacheKeyDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -58,7 +59,15 @@ struct CalendarMonthView: View {
     
     // Only show days from 1st to end of month, no extra days
     private var daysInMonth: [Date] {
-        guard let monthInterval = calendar.dateInterval(of: .month, for: currentMonth) else {
+        daysInMonth(for: currentMonth)
+    }
+
+    private var weeksInMonth: [[Date?]] {
+        weeksInMonth(for: currentMonth)
+    }
+
+    private func daysInMonth(for month: Date) -> [Date] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: month) else {
             return []
         }
         
@@ -73,9 +82,9 @@ struct CalendarMonthView: View {
         
         return dates
     }
-    
-    private var weeksInMonth: [[Date?]] {
-        let days = daysInMonth
+
+    private func weeksInMonth(for month: Date) -> [[Date?]] {
+        let days = daysInMonth(for: month)
         guard !days.isEmpty else {
             return []
         }
@@ -129,33 +138,6 @@ struct CalendarMonthView: View {
             calendarGrid
         }
         .background(backgroundColor)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 30)
-                .onChanged { value in
-                    // Only track horizontal drag, not vertical
-                    if abs(value.translation.width) > abs(value.translation.height) {
-                        dragOffset = value.translation.width
-                    }
-                }
-                .onEnded { value in
-                    let threshold: CGFloat = 50
-                    // Only change month for horizontal swipes
-                    if abs(value.translation.width) > abs(value.translation.height) {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            if value.translation.width > threshold {
-                                previousMonth()
-                                HapticManager.shared.selection()
-                            } else if value.translation.width < -threshold {
-                                nextMonth()
-                                HapticManager.shared.selection()
-                            }
-                            dragOffset = 0
-                        }
-                    } else {
-                        dragOffset = 0
-                    }
-                }
-        )
         .onChange(of: selectedDate) { newDate in
             // Update current month when selected date changes
             if !calendar.isDate(newDate, equalTo: currentMonth, toGranularity: .month) {
@@ -167,6 +149,7 @@ struct CalendarMonthView: View {
         .onChange(of: currentMonth) { _ in
             // Rebuild cache when month changes
             rebuildCacheForCurrentMonth()
+            monthPageSelection = 1
         }
         .onChange(of: selectedTagId) { _ in
             rebuildCacheForCurrentMonth()
@@ -252,7 +235,7 @@ struct CalendarMonthView: View {
             }
             .buttonStyle(PlainButtonStyle())
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .padding(.vertical, 12)
     }
     
@@ -273,7 +256,7 @@ struct CalendarMonthView: View {
                     .frame(maxWidth: .infinity)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(backgroundColor)
     }
@@ -281,12 +264,44 @@ struct CalendarMonthView: View {
     // MARK: - Calendar Grid
     
     private var calendarGrid: some View {
+        TabView(selection: $monthPageSelection) {
+            monthGrid(for: monthOffset(-1))
+                .frame(height: CGFloat(weeksInMonth(for: monthOffset(-1)).count) * rowHeight, alignment: .top)
+                .tag(0)
+
+            monthGrid(for: currentMonth)
+                .frame(height: CGFloat(weeksInMonth.count) * rowHeight, alignment: .top)
+                .tag(1)
+
+            monthGrid(for: monthOffset(1))
+                .frame(height: CGFloat(weeksInMonth(for: monthOffset(1)).count) * rowHeight, alignment: .top)
+                .tag(2)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: CGFloat(weeksInMonth.count) * rowHeight)
+        .onChange(of: monthPageSelection) { newSelection in
+            guard newSelection != 1 else { return }
+
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                if newSelection == 0 {
+                    previousMonth()
+                } else {
+                    nextMonth()
+                }
+            }
+
+            DispatchQueue.main.async {
+                monthPageSelection = 1
+            }
+        }
+    }
+
+    private func monthGrid(for month: Date) -> some View {
         VStack(spacing: 0) {
-            ForEach(Array(weeksInMonth.enumerated()), id: \.offset) { weekIndex, week in
+            ForEach(Array(weeksInMonth(for: month).enumerated()), id: \.offset) { weekIndex, week in
                 weekRow(week: week, weekIndex: weekIndex)
             }
         }
-        .offset(x: dragOffset * 0.3)
     }
     
     // MARK: - Week Row
@@ -303,8 +318,8 @@ struct CalendarMonthView: View {
                 }
             }
         }
-        .padding(.horizontal, 16) // Match weekday header padding
-        .frame(minHeight: 100) // Increased height for bigger calendar
+        .padding(.horizontal, 12) // Match weekday header padding
+        .frame(height: rowHeight)
     }
     
     // MARK: - Day Cell
@@ -314,7 +329,7 @@ struct CalendarMonthView: View {
         let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
         let events = getFilteredEvents(for: date)
         
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: 1) {
                 // Day number - center aligned
                 HStack {
                     Spacer()
@@ -344,7 +359,7 @@ struct CalendarMonthView: View {
                     }
                     Spacer()
                 }
-                .padding(.top, 4)
+                .padding(.top, 1)
                 
                 // Events - not clickable, just for display
                 VStack(alignment: .leading, spacing: 2) {
@@ -354,15 +369,19 @@ struct CalendarMonthView: View {
                     
                     // More indicator if there are more events than displayed
                     if events.count > maxEventsPerCell {
-                        Text("+\(events.count - maxEventsPerCell)")
-                            .font(FontManager.geist(size: 9, weight: .medium))
-                            .foregroundColor(secondaryTextColor)
-                            .padding(.horizontal, 4)
+                        HStack(spacing: 3) {
+                            Circle()
+                                .fill(secondaryTextColor.opacity(0.8))
+                                .frame(width: 3, height: 3)
+                            Circle()
+                                .fill(secondaryTextColor.opacity(0.8))
+                                .frame(width: 3, height: 3)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.top, 1)
                     }
                 }
                 .padding(.horizontal, 4)
-                
-                Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(
@@ -410,12 +429,12 @@ struct CalendarMonthView: View {
         
         // Fixed size chip - no button, just display
         return Text(event.title)
-            .font(FontManager.geist(size: 10, weight: .medium))
+            .font(FontManager.geist(size: 9, weight: .medium))
             .foregroundColor(textColor)
             .lineLimit(1)
-            .padding(.vertical, 4)
+            .padding(.vertical, 2)
             .padding(.horizontal, 6)
-            .frame(height: 18) // Fixed height for consistency
+            .frame(height: 16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 Capsule()
@@ -522,6 +541,10 @@ struct CalendarMonthView: View {
             currentMonth = newMonth
             HapticManager.shared.light()
         }
+    }
+
+    private func monthOffset(_ value: Int) -> Date {
+        calendar.date(byAdding: .month, value: value, to: currentMonth) ?? currentMonth
     }
 }
 

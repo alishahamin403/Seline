@@ -148,22 +148,22 @@ struct HomeWeatherWidget: View {
                 .tracking(0.5)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(Array(weather.hourlyForecasts.prefix(6).enumerated()), id: \.offset) { _, hour in
-                        VStack(spacing: 2) {
+                        VStack(spacing: 1) {
                             Text(hour.hour)
-                                .font(FontManager.geist(size: 11, weight: .medium))
+                                .font(FontManager.geist(size: 10, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.56))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
 
                             Text("\(hour.temperature)°")
-                                .font(FontManager.geist(size: 13, weight: .semibold))
+                                .font(FontManager.geist(size: 12, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
-                        .frame(width: 60, height: 44)
+                        .frame(width: 52, height: 38)
                         .background(
-                            RoundedRectangle(cornerRadius: 10)
+                            RoundedRectangle(cornerRadius: 9)
                                 .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
                         )
                     }
@@ -184,22 +184,22 @@ struct HomeWeatherWidget: View {
                 .tracking(0.5)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(Array(weather.dailyForecasts.prefix(6).enumerated()), id: \.offset) { _, day in
-                        VStack(spacing: 2) {
+                        VStack(spacing: 1) {
                             Text(day.day)
-                                .font(FontManager.geist(size: 11, weight: .medium))
+                                .font(FontManager.geist(size: 10, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.56))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
 
                             Text("\(day.temperature)°")
-                                .font(FontManager.geist(size: 13, weight: .semibold))
+                                .font(FontManager.geist(size: 12, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
-                        .frame(width: 60, height: 44)
+                        .frame(width: 52, height: 38)
                         .background(
-                            RoundedRectangle(cornerRadius: 10)
+                            RoundedRectangle(cornerRadius: 9)
                                 .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
                         )
                     }

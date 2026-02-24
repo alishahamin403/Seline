@@ -200,11 +200,11 @@ struct AISummaryCard: View {
             HStack(spacing: 8) {
                 Image(systemName: errorMessage.contains("Rate limit") ? "clock" : "exclamationmark.triangle")
                     .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(errorMessage.contains("Rate limit") ? .orange : .red)
+                    .foregroundColor(errorMessage.contains("Rate limit") ? .primary : .red)
 
                 Text(errorMessage.contains("Rate limit") ? "Rate limit reached" : "Failed to generate summary")
                     .font(FontManager.geist(size: .body, weight: .medium))
-                    .foregroundColor(errorMessage.contains("Rate limit") ? .orange : .red)
+                    .foregroundColor(errorMessage.contains("Rate limit") ? .primary : .red)
             }
 
             Text(errorMessage)
@@ -557,6 +557,7 @@ struct ClickableTextView: UIViewRepresentable {
     let text: String
     var font: UIFont = .systemFont(ofSize: 13)
     var textColor: UIColor = .label
+    var linkColor: UIColor = .systemBlue
     
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
@@ -568,6 +569,10 @@ struct ClickableTextView: UIViewRepresentable {
         textView.delegate = context.coordinator
         textView.isUserInteractionEnabled = true
         textView.dataDetectorTypes = [.link]
+        textView.linkTextAttributes = [
+            .foregroundColor: linkColor,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
         // CRITICAL: Prevent UITextView from expanding beyond its container
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -580,10 +585,15 @@ struct ClickableTextView: UIViewRepresentable {
         
         attributedString.addAttribute(.font, value: font, range: fullRange)
         attributedString.addAttribute(.foregroundColor, value: textColor, range: fullRange)
+
+        textView.linkTextAttributes = [
+            .foregroundColor: linkColor,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
         
         // Detect markdown-style links: [label](url)
-        let markdownLinkPattern = #"\[([^\]]+)\]\((https?://[^\s\)]+)\)"#
-        if let mdRegex = try? NSRegularExpression(pattern: markdownLinkPattern, options: []) {
+        let markdownLinkPattern = #"\[([^\]]+)\]\((https?://.+?)\)"#
+        if let mdRegex = try? NSRegularExpression(pattern: markdownLinkPattern, options: [.dotMatchesLineSeparators]) {
             let nsString = attributedString.string as NSString
             let mdMatches = mdRegex.matches(in: attributedString.string, options: [], range: NSRange(location: 0, length: nsString.length))
             
@@ -601,6 +611,8 @@ struct ClickableTextView: UIViewRepresentable {
                         let linkAttr = NSMutableAttributedString(string: label)
                         linkAttr.addAttribute(.link, value: url, range: NSRange(location: 0, length: label.count))
                         linkAttr.addAttribute(.font, value: font, range: NSRange(location: 0, length: label.count))
+                        linkAttr.addAttribute(.foregroundColor, value: linkColor, range: NSRange(location: 0, length: label.count))
+                        linkAttr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(location: 0, length: label.count))
                         attributedString.replaceCharacters(in: fullRange, with: linkAttr)
                     }
                 }

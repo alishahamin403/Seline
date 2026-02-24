@@ -18,6 +18,7 @@ struct EmailComposeView: View {
     @State private var showCc: Bool = false
     @State private var contactSuggestions: [ContactSuggestion] = []
     @State private var showSuggestions: Bool = false
+    @State private var contactSearchTask: Task<Void, Never>? = nil
     @FocusState private var focusedField: Field?
     
     struct ContactSuggestion: Identifiable, Hashable {
@@ -108,11 +109,10 @@ struct EmailComposeView: View {
                 }
                 .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
                 
-                // Contact suggestions overlay - positioned below header
-                if showSuggestions && !contactSuggestions.isEmpty && focusedField == .to {
+                // Contact suggestions overlay - positioned below active recipient field
+                if showSuggestions && !contactSuggestions.isEmpty && (focusedField == .to || focusedField == .cc) {
                     VStack(spacing: 0) {
-                        // Offset to position below the To field (approx header height)
-                        Spacer().frame(height: 50)
+                        Spacer().frame(height: suggestionsTopOffset)
                         
                         contactSuggestionsOverlay
                             .zIndex(100)
@@ -131,6 +131,20 @@ struct EmailComposeView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 focusedField = mode == .forward ? .to : .body
             }
+        }
+        .onDisappear {
+            contactSearchTask?.cancel()
+            contactSearchTask = nil
+        }
+        .onChange(of: focusedField) { newValue in
+            guard let field = newValue, field == .to || field == .cc else {
+                showSuggestions = false
+                contactSuggestions = []
+                return
+            }
+            
+            let currentInput = field == .to ? toRecipients : ccRecipients
+            updateContactSuggestions(for: currentInput, field: field)
         }
     }
     
@@ -192,7 +206,7 @@ struct EmailComposeView: View {
                 .keyboardType(.emailAddress)
                 .focused($focusedField, equals: .to)
                 .onChange(of: toRecipients) { newValue in
-                    updateContactSuggestions(for: newValue)
+                    updateContactSuggestions(for: newValue, field: .to)
                 }
             
             if !showCc {
@@ -291,6 +305,9 @@ struct EmailComposeView: View {
                 .autocapitalization(.none)
                 .keyboardType(.emailAddress)
                 .focused($focusedField, equals: .cc)
+                .onChange(of: ccRecipients) { newValue in
+                    updateContactSuggestions(for: newValue, field: .cc)
+                }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -705,18 +722,35 @@ struct EmailComposeView: View {
     
     // MARK: - Contact Autocomplete
     
-    private func updateContactSuggestions(for query: String) {
-        // Get the last part of the input (after comma)
-        let searchTerm = query.components(separatedBy: ",").last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? query
-        
-        if searchTerm.isEmpty || searchTerm.count < 2 {
+    private var suggestionsTopOffset: CGFloat {
+        if showCc && focusedField == .cc {
+            return 98
+        }
+        return 50
+    }
+    
+    private func updateContactSuggestions(for query: String, field: Field) {
+        guard field == .to || field == .cc else {
             showSuggestions = false
             contactSuggestions = []
             return
         }
         
-        // Use Task to handle async contact search
-        Task {
+        // Get the last part of the input (after comma)
+        let searchTerm = query.components(separatedBy: ",").last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? query
+        
+        contactSearchTask?.cancel()
+        
+        if searchTerm.isEmpty || searchTerm.count < 1 {
+            showSuggestions = false
+            contactSuggestions = []
+            return
+        }
+        
+        let activeField = field
+        
+        // Use cancellable task to avoid stale results overriding fresh input
+        contactSearchTask = Task {
             // Start with unique contacts from inbox and sent emails (local cache - fast)
             var uniqueContacts: [String: ContactSuggestion] = [:]
             
@@ -756,6 +790,7 @@ struct EmailComposeView: View {
             
             // Also fetch from Gmail Contacts API for better results
             if let gmailContacts = try? await GmailAPIClient.shared.searchGmailContacts(query: searchTerm) {
+                if Task.isCancelled { return }
                 for contact in gmailContacts {
                     if uniqueContacts[contact.email.lowercased()] == nil {
                         uniqueContacts[contact.email.lowercased()] = ContactSuggestion(
@@ -768,42 +803,78 @@ struct EmailComposeView: View {
             
             // Filter by search term - more flexible matching
             let searchLower = searchTerm.lowercased()
-            let filtered = uniqueContacts.values.filter { contact in
+            let filtered = uniqueContacts.values.map { contact -> (ContactSuggestion, Int) in
                 // Match against name, email, or email prefix (before @)
                 let nameLower = contact.name.lowercased()
                 let emailLower = contact.email.lowercased()
                 let emailPrefix = emailLower.components(separatedBy: "@").first ?? ""
                 
-                return nameLower.contains(searchLower) ||
-                       emailLower.contains(searchLower) ||
-                       emailPrefix.contains(searchLower)
+                let score: Int
+                if nameLower == searchLower || emailLower == searchLower {
+                    score = 1000
+                } else if nameLower.hasPrefix(searchLower) || emailPrefix.hasPrefix(searchLower) {
+                    score = 800
+                } else if emailLower.hasPrefix(searchLower) {
+                    score = 700
+                } else if nameLower.contains(searchLower) || emailPrefix.contains(searchLower) {
+                    score = 500
+                } else if emailLower.contains(searchLower) {
+                    score = 300
+                } else {
+                    score = 0
+                }
+                
+                return (contact, score)
             }
-            .sorted { $0.name < $1.name }
-            .prefix(15) // Increased limit for more suggestions
+            .filter { $0.1 > 0 }
+            .sorted {
+                if $0.1 == $1.1 {
+                    return $0.0.name.localizedCaseInsensitiveCompare($1.0.name) == .orderedAscending
+                }
+                return $0.1 > $1.1
+            }
+            .prefix(20)
             
+            if Task.isCancelled { return }
             await MainActor.run {
-                contactSuggestions = Array(filtered)
-                showSuggestions = !contactSuggestions.isEmpty
+                let isActiveField = focusedField == activeField
+                contactSuggestions = Array(filtered.map { $0.0 })
+                showSuggestions = isActiveField && !contactSuggestions.isEmpty
             }
         }
     }
     
     private func selectContact(_ contact: ContactSuggestion) {
-        // If there are existing recipients, append with comma
-        let existingRecipients = toRecipients
-            .components(separatedBy: ",")
-            .dropLast()
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        
-        if existingRecipients.isEmpty {
-            toRecipients = contact.email
-        } else {
-            toRecipients = existingRecipients.joined(separator: ", ") + ", " + contact.email
+        let targetField: Field = (focusedField == .cc) ? .cc : .to
+
+        switch targetField {
+        case .cc:
+            ccRecipients = appendRecipient(contact.email, to: ccRecipients)
+        default:
+            toRecipients = appendRecipient(contact.email, to: toRecipients)
         }
         
         showSuggestions = false
         contactSuggestions = []
+    }
+    
+    private func appendRecipient(_ email: String, to currentValue: String) -> String {
+        let segments = currentValue.components(separatedBy: ",")
+        let completeRecipients = segments.dropLast().map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        
+        let emailLower = email.lowercased()
+        let existingSet = Set(completeRecipients.map { $0.lowercased() })
+        
+        var updated = completeRecipients
+        if !existingSet.contains(emailLower) {
+            updated.append(email)
+        }
+        
+        if updated.isEmpty {
+            return "\(email), "
+        }
+        
+        return updated.joined(separator: ", ") + ", "
     }
 }
 

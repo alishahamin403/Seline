@@ -743,8 +743,6 @@ struct HybridNoteContentView: View {
     var isReceiptNote: Bool
     
     @Environment(\.colorScheme) var colorScheme
-    @State private var parsedItems: [NoteContentItem] = []
-    @State private var textSections: [String: String] = [:]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -752,9 +750,13 @@ struct HybridNoteContentView: View {
                 Binding(get: { binding.wrappedValue }, set: { binding.wrappedValue = $0 })
             }
             let items = MarkdownTableParser.parse(content)
+            let hasTables = items.contains {
+                if case .table = $0 { return true }
+                return false
+            }
             
-            if items.isEmpty || items.allSatisfy({ if case .text(let t) = $0 { return t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } else { return false } }) {
-                // No content or just empty text - show single editor
+            if !hasTables {
+                // Plain-text note path: keep one editor instance to avoid cursor jumps/glitches.
                 UnifiedNoteEditor(
                     text: $content,
                     onEditingChanged: onEditingChanged,

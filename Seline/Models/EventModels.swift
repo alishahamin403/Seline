@@ -482,6 +482,16 @@ class TaskManager: ObservableObject {
     /// Maps date string (YYYY-MM-DD) to tasks for that date
     private var dateTaskCache: [String: [TaskItem]] = [:]
 
+    /// Cache for getAllTasks(for:) results (used heavily by calendar month/agenda views)
+    /// Maps date string (YYYY-MM-DD) to all tasks that appear on that date
+    private var allTasksForDateCache: [String: [TaskItem]] = [:]
+
+    private static let dayCacheKeyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
     /// Get flattened tasks from cache or compute and cache
     private func getFlattenedTasks() -> [TaskItem] {
         if let cached = cachedFlattenedTasks {
@@ -1184,6 +1194,7 @@ class TaskManager: ObservableObject {
     private func invalidateAllCaches() {
         invalidateFlattenedTasksCache()
         dateTaskCache.removeAll()
+        allTasksForDateCache.removeAll()
 
         // OPTIMIZATION: Invalidate related caches that depend on tasks
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.birthdaysThisWeek)
@@ -1407,6 +1418,11 @@ class TaskManager: ObservableObject {
         let calendar = Calendar.current
         let allTasks = getFlattenedTasks()
         let requestedDate = calendar.startOfDay(for: date)
+        let dateKey = allTasksDateCacheKey(for: requestedDate, calendar: calendar)
+
+        if let cached = allTasksForDateCache[dateKey] {
+            return cached
+        }
 
         let filtered = allTasks.filter { task in
             guard !task.isDeleted else { return false }
@@ -1458,7 +1474,13 @@ class TaskManager: ObservableObject {
             return task1.createdAt > task2.createdAt
         }
 
+        allTasksForDateCache[dateKey] = filtered
         return filtered
+    }
+
+    private func allTasksDateCacheKey(for date: Date, calendar: Calendar) -> String {
+        Self.dayCacheKeyFormatter.timeZone = calendar.timeZone
+        return Self.dayCacheKeyFormatter.string(from: date)
     }
 
     private func shouldRecurringTaskAppearOn(task: TaskItem, date: Date) -> Bool {

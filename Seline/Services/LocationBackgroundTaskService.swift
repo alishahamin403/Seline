@@ -13,8 +13,8 @@ class LocationBackgroundTaskService {
     static let shared = LocationBackgroundTaskService()
     
     // Background task identifiers
-    static let locationRefreshTaskId = "com.seline.locationRefresh"
-    static let locationProcessingTaskId = "com.seline.locationProcessing"
+    static let locationRefreshTaskId = "com.seline.app.locationRefresh"
+    static let locationProcessingTaskId = "com.seline.app.locationProcessing"
     
     private let sharedLocationManager = SharedLocationManager.shared
     private let geofenceManager = GeofenceManager.shared

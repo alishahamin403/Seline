@@ -116,7 +116,7 @@ struct InsightCard: View {
         case .green: return .green
         case .red: return .red
         case .blue: return .blue
-        case .orange: return .orange
+        case .orange: return .primary
         case .purple: return .purple
         case .gray: return .gray
         }

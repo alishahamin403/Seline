@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// A section view for displaying emails grouped by day
 struct EmailDaySectionView: View {
@@ -13,17 +12,29 @@ struct EmailDaySectionView: View {
     // MARK: - Theme Colors
     
     private var primaryTextColor: Color {
-        colorScheme == .dark ? Color.white : Color.black
+        colorScheme == .dark ? Color.white : Color.emailLightTextPrimary
     }
     
     private var secondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6)
+        colorScheme == .dark ? Color.white.opacity(0.7) : Color.emailLightTextSecondary
     }
     
     private var tertiaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4)
+        colorScheme == .dark ? Color.white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.8)
     }
-    
+
+    private var sectionCardBackground: Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSectionCard
+    }
+
+    private var sectionCardStroke: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+    }
+
+    private var unreadAccentColor: Color {
+        colorScheme == .dark ? Color.blue : Color.emailLightTextPrimary
+    }
+
     private var isToday: Bool {
         Calendar.current.isDateInToday(section.date)
     }
@@ -60,7 +71,22 @@ struct EmailDaySectionView: View {
                 }
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(sectionCardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(sectionCardStroke, lineWidth: 0.5)
+        )
+        .shadow(
+            color: colorScheme == .dark ? Color.black.opacity(0.08) : Color.black.opacity(0.05),
+            radius: colorScheme == .dark ? 0 : 8,
+            x: 0,
+            y: colorScheme == .dark ? 0 : 2
+        )
     }
     
     // MARK: - Header Row
@@ -101,11 +127,11 @@ struct EmailDaySectionView: View {
                         
                         HStack(spacing: 4) {
                             Circle()
-                                .fill(Color.blue)
+                                .fill(unreadAccentColor)
                                 .frame(width: 6, height: 6)
                             Text("\(section.unreadCount) new")
                                 .font(FontManager.geist(size: 13, weight: .medium))
-                                .foregroundColor(Color.blue)
+                                .foregroundColor(unreadAccentColor)
                         }
                     }
                 } else {
@@ -116,15 +142,19 @@ struct EmailDaySectionView: View {
             }
             
             Spacer()
+
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(tertiaryTextColor)
+                .frame(width: 22, height: 22)
         }
         .padding(.vertical, 14)
         .contentShape(Rectangle())
-        .scrollSafeTapAction(minimumDragDistance: 3) {
+        .onTapGesture {
             withAnimation(.easeInOut(duration: 0.25)) {
                 isExpanded.toggle()
             }
         }
-        .allowsParentScrolling()
     }
     
     // MARK: - Email List
@@ -143,6 +173,7 @@ struct EmailDaySectionView: View {
                 )
             }
         }
+        .padding(.horizontal, 6)
         .padding(.bottom, 12)
     }
     
@@ -180,11 +211,11 @@ struct EmailRowWithSummary: View {
 
     
     private var unreadBackgroundColor: Color {
-        colorScheme == .dark ? Color(red: 0.15, green: 0.2, blue: 0.35) : Color(red: 0.93, green: 0.95, blue: 1.0)
+        colorScheme == .dark ? Color(red: 0.17, green: 0.21, blue: 0.29) : Color.emailLightChipIdle
     }
     
     private var readBackgroundColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.white
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.white
     }
     
     var body: some View {
@@ -199,19 +230,19 @@ struct EmailRowWithSummary: View {
                     HStack {
                         Text(email.sender.shortDisplayName)
                             .font(FontManager.geist(size: 13, systemWeight: email.isRead ? .medium : .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
                             .lineLimit(1)
                         
                         Spacer()
                         
                         Text(email.formattedTime)
                             .font(FontManager.geist(size: 10, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.8))
                     }
                     
                     Text(email.subject)
                         .font(FontManager.geist(size: 12, systemWeight: email.isRead ? .regular : .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.emailLightTextSecondary)
                         .lineLimit(1)
                 }
                 
@@ -220,13 +251,13 @@ struct EmailRowWithSummary: View {
                     if email.isImportant {
                         Image(systemName: "exclamationmark")
                             .font(FontManager.geist(size: 10, weight: .bold))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.primary)
                     }
                     
                     if email.hasAttachments {
                         Image(systemName: "paperclip")
                             .font(FontManager.geist(size: 10, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.8))
                     }
                     
                     // AI Summary expand button
@@ -255,19 +286,17 @@ struct EmailRowWithSummary: View {
                     }) {
                         Image(systemName: isSummaryExpanded ? "chevron.up" : "chevron.down")
                             .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.8))
                             .frame(width: 24, height: 24)
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .allowsParentScrolling()
                 }
             }
             .padding(8)
             .contentShape(Rectangle())
-            .scrollSafeTapAction(minimumDragDistance: 3) {
+            .onTapGesture {
                 onTap()
             }
-            .allowsParentScrolling()
             
             // Expanded AI Summary section - matches AISummaryCard styling
             if isSummaryExpanded {
@@ -285,7 +314,7 @@ struct EmailRowWithSummary: View {
                             ShadcnSpinner(size: .small)
                             Text("Generating AI summary...")
                                 .font(FontManager.geist(size: .small, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
                         }
                     } else if let summary = aiSummary ?? email.aiSummary {
                         // Parse into bullet points like AISummaryCard
@@ -294,7 +323,7 @@ struct EmailRowWithSummary: View {
                         if bullets.isEmpty {
                             Text("No content available")
                                 .font(FontManager.geist(size: .small, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
                         } else {
                             VStack(alignment: .leading, spacing: 8) {
                                 ForEach(Array(bullets.enumerated()), id: \.offset) { index, bullet in
@@ -307,9 +336,6 @@ struct EmailRowWithSummary: View {
                                         
                                         // Bullet text with clickable links
                                         parseMarkdownText(bullet)
-                                            .font(FontManager.geist(size: 12, weight: .regular))
-                                            .foregroundColor(Color.shadcnForeground(colorScheme))
-                                            .multilineTextAlignment(.leading)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                 }
@@ -323,7 +349,7 @@ struct EmailRowWithSummary: View {
                         Text("Tap to generate summary")
                             .font(FontManager.geist(size: .small, weight: .regular))
                             .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                            .scrollSafeTapAction(minimumDragDistance: 3) {
+                            .onTapGesture {
                                 Task {
                                     await loadAISummary()
                                 }
@@ -378,7 +404,7 @@ struct EmailRowWithSummary: View {
     
     private var loadingAvatar: some View {
         Circle()
-            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
             .frame(width: 40, height: 40)
             .overlay(
                 ProgressView()
@@ -439,93 +465,78 @@ struct EmailRowWithSummary: View {
     // MARK: - Parse Summary Into Bullets
     
     private func parseSummaryIntoBullets(_ summary: String) -> [String] {
-        // Split the summary into bullet points by newlines (same logic as AISummaryCard)
-        return summary
-            .components(separatedBy: .newlines)
-            .map { line in
-                // Remove bullet point characters (•, *, -, etc.) since UI adds its own
-                var cleaned = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                if cleaned.hasPrefix("•") || cleaned.hasPrefix("*") || cleaned.hasPrefix("-") {
-                    cleaned = String(cleaned.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        let lines = summary.components(separatedBy: .newlines)
+        var bullets: [String] = []
+        var currentBullet = ""
+
+        for rawLine in lines {
+            let trimmedLine = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedLine.isEmpty {
+                if !currentBullet.isEmpty {
+                    bullets.append(currentBullet.trimmingCharacters(in: .whitespacesAndNewlines))
+                    currentBullet = ""
                 }
-                return cleaned
+                continue
             }
-            .filter { !$0.isEmpty }
+
+            let startsWithBullet = trimmedLine.hasPrefix("•") || trimmedLine.hasPrefix("*") || trimmedLine.hasPrefix("-")
+            let cleanedLine = startsWithBullet
+                ? String(trimmedLine.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+                : trimmedLine
+
+            if startsWithBullet {
+                if !currentBullet.isEmpty {
+                    bullets.append(currentBullet.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                currentBullet = cleanedLine
+            } else if currentBullet.isEmpty {
+                currentBullet = cleanedLine
+            } else {
+                currentBullet += " \(cleanedLine)"
+            }
+        }
+
+        if !currentBullet.isEmpty {
+            bullets.append(currentBullet.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+
+        return bullets.filter { !$0.isEmpty }
     }
     
     // MARK: - Parse Markdown Links and Bold
     
     /// Parse markdown links [text](url) and bold **text**, make them clickable/rendered properly
     private func parseMarkdownText(_ text: String) -> some View {
-        // First, remove bold markers **text** -> text (we'll render as bold)
-        var processedText = text
-        let boldPattern = #"\*\*([^\*]+)\*\*"#
-        
-        // Remove bold markers for now (we can enhance later to actually render bold)
-        if let boldRegex = try? NSRegularExpression(pattern: boldPattern, options: []) {
-            let nsString = processedText as NSString
-            let boldMatches = boldRegex.matches(in: processedText, options: [], range: NSRange(location: 0, length: nsString.length))
-            
-            // Process in reverse to preserve indices
-            for match in boldMatches.reversed() {
-                if match.numberOfRanges >= 2 {
-                    let fullRange = match.range
-                    let textRange = match.range(at: 1)
-                    let boldText = nsString.substring(with: textRange)
-                    // Replace **text** with just text
-                    processedText = (processedText as NSString).replacingCharacters(in: fullRange, with: boldText)
-                }
-            }
-        }
-        
-        // Pattern: [text](url)
-        let linkPattern = #"\[([^\]]+)\]\(([^\)]+)\)"#
-        
-        guard let regex = try? NSRegularExpression(pattern: linkPattern, options: []) else {
-            return AnyView(Text(processedText))
-        }
-        
-        let nsString = processedText as NSString
-        let matches = regex.matches(in: processedText, options: [], range: NSRange(location: 0, length: nsString.length))
-        
-        if matches.isEmpty {
-            return AnyView(Text(processedText))
-        }
-        
-        // Build attributed string with clickable links
-        let attributedString = NSMutableAttributedString(string: processedText)
-        let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
-        attributedString.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: processedText.count))
-        
-        // Process matches in reverse to preserve indices
-        for match in matches.reversed() {
-            if match.numberOfRanges >= 3 {
-                let fullRange = match.range
-                let linkTextRange = match.range(at: 1)
-                let urlRange = match.range(at: 2)
-                
-                let linkText = nsString.substring(with: linkTextRange)
-                let urlString = nsString.substring(with: urlRange)
-                
-                // Replace [text](url) with just the link text
-                attributedString.replaceCharacters(in: fullRange, with: linkText)
-                
-                // Make the link text blue and clickable
-                let newRange = NSRange(location: fullRange.location, length: linkText.count)
-                if let url = URL(string: urlString) {
-                    attributedString.addAttribute(.link, value: url, range: newRange)
-                    attributedString.addAttribute(.foregroundColor, value: UIColor.systemBlue, range: newRange)
-                    attributedString.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: newRange)
-                }
-            }
-        }
-        
+        let cleanedText = cleanMarkdownBold(text)
         return AnyView(
-            Text(AttributedString(attributedString))
-                .onOpenURL { url in
-                    UIApplication.shared.open(url)
-                }
+            ClickableTextView(
+                text: cleanedText,
+                font: .systemFont(ofSize: 12, weight: .regular),
+                textColor: colorScheme == .dark ? .white : UIColor(Color.emailLightTextPrimary),
+                linkColor: UIColor(Color.claudeAccent)
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
         )
+    }
+
+    private func cleanMarkdownBold(_ text: String) -> String {
+        let boldPattern = #"\*\*([^\*]+)\*\*"#
+        guard let boldRegex = try? NSRegularExpression(pattern: boldPattern, options: []) else {
+            return text
+        }
+
+        let nsText = text as NSString
+        let matches = boldRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+        var cleaned = text
+
+        for match in matches.reversed() where match.numberOfRanges >= 2 {
+            let fullRange = match.range
+            let innerRange = match.range(at: 1)
+            let innerText = nsText.substring(with: innerRange)
+            cleaned = (cleaned as NSString).replacingCharacters(in: fullRange, with: innerText)
+        }
+
+        return cleaned
     }
     
     // MARK: - Load AI Summary
@@ -639,20 +650,24 @@ struct SmartReplySection: View {
                     }
                     
                     // Quick suggestions
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            QuickReplyChip(text: "Sounds good", colorScheme: colorScheme) {
-                                replyPrompt = "Agree politely and confirm"
-                            }
-                            QuickReplyChip(text: "Need more info", colorScheme: colorScheme) {
-                                replyPrompt = "Ask for more details or clarification"
-                            }
-                            QuickReplyChip(text: "Decline politely", colorScheme: colorScheme) {
-                                replyPrompt = "Politely decline the request"
-                            }
-                            QuickReplyChip(text: "Schedule meeting", colorScheme: colorScheme) {
-                                replyPrompt = "Suggest scheduling a meeting to discuss"
-                            }
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 8),
+                            GridItem(.flexible(), spacing: 8)
+                        ],
+                        spacing: 8
+                    ) {
+                        QuickReplyChip(text: "Sounds good", colorScheme: colorScheme) {
+                            replyPrompt = "Agree politely and confirm"
+                        }
+                        QuickReplyChip(text: "Need more info", colorScheme: colorScheme) {
+                            replyPrompt = "Ask for more details or clarification"
+                        }
+                        QuickReplyChip(text: "Decline politely", colorScheme: colorScheme) {
+                            replyPrompt = "Politely decline the request"
+                        }
+                        QuickReplyChip(text: "Schedule meeting", colorScheme: colorScheme) {
+                            replyPrompt = "Suggest scheduling a meeting to discuss"
                         }
                     }
                     
@@ -870,6 +885,7 @@ struct QuickReplyChip: View {
             Text(text)
                 .font(FontManager.geist(size: 12, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(

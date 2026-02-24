@@ -130,7 +130,7 @@ struct StatBoxView: View {
                 if let trend = trendIndicator {
                     Text(trend)
                         .font(FontManager.geist(size: 11, weight: .semibold))
-                        .foregroundColor(trend.contains("📈") ? .green : trend.contains("📉") ? .red : .orange)
+                        .foregroundColor(trend.contains("📈") ? .green : trend.contains("📉") ? .red : .primary)
                 }
             }
         }
@@ -248,7 +248,7 @@ struct CategoryBreakdownBarView: View {
     CategoryBreakdownBarView(
         categories: [
             CategoryBreakdownBarView.Category(name: "Shopping", amount: 92, emoji: "🛒", color: .blue),
-            CategoryBreakdownBarView.Category(name: "Dining", amount: 105, emoji: "☕", color: .orange),
+            CategoryBreakdownBarView.Category(name: "Dining", amount: 105, emoji: "☕", color: .primary),
             CategoryBreakdownBarView.Category(name: "Transport", amount: 90, emoji: "🚗", color: .green)
         ]
     )

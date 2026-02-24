@@ -26,7 +26,6 @@ struct SpendingAndETAWidget: View {
     @State private var selectedInsight: SpendingInsightsService.SpendingInsight?
     @State private var showInsightDetail = false
     @State private var selectedCategory: SelectedCategory?
-    @State private var isCategoryScrollInProgress = false
 
     private var cardHeadingFont: Font {
         FontManager.geist(size: 20, weight: .semibold)
@@ -76,7 +75,10 @@ struct SpendingAndETAWidget: View {
             return receiptDay == today
         }.reduce(0.0) { $0 + $1.amount }
 
-        return todayTotal
+        // Fallback: include receipt-like notes directly in case hierarchy/date extraction
+        // excluded a same-day receipt from stats aggregation.
+        let fallbackTotal = Self.calculateTodayTotalFromNotes(notesManager, now: now)
+        return max(todayTotal, fallbackTotal)
     }
 
     private var previousMonthTotal: Double {
@@ -246,6 +248,8 @@ struct SpendingAndETAWidget: View {
             let receiptDay = calendar.startOfDay(for: receipt.date)
             return receiptDay == today
         }.reduce(0.0) { $0 + $1.amount }
+
+        let resolvedDailyTotal = max(dailyTotal, calculateTodayTotalFromNotes(notesManager, now: now))
         
         // Calculate previous month and year, handling year boundary
         let previousMonth = currentMonth == 1 ? 12 : currentMonth - 1
@@ -284,10 +288,61 @@ struct SpendingAndETAWidget: View {
             monthlyTotal: monthlyTotal,
             monthOverMonthPercentage: percentage,
             isSpendingIncreasing: isIncrease,
-            dailyTotal: dailyTotal
+            dailyTotal: resolvedDailyTotal
         )
-        
-        print("💰 Widget spending data refreshed - Monthly: $\(monthlyTotal), Daily: $\(dailyTotal)")
+
+        print("💰 Widget spending data refreshed - Monthly: $\(monthlyTotal), Daily: $\(resolvedDailyTotal)")
+    }
+
+    private static func calculateTodayTotalFromNotes(_ notesManager: NotesManager, now: Date = Date()) -> Double {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: now)
+        let receiptsFolderId = notesManager.folders.first(where: { $0.name == "Receipts" })?.id
+
+        return notesManager.notes.reduce(0.0) { partial, note in
+            let belongsToReceipts: Bool = {
+                if let receiptsFolderId {
+                    var currentFolderId = note.folderId
+                    while let folderId = currentFolderId {
+                        if folderId == receiptsFolderId {
+                            return true
+                        }
+                        currentFolderId = notesManager.folders.first(where: { $0.id == folderId })?.parentFolderId
+                    }
+                }
+                return isReceiptLike(note: note)
+            }()
+
+            guard belongsToReceipts else { return partial }
+
+            let effectiveDate = notesManager.extractFullDateFromTitle(note.title) ?? note.dateModified
+            guard calendar.startOfDay(for: effectiveDate) == today else { return partial }
+
+            let content = note.content.isEmpty ? note.title : note.content
+            let amount = CurrencyParser.extractAmount(from: content)
+            return partial + amount
+        }
+    }
+
+    private static func isReceiptLike(note: Note) -> Bool {
+        let title = note.title.lowercased()
+        let content = note.content.lowercased()
+        let keywords = [
+            "receipt",
+            "interac",
+            "e-transfer",
+            "etransfer",
+            "transfer",
+            "subtotal",
+            "total",
+            "merchant",
+            "payment",
+            "invoice"
+        ]
+
+        return keywords.contains { keyword in
+            title.contains(keyword) || content.contains(keyword)
+        }
     }
 
     var body: some View {
@@ -390,17 +445,35 @@ struct SpendingAndETAWidget: View {
             }
 
             HStack(spacing: 8) {
-                spendingStatPill(
-                    title: "Month",
-                    value: CurrencyParser.formatAmountNoDecimals(monthlyTotal)
-                )
+                Button(action: {
+                    HapticManager.shared.selection()
+                    showReceiptStats = true
+                }) {
+                    spendingStatPill(
+                        title: "Month",
+                        value: CurrencyParser.formatAmountNoDecimals(monthlyTotal)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
 
-                spendingStatPill(
-                    title: "Today",
-                    value: CurrencyParser.formatAmountNoDecimals(dailyTotal)
-                )
+                Button(action: {
+                    HapticManager.shared.selection()
+                    showReceiptStats = true
+                }) {
+                    spendingStatPill(
+                        title: "Today",
+                        value: CurrencyParser.formatAmountNoDecimals(dailyTotal)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
 
-                trendPill
+                Button(action: {
+                    HapticManager.shared.selection()
+                    showReceiptStats = true
+                }) {
+                    trendPill
+                }
+                .buttonStyle(PlainButtonStyle())
             }
 
             topCategoryView
@@ -411,11 +484,6 @@ struct SpendingAndETAWidget: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard !isCategoryScrollInProgress else { return }
-            showReceiptStats = true
-        }
         .shadcnTileStyle(colorScheme: colorScheme)
     }
 
@@ -482,70 +550,37 @@ struct SpendingAndETAWidget: View {
                     
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(Array(categoryBreakdown.prefix(5).enumerated()), id: \.element.category) { _, category in
-                                let iconColor = CategoryIconProvider.color(for: category.category)
-                                HStack(spacing: 8) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(iconColor.opacity(colorScheme == .dark ? 0.24 : 0.16))
-                                            .frame(width: 20, height: 20)
-                                        Image(systemName: categorySymbol(category.category))
-                                            .font(FontManager.geist(size: 9, weight: .semibold))
-                                            .foregroundColor(iconColor)
-                                    }
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(category.category)
-                                            .font(FontManager.geist(size: 11, weight: .semibold))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            .lineLimit(1)
-
-                                        Text(CurrencyParser.formatAmountNoDecimals(category.amount))
-                                            .font(FontManager.geist(size: 11, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                            .lineLimit(1)
-                                    }
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
-                                )
-                                .contentShape(RoundedRectangle(cornerRadius: 10))
-                                .scrollSafeTapAction(minimumDragDistance: 3) {
-                                    guard !isCategoryScrollInProgress else { return }
+                            ForEach(Array(categoryBreakdown.prefix(12).enumerated()), id: \.element.category) { _, category in
+                                Button(action: {
                                     openCategoryExpenses(for: category.category)
+                                }) {
+                                    HStack(spacing: 0) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(category.category)
+                                                .font(FontManager.geist(size: 11, weight: .semibold))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                .lineLimit(1)
+
+                                            Text(CurrencyParser.formatAmountNoDecimals(category.amount))
+                                                .font(FontManager.geist(size: 11, weight: .regular))
+                                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
+                                    )
+                                    .contentShape(RoundedRectangle(cornerRadius: 10))
                                 }
-                                .simultaneousGesture(
-                                    DragGesture(minimumDistance: 2)
-                                        .onChanged { _ in
-                                            isCategoryScrollInProgress = true
-                                        }
-                                        .onEnded { _ in
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                                                isCategoryScrollInProgress = false
-                                            }
-                                        }
-                                )
-                                .allowsParentScrolling()
+                                .buttonStyle(PlainButtonStyle())
                             }
                         }
                         .padding(.horizontal, 16)
                     }
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 2)
-                            .onChanged { _ in
-                                isCategoryScrollInProgress = true
-                            }
-                            .onEnded { _ in
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                                    isCategoryScrollInProgress = false
-                                }
-                            }
-                    )
                     .padding(.horizontal, -16)
-                    .allowsParentScrolling()
                 }
             }
         }
@@ -557,15 +592,17 @@ struct SpendingAndETAWidget: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 ForEach(spendingInsights) { insight in
-                    insightChip(insight)
-                        .onTapGesture {
-                            if insight.hasDetails {
-                                selectedInsight = insight
-                                showInsightDetail = true
-                                HapticManager.shared.selection()
-                            }
+                    Button(action: {
+                        guard insight.hasDetails else { return }
+                        selectedInsight = insight
+                        showInsightDetail = true
+                        HapticManager.shared.selection()
+                    }) {
+                        insightChip(insight)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(!insight.hasDetails)
                         }
-                }
             }
             .padding(.horizontal, 16)
         }
@@ -619,7 +656,9 @@ struct SpendingAndETAWidget: View {
     }
 
     private var trendPill: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let trendColor: Color = monthOverMonthPercentage.isIncrease ? .red : .green
+
+        return VStack(alignment: .leading, spacing: 2) {
             Text("MoM")
                 .font(FontManager.geist(size: 10, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.52) : Color.black.opacity(0.5))
@@ -630,7 +669,7 @@ struct SpendingAndETAWidget: View {
                 Text(String(format: "%.0f%%", monthOverMonthPercentage.percentage))
                     .font(FontManager.geist(size: 14, weight: .semibold))
             }
-            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.85))
+            .foregroundColor(trendColor)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
@@ -639,30 +678,6 @@ struct SpendingAndETAWidget: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
         )
-    }
-
-    private func categorySymbol(_ category: String) -> String {
-        let cat = category.lowercased()
-        if cat.contains("food") || cat.contains("dining") || cat.contains("restaurant") {
-            return "fork.knife"
-        } else if cat.contains("grocery") {
-            return "cart"
-        } else if cat.contains("transport") || cat.contains("gas") || cat.contains("uber") || cat.contains("lyft") || cat.contains("auto") {
-            return "car.fill"
-        } else if cat.contains("shopping") || cat.contains("retail") || cat.contains("store") {
-            return "bag"
-        } else if cat.contains("entertainment") || cat.contains("movie") || cat.contains("netflix") {
-            return "film"
-        } else if cat.contains("health") || cat.contains("medical") || cat.contains("pharmacy") {
-            return "cross.case"
-        } else if cat.contains("travel") || cat.contains("hotel") || cat.contains("flight") {
-            return "airplane"
-        } else if cat.contains("utilities") || cat.contains("internet") || cat.contains("electric") || cat.contains("water") {
-            return "bolt"
-        } else if cat.contains("software") || cat.contains("subscription") || cat.contains("app") {
-            return "laptopcomputer"
-        }
-        return "creditcard"
     }
 
     private func openCategoryExpenses(for categoryName: String) {

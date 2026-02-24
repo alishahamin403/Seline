@@ -5,13 +5,13 @@ struct EmailListByDay: View {
     let daySections: [EmailDaySection]
     let loadingState: EmailLoadingState
     let onRefresh: () async -> Void
+    let onEmailTap: (Email) -> Void
     let onDeleteEmail: (Email) -> Void
     let onMarkAsUnread: (Email) -> Void
     let hasMoreEmails: Bool
     let onLoadMore: () async -> Void
 
     @State private var expandedSections: Set<Date> = []
-    @State private var selectedEmail: Email?
     @State private var isLoadingMore = false
     @Environment(\.colorScheme) var colorScheme
 
@@ -19,6 +19,7 @@ struct EmailListByDay: View {
         daySections: [EmailDaySection],
         loadingState: EmailLoadingState,
         onRefresh: @escaping () async -> Void,
+        onEmailTap: @escaping (Email) -> Void,
         onDeleteEmail: @escaping (Email) -> Void,
         onMarkAsUnread: @escaping (Email) -> Void,
         hasMoreEmails: Bool = false,
@@ -27,6 +28,7 @@ struct EmailListByDay: View {
         self.daySections = daySections
         self.loadingState = loadingState
         self.onRefresh = onRefresh
+        self.onEmailTap = onEmailTap
         self.onDeleteEmail = onDeleteEmail
         self.onMarkAsUnread = onMarkAsUnread
         self.hasMoreEmails = hasMoreEmails
@@ -40,22 +42,22 @@ struct EmailListByDay: View {
     
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
+            LazyVStack(spacing: 14) {
                 switch loadingState {
                 case .idle:
                     EmptyView()
-                    
+
                 case .loading:
                     EmailListSkeleton(itemCount: 4)
                         .padding(.top, 8)
-                    
+
                 case .loaded(_):
                     if daySections.isEmpty || daySections.allSatisfy({ $0.isEmpty }) {
                         emptyStateView
                     } else {
                         daySectionsList
                     }
-                    
+
                 case .error(let message):
                     ErrorView(message: message, onRetry: {
                         Task {
@@ -70,12 +72,6 @@ struct EmailListByDay: View {
         }
         .refreshable {
             await onRefresh()
-        }
-        .fullScreenCover(item: $selectedEmail) { email in
-            NavigationView {
-                EmailDetailView(email: email)
-            }
-            .presentationBg()
         }
     }
     
@@ -105,7 +101,7 @@ struct EmailListByDay: View {
                     section: section,
                     isExpanded: isExpanded,
                     onEmailTap: { email in
-                        selectedEmail = email
+                        onEmailTap(email)
                     },
                     onDeleteEmail: onDeleteEmail,
                     onMarkAsUnread: onMarkAsUnread
@@ -150,15 +146,15 @@ struct EmailListByDay: View {
         VStack(spacing: 16) {
             Image(systemName: "tray")
                 .font(FontManager.geist(size: 48, weight: .light))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.emailLightTextSecondary.opacity(0.7))
             
             Text("No Emails in the Last 7 Days")
                 .font(FontManager.geist(size: 17, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
             
             Text("Pull down to refresh")
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
         }
         .padding(.top, 60)
     }
@@ -170,11 +166,11 @@ struct DayLoadingPlaceholder: View {
     @Environment(\.colorScheme) var colorScheme
     
     private var cardBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.white
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSectionCard
     }
     
     private var strokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
     }
     
     var body: some View {
@@ -182,17 +178,17 @@ struct DayLoadingPlaceholder: View {
             // Header placeholder
             HStack(spacing: 12) {
                 Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1))
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
                     .frame(width: 40, height: 40)
                 
                 VStack(alignment: .leading, spacing: 6) {
                     Rectangle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.15))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.emailLightTextSecondary.opacity(0.35))
                         .frame(width: 100, height: 14)
                         .clipShape(RoundedRectangle(cornerRadius: 3))
                     
                     Rectangle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
                         .frame(width: 80, height: 10)
                         .clipShape(RoundedRectangle(cornerRadius: 2))
                 }
@@ -200,7 +196,7 @@ struct DayLoadingPlaceholder: View {
                 Spacer()
                 
                 Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
                     .frame(width: 24, height: 24)
             }
             .padding(.horizontal, 16)
@@ -234,6 +230,7 @@ struct DayLoadingPlaceholder: View {
         daySections: sampleSections,
         loadingState: .loaded(Email.sampleEmails),
         onRefresh: {},
+        onEmailTap: { _ in },
         onDeleteEmail: { _ in },
         onMarkAsUnread: { _ in }
     )

@@ -262,7 +262,7 @@ struct DeletedNoteRow: View {
 
                         Text("\(deletedNote.daysUntilPermanentDeletion) days remaining")
                             .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.primary)
                     }
                 }
 
@@ -362,7 +362,7 @@ struct DeletedFolderRow: View {
 
                         Text("\(deletedFolder.daysUntilPermanentDeletion) days remaining")
                             .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.primary)
                     }
                 }
 

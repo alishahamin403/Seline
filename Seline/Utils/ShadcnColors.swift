@@ -19,11 +19,21 @@ extension Color {
     // Inspired by Claude's warm, elegant chat interface
     static let claudeDarkBackground = Color(red: 0.176, green: 0.165, blue: 0.153) // #2D2A27 warm dark brown
     static let claudeLightBackground = Color(red: 0.961, green: 0.945, blue: 0.922) // #F5F1EB warm cream
-    static let claudeAccent = Color(red: 0.878, green: 0.471, blue: 0.314) // #E07850 coral/orange
+    static let claudeAccent = Color.primary // Neutral black/white accent
     static let claudeInputDark = Color(red: 0.22, green: 0.21, blue: 0.20) // Darker input background
     static let claudeInputLight = Color(red: 0.95, green: 0.93, blue: 0.90) // Light cream input background
     static let claudeTextDark = Color(red: 0.95, green: 0.93, blue: 0.90) // Warm white text for dark mode
     static let claudeTextLight = Color(red: 0.15, green: 0.14, blue: 0.13) // Warm dark text for light mode
+
+    // MARK: - Email Light Mode Tokens
+    // Kept for compatibility across email/notes/receipt/map surfaces.
+    static let emailLightBackground = Color(red: 0.969, green: 0.973, blue: 0.980) // #F7F8FA
+    static let emailLightSurface = Color.white // #FFFFFF
+    static let emailLightSectionCard = Color(red: 0.988, green: 0.988, blue: 0.992) // #FCFCFD
+    static let emailLightChipIdle = Color(red: 0.933, green: 0.945, blue: 0.961) // #EEF1F5
+    static let emailLightTextPrimary = Color(red: 0.067, green: 0.075, blue: 0.094) // #111318
+    static let emailLightTextSecondary = Color(red: 0.420, green: 0.447, blue: 0.502) // #6B7280
+    static let emailLightBorder = Color(red: 0.906, green: 0.914, blue: 0.933) // #E7E9EE
 
     // Background Colors
     static func shadcnBackground(_ colorScheme: ColorScheme) -> Color {

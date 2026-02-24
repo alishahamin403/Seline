@@ -1,19 +1,32 @@
 import SwiftUI
 
 struct ReceiptStatsView: View {
+    private enum DrilldownMode: String, CaseIterable {
+        case overview = "Overview"
+        case yearly = "Yearly"
+        case monthly = "Monthly"
+    }
+
     @StateObject private var notesManager = NotesManager.shared
     @State private var currentYear: Int = Calendar.current.component(.year, from: Date())
-    @State private var selectedNote: Note? = nil
+    @State private var selectedReceipt: ReceiptStat? = nil
     @State private var categoryBreakdown: YearlyCategoryBreakdown? = nil
     @State private var isLoadingCategories = false
     @State private var selectedCategory: String? = nil
     @State private var showRecurringExpenses = false
+    @State private var drilldownMode: DrilldownMode = .overview
+    @State private var showAllYearlyCategories = false
+    @State private var selectedMonthName: String? = nil
+    @State private var monthlyCategoryFilter: String? = nil
+    @State private var showMonthlyCategoryBreakdown = false
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
     @State private var categoryBreakdownDebounceTask: Task<Void, Never>? = nil  // Debounce task for category recalculation
     @State private var contentHeight: CGFloat = 400
 
     var searchText: String? = nil
+    var initialMonthDate: Date? = nil
+    var onAddReceipt: (() -> Void)? = nil
 
     var isPopup: Bool = false
 
@@ -22,200 +35,228 @@ struct ReceiptStatsView: View {
     }
 
     var currentYearStats: YearlyReceiptSummary? {
-        let stats = notesManager.getReceiptStatistics(year: currentYear).first
-        // Apply search filter if searchText is provided
-        if let searchText = searchText, !searchText.isEmpty {
-            // Filter receipts by search text
-            // This will be handled by filtering the underlying notes
-            return stats
-        }
-        return stats
+        notesManager.getReceiptStatistics(year: currentYear).first
     }
-    
-    var filteredReceiptNotes: [Note] {
-        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
-        guard let receiptsFolderId = receiptsFolder?.id else { return [] }
-        
-        var receiptNotes = notesManager.notes.filter { note in
-            guard let folderId = note.folderId else { return false }
-            var currentFolderId: UUID? = folderId
-            while let currentId = currentFolderId {
-                if currentId == receiptsFolderId {
-                    return true
-                }
-                currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
-            }
-            return false
+
+    private var monthlySummaries: [MonthlyReceiptSummary] {
+        currentYearStats?.monthlySummaries ?? []
+    }
+
+    private var selectedMonthlySummary: MonthlyReceiptSummary? {
+        if let selectedMonthName,
+           let match = monthlySummaries.first(where: { $0.month == selectedMonthName }) {
+            return match
         }
-        
-        // Apply search filter
-        if let searchText = searchText, !searchText.isEmpty {
-            receiptNotes = receiptNotes.filter { note in
-                note.title.localizedCaseInsensitiveContains(searchText) ||
-                note.content.localizedCaseInsensitiveContains(searchText)
+        return monthlySummaries.first
+    }
+
+    private var canSelectPreviousYear: Bool {
+        guard let idx = availableYears.sorted().firstIndex(of: currentYear) else { return false }
+        return idx > 0
+    }
+
+    private var canSelectNextYear: Bool {
+        let ascending = availableYears.sorted()
+        guard let idx = ascending.firstIndex(of: currentYear) else { return false }
+        return idx < ascending.count - 1
+    }
+
+    private var currentYearTotal: Double {
+        currentYearStats?.yearlyTotal ?? 0
+    }
+
+    private var currentYearReceiptCount: Int {
+        currentYearStats?.monthlySummaries.reduce(0) { $0 + $1.receipts.count } ?? 0
+    }
+
+    private var averageMonthlySpend: Double {
+        currentYearTotal / 12
+    }
+
+    private var previousYearTotal: Double? {
+        notesManager.getReceiptStatistics(year: currentYear - 1).first?.yearlyTotal
+    }
+
+    private var yearOverYearDelta: Double? {
+        guard let previousYearTotal, previousYearTotal > 0 else { return nil }
+        return ((currentYearTotal - previousYearTotal) / previousYearTotal) * 100
+    }
+
+    private var topCategories: [CategoryStatWithPercentage] {
+        Array(categoryBreakdown?.sortedCategories.prefix(3) ?? [])
+    }
+
+    private var allYearlyCategories: [CategoryStatWithPercentage] {
+        categoryBreakdown?.sortedCategories ?? []
+    }
+
+    private var largestMonthlySummary: MonthlyReceiptSummary? {
+        monthlySummaries.max { $0.monthlyTotal < $1.monthlyTotal }
+    }
+
+    private var quarterTotals: [(quarter: Int, total: Double)] {
+        guard let stats = currentYearStats else {
+            return (1...4).map { (quarter: $0, total: 0) }
+        }
+
+        let calendar = Calendar.current
+        var totals = Array(repeating: 0.0, count: 4)
+        for monthSummary in stats.monthlySummaries {
+            let month = calendar.component(.month, from: monthSummary.monthDate)
+            let quarterIdx = max(0, min(3, (month - 1) / 3))
+            totals[quarterIdx] += monthSummary.monthlyTotal
+        }
+
+        return (0..<4).map { (quarter: $0 + 1, total: totals[$0]) }
+    }
+
+    private var selectedMonthCategorizedReceipts: [ReceiptStat] {
+        guard let selectedMonthlySummary else { return [] }
+        return getCategorizedReceiptsForMonth(selectedMonthlySummary.monthDate)
+    }
+
+    private var monthlyFilterCategories: [String] {
+        let grouped = Dictionary(grouping: selectedMonthCategorizedReceipts, by: { $0.category })
+        return grouped
+            .map { category, receipts in
+                (category: category, total: receipts.reduce(0) { $0 + $1.amount })
+            }
+            .sorted { $0.total > $1.total }
+            .map { $0.category }
+    }
+
+    private var filteredMonthlyReceipts: [ReceiptStat] {
+        guard let monthlyCategoryFilter else { return selectedMonthCategorizedReceipts }
+        return selectedMonthCategorizedReceipts.filter { $0.category == monthlyCategoryFilter }
+    }
+
+    private var monthlyCategoryBreakdownStats: [CategoryStatWithPercentage] {
+        let grouped = Dictionary(grouping: selectedMonthCategorizedReceipts, by: { $0.category })
+        let monthTotal = selectedMonthlySummary?.monthlyTotal ?? 0
+
+        return grouped
+            .map { category, receipts in
+                let total = receipts.reduce(0) { $0 + $1.amount }
+                return CategoryStatWithPercentage(
+                    category: category,
+                    total: total,
+                    count: receipts.count,
+                    percentage: monthTotal > 0 ? (total / monthTotal) * 100 : 0,
+                    receipts: receipts.sorted { $0.date > $1.date }
+                )
+            }
+            .sorted { $0.total > $1.total }
+    }
+
+    private var displayedDailySummaries: [DailyReceiptSummary] {
+        guard let selectedMonthlySummary else { return [] }
+        guard monthlyCategoryFilter != nil else { return selectedMonthlySummary.dailySummaries }
+
+        let calendar = Calendar.current
+        return selectedMonthlySummary.dailySummaries.filter { daySummary in
+            let dayStart = calendar.startOfDay(for: daySummary.dayDate)
+            return filteredMonthlyReceipts.contains {
+                calendar.startOfDay(for: $0.date) == dayStart
             }
         }
-        
-        return receiptNotes
+    }
+
+    private var pageBackgroundColor: Color {
+        colorScheme == .dark ? Color.black : Color.emailLightBackground
+    }
+
+    private var cardFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface
+    }
+
+    private var cardBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+    }
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : Color.emailLightTextPrimary
+    }
+
+    private var secondaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.64) : Color.emailLightTextSecondary
+    }
+
+    private var tertiaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.45) : Color.emailLightTextSecondary.opacity(0.9)
+    }
+
+    private var mutedFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle
+    }
+
+    private var activeAccentColor: Color {
+        colorScheme == .dark ? Color.claudeAccent.opacity(0.95) : Color.claudeAccent
+    }
+
+    private var neutralCategoryBarColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.56)
+    }
+
+    private var currentMonthSummaryTotal: Double {
+        selectedMonthlySummary?.monthlyTotal ?? 0
+    }
+
+    private var currentMonthReceiptCount: Int {
+        selectedMonthlySummary?.receipts.count ?? 0
+    }
+
+    private var currentMonthAveragePerDay: Double {
+        guard let selectedMonthlySummary else { return 0 }
+        let days = Calendar.current.range(of: .day, in: .month, for: selectedMonthlySummary.monthDate)?.count ?? 30
+        guard days > 0 else { return selectedMonthlySummary.monthlyTotal }
+        return selectedMonthlySummary.monthlyTotal / Double(days)
     }
 
     var body: some View {
         ZStack {
-            // Background
-            (colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
-                .ignoresSafeArea()
+            pageBackgroundColor.ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: isPopup ? 8 : 12) {
-                // Main card container
-                VStack(alignment: .leading, spacing: 0) {
-                    if showRecurringExpenses {
-                        RecurringExpenseStatsContent(searchText: searchText)
-                            .frame(maxWidth: .infinity, alignment: .topLeading)
-                    } else {
-                        // Year selector header with total
-                        HStack(spacing: 12) {
-                        if !availableYears.isEmpty && currentYear != availableYears.min() {
-                            Button(action: { selectPreviousYear() }) {
-                                Image(systemName: "chevron.left")
-                                    .font(FontManager.geist(size: 14, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                                    .frame(width: 28, height: 28)
-                            }
+            if showRecurringExpenses {
+                RecurringExpenseStatsContent(searchText: searchText)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 12) {
+                        if drilldownMode == .monthly {
+                            monthlyContent
                         } else {
-                            // Placeholder to maintain spacing
-                            Color.clear
-                                .frame(width: 28, height: 28)
+                            overviewContent
                         }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(String(format: "%d", currentYear))
-                                .font(FontManager.geist(size: 24, weight: .semibold))
-                                .foregroundColor(.primary)
-
-                            if let stats = currentYearStats {
-                                Text(CurrencyParser.formatAmountNoDecimals(stats.yearlyTotal))
-                                    .font(FontManager.geist(size: 17, weight: .semibold))
-                                    .foregroundColor(.green)
-                            }
-                        }
-
-                        // Right arrow to navigate to next year
-                        if !availableYears.isEmpty && currentYear != availableYears.max() {
-                            Button(action: { selectNextYear() }) {
-                                Image(systemName: "chevron.right")
-                                    .font(FontManager.geist(size: 14, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                                    .frame(width: 28, height: 28)
-                            }
-                        } else {
-                            // Placeholder to maintain spacing
-                            Color.clear
-                                .frame(width: 28, height: 28)
-                        }
-
-                        Spacer()
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-                    .padding(.bottom, 12)
-
-                    // Category Breakdown Section
-                    if isLoadingCategories {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .scaleEffect(0.9, anchor: .center)
-
-                            Text("Categorizing receipts...")
-                                .font(FontManager.geist(size: 14, weight: .regular))
-                                .foregroundColor(.gray)
-
-                            Spacer()
-                        }
-                        .padding(16)
-                    } else if let breakdown = categoryBreakdown, !breakdown.categories.isEmpty {
-                        HorizontalCategoryBreakdownView(
-                            categoryBreakdown: breakdown,
-                            onCategoryTap: { category in
-                                selectedCategory = category
-                            }
-                        )
-                    }
-
-
-                    // Monthly breakdown
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 16) { // Reduced spacing from 32 to 16
-                            if let stats = currentYearStats {
-                                if stats.monthlySummaries.isEmpty {
-                                    VStack(spacing: 8) {
-                                        Image(systemName: "doc.text")
-                                            .font(FontManager.geist(size: 32, weight: .light))
-                                            .foregroundColor(.gray)
-
-                                        Text("No receipts found")
-                                            .font(FontManager.geist(size: .body, weight: .regular))
-                                            .foregroundColor(.gray)
-
-                                        Text("for this year")
-                                            .font(FontManager.geist(size: .caption, weight: .regular))
-                                            .foregroundColor(.gray)
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 40)
-                                } else {
-                                    ForEach(Array(stats.monthlySummaries.enumerated()), id: \.element.id) { index, monthlySummary in
-                                        let categorizedReceiptsForMonth = getCategorizedReceiptsForMonth(monthlySummary.monthDate)
-
-                                        MonthlySummaryReceiptCard(
-                                            monthlySummary: monthlySummary,
-                                            isLast: index == stats.monthlySummaries.count - 1,
-                                            onReceiptTap: { noteId in
-                                                selectedNote = notesManager.notes.first { $0.id == noteId }
-                                            },
-                                            categorizedReceipts: categorizedReceiptsForMonth
-                                        )
-                                        .padding(.horizontal, 12) // Match home page widget padding
-
-                                    }
-                                }
-                            } else {
-                                VStack(spacing: 8) {
-                                    Image(systemName: "doc.text")
-                                        .font(FontManager.geist(size: 32, weight: .light))
-                                        .foregroundColor(.gray)
-
-                                    Text("No receipts found")
-                                        .font(FontManager.geist(size: .body, weight: .regular))
-                                        .foregroundColor(.gray)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 40)
-                            }
-                        }
-                        .padding(.vertical, 8)
-                    }
-                    }
+                    .padding(.top, isPopup ? 8 : 10)
+                    .padding(.bottom, 18)
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(maxHeight: .infinity, alignment: .top)
         }
         .onAppear {
-            // Set current year to the most recent year with data
-            if !availableYears.isEmpty {
-                currentYear = availableYears.first ?? Calendar.current.component(.year, from: Date())
+            let calendar = Calendar.current
+            if let initialMonthDate {
+                let initialYear = calendar.component(.year, from: initialMonthDate)
+                if availableYears.contains(initialYear) {
+                    currentYear = initialYear
+                } else if !availableYears.isEmpty {
+                    currentYear = availableYears.first ?? calendar.component(.year, from: Date())
+                }
+            } else if !availableYears.isEmpty {
+                currentYear = availableYears.first ?? calendar.component(.year, from: Date())
             }
-            // Load category breakdown for current year
+
+            selectedMonthName = monthlySummaries.first?.month
+            applyInitialMonthSelectionIfNeeded()
             loadCategoryBreakdown()
         }
         .onChange(of: currentYear) { _ in
-            // Reload category breakdown when year changes
+            selectedMonthName = monthlySummaries.first?.month
+            monthlyCategoryFilter = nil
+            drilldownMode = .overview
+            applyInitialMonthSelectionIfNeeded()
             loadCategoryBreakdown()
         }
         .onChange(of: notesManager.notes.count) { _ in
-            // OPTIMIZATION: Debounce category breakdown reload when notes change
-            // Prevents recalculation on every note modification (e.g., during bulk import)
-            // Uses 500ms debounce to batch multiple changes together
             categoryBreakdownDebounceTask?.cancel()
             categoryBreakdownDebounceTask = Task {
                 try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
@@ -224,47 +265,807 @@ struct ReceiptStatsView: View {
                 }
             }
         }
-        .sheet(item: $selectedNote) { note in
-            NavigationView {
-                NoteEditView(note: note, isPresented: Binding<Bool>(
-                    get: { selectedNote != nil },
-                    set: { if !$0 { selectedNote = nil } }
-                ))
+        .sheet(item: $selectedReceipt) { receipt in
+            if let note = notesManager.notes.first(where: { $0.id == receipt.noteId }) {
+                ReceiptDetailSheet(
+                    receipt: receipt,
+                    note: note,
+                    folderName: notesManager.getFolderName(for: note.folderId)
+                )
+            } else {
+                VStack(spacing: 14) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(FontManager.geist(size: 34, weight: .light))
+                        .foregroundColor(secondaryTextColor)
+                    Text("Receipt note was not found.")
+                        .font(FontManager.geist(size: 15, weight: .medium))
+                        .foregroundColor(primaryTextColor)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(pageBackgroundColor)
             }
         }
         .sheet(isPresented: Binding(
             get: { selectedCategory != nil },
             set: { if !$0 { selectedCategory = nil } }
         )) {
-            if let category = selectedCategory, let breakdown = categoryBreakdown {
-                let categoryReceipts = breakdown.allReceipts.filter { $0.category == category }.sorted { $0.date > $1.date }
+            if let category = selectedCategory {
+                let sourceReceipts = drilldownMode == .monthly
+                    ? selectedMonthCategorizedReceipts
+                    : (categoryBreakdown?.allReceipts ?? [])
+                let contextTitle = drilldownMode == .monthly
+                    ? (selectedMonthlySummary?.month ?? "Month")
+                    : String(currentYear)
+
+                let categoryReceipts = sourceReceipts
+                    .filter { $0.category == category }
+                    .sorted { $0.date > $1.date }
+
                 CategoryReceiptsListModal(
                     receipts: categoryReceipts,
-                    categoryName: "\(category) - \(currentYear)",
-                    total: categoryReceipts.reduce(0) { $0 + $1.amount }
+                    categoryName: "\(category) - \(contextTitle)",
+                    total: categoryReceipts.reduce(0) { $0 + $1.amount },
+                    onReceiptTap: { receipt in
+                        selectedCategory = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            selectedReceipt = receipt
+                        }
+                    }
                 )
                 .presentationDetents([.medium, .large])
             }
         }
+        .sheet(isPresented: $showMonthlyCategoryBreakdown) {
+            monthlyCategoriesSheet
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showAllYearlyCategories) {
+            allYearlyCategoriesSheet
+                .presentationDetents([.medium, .large])
+        }
+    }
+
+    // MARK: - Yearly Summary
+
+    private var overviewContent: some View {
+        VStack(spacing: 12) {
+            yearlyHeroCard(title: "Year to Date")
+            overviewTopCategoriesCard
+            overviewMonthSnapshots
+        }
+    }
+
+    private var overviewTopCategoriesCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Top Categories")
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(secondaryTextColor)
+
+                Spacer()
+
+                Button(action: {
+                    showAllYearlyCategories = true
+                }) {
+                    Text("All")
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .black : primaryTextColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white : mutedFillColor)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(allYearlyCategories.isEmpty)
+            }
+
+            if isLoadingCategories {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.9)
+                    Text("Categorizing receipts...")
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(secondaryTextColor)
+                    Spacer()
+                }
+            } else if topCategories.isEmpty {
+                Text("No category data yet")
+                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .foregroundColor(secondaryTextColor)
+            } else {
+                ForEach(topCategories, id: \.id) { category in
+                    Button(action: {
+                        selectedCategory = category.category
+                    }) {
+                        categoryProgressRow(category)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 16)
+    }
+
+    private var allYearlyCategoriesSheet: some View {
+        NavigationStack {
+            ZStack {
+                pageBackgroundColor.ignoresSafeArea()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 10) {
+                        if allYearlyCategories.isEmpty {
+                            emptyReceiptsCard
+                        } else {
+                            ForEach(allYearlyCategories, id: \.id) { category in
+                                Button(action: {
+                                    showAllYearlyCategories = false
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                        selectedCategory = category.category
+                                    }
+                                }) {
+                                    categoryProgressRow(category)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+            }
+            .navigationTitle(Text(verbatim: "\(String(currentYear)) Categories"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        showAllYearlyCategories = false
+                    }
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                }
+            }
+        }
+    }
+
+    private var monthlyCategoriesSheet: some View {
+        NavigationStack {
+            ZStack {
+                pageBackgroundColor.ignoresSafeArea()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 10) {
+                        if monthlyCategoryBreakdownStats.isEmpty {
+                            emptyReceiptsCard
+                        } else {
+                            ForEach(monthlyCategoryBreakdownStats, id: \.id) { category in
+                                Button(action: {
+                                    showMonthlyCategoryBreakdown = false
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                        selectedCategory = category.category
+                                    }
+                                }) {
+                                    categoryProgressRow(category)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+            }
+            .navigationTitle(Text(verbatim: "\((selectedMonthlySummary?.month ?? "Month")) Categories"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        showMonthlyCategoryBreakdown = false
+                    }
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                }
+            }
+        }
+    }
+
+    private func categoryProgressRow(_ category: CategoryStatWithPercentage) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(category.category)
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(primaryTextColor)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Text(category.formattedAmount)
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(primaryTextColor)
+            }
+
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                let fill = max(8, width * (category.percentage / 100))
+
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(mutedFillColor)
+                    Capsule()
+                        .fill(neutralCategoryBarColor)
+                        .frame(width: fill)
+                }
+            }
+            .frame(height: 8)
+
+            Text(String(format: "%.1f%%", category.percentage))
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(tertiaryTextColor)
+        }
+    }
+
+    private var overviewMonthSnapshots: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Month Snapshots")
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(secondaryTextColor)
+                .padding(.horizontal, 16)
+
+            if monthlySummaries.isEmpty {
+                emptyReceiptsCard
+                    .padding(.horizontal, 16)
+            } else {
+                ForEach(Array(monthlySummaries.enumerated()), id: \.element.id) { _, monthlySummary in
+                    monthSnapshotCard(monthlySummary)
+                }
+            }
+        }
+    }
+
+    private func monthSnapshotCard(_ monthlySummary: MonthlyReceiptSummary) -> some View {
+        Button(action: {
+            selectedMonthName = monthlySummary.month
+            monthlyCategoryFilter = nil
+            withAnimation(.easeInOut(duration: 0.2)) {
+                drilldownMode = .monthly
+            }
+        }) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(monthlySummary.month)
+                        .font(FontManager.geist(size: 20, weight: .semibold))
+                        .foregroundColor(primaryTextColor)
+
+                    Text("\(monthlySummary.receipts.count) receipts • Avg \(CurrencyParser.formatAmountNoDecimals(monthAveragePerDay(for: monthlySummary)))/day")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(secondaryTextColor)
+                }
+
+                Spacer()
+
+                Text(CurrencyParser.formatAmountNoDecimals(monthlySummary.monthlyTotal))
+                    .font(FontManager.geist(size: 24, weight: .bold))
+                    .foregroundColor(primaryTextColor)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(cardFillColor)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(cardBorderColor, lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Yearly
+
+    private var yearlyContent: some View {
+        VStack(spacing: 12) {
+            yearNavigator
+            quarterPerformanceCard
+            yearlyInsightsCard
+            yearlyMonthEntryPointsCard
+        }
+    }
+
+    private var yearNavigator: some View {
+        HStack {
+            Button(action: { selectPreviousYear() }) {
+                Image(systemName: "chevron.left")
+                    .font(FontManager.geist(size: 16, weight: .semibold))
+                    .foregroundColor(canSelectPreviousYear ? secondaryTextColor : tertiaryTextColor)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        Circle()
+                            .fill(mutedFillColor)
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(!canSelectPreviousYear)
+
+            Spacer()
+
+            Text(String(currentYear))
+                .font(FontManager.geist(size: 26, weight: .bold))
+                .foregroundColor(primaryTextColor)
+
+            Spacer()
+
+            Button(action: { selectNextYear() }) {
+                Image(systemName: "chevron.right")
+                    .font(FontManager.geist(size: 16, weight: .semibold))
+                    .foregroundColor(canSelectNextYear ? secondaryTextColor : tertiaryTextColor)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        Circle()
+                            .fill(mutedFillColor)
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(!canSelectNextYear)
+        }
+    }
+
+    private var quarterPerformanceCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Quarter Performance")
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(secondaryTextColor)
+
+            let maxTotal = max(quarterTotals.map(\.total).max() ?? 0, 1)
+            ForEach(quarterTotals, id: \.quarter) { quarter in
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text("Q\(quarter.quarter)")
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(primaryTextColor)
+                        Spacer()
+                        Text(CurrencyParser.formatAmountNoDecimals(quarter.total))
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(secondaryTextColor)
+                    }
+
+                    GeometryReader { geometry in
+                        let fill = max(10, (geometry.size.width * (quarter.total / maxTotal)))
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(mutedFillColor)
+                            Capsule()
+                                .fill(quarter.quarter == 1 ? primaryTextColor : primaryTextColor.opacity(0.6))
+                                .frame(width: fill)
+                        }
+                    }
+                    .frame(height: 9)
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 16)
+    }
+
+    private var yearlyInsightsCard: some View {
+        HStack(spacing: 10) {
+            insightMiniCard(
+                title: "Biggest Month",
+                value: largestMonthlySummary?.month ?? "N/A",
+                detail: largestMonthlySummary.map { CurrencyParser.formatAmountNoDecimals($0.monthlyTotal) } ?? "-"
+            )
+
+            insightMiniCard(
+                title: "Total Receipts",
+                value: "\(currentYearReceiptCount)",
+                detail: "in \(currentYear)"
+            )
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private func insightMiniCard(title: String, value: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(secondaryTextColor)
+            Text(value)
+                .font(FontManager.geist(size: 20, weight: .bold))
+                .foregroundColor(primaryTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(detail)
+                .font(FontManager.geist(size: 12, weight: .medium))
+                .foregroundColor(secondaryTextColor)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
+    }
+
+    private var yearlyMonthEntryPointsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Month Entry Points")
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(secondaryTextColor)
+
+            if monthlySummaries.isEmpty {
+                Text("No months available for this year")
+                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .foregroundColor(secondaryTextColor)
+            } else {
+                ForEach(Array(monthlySummaries.prefix(6).enumerated()), id: \.element.id) { _, monthlySummary in
+                    HStack {
+                        Text(monthlySummary.month)
+                            .font(FontManager.geist(size: 14, weight: .semibold))
+                            .foregroundColor(primaryTextColor)
+                        Spacer()
+                        Text(CurrencyParser.formatAmountNoDecimals(monthlySummary.monthlyTotal))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
+                            .foregroundColor(primaryTextColor)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(mutedFillColor)
+                    )
+                    .onTapGesture {
+                        selectedMonthName = monthlySummary.month
+                        monthlyCategoryFilter = nil
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            drilldownMode = .monthly
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Monthly
+
+    private var monthlyContent: some View {
+        VStack(spacing: 12) {
+            monthlyBackHeader
+            monthlySummaryCard
+            monthlyCategoryFilterChips
+            monthlyDailyCards
+        }
+    }
+
+    private var monthlyBackHeader: some View {
+        HStack {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    drilldownMode = .overview
+                    monthlyCategoryFilter = nil
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                    Text("Year Summary")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                }
+                .foregroundColor(secondaryTextColor)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule()
+                        .fill(mutedFillColor)
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var monthlyNavigator: some View {
+        HStack {
+            Button(action: { shiftSelectedMonth(by: 1) }) {
+                Image(systemName: "chevron.left")
+                    .font(FontManager.geist(size: 16, weight: .semibold))
+                    .foregroundColor(canShiftToOlderMonth ? secondaryTextColor : tertiaryTextColor)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(mutedFillColor))
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(!canShiftToOlderMonth)
+
+            Spacer()
+
+            Text(selectedMonthlySummary?.month ?? "No Month")
+                .font(FontManager.geist(size: 24, weight: .bold))
+                .foregroundColor(primaryTextColor)
+
+            Spacer()
+
+            Button(action: { shiftSelectedMonth(by: -1) }) {
+                Image(systemName: "chevron.right")
+                    .font(FontManager.geist(size: 16, weight: .semibold))
+                    .foregroundColor(canShiftToNewerMonth ? secondaryTextColor : tertiaryTextColor)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(mutedFillColor))
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(!canShiftToNewerMonth)
+        }
+    }
+
+    private var monthlySummaryCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            monthlyNavigator
+
+            HStack(spacing: 6) {
+                Text("\(currentMonthReceiptCount) receipts")
+                Text("•")
+                Text("Avg \(CurrencyParser.formatAmountNoDecimals(currentMonthAveragePerDay))/day")
+            }
+            .font(FontManager.geist(size: 13, weight: .medium))
+            .foregroundColor(secondaryTextColor)
+
+            HStack {
+                Text(CurrencyParser.formatAmountNoDecimals(currentMonthSummaryTotal))
+                    .font(FontManager.geist(size: 32, weight: .bold))
+                    .foregroundColor(primaryTextColor)
+
+                Spacer()
+
+                Button(action: {
+                    showMonthlyCategoryBreakdown = true
+                }) {
+                    Text("Categories")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .black : primaryTextColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule().fill(colorScheme == .dark ? Color.white : mutedFillColor)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(selectedMonthCategorizedReceipts.isEmpty)
+            }
+
+            if onAddReceipt != nil {
+                HStack {
+                    Spacer()
+                    addReceiptCircleButton
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 16)
+    }
+
+    private var monthlyCategoryFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                monthlyFilterChip(title: "All", isActive: monthlyCategoryFilter == nil) {
+                    monthlyCategoryFilter = nil
+                }
+
+                ForEach(monthlyFilterCategories, id: \.self) { category in
+                    monthlyFilterChip(title: category, isActive: monthlyCategoryFilter == category) {
+                        monthlyCategoryFilter = category
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private func monthlyFilterChip(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(
+                    isActive
+                        ? (colorScheme == .dark ? .black : .white)
+                        : secondaryTextColor
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(
+                    Capsule()
+                        .fill(
+                            isActive
+                                ? (colorScheme == .dark ? Color.white : primaryTextColor)
+                                : mutedFillColor
+                        )
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private var monthlyDailyCards: some View {
+        VStack(spacing: 12) {
+            if displayedDailySummaries.isEmpty {
+                emptyReceiptsCard
+                    .padding(.horizontal, 16)
+            } else {
+                ForEach(displayedDailySummaries, id: \.id) { dailySummary in
+                    DailyReceiptCard(
+                        dailySummary: dailySummary,
+                        categorizedReceipts: filteredMonthlyReceipts,
+                        onReceiptTap: { receipt in
+                            selectedReceipt = receipt
+                        }
+                    )
+                    .padding(.horizontal, 16)
+                }
+            }
+        }
+    }
+
+    // MARK: - Shared Cards
+
+    private func yearlyHeroCard(title: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            yearNavigator
+
+            HStack {
+                Text(title.uppercased())
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(secondaryTextColor)
+            }
+
+            Text(CurrencyParser.formatAmountNoDecimals(currentYearTotal))
+                .font(FontManager.geist(size: 40, weight: .bold))
+                .foregroundColor(primaryTextColor)
+
+            HStack(spacing: 6) {
+                Text("\(currentYearReceiptCount) receipts")
+                Text("•")
+                Text("Avg \(CurrencyParser.formatAmountNoDecimals(averageMonthlySpend))/month")
+            }
+            .font(FontManager.geist(size: 13, weight: .medium))
+            .foregroundColor(secondaryTextColor)
+
+            if let yearOverYearDelta {
+                let isUp = yearOverYearDelta >= 0
+                let trendColor: Color = isUp ? .red : .green
+                HStack(spacing: 4) {
+                    Image(systemName: isUp ? "arrow.up.right" : "arrow.down.right")
+                        .font(FontManager.geist(size: 10, weight: .semibold))
+                    Text(String(format: "%.1f%% vs %d", abs(yearOverYearDelta), currentYear - 1))
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                }
+                .foregroundColor(trendColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule()
+                        .fill(trendColor.opacity(colorScheme == .dark ? 0.22 : 0.14))
+                )
+            }
+
+            if onAddReceipt != nil {
+                HStack {
+                    Spacer()
+                    addReceiptCircleButton
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 16)
+    }
+
+    private var addReceiptCircleButton: some View {
+        Button(action: {
+            onAddReceipt?()
+        }) {
+            Image(systemName: "plus")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(primaryTextColor)
+                .frame(width: 30, height: 30)
+                .background(
+                    Circle()
+                        .fill(mutedFillColor)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .accessibilityLabel("Add receipt")
+    }
+
+    private var emptyReceiptsCard: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "doc.text")
+                .font(FontManager.geist(size: 30, weight: .light))
+                .foregroundColor(tertiaryTextColor)
+            Text("No receipts found")
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(secondaryTextColor)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 26)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
     }
 
     private func selectPreviousYear() {
-        if let previousYear = availableYears.first(where: { $0 < currentYear }) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                currentYear = previousYear
-            }
+        let ascending = availableYears.sorted()
+        guard let idx = ascending.firstIndex(of: currentYear), idx > 0 else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            currentYear = ascending[idx - 1]
         }
     }
 
     private func selectNextYear() {
-        if let nextYear = availableYears.first(where: { $0 > currentYear }) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                currentYear = nextYear
-            }
+        let ascending = availableYears.sorted()
+        guard let idx = ascending.firstIndex(of: currentYear), idx < ascending.count - 1 else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            currentYear = ascending[idx + 1]
         }
     }
 
     private func loadCategoryBreakdown() {
+        guard !availableYears.isEmpty else {
+            categoryBreakdown = nil
+            isLoadingCategories = false
+            return
+        }
+
         isLoadingCategories = true
         Task {
             let breakdown = await notesManager.getCategoryBreakdown(for: currentYear)
@@ -272,6 +1073,38 @@ struct ReceiptStatsView: View {
                 categoryBreakdown = breakdown
                 isLoadingCategories = false
             }
+        }
+    }
+
+    private func monthAveragePerDay(for monthSummary: MonthlyReceiptSummary) -> Double {
+        let days = Calendar.current.range(of: .day, in: .month, for: monthSummary.monthDate)?.count ?? 30
+        guard days > 0 else { return monthSummary.monthlyTotal }
+        return monthSummary.monthlyTotal / Double(days)
+    }
+
+    private var selectedMonthIndex: Int? {
+        guard let selectedMonthlySummary else { return nil }
+        return monthlySummaries.firstIndex(where: { $0.month == selectedMonthlySummary.month })
+    }
+
+    private var canShiftToOlderMonth: Bool {
+        guard let selectedMonthIndex else { return false }
+        return selectedMonthIndex < monthlySummaries.count - 1
+    }
+
+    private var canShiftToNewerMonth: Bool {
+        guard let selectedMonthIndex else { return false }
+        return selectedMonthIndex > 0
+    }
+
+    private func shiftSelectedMonth(by offset: Int) {
+        guard let selectedMonthIndex else { return }
+        let newIndex = selectedMonthIndex + offset
+        guard newIndex >= 0 && newIndex < monthlySummaries.count else { return }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selectedMonthName = monthlySummaries[newIndex].month
+            monthlyCategoryFilter = nil
         }
     }
 
@@ -289,198 +1122,178 @@ struct ReceiptStatsView: View {
         }
     }
 
+    private func applyInitialMonthSelectionIfNeeded() {
+        guard let initialMonthDate else { return }
+
+        let calendar = Calendar.current
+        let initialYear = calendar.component(.year, from: initialMonthDate)
+        guard initialYear == currentYear else { return }
+
+        if let month = monthlySummaries.first(where: {
+            calendar.isDate($0.monthDate, equalTo: initialMonthDate, toGranularity: .month)
+        }) {
+            selectedMonthName = month.month
+            drilldownMode = .monthly
+        }
+    }
+
 }
 
 // MARK: - Recurring Expense Stats Content
 
 struct RecurringExpenseStatsContent: View {
+    private enum RecurringBucket {
+        case dueNow
+        case upcoming
+        case paused
+
+        var title: String {
+            switch self {
+            case .dueNow:
+                return "Due Now"
+            case .upcoming:
+                return "Upcoming"
+            case .paused:
+                return "Paused"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .dueNow:
+                return ""
+            case .upcoming:
+                return ""
+            case .paused:
+                return ""
+            }
+        }
+
+        var emptyState: String {
+            switch self {
+            case .dueNow:
+                return ""
+            case .upcoming:
+                return "No upcoming recurring charges."
+            case .paused:
+                return ""
+            }
+        }
+    }
+
     @State private var recurringExpenses: [RecurringExpense] = []
-    @State private var recurringInstances: [RecurringInstance] = []
     @State private var isLoading = true
     @State private var selectedExpense: RecurringExpense? = nil
     @State private var showEditSheet = false
     @State private var hasLoadedData = false
     @Environment(\.colorScheme) var colorScheme
-    
+
     var searchText: String? = nil
-    
-    var filteredRecurringExpenses: [RecurringExpense] {
+    var onAddRecurring: (() -> Void)? = nil
+
+    private var filteredRecurringExpenses: [RecurringExpense] {
         guard let searchText = searchText, !searchText.isEmpty else {
             return recurringExpenses
         }
         return recurringExpenses.filter { expense in
             expense.title.localizedCaseInsensitiveContains(searchText) ||
-            expense.category?.localizedCaseInsensitiveContains(searchText) ?? false ||
-            expense.description?.localizedCaseInsensitiveContains(searchText) ?? false
+            (expense.category?.localizedCaseInsensitiveContains(searchText) ?? false) ||
+            (expense.description?.localizedCaseInsensitiveContains(searchText) ?? false)
         }
     }
 
-    var monthlyTotal: Double {
-        // Only count active expenses in the total
-        filteredRecurringExpenses.filter { $0.isActive }.reduce(0) { total, expense in
+    private var activeExpenses: [RecurringExpense] {
+        filteredRecurringExpenses
+            .filter { $0.isActive }
+            .sorted { $0.nextOccurrence < $1.nextOccurrence }
+    }
+
+    private var pausedExpenses: [RecurringExpense] {
+        filteredRecurringExpenses
+            .filter { !$0.isActive }
+            .sorted { $0.nextOccurrence < $1.nextOccurrence }
+    }
+
+    private var dueNowExpenses: [RecurringExpense] {
+        activeExpenses.filter { isDueNow($0.nextOccurrence) }
+    }
+
+    private var upcomingExpenses: [RecurringExpense] {
+        activeExpenses.filter { !isDueNow($0.nextOccurrence) }
+    }
+
+    private var monthlyTotal: Double {
+        activeExpenses.reduce(0) { total, expense in
             total + Double(truncating: expense.amount as NSDecimalNumber)
         }
     }
 
-    var yearlyProjection: Double {
+    private var yearlyProjection: Double {
         monthlyTotal * 12
     }
 
-    var activeCount: Int {
-        filteredRecurringExpenses.filter { $0.isActive }.count
+    private var activeCount: Int {
+        activeExpenses.count
     }
 
-    // Sort expenses by next occurrence date (soonest first)
-    var sortedExpenses: [RecurringExpense] {
-        filteredRecurringExpenses.sorted { $0.nextOccurrence < $1.nextOccurrence }
+    private var dueNowCount: Int {
+        dueNowExpenses.count
+    }
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : Color.emailLightTextPrimary
+    }
+
+    private var secondaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.64) : Color.emailLightTextSecondary
+    }
+
+    private var cardFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface
+    }
+
+    private var cardBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+    }
+
+    private var rowFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSectionCard
+    }
+
+    private var controlButtonFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.emailLightChipIdle
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        Group {
             if isLoading {
                 ProgressView()
-                    .padding(.vertical, 16)
+                    .padding(.vertical, 24)
             } else if filteredRecurringExpenses.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "repeat.circle.dashed")
-                        .font(FontManager.geist(size: 32, weight: .light))
-                        .foregroundColor(.gray)
-
-                    Text("No recurring expenses")
-                        .font(FontManager.geist(size: .body, weight: .regular))
-                        .foregroundColor(.gray)
-
-                    Text("Create one using the repeat icon in notes")
-                        .font(FontManager.geist(size: .caption, weight: .regular))
-                        .foregroundColor(.gray)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
+                recurringEmptyState
             } else {
-                // Stats
-                HStack(spacing: 12) {
-                    StatBox(
-                        label: "Monthly",
-                        value: CurrencyParser.formatAmountNoDecimals(monthlyTotal),
-                        icon: "calendar",
-                        valueColor: .green,
-                        isBold: true
-                    )
-
-                    StatBox(
-                        label: "Yearly",
-                        value: CurrencyParser.formatAmountNoDecimals(yearlyProjection),
-                        icon: "chart.line.uptrend.xyaxis",
-                        valueColor: .green,
-                        isBold: true
-                    )
-
-                    StatBox(
-                        label: "Active",
-                        value: "\(activeCount)",
-                        icon: "repeat",
-                        valueColor: nil,
-                        isBold: true
-                    )
-                }
-                .padding(.top, -4)
-                .padding(.bottom, 4)
-
-                // Recurring expenses list (sorted by next occurrence date)
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 8) {
-                        ForEach(sortedExpenses) { expense in
-                            Menu {
-                                Button(action: {
-                                    selectedExpense = expense
-                                    // Add small delay to ensure state is updated before sheet shows
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-                                        showEditSheet = true
-                                    }
-                                }) {
-                                    Label("Edit Recurring", systemImage: "pencil")
-                                }
-
-                                Button(action: {
-                                    Task {
-                                        try? await RecurringExpenseService.shared.toggleRecurringExpenseActive(id: expense.id, isActive: !expense.isActive)
-                                        // Refresh the list
-                                        await MainActor.run {
-                                            refreshRecurringExpenses()
-                                        }
-                                    }
-                                }) {
-                                    Label(expense.isActive ? "Pause" : "Resume", systemImage: expense.isActive ? "pause.circle" : "play.circle")
-                                }
-
-                                Button(role: .destructive, action: {
-                                    Task {
-                                        try? await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
-                                        // Refresh the list
-                                        await MainActor.run {
-                                            refreshRecurringExpenses()
-                                        }
-                                    }
-                                }) {
-                                    Label("Delete Recurring", systemImage: "trash")
-                                }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(expense.title)
-                                            .font(.subheadline)
-                                            .fontWeight(.regular)
-                                        HStack(spacing: 8) {
-                                            // Show next occurrence date
-                                            Image(systemName: "calendar")
-                                                .font(FontManager.geist(size: 11, weight: .regular))
-                                                .foregroundColor(.secondary)
-                                            Text(formatInstanceDate(expense.nextOccurrence))
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-
-                                            // Show frequency
-                                            Text("• \(expense.frequency.displayName)")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                    }
-
-                                    Spacer()
-
-                                    VStack(alignment: .trailing, spacing: 4) {
-                                        Text(expense.formattedAmount)
-                                            .font(.subheadline)
-                                            .fontWeight(.regular)
-                                        Text(expense.formattedYearlyAmount)
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
-                                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.05))
-                                .cornerRadius(8)
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                            }
-                        }
+                    VStack(spacing: 12) {
+                        recurringControlCard
+                        recurringBucketCard(bucket: .dueNow, expenses: dueNowExpenses)
+                        recurringBucketCard(bucket: .upcoming, expenses: upcomingExpenses)
+                        recurringBucketCard(bucket: .paused, expenses: pausedExpenses)
+                        Spacer(minLength: 90)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 8)
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
         .sheet(isPresented: $showEditSheet, onDismiss: {
             selectedExpense = nil
-            // Refresh the list when sheet closes (in case data was edited)
             refreshRecurringExpenses()
         }) {
             if let expense = selectedExpense {
                 RecurringExpenseEditView(expense: expense, isPresented: $showEditSheet)
                     .presentationBg()
             } else {
-                // Fallback loading state if data isn't ready yet
                 VStack(spacing: 20) {
                     ProgressView()
                         .scaleEffect(1.5)
@@ -495,10 +1308,253 @@ struct RecurringExpenseStatsContent: View {
             }
         }
         .onAppear {
-            // Only load if we haven't already loaded
             if !hasLoadedData {
                 loadRecurringExpenses()
             }
+        }
+    }
+
+    private var recurringControlCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Recurring Control")
+                        .font(FontManager.geist(size: 18, weight: .semibold))
+                        .foregroundColor(primaryTextColor)
+                }
+                Spacer()
+                if let onAddRecurring {
+                    Button(action: onAddRecurring) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(primaryTextColor)
+                            .frame(width: 30, height: 30)
+                            .background(
+                                Circle()
+                                    .fill(controlButtonFillColor)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .accessibilityLabel("Add recurring expense")
+                } else {
+                    Text("\(dueNowCount) due")
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(primaryTextColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(controlButtonFillColor)
+                        )
+                }
+            }
+
+            HStack(spacing: 8) {
+                recurringSummaryTile(label: "Monthly", value: CurrencyParser.formatAmountNoDecimals(monthlyTotal))
+                recurringSummaryTile(label: "Yearly", value: CurrencyParser.formatAmountNoDecimals(yearlyProjection))
+                recurringSummaryTile(label: "Active", value: "\(activeCount)")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
+    }
+
+    private func recurringSummaryTile(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(secondaryTextColor)
+            Text(value)
+                .font(FontManager.geist(size: 17, weight: .semibold))
+                .foregroundColor(primaryTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(rowFillColor)
+        )
+    }
+
+    private func recurringBucketCard(bucket: RecurringBucket, expenses: [RecurringExpense]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(bucket.title)
+                    .font(FontManager.geist(size: 17, weight: .semibold))
+                    .foregroundColor(primaryTextColor)
+                Text("· \(expenses.count)")
+                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .foregroundColor(secondaryTextColor)
+                Spacer()
+            }
+
+            if !bucket.subtitle.isEmpty {
+                Text(bucket.subtitle)
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(secondaryTextColor)
+            }
+
+            if expenses.isEmpty, !bucket.emptyState.isEmpty {
+                Text(bucket.emptyState)
+                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .foregroundColor(secondaryTextColor)
+                    .padding(.vertical, 8)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(expenses) { expense in
+                        recurringBucketRow(expense)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
+    }
+
+    private func recurringBucketRow(_ expense: RecurringExpense) -> some View {
+        let due = dueBadge(for: expense)
+        return HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(expense.title)
+                    .font(FontManager.geist(size: 15, weight: .semibold))
+                    .foregroundColor(primaryTextColor)
+                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    Text(expense.frequency.displayName)
+                    if let category = expense.category, !category.isEmpty {
+                        Text("• \(category)")
+                    }
+                }
+                .font(FontManager.geist(size: 12, weight: .medium))
+                .foregroundColor(secondaryTextColor)
+
+                Text("Next \(formatInstanceDate(expense.nextOccurrence))")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(secondaryTextColor)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 6) {
+                Text(expense.formattedAmount)
+                    .font(FontManager.geist(size: 15, weight: .semibold))
+                    .foregroundColor(primaryTextColor)
+                    .lineLimit(1)
+
+                Text("\(expense.formattedYearlyAmount)/yr")
+                    .font(FontManager.geist(size: 11, weight: .medium))
+                    .foregroundColor(secondaryTextColor)
+                    .lineLimit(1)
+
+                Text(due.text)
+                    .font(FontManager.geist(size: 10, weight: .semibold))
+                    .foregroundColor(due.foreground)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(due.background)
+                    )
+            }
+
+            Menu {
+                Button(action: { presentEditSheet(for: expense) }) {
+                    Label("Edit Recurring", systemImage: "pencil")
+                }
+
+                Button(action: {
+                    Task {
+                        try? await RecurringExpenseService.shared.toggleRecurringExpenseActive(id: expense.id, isActive: !expense.isActive)
+                        await MainActor.run {
+                            refreshRecurringExpenses()
+                        }
+                    }
+                }) {
+                    Label(expense.isActive ? "Pause" : "Resume", systemImage: expense.isActive ? "pause.circle" : "play.circle")
+                }
+
+                Button(role: .destructive, action: {
+                    Task {
+                        try? await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
+                        await MainActor.run {
+                            refreshRecurringExpenses()
+                        }
+                    }
+                }) {
+                    Label("Delete Recurring", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(secondaryTextColor)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        Circle()
+                            .fill(controlButtonFillColor)
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(rowFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(cardBorderColor.opacity(0.7), lineWidth: 1)
+                )
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .onTapGesture {
+            presentEditSheet(for: expense)
+        }
+    }
+
+    private var recurringEmptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "repeat.circle.dashed")
+                .font(FontManager.geist(size: 34, weight: .light))
+                .foregroundColor(secondaryTextColor)
+
+            Text("No recurring expenses")
+                .font(FontManager.geist(size: 18, weight: .medium))
+                .foregroundColor(primaryTextColor)
+
+            Text("Use the + button to create your first recurring bill.")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(secondaryTextColor)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 26)
+    }
+
+    private func presentEditSheet(for expense: RecurringExpense) {
+        selectedExpense = expense
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+            showEditSheet = true
         }
     }
 
@@ -506,11 +1562,8 @@ struct RecurringExpenseStatsContent: View {
         isLoading = true
         Task {
             do {
-                // Fetch all expenses (both active and paused)
                 let expenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
-
                 await MainActor.run {
-                    // Sort expenses by upcoming due date (soonest first)
                     recurringExpenses = expenses.sorted { $0.nextOccurrence < $1.nextOccurrence }
                     isLoading = false
                     hasLoadedData = true
@@ -524,13 +1577,67 @@ struct RecurringExpenseStatsContent: View {
         }
     }
 
-    /// Manual refresh - reload data even if already loaded
     private func refreshRecurringExpenses() {
         hasLoadedData = false
         loadRecurringExpenses()
     }
 
-    /// Format instance date in readable way
+    private func daysUntil(_ date: Date) -> Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let target = calendar.startOfDay(for: date)
+        return calendar.dateComponents([.day], from: today, to: target).day ?? 0
+    }
+
+    private func isDueNow(_ date: Date) -> Bool {
+        daysUntil(date) <= 3
+    }
+
+    private func dueBadge(for expense: RecurringExpense) -> (text: String, background: Color, foreground: Color) {
+        if !expense.isActive {
+            return (
+                "Paused",
+                colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle,
+                secondaryTextColor
+            )
+        }
+
+        let days = daysUntil(expense.nextOccurrence)
+        if days < 0 {
+            return (
+                "\(abs(days))d overdue",
+                colorScheme == .dark ? Color.red.opacity(0.22) : Color.red.opacity(0.12),
+                colorScheme == .dark ? Color.red.opacity(0.95) : Color.red.opacity(0.9)
+            )
+        }
+        if days == 0 {
+            return (
+                "Due today",
+                colorScheme == .dark ? Color.red.opacity(0.22) : Color.red.opacity(0.12),
+                colorScheme == .dark ? Color.red.opacity(0.95) : Color.red.opacity(0.9)
+            )
+        }
+        if days == 1 {
+            return (
+                "Tomorrow",
+                colorScheme == .dark ? Color.orange.opacity(0.22) : Color.orange.opacity(0.14),
+                colorScheme == .dark ? Color.orange.opacity(0.95) : Color.orange.opacity(0.9)
+            )
+        }
+        if days <= 3 {
+            return (
+                "In \(days)d",
+                colorScheme == .dark ? Color.orange.opacity(0.22) : Color.orange.opacity(0.14),
+                colorScheme == .dark ? Color.orange.opacity(0.95) : Color.orange.opacity(0.9)
+            )
+        }
+        return (
+            formatUpcomingDate(expense.nextOccurrence),
+            colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle,
+            secondaryTextColor
+        )
+    }
+
     private func formatInstanceDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         let calendar = Calendar.current
@@ -553,7 +1660,6 @@ struct RecurringExpenseStatsContent: View {
         }
     }
 
-    /// Format upcoming date in a readable way
     private func formatUpcomingDate(_ date: Date) -> String {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
@@ -568,7 +1674,7 @@ struct RecurringExpenseStatsContent: View {
             return "Tomorrow"
         } else if daysFromNow > 1 && daysFromNow <= 7 {
             let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE"
+            formatter.dateFormat = "EEE"
             return formatter.string(from: date)
         } else {
             let formatter = DateFormatter()
@@ -576,32 +1682,6 @@ struct RecurringExpenseStatsContent: View {
             return formatter.string(from: date)
         }
     }
-
-    /// Calculate yearly total for an expense based on its frequency
-    private func getYearlyTotal(for expense: RecurringExpense) -> String {
-        let amountDouble = Double(truncating: expense.amount as NSDecimalNumber)
-        let yearlyAmount: Double
-
-        switch expense.frequency {
-        case .daily:
-            yearlyAmount = amountDouble * 365
-        case .weekly:
-            yearlyAmount = amountDouble * 52
-        case .biweekly:
-            yearlyAmount = amountDouble * 26
-        case .monthly:
-            yearlyAmount = amountDouble * 12
-        case .yearly:
-            yearlyAmount = amountDouble
-        case .custom:
-            // For custom frequency, assume weekly as a reasonable default
-            // TODO: Add customRecurrenceDays to RecurringExpense model for accurate calculation
-            yearlyAmount = amountDouble * 52
-        }
-
-        return CurrencyParser.formatAmountNoDecimals(yearlyAmount)
-    }
-
 }
 
 struct StatBox: View {

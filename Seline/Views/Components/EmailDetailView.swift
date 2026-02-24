@@ -39,6 +39,7 @@ struct EmailDetailView: View {
 
     // HTML content height for proper scrolling
     @State private var htmlContentHeight: CGFloat = 300
+    @State private var htmlRenderFailed = false
 
     // Unsubscribe states
     @State private var showUnsubscribeConfirmation: Bool = false
@@ -51,22 +52,16 @@ struct EmailDetailView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-        ZStack(alignment: .bottom) {
-            // Main scrollable content
+        ZStack {
+            baseBackground
+                .ignoresSafeArea()
+
             ScrollView(.vertical, showsIndicators: true) {
-                VStack(spacing: 0) {
-                    // Subject with Inbox label (Gmail style)
-                    gmailSubjectSection
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
+                VStack(alignment: .leading, spacing: 16) {
+                    modernTopBar
+                    modernSubjectSection
+                    modernSenderSection
 
-                    // Sender/Recipient Information (Gmail style)
-                    // Remove padding here - padding is handled inside gmailSenderSection
-                    gmailSenderSection
-                        .padding(.top, 16)
-
-                    // AI Summary Section - Collapse when replying
                     if !showReplySection {
                         AISummaryCard(
                             email: email,
@@ -74,105 +69,28 @@ struct EmailDetailView: View {
                                 await generateAISummary(for: email, forceRegenerate: forceRegenerate)
                             }
                         )
-                        .padding(.horizontal, 16)
-                        .padding(.top, 20) // More space between sender box and AI summary
                     }
 
-                    // Reply Section - ABOVE original email when shown
                     if showReplySection {
                         gmailReplySection
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
                     }
 
-                     // Original Email Content - Edge-to-edge, full width
-                     gmailEmailBodySection
-                         .padding(.top, 12)
+                    modernEmailBodySection
 
-                    // Bottom spacing for fixed bottom elements
-                    Spacer()
-                        .frame(height: hasAttachments ? 160 : 100)
+                    if hasAttachments {
+                        modernAttachmentsCard
+                    }
                 }
+                .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .frame(width: geometry.size.width) // CRITICAL: Constrain content to screen width
-            }
-
-            // Fixed bottom section with attachments + action bar
-            VStack(spacing: 0) {
-                // Modern floating attachments section
-                if hasAttachments {
-                    modernAttachmentsSection
-                }
-
-                // Reply/Forward bar
-                gmailBottomActionBar
+                .padding(.bottom, 24)
             }
         }
-        } // GeometryReader
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color(UIColor.systemBackground))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            // Left: Back button - larger tap area, immediate dismiss
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button {
-                    // Dismiss keyboard first
-                    focusedField = nil
-                    // Use both dismissal methods for reliability (fullScreenCover + NavigationLink)
-                    dismiss()
-                    presentationMode.wrappedValue.dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            
-            // Right: Action buttons (Gmail style) - Trash at the end, colored red
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                // Save to Event
-                Button(action: { showAddEventSheet = true }) {
-                    Image(systemName: "calendar.badge.plus")
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                }
-                
-                // Save to Folder
-                Button(action: { showSaveFolderSheet = true }) {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                }
-                
-                // Mark as Unread
-                Button(action: {
-                    emailService.markAsUnread(email)
-                    dismiss()
-                }) {
-                    Image(systemName: "envelope")
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                }
-                
-                // Delete - RED and at rightmost position
-                Button(action: {
-                    Task {
-                        do {
-                            try await emailService.deleteEmail(email)
-                            dismiss()
-                        } catch {
-                            print("Failed to delete: \(error)")
-                        }
-                    }
-                }) {
-                    Image(systemName: "trash")
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(.red)
-                }
-            }
+        .safeAreaInset(edge: .bottom) {
+            modernBottomDock
         }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showAddEventSheet) {
             AddEventFromEmailView(email: fullEmail ?? email)
         }
@@ -191,6 +109,7 @@ struct EmailDetailView: View {
         .onAppear {
             // Reset content height for new email
             htmlContentHeight = 300
+            htmlRenderFailed = false
 
             if !email.isRead {
                 emailService.markAsRead(email)
@@ -200,6 +119,323 @@ struct EmailDetailView: View {
                 await fetchFullEmailBodyIfNeeded()
             }
         }
+    }
+
+    private var baseBackground: Color {
+        (colorScheme == .dark ? Color.black : Color.white)
+    }
+
+    private var cardBackground: Color {
+        (colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+    }
+
+    private var cardBorder: Color {
+        (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+    }
+
+    private var modernTopBar: some View {
+        HStack(spacing: 12) {
+            Button(action: closeView) {
+                Image(systemName: "chevron.left")
+                    .font(FontManager.geist(size: 20, weight: .semibold))
+                    .foregroundColor((colorScheme == .dark ? Color.white : Color.black))
+                    .frame(width: 52, height: 52)
+                    .background(
+                        Circle()
+                            .fill(cardBackground)
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(cardBorder, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            HStack(spacing: 16) {
+                topActionButton(icon: "calendar.badge.plus", tint: (colorScheme == .dark ? Color.white : Color.black)) {
+                    showAddEventSheet = true
+                }
+                topActionButton(icon: "square.and.arrow.down", tint: (colorScheme == .dark ? Color.white : Color.black)) {
+                    showSaveFolderSheet = true
+                }
+                topActionButton(icon: "envelope", tint: (colorScheme == .dark ? Color.white : Color.black)) {
+                    emailService.markAsUnread(email)
+                    closeView()
+                }
+                topActionButton(icon: "trash", tint: .red) {
+                    Task {
+                        do {
+                            try await emailService.deleteEmail(email)
+                            closeView()
+                        } catch {
+                            print("Failed to delete: \(error)")
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .fill(cardBackground)
+            )
+            .overlay(
+                Capsule()
+                    .stroke(cardBorder, lineWidth: 1)
+            )
+        }
+        .padding(.top, 4)
+    }
+
+    private func topActionButton(icon: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(FontManager.geist(size: 20, weight: .medium))
+                .foregroundColor(tint)
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var modernSubjectSection: some View {
+        Text(email.subject)
+            .font(FontManager.geist(size: 22, weight: .semibold))
+            .foregroundColor((colorScheme == .dark ? Color.white : Color.black))
+            .lineLimit(nil)
+            .multilineTextAlignment(.leading)
+            .padding(.top, 8)
+    }
+
+    private var modernSenderSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                gmailAvatarView
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(email.sender.shortDisplayName)
+                            .font(FontManager.geist(size: 17, weight: .semibold))
+                            .foregroundColor((colorScheme == .dark ? Color.white : Color.black))
+                            .lineLimit(1)
+
+                        Text(email.formattedTime)
+                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)))
+                    }
+
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isSenderInfoExpanded.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Text("to me")
+                                .font(FontManager.geist(size: 13, weight: .regular))
+                                .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)))
+                            Image(systemName: isSenderInfoExpanded ? "chevron.up" : "chevron.down")
+                                .font(FontManager.geist(size: 11, weight: .medium))
+                                .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
+            }
+
+            if isSenderInfoExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    Divider()
+                        .overlay((colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)))
+                        .padding(.vertical, 2)
+                    gmailDetailRow(label: "From", name: email.sender.displayName, email: email.sender.email)
+                    gmailDetailRow(label: "To", name: email.recipients.first?.displayName ?? "Me", email: email.recipients.first?.email ?? "")
+                    gmailDetailRow(label: "Date", name: formatFullDate(email.timestamp), email: "")
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(cardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(cardBorder, lineWidth: 1)
+        )
+    }
+
+    private var modernEmailBodySection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if isLoadingFullBody {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Loading email...")
+                        .font(FontManager.geist(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.55))
+                }
+                .frame(height: 180)
+                .frame(maxWidth: .infinity)
+            } else {
+                let bodyContent = (fullEmail ?? email).body ?? email.snippet
+                let hasHTML = containsLikelyHTML(bodyContent)
+
+                if hasHTML && !htmlRenderFailed {
+                    ZoomableHTMLView(
+                        htmlContent: bodyContent,
+                        contentHeight: $htmlContentHeight
+                    ) {
+                        htmlRenderFailed = true
+                    }
+                        .frame(height: max(320, htmlContentHeight))
+                        .frame(maxWidth: .infinity)
+                        .clipped()
+                } else {
+                    Text(hasHTML ? stripHTMLTags(bodyContent) : bodyContent)
+                        .font(FontManager.geist(size: 17, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.92) : Color.black.opacity(0.88))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 6)
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(cardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(cardBorder, lineWidth: 1)
+        )
+    }
+
+    private func containsLikelyHTML(_ content: String) -> Bool {
+        let pattern = #"<\s*(html|head|body|div|p|br|table|tr|td|span|a|img|style|meta|!doctype)[^>]*>"#
+        return content.range(
+            of: pattern,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func stripHTMLTags(_ content: String) -> String {
+        let withoutTags = content.replacingOccurrences(
+            of: "<[^>]+>",
+            with: " ",
+            options: .regularExpression
+        )
+        return withoutTags
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: " +", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var modernAttachmentsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "paperclip")
+                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.6))
+
+                Text("\((fullEmail ?? email).attachments.count) Attachment\((fullEmail ?? email).attachments.count > 1 ? "s" : "")")
+                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach((fullEmail ?? email).attachments) { attachment in
+                        ModernAttachmentChip(
+                            attachment: attachment,
+                            emailMessageId: (fullEmail ?? email).gmailMessageId
+                        )
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(cardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(cardBorder, lineWidth: 1)
+        )
+    }
+
+    private var modernBottomDock: some View {
+        HStack(spacing: 12) {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showReplySection = true
+                    isForwardMode = false
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    focusedField = .body
+                }
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrowshape.turn.up.left")
+                        .font(FontManager.geist(size: 16, weight: .medium))
+                    Text("Reply")
+                        .font(FontManager.geist(size: 17, weight: .medium))
+                }
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(
+                    Capsule()
+                        .fill(cardBackground)
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(cardBorder, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+
+            Button(action: { showForwardSheet = true }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrowshape.turn.up.right")
+                        .font(FontManager.geist(size: 16, weight: .medium))
+                    Text("Forward")
+                        .font(FontManager.geist(size: 17, weight: .medium))
+                }
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(
+                    Capsule()
+                        .fill(cardBackground)
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(cardBorder, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .background(baseBackground.opacity(0.98))
+    }
+
+    private func closeView() {
+        focusedField = nil
+        dismiss()
+        presentationMode.wrappedValue.dismiss()
     }
     
     // MARK: - Gmail Style Subject Section
@@ -458,7 +694,7 @@ struct EmailDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(colorScheme == .dark ? Color.black : Color.white)
+        .background((colorScheme == .dark ? Color.black : Color.white))
     }
 
     // MARK: - Unsubscribe Banner
@@ -952,7 +1188,7 @@ struct EmailDetailView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(colorScheme == .dark ? Color.black : Color.white)
+            .background((colorScheme == .dark ? Color.black : Color.white))
         }
     }
     
@@ -1248,6 +1484,7 @@ struct QuickLookPreview: UIViewControllerRepresentable {
 struct ZoomableHTMLView: UIViewRepresentable {
     let htmlContent: String
     @Binding var contentHeight: CGFloat
+    var onLoadFailed: (() -> Void)? = nil
     @Environment(\.colorScheme) var colorScheme
 
     func makeUIView(context: Context) -> WKWebView {
@@ -1312,6 +1549,8 @@ struct ZoomableHTMLView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.parent = self
+
         guard !htmlContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             webView.loadHTMLString("<html><body></body></html>", baseURL: nil)
             return
@@ -1524,15 +1763,44 @@ struct ZoomableHTMLView: UIViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate {
         var parent: ZoomableHTMLView?
 
+        private func isAllowedMainFrameURL(_ url: URL) -> Bool {
+            let scheme = url.scheme?.lowercased() ?? ""
+            if ["about", "data", "file"].contains(scheme) {
+                return true
+            }
+            if url.host?.contains("mail.google.com") == true {
+                return true
+            }
+            return false
+        }
+
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            guard let url = navigationAction.request.url else {
+                decisionHandler(.allow)
+                return
+            }
+
+            // Allow subframe loads (images/resources) to keep HTML rendering intact.
+            if navigationAction.targetFrame?.isMainFrame == false {
+                decisionHandler(.allow)
+                return
+            }
+
             if navigationAction.navigationType == .linkActivated {
-                if let url = navigationAction.request.url {
+                if UIApplication.shared.canOpenURL(url) {
                     UIApplication.shared.open(url)
                 }
                 decisionHandler(.cancel)
-            } else {
-                decisionHandler(.allow)
+                return
             }
+
+            // Block redirect-style navigations out of the inline email renderer.
+            if !isAllowedMainFrameURL(url) {
+                decisionHandler(.cancel)
+                return
+            }
+
+            decisionHandler(.allow)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -1601,6 +1869,20 @@ struct ZoomableHTMLView: UIViewRepresentable {
                  }
              }
          }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("❌ Email body WebView failed: \(error.localizedDescription)")
+            DispatchQueue.main.async { [weak self] in
+                self?.parent?.onLoadFailed?()
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            print("❌ Email body WebView provisional failure: \(error.localizedDescription)")
+            DispatchQueue.main.async { [weak self] in
+                self?.parent?.onLoadFailed?()
+            }
+        }
     }
 }
 

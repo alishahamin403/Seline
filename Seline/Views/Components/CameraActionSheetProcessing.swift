@@ -42,7 +42,7 @@ struct CameraActionSheetProcessing: View {
                         VStack(spacing: 16) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(FontManager.geist(size: 50, weight: .regular))
-                                .foregroundColor(.orange)
+                                .foregroundColor(.primary)
 
                             VStack(spacing: 8) {
                                 Text("Couldn't Read Schedule")

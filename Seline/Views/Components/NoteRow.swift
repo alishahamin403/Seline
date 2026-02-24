@@ -20,120 +20,117 @@ struct NoteRow: View {
 
     var body: some View {
         rowContent
-            .swipeActions(
-                left: SwipeAction(
-                    type: .delete,
-                    icon: "trash.fill",
-                    color: .red,
-                    haptic: { HapticManager.shared.delete() },
-                    action: {
-                        // For locked notes, show confirmation (already handled by showDeleteConfirmation)
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if onDelete != nil {
+                    Button(role: .destructive) {
+                        HapticManager.shared.delete()
                         if note.isLocked {
                             showDeleteConfirmation = true
                         } else {
                             onDelete?(note)
                         }
+                    } label: {
+                        Label("Delete", systemImage: "trash.fill")
                     }
-                ),
-                right: SwipeAction(
-                    type: .pin,
-                    icon: note.isPinned ? "pin.slash.fill" : "pin.fill",
-                    color: note.isPinned ? .gray : .orange,
-                    haptic: { HapticManager.shared.selection() },
-                    action: {
-                        onPinToggle(note)
-                    }
-                )
-            )
+                }
+            }
+            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                Button {
+                    HapticManager.shared.selection()
+                    onPinToggle(note)
+                } label: {
+                    Label(note.isPinned ? "Unpin" : "Pin", systemImage: note.isPinned ? "pin.slash.fill" : "pin.fill")
+                }
+                .tint(note.isPinned ? .gray : .primary)
+            }
             .allowsParentScrolling()
     }
 
     private var rowContent: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                // Note title with lock icon, reminder icon, and attachment indicator
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     if note.isLocked {
                         Image(systemName: "lock.fill")
                             .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            .foregroundColor(iconMutedColor)
                     }
 
                     if !note.imageUrls.isEmpty {
                         Image(systemName: "paperclip")
                             .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            .foregroundColor(iconMutedColor)
                     }
-                    
-                    // Reminder icon - shows if note has a reminder
+
                     if note.reminderDate != nil {
                         Image(systemName: note.isReminderDue ? "bell.badge.fill" : "bell.fill")
                             .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(note.isReminderDue ? .orange : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
+                            .foregroundColor(note.isReminderDue ? .primary : iconMutedColor)
                     }
 
-                    Text(note.title)
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(note.title.isEmpty ? "Untitled" : note.title)
+                        .font(FontManager.geist(size: 13, weight: .medium))
+                        .foregroundColor(primaryTextColor)
+                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Note preview or date/folder info
                 HStack(spacing: 8) {
                     Text(note.formattedDateModified)
                         .font(FontManager.geist(size: 11, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                        .foregroundColor(secondaryTextColor)
 
                     if let folderId = note.folderId {
                         Text("•")
                             .font(FontManager.geist(size: 11, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                            .foregroundColor(secondaryTextColor)
 
                         Text(notesManager.getFolderName(for: folderId))
                             .font(FontManager.geist(size: 11, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                            .foregroundColor(secondaryTextColor)
+                            .lineLimit(1)
                     }
-                    
-                    // Show reminder date if set
+
                     if let reminderDate = note.reminderDate {
                         Text("•")
                             .font(FontManager.geist(size: 11, weight: .regular))
-                            .foregroundColor(note.isReminderDue ? .orange : .white.opacity(0.7))
-                        
+                            .foregroundColor(note.isReminderDue ? .primary : secondaryTextColor)
+
                         Text(formatReminderDate(reminderDate))
                             .font(FontManager.geist(size: 11, weight: .regular))
-                            .foregroundColor(note.isReminderDue ? .orange : .white.opacity(0.7))
+                            .foregroundColor(note.isReminderDue ? .primary : secondaryTextColor)
+                            .lineLimit(1)
                     }
 
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
             }
+            .contentShape(Rectangle())
+            .scrollSafeTapAction(minimumDragDistance: 3) {
+                onTap(note)
+            }
+            .allowsParentScrolling()
 
-            Spacer()
-
-            // Pin button - aligned with count badge
-            Image(systemName: note.isPinned ? "pin.fill" : "pin")
-                .font(FontManager.geist(size: 12, weight: .medium))
-                .foregroundColor(
-                    note.isPinned ?
-                        (colorScheme == .dark ? Color.white : Color.black) :
-                        (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                )
-                .frame(width: 18, height: 18)
-                .contentShape(Rectangle())
-                .scrollSafeTapAction(minimumDragDistance: 3) {
-                    onPinToggle(note)
-                }
-                .allowsParentScrolling()
+            Button {
+                onPinToggle(note)
+            } label: {
+                Image(systemName: note.isPinned ? "pin.fill" : "pin")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(note.isPinned ? pinActiveColor : pinInactiveColor)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+            .allowsParentScrolling()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
-        .scrollSafeTapAction(minimumDragDistance: 3) {
-            onTap(note)
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(rowBackgroundColor)
+        )
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
         .allowsParentScrolling()
         .contextMenu {
             Button {
@@ -142,8 +139,7 @@ struct NoteRow: View {
             } label: {
                 Label(note.isPinned ? "Unpin" : "Pin", systemImage: note.isPinned ? "pin.slash" : "pin")
             }
-            
-            // Set Reminder option
+
             Button {
                 HapticManager.shared.selection()
                 onSetReminder?(note)
@@ -154,7 +150,7 @@ struct NoteRow: View {
                     Label("Set Reminder", systemImage: "bell")
                 }
             }
-            
+
             if onDelete != nil {
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
@@ -172,7 +168,31 @@ struct NoteRow: View {
             Text("Are you sure you want to delete \"\(note.title)\"?")
         }
     }
-    
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? Color.white : Color.emailLightTextPrimary
+    }
+
+    private var secondaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.68) : Color.emailLightTextSecondary
+    }
+
+    private var iconMutedColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.62) : Color.emailLightTextSecondary
+    }
+
+    private var pinActiveColor: Color {
+        colorScheme == .dark ? Color.white : Color.emailLightTextPrimary
+    }
+
+    private var pinInactiveColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.62) : Color.emailLightTextSecondary
+    }
+
+    private var rowBackgroundColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface
+    }
+
     private func formatReminderDate(_ date: Date) -> String {
         let calendar = Calendar.current
         let now = Date()

@@ -11,11 +11,10 @@ struct ConversationSearchView: View {
     @FocusState private var isInputFocused: Bool
     @State private var scrollToBottom: UUID?
     @State private var inputHeight: CGFloat = 44
+    @State private var measuredInputTextHeight: CGFloat = 36
     @State private var isStreamingResponse = false
     @State private var streamingStartTime: Date?
     @State private var elapsedTimeUpdateTrigger = UUID() // Triggers elapsed time updates
-    @State private var generatedFollowUpQuestions: [String] = []
-    @State private var isGeneratingFollowUps = false
     @State private var showingSettings = false
     @State private var showingTokenDetails = false
     @State private var showingHistorySheet = false
@@ -31,6 +30,18 @@ struct ConversationSearchView: View {
     @State private var lastMeaningfulTranscript = ""
     @State private var streamingElapsedTimer: Timer?
 
+    private var chatBackgroundColor: Color {
+        (colorScheme == .dark ? Color.black : Color.white)
+    }
+
+    private var chatSurfaceColor: Color {
+        (colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+    }
+
+    private var chatStrokeColor: Color {
+        (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+    }
+
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
@@ -39,7 +50,7 @@ struct ConversationSearchView: View {
                 inputAreaView
             }
         }
-        .background(colorScheme == .dark ? Color.black : Color.white)
+        .background(chatBackgroundColor)
         .onChange(of: searchService.isLoadingQuestionResponse) { newValue in
             if newValue {
                 // Started streaming
@@ -122,7 +133,9 @@ struct ConversationSearchView: View {
             .presentationDragIndicator(.visible)
             .presentationBg()
         }
-        .overlay(historySidebarOverlay)
+        .overlay(alignment: .leading) {
+            historySidebarOverlay
+        }
         .fullScreenCover(item: $selectedEmail) { email in
             NavigationView {
                 EmailDetailView(email: email)
@@ -336,86 +349,6 @@ struct ConversationSearchView: View {
         ]
     }
 
-    private func generateFollowUpQuestions() -> [String] {
-        return generatedFollowUpQuestions
-    }
-
-    private func generateFollowUpQuestionsFromLLM() async {
-        // Only generate if we have conversation history
-        guard !searchService.conversationHistory.isEmpty,
-              let lastMessage = searchService.conversationHistory.last,
-              !lastMessage.isUser else {
-            generatedFollowUpQuestions = []
-            return
-        }
-
-        isGeneratingFollowUps = true
-
-        // Build context from last 2-3 messages
-        let recentMessages = Array(searchService.conversationHistory.suffix(4))
-        var conversationContext = ""
-        for message in recentMessages {
-            let role = message.isUser ? "User" : "Assistant"
-            conversationContext += "\(role): \(message.text)\n\n"
-        }
-
-        // Create prompt for generating follow-up questions
-        let prompt = """
-        Based on the following conversation, generate exactly 3 short, natural follow-up questions that the user might want to ask next. These should be relevant, specific, and help the user explore their data deeper.
-
-        Conversation:
-        \(conversationContext)
-
-        Requirements:
-        - Exactly 3 questions
-        - Each question should be short and natural (max 6 words)
-        - Questions should be relevant to what was just discussed
-        - Focus on deeper insights, comparisons, or related data
-        - Don't repeat information already covered
-        - Format: One question per line, no numbers or bullets
-
-        Example good questions:
-        - Show me spending trends
-        - Compare to last month
-        - Any location streaks?
-        - What are my habits?
-        - Break down by category
-
-        Generate 3 follow-up questions now:
-        """
-
-        do {
-            // Call LLM to generate questions
-            let response = try await deepSeekService.generateFollowUpQuestions(prompt: prompt)
-
-            // Parse the response into individual questions
-            let questions = response
-                .components(separatedBy: "\n")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty && $0.count > 5 } // Filter out empty lines and very short ones
-                .map { question in
-                    // Remove leading numbers, bullets, or dashes
-                    var cleaned = question
-                    cleaned = cleaned.replacingOccurrences(of: "^[0-9]+\\.\\s*", with: "", options: .regularExpression)
-                    cleaned = cleaned.replacingOccurrences(of: "^[-•*]\\s*", with: "", options: .regularExpression)
-                    return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                .prefix(3)
-
-            await MainActor.run {
-                generatedFollowUpQuestions = Array(questions)
-                isGeneratingFollowUps = false
-            }
-        } catch {
-            print("❌ Error generating follow-up questions: \(error)")
-            await MainActor.run {
-                generatedFollowUpQuestions = []
-                isGeneratingFollowUps = false
-            }
-        }
-    }
-
-
     // MARK: - Subviews
 
     private var streamingIndicatorView: some View {
@@ -452,14 +385,14 @@ struct ConversationSearchView: View {
                     HStack(spacing: 6) {
                         Text("✍️ Writing response...")
                             .font(FontManager.geist(size: 11, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                            .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)))
 
                         Spacer()
 
                         if let startTime = streamingStartTime {
                             Text(formatElapsedTime(since: startTime))
                                 .font(FontManager.geist(size: 10, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)))
                         }
                     }
                 }
@@ -472,9 +405,9 @@ struct ConversationSearchView: View {
                 }) {
                     ZStack {
                         Circle()
-                            .fill(Color.white.opacity(0.96))
+                            .fill((colorScheme == .dark ? Color.white : Color.black))
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.black.opacity(0.9))
+                            .fill(chatBackgroundColor)
                             .frame(width: 10, height: 10)
                     }
                     .frame(width: 28, height: 28)
@@ -485,9 +418,9 @@ struct ConversationSearchView: View {
             .padding(.vertical, 8)
 
             Divider()
-                .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                .background((colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)))
         }
-        .background(colorScheme == .dark ? Color.black : Color.white)
+        .background(chatBackgroundColor)
         .transition(.opacity)
     }
 
@@ -499,7 +432,7 @@ struct ConversationSearchView: View {
             HStack {
                 Button(action: {
                     HapticManager.shared.selection()
-                    withAnimation(.easeInOut(duration: 0.25)) {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         showingHistorySidebar = true
                     }
                 }) {
@@ -532,7 +465,7 @@ struct ConversationSearchView: View {
                         .padding(.vertical, 5)
                         .background(
                             Capsule()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                                .fill((colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)))
                         )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -541,7 +474,7 @@ struct ConversationSearchView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .background(
-            colorScheme == .dark ? Color.black : Color.white
+            chatBackgroundColor
         )
     }
     
@@ -628,14 +561,6 @@ struct ConversationSearchView: View {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
-
-                    // Generate follow-up questions after assistant responds
-                    if let lastMessage = searchService.conversationHistory.last,
-                       !lastMessage.isUser {
-                        Task {
-                            await generateFollowUpQuestionsFromLLM()
-                        }
-                    }
                 }
                 // Auto-scroll while assistant text is streaming (count doesn't change during streaming updates)
                 .onChange(of: elapsedTimeUpdateTrigger) { _ in
@@ -655,7 +580,7 @@ struct ConversationSearchView: View {
                     }
                 }
                 .onChange(of: searchService.lastMessageContentVersion) { _ in
-                    // Re-scroll when last message gains event card, follow-ups, or sources so they stay visible
+                    // Re-scroll when last message gains event card or sources so they stay visible
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         if let lastMessage = searchService.conversationHistory.last {
                             withAnimation(.easeOut(duration: 0.2)) {
@@ -670,13 +595,6 @@ struct ConversationSearchView: View {
     
     private var inputAreaView: some View {
         VStack(spacing: 0) {
-            // Follow-up question suggestions (based on conversation context)
-            if !searchService.conversationHistory.isEmpty && messageText.isEmpty {
-                followUpQuestionBar
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .padding(.bottom, 8)
-            }
-
             // Smart suggestions bar above input (only when typing in empty state)
             if isInputFocused && !messageText.isEmpty && searchService.conversationHistory.isEmpty {
                 smartSuggestionsBar
@@ -687,47 +605,10 @@ struct ConversationSearchView: View {
 
             inputBoxContainer
         }
-        .background(colorScheme == .dark ? Color.black : Color.white)
+        .background(chatBackgroundColor)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isInputFocused)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: messageText.isEmpty)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: searchService.conversationHistory.count)
-    }
-    
-    private var followUpQuestionBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(generateFollowUpQuestions(), id: \.self) { question in
-                    Button(action: {
-                        HapticManager.shared.light()
-                        messageText = question
-                        sendMessage()
-                    }) {
-                        Text(question)
-                            .font(FontManager.geist(size: 13, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .stroke(
-                                                colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1),
-                                                lineWidth: 1
-                                            )
-                                    )
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
-            .padding(.horizontal, 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var smartSuggestionsBar: some View {
@@ -744,18 +625,15 @@ struct ConversationSearchView: View {
                             Text(suggestion)
                                 .font(FontManager.geist(size: 13, weight: .medium))
                         }
-                        .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
+                        .foregroundColor((colorScheme == .dark ? Color.white : Color.black))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(
                             Capsule()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
+                                .fill((colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)))
                                 .overlay(
                                     Capsule()
-                                        .stroke(
-                                            colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1),
-                                            lineWidth: 1
-                                        )
+                                        .stroke((colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)), lineWidth: 1)
                                 )
                         )
                     }
@@ -777,15 +655,12 @@ struct ConversationSearchView: View {
         .frame(height: inputHeight)
         .background(
             RoundedRectangle(cornerRadius: 24)
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 4)
+                .fill(chatSurfaceColor)
+                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.2 : 0.08), radius: 8, x: 0, y: 4)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 24)
-                .stroke(
-                    colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06),
-                    lineWidth: 1
-                )
+                .stroke(chatStrokeColor, lineWidth: 1)
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -798,7 +673,7 @@ struct ConversationSearchView: View {
                 HStack {
                     Text(searchService.conversationHistory.isEmpty ? "Chat with Seline" : "Reply to Seline")
                         .font(FontManager.geist(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.4) : Color.claudeTextLight.opacity(0.4))
+                        .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)))
                     Spacer()
                 }
                 .allowsHitTesting(false)
@@ -808,6 +683,10 @@ struct ConversationSearchView: View {
                 text: $messageText,
                 colorScheme: colorScheme,
                 height: max(inputHeight - 20, 36),
+                onContentHeightChange: { contentHeight in
+                    measuredInputTextHeight = contentHeight
+                    updateInputHeight(contentHeight: contentHeight)
+                },
                 onFocusChange: { focused in
                     isInputFocused = focused
                 },
@@ -815,9 +694,6 @@ struct ConversationSearchView: View {
                     sendMessage()
                 }
             )
-            .onChange(of: messageText) { _ in
-                updateInputHeight()
-            }
             .onChange(of: speechService.transcribedText) { newText in
                 if speechService.shouldIgnoreTranscriptionUpdates { return }
                 // If user starts speaking while TTS is active or LLM is generating, stop everything.
@@ -835,35 +711,30 @@ struct ConversationSearchView: View {
                 
                 if !trimmed.isEmpty {
                     messageText = newText
-                    updateInputHeight()
                     if isMeaningful {
                         lastMeaningfulTranscript = trimmed
                     }
                 }
             }
             .onAppear {
-                updateInputHeight()
+                updateInputHeight(contentHeight: measuredInputTextHeight)
                 speechService.onTranscriptionUpdate = { text in
                     if speechService.shouldIgnoreTranscriptionUpdates { return }
                     messageText = text
-                    updateInputHeight()
                 }
             }
         }
     }
 
-    private func updateInputHeight() {
-        let size = CGSize(width: UIScreen.main.bounds.width - 120, height: .infinity)
-        let estimatedHeight = messageText.boundingRect(
-            with: size,
-            options: .usesLineFragmentOrigin,
-            attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .regular)],
-            context: nil
-        ).height + 28
-
+    private func updateInputHeight(contentHeight: CGFloat? = nil) {
         let maxHeight: CGFloat = 120
         let minHeight: CGFloat = 44
-        inputHeight = min(max(estimatedHeight, minHeight), maxHeight)
+        let textHeight = max(36, contentHeight ?? measuredInputTextHeight)
+        let estimatedHeight = textHeight + 20
+        let clamped = min(max(estimatedHeight, minHeight), maxHeight)
+        if abs(inputHeight - clamped) > 0.5 {
+            inputHeight = clamped
+        }
     }
 
     private func sendMessage() {
@@ -895,7 +766,8 @@ struct ConversationSearchView: View {
         messageText = ""
         speechService.clearTranscription()
         speechService.shouldIgnoreTranscriptionUpdates = true
-        updateInputHeight()
+        measuredInputTextHeight = 36
+        updateInputHeight(contentHeight: measuredInputTextHeight)
         isInputFocused = false
 
         isProcessingResponse = true
@@ -949,19 +821,19 @@ struct ConversationSearchView: View {
             if speechService.isRecording {
                 ZStack {
                     Circle()
-                        .fill(Color.white.opacity(0.96))
+                        .fill((colorScheme == .dark ? Color.white : Color.black))
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.black.opacity(0.9))
+                        .fill(chatBackgroundColor)
                         .frame(width: 12, height: 12)
                 }
             } else {
                 Image(systemName: "mic.fill")
                     .font(FontManager.geist(size: 17, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.82) : Color.claudeTextLight.opacity(0.82))
+                    .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(
                         Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                            .fill((colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)))
                     )
             }
         }
@@ -984,9 +856,9 @@ struct ConversationSearchView: View {
             if searchService.isLoadingQuestionResponse || isStreamingResponse {
                 ZStack {
                     Circle()
-                        .fill(Color.white.opacity(0.96))
+                        .fill((colorScheme == .dark ? Color.white : Color.black))
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.black.opacity(0.9))
+                        .fill(chatBackgroundColor)
                         .frame(width: 12, height: 12)
                 }
             } else {
@@ -994,15 +866,15 @@ struct ConversationSearchView: View {
                     Circle()
                         .fill(
                             messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                ? (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
-                                : (colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.1))
+                                ? (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                                : (colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.1))
                         )
                     Image(systemName: "arrow.up")
                         .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(
                             messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                ? (colorScheme == .dark ? Color.claudeTextDark.opacity(0.5) : Color.claudeTextLight.opacity(0.5))
-                                : (colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+                                ? (colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                : (colorScheme == .dark ? Color.white : Color.black)
                         )
                 }
             }
@@ -1331,7 +1203,6 @@ struct ConversationMessageView: View {
                 .padding(.top, 4)
             }
 
-            followUpSuggestionsView
         }
     }
     
@@ -2166,48 +2037,6 @@ struct ConversationMessageView: View {
         }
     }
 
-    @ViewBuilder
-    private var followUpSuggestionsView: some View {
-        if !message.isUser, let suggestions = message.followUpSuggestions, !suggestions.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Divider().padding(.vertical, 4)
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(suggestions, id: \.id) { suggestion in
-                        suggestionButton(suggestion)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func suggestionButton(_ suggestion: FollowUpSuggestion) -> some View {
-        Button(action: {
-            HapticManager.shared.selection()
-            Task {
-                await onSendMessage(suggestion.text)
-            }
-        }) {
-            Text(suggestion.text)
-                .font(FontManager.geist(size: 13, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
-                .cornerRadius(10)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(
-                            colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08),
-                            lineWidth: 0.5
-                        )
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-    
     // MARK: - Relevant Content Display (Emails, Notes, Events)
     
     @ViewBuilder
@@ -2295,11 +2124,11 @@ struct ConversationMessageView: View {
         HStack(spacing: 10) {
             Image(systemName: "doc.text.fill")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.orange)
+                .foregroundColor(.primary)
                 .frame(width: 28, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.orange.opacity(0.2) : Color.orange.opacity(0.12))
+                        .fill(colorScheme == .dark ? Color.primary.opacity(0.2) : Color.primary.opacity(0.12))
                 )
             
             VStack(alignment: .leading, spacing: 3) {
@@ -2990,6 +2819,7 @@ struct AlignedTextEditor: UIViewRepresentable {
     @Binding var text: String
     let colorScheme: ColorScheme
     let height: CGFloat
+    let onContentHeightChange: (CGFloat) -> Void
     let onFocusChange: (Bool) -> Void
     let onSend: () -> Void
     
@@ -3006,6 +2836,7 @@ struct AlignedTextEditor: UIViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.widthTracksTextView = true
+        textView.showsVerticalScrollIndicator = false
         if #available(iOS 16.0, *) {
             textView.verticalScrollIndicatorInsets = .zero
         } else {
@@ -3031,7 +2862,17 @@ struct AlignedTextEditor: UIViewRepresentable {
         textView.textContainer.lineFragmentPadding = 0
 
         let availableTextHeight = max(36, height - 16)
-        textView.isScrollEnabled = textView.contentSize.height > availableTextHeight
+        let fittingHeight = textView.sizeThatFits(CGSize(width: max(textView.bounds.width, 1), height: .greatestFiniteMagnitude)).height
+        textView.isScrollEnabled = fittingHeight > availableTextHeight + 1
+
+        context.coordinator.reportContentHeight(textView)
+
+        DispatchQueue.main.async {
+            let selectedRange = textView.selectedRange
+            if selectedRange.location != NSNotFound {
+                textView.scrollRangeToVisible(selectedRange)
+            }
+        }
     }
     
     func makeCoordinator() -> Coordinator {
@@ -3040,7 +2881,8 @@ struct AlignedTextEditor: UIViewRepresentable {
 
     private func updateTextInsets(for textView: UITextView) {
         let lineHeight = textView.font?.lineHeight ?? 18
-        let isSingleLine = !text.contains("\n") && textView.contentSize.height <= lineHeight * 1.4
+        let fittingHeight = textView.sizeThatFits(CGSize(width: max(textView.bounds.width, 1), height: .greatestFiniteMagnitude)).height
+        let isSingleLine = !text.contains("\n") && fittingHeight <= lineHeight * 1.6
 
         if isSingleLine {
             let verticalInset = max(6, (height - lineHeight) / 2)
@@ -3059,6 +2901,7 @@ struct AlignedTextEditor: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
+            reportContentHeight(textView)
             
             // Auto-scroll to cursor position so user can see what they're typing
             DispatchQueue.main.async {
@@ -3070,6 +2913,7 @@ struct AlignedTextEditor: UIViewRepresentable {
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
+            reportContentHeight(textView)
             parent.onFocusChange(true)
         }
 
@@ -3085,6 +2929,16 @@ struct AlignedTextEditor: UIViewRepresentable {
                 return false // Don't insert the newline
             }
             return true
+        }
+
+        func reportContentHeight(_ textView: UITextView) {
+            DispatchQueue.main.async {
+                let fitting = textView.sizeThatFits(
+                    CGSize(width: max(textView.bounds.width, 1), height: .greatestFiniteMagnitude)
+                ).height
+                let clamped = max(36, ceil(fitting))
+                self.parent.onContentHeightChange(clamped)
+            }
         }
     }
 }
@@ -3259,75 +3113,35 @@ struct TokenUsageDetailsSheet: View {
             return "\(count)"
         }
     }
-    
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var secondaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)
+    }
+
+    private var cardFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : .white
+    }
+
+    private var cardStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)
+    }
+
+    private var backgroundColor: Color {
+        colorScheme == .dark ? .black : .white
+    }
+
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
-                // Usage Overview
-                VStack(spacing: 12) {
-                    HStack {
-                        Text("Daily Usage")
-                            .font(FontManager.geist(size: 16, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                        Spacer()
-                    }
-                    
-                    // Progress bar
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
-                            
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Color.blue)
-                                .frame(width: geometry.size.width * (deepSeekService.quotaPercentage / 100.0))
-                        }
-                    }
-                    .frame(height: 8)
-                    
-                    // Usage stats
-                    VStack(spacing: 8) {
-                        HStack {
-                            Text("Used")
-                                .font(FontManager.geist(size: 13, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                            Spacer()
-                            Text(formatTokenCount(deepSeekService.dailyTokensUsed))
-                                .font(FontManager.geist(size: 13, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                        }
-                        
-                        HStack {
-                            Text("Remaining")
-                                .font(FontManager.geist(size: 13, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                            Spacer()
-                            Text(formatTokenCount(dailyTokensRemaining))
-                                .font(FontManager.geist(size: 13, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                        }
-                        
-                        HStack {
-                            Text("Limit")
-                                .font(FontManager.geist(size: 13, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                            Spacer()
-                            Text(formatTokenCount(dailyTokenLimit))
-                                .font(FontManager.geist(size: 13, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                        }
-                    }
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                )
-                
+                usageOverviewCard
                 Spacer()
             }
             .padding(20)
-            .background(colorScheme == .dark ? Color.black : Color.white)
+            .background(backgroundColor)
             .navigationTitle("Token Usage")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -3335,9 +3149,59 @@ struct TokenUsageDetailsSheet: View {
                     Button("Done") {
                         dismiss()
                     }
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(primaryTextColor)
                 }
             }
+        }
+    }
+
+    private var usageOverviewCard: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("Daily Usage")
+                    .font(FontManager.geist(size: 16, weight: .semibold))
+                    .foregroundColor(primaryTextColor)
+                Spacer()
+            }
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.blue)
+                        .frame(width: geometry.size.width * (deepSeekService.quotaPercentage / 100.0))
+                }
+            }
+            .frame(height: 8)
+
+            VStack(spacing: 8) {
+                usageStatRow("Used", formatTokenCount(deepSeekService.dailyTokensUsed))
+                usageStatRow("Remaining", formatTokenCount(dailyTokensRemaining))
+                usageStatRow("Limit", formatTokenCount(dailyTokenLimit))
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(cardStrokeColor, lineWidth: 0.5)
+                )
+        )
+    }
+
+    private func usageStatRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(secondaryTextColor)
+            Spacer()
+            Text(value)
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(primaryTextColor)
         }
     }
 }
@@ -3351,7 +3215,15 @@ struct ConversationHistorySheet: View {
     @State private var searchText = ""
 
     private var sidebarBackgroundColor: Color {
-        colorScheme == .dark ? Color.black : Color(white: 0.99)
+        colorScheme == .dark ? Color.black : .white
+    }
+
+    private var topControlFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : .white
+    }
+
+    private var topControlBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
     }
     
     let onSelectConversation: (SavedConversation) -> Void
@@ -3395,20 +3267,25 @@ struct ConversationHistorySheet: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            searchBar
+        ZStack {
+            sidebarBackgroundColor
+                .ignoresSafeArea()
 
-            Group {
-                if searchService.savedConversations.isEmpty {
-                    emptyHistoryView
-                } else {
-                    conversationListView
+            VStack(spacing: 0) {
+                searchBar
+
+                Group {
+                    if searchService.savedConversations.isEmpty {
+                        emptyHistoryView
+                    } else {
+                        conversationListView
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(sidebarBackgroundColor)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(sidebarBackgroundColor)
         }
-        .background(sidebarBackgroundColor)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { searchService.loadConversationHistoryLocally() }
         .gesture(
             DragGesture(minimumDistance: 20)
@@ -3440,7 +3317,11 @@ struct ConversationHistorySheet: View {
             .padding(.vertical, 10)
             .background(
                 Capsule()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                    .fill(topControlFillColor)
+                    .overlay(
+                        Capsule()
+                            .stroke(topControlBorderColor, lineWidth: 0.8)
+                    )
             )
 
             Button(action: {
@@ -3454,7 +3335,11 @@ struct ConversationHistorySheet: View {
                     .frame(width: 36, height: 36)
                     .background(
                         Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                            .fill(topControlFillColor)
+                            .overlay(
+                                Circle()
+                                    .stroke(topControlBorderColor, lineWidth: 0.8)
+                            )
                     )
             }
             .buttonStyle(PlainButtonStyle())
@@ -3462,6 +3347,7 @@ struct ConversationHistorySheet: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(sidebarBackgroundColor)
+        .frame(maxWidth: .infinity)
     }
 
     private var isShowingSearchResults: Bool {

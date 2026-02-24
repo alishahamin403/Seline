@@ -24,6 +24,9 @@ class SelineChat: ObservableObject {
     private let userMemoryService = UserMemoryService.shared
     @Published var isStreaming = false
     private var shouldCancelStreaming = false
+    private var cachedHistorySummary = ""
+    private var cachedHistorySummaryTurnCount = 0
+    private let summaryRefreshTurnDelta = 4
     /// Toggle for using vector search (set to false to use legacy context building)
     /// Default: true for faster, more relevant responses
     var useVectorSearch = true
@@ -146,6 +149,7 @@ class SelineChat: ObservableObject {
     /// Clear conversation history and refresh data
     func clearHistory() async {
         conversationHistory = []
+        resetHistorySummaryCache()
         await appContext.refresh()
         
         // Sync embeddings in background for next conversation
@@ -249,10 +253,58 @@ class SelineChat: ObservableObject {
             
         // Get User Profile Context
         let userProfile = userProfileService.getProfileContext()
+        let sourceReferencePrompt = buildSourceReferencePrompt()
 
-        return buildChatModePrompt(userProfile: userProfile, contextPrompt: contextPrompt)
+        return buildChatModePrompt(
+            userProfile: userProfile,
+            contextPrompt: contextPrompt,
+            sourceReferencePrompt: sourceReferencePrompt
+        )
     }
     
+    private func buildSourceReferencePrompt() -> String {
+        guard let sources = appContext.lastRelevantContent, !sources.isEmpty else {
+            return """
+            - No explicit source references were provided for this turn.
+            - If you're not directly grounded in a specific source item, do NOT output [[n]] citations.
+            """
+        }
+
+        var lines: [String] = ["Use ONLY these source indexes when adding inline citations:"]
+        for (index, item) in sources.enumerated() {
+            lines.append("- [\(index)] \(sourceReferenceSummary(for: item))")
+        }
+        lines.append("- Never invent indexes outside this list.")
+        lines.append("- Only cite [[n]] when that exact source directly supports the sentence.")
+        return lines.joined(separator: "\n")
+    }
+
+    private func sourceReferenceSummary(for item: RelevantContentInfo) -> String {
+        switch item.contentType {
+        case .location:
+            let name = item.locationName ?? "Place"
+            let address = item.locationAddress?.isEmpty == false ? " (\(item.locationAddress!))" : ""
+            return "Place: \(name)\(address)"
+        case .event:
+            let title = item.eventTitle ?? "Event"
+            if let date = item.eventDate {
+                let formatter = DateFormatter()
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .short
+                return "Calendar: \(title) at \(formatter.string(from: date))"
+            }
+            return "Calendar: \(title)"
+        case .note:
+            let title = item.noteTitle ?? "Note"
+            let folder = item.noteFolder?.isEmpty == false ? " [\(item.noteFolder!)]" : ""
+            return "Note: \(title)\(folder)"
+        case .email:
+            let subject = item.emailSubject ?? "Email"
+            let sender = item.emailSender?.isEmpty == false ? " from \(item.emailSender!)" : ""
+            return "Email: \(subject)\(sender)"
+        }
+    }
+
     private func buildVoiceModePrompt(userProfile: String, contextPrompt: String) -> String {
         return """
         You are Seline, having a natural voice conversation with the user. You're like a close friend who knows everything about their life.
@@ -394,7 +446,11 @@ class SelineChat: ObservableObject {
         """
     }
     
-    private func buildChatModePrompt(userProfile: String, contextPrompt: String) -> String {
+    private func buildChatModePrompt(
+        userProfile: String,
+        contextPrompt: String,
+        sourceReferencePrompt: String
+    ) -> String {
         return """
         You are Seline, a smart, warm, and genuinely helpful AI assistant. You're like a trusted friend who happens to know everything about the user's life - their schedule, spending, notes, and places they love.
         
@@ -559,7 +615,9 @@ class SelineChat: ObservableObject {
         ✅ DO write naturally, like you're texting a friend who asked for help:
            - Start with the answer directly
            - Weave in relevant context conversationally
-           - Cite sources INLINE like ChatGPT: where you mention a specific source (receipt, calendar, email, note), put [[0]] for the first source, [[1]] for the second, etc. right there in the sentence (e.g. "From your calendar [[0]] you have..." or "Your last haircut [[0]] was January 28."). Use one number per source in order of first mention.
+           - Cite sources INLINE like ChatGPT using ONLY the exact source indexes listed in SOURCE REFERENCES below
+           - Use [[n]] only when that exact source directly supports the sentence
+           - If unsure, do NOT add a citation
            - End with a natural follow-up question if relevant
         
         EXAMPLE - BAD (robotic):
@@ -622,6 +680,9 @@ class SelineChat: ObservableObject {
         - Add blank lines between major sections for readability
         - Use tables only for comparing numbers/data side-by-side
         - Keep responses concise but complete - don't sacrifice details for brevity
+
+        SOURCE REFERENCES:
+        \(sourceReferencePrompt)
         
         DATA CONTEXT:
         \(contextPrompt)
@@ -646,18 +707,34 @@ class SelineChat: ObservableObject {
         return messages
     }
 
+    private func resetHistorySummaryCache() {
+        cachedHistorySummary = ""
+        cachedHistorySummaryTurnCount = 0
+    }
+
     /// Build messages for API; when history is long, summarize older turns and keep last N full.
     private func buildMessagesForAPIAsync() async -> [[String: String]] {
         let keepLastFull = 4
         let threshold = 8
         if conversationHistory.count <= threshold {
+            resetHistorySummaryCache()
             return buildMessagesForAPI()
         }
-        let toSummarize = Array(conversationHistory.prefix(conversationHistory.count - keepLastFull))
-        let turns = toSummarize.map { (role: $0.role == .user ? "user" : "assistant", content: $0.content) }
-        let summary = await geminiService.summarizeConversationTurns(turns: turns)
+        let summarizedTurnCount = conversationHistory.count - keepLastFull
+        let needsSummaryRefresh =
+            cachedHistorySummary.isEmpty ||
+            summarizedTurnCount < cachedHistorySummaryTurnCount ||
+            (summarizedTurnCount - cachedHistorySummaryTurnCount) >= summaryRefreshTurnDelta
+
+        if needsSummaryRefresh {
+            let toSummarize = Array(conversationHistory.prefix(summarizedTurnCount))
+            let turns = toSummarize.map { (role: $0.role == .user ? "user" : "assistant", content: $0.content) }
+            cachedHistorySummary = await geminiService.summarizeConversationTurns(turns: turns)
+            cachedHistorySummaryTurnCount = summarizedTurnCount
+        }
+
         var messages: [[String: String]] = []
-        messages.append(["role": "user", "content": "[Previous conversation summary]\n\(summary)"])
+        messages.append(["role": "user", "content": "[Previous conversation summary]\n\(cachedHistorySummary)"])
         for msg in conversationHistory.suffix(keepLastFull) {
             messages.append([
                 "role": msg.role == .user ? "user" : "assistant",
@@ -678,7 +755,8 @@ class SelineChat: ObservableObject {
         do {
             fullResponse = try await geminiService.simpleChatCompletionStreaming(
                 systemPrompt: systemPrompt,
-                messages: messages
+                messages: messages,
+                operationType: "main_chat_stream"
             ) { chunk in
                 // Check if streaming was cancelled
                 if self.shouldCancelStreaming {
@@ -715,7 +793,8 @@ class SelineChat: ObservableObject {
         do {
             let response = try await geminiService.simpleChatCompletion(
                 systemPrompt: systemPrompt,
-                messages: messages
+                messages: messages,
+                operationType: "main_chat"
             )
 
             // CRITICAL: Call onStreamingChunk with full response so SearchService adds the message

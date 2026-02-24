@@ -73,8 +73,7 @@ struct CalendarAgendaView: View {
     private var sectionHeaderColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02)
     }
-    
-    // Cache for events to avoid recomputing on every render
+
     @State private var cachedEvents: [TaskItem] = []
     
     private var eventsForDate: [TaskItem] {
@@ -118,24 +117,22 @@ struct CalendarAgendaView: View {
             if eventsForDate.isEmpty {
                 emptyStateView
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 16) {
-                        ForEach(groupedEvents, id: \.period) { group in
-                            sectionView(period: group.period, events: group.events)
-                        }
+                LazyVStack(spacing: 16) {
+                    ForEach(groupedEvents, id: \.period) { group in
+                        sectionView(period: group.period, events: group.events)
                     }
-                    .padding(.vertical, 12)
                 }
+                .padding(.vertical, 12)
             }
         }
         .background(backgroundColor)
+        .onAppear {
+            updateCache(for: selectedDate)
+        }
         .onChange(of: selectedDate) { newDate in
             updateCache(for: newDate)
         }
         .onChange(of: selectedTagId) { _ in
-            updateCache(for: selectedDate)
-        }
-        .onAppear {
             updateCache(for: selectedDate)
         }
         .onChange(of: taskManager.tasks) { _ in
@@ -239,7 +236,7 @@ struct CalendarAgendaView: View {
                 
                 Spacer()
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
             
             // Event Cards
             VStack(spacing: 8) {
@@ -247,24 +244,16 @@ struct CalendarAgendaView: View {
                     eventCard(event: event)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
         }
     }
     
     // MARK: - Event Card (Concept 2 Design)
     
     private func eventCard(event: TaskItem) -> some View {
-        let filterType = TimelineEventColorManager.filterType(from: event)
-        let colorIndex = event.tagId.flatMap { tagId in
-            tagManager.getTag(by: tagId)?.colorIndex
-        }
-        let tagColor = TimelineEventColorManager.timelineEventAccentColor(
-            filterType: filterType,
-            colorScheme: colorScheme,
-            tagColorIndex: colorIndex
-        )
         let isCompleted = event.isCompletedOn(date: selectedDate)
         let isAllDay = event.scheduledTime == nil
+        let categoryLabel = labelForEventCategory(event)
         
         return Button(action: { onTapEvent(event) }) {
             HStack(spacing: 0) {
@@ -282,47 +271,39 @@ struct CalendarAgendaView: View {
                         }
                         
                         Spacer()
-                        
-                        // Category tag pill
-                        if let tagId = event.tagId, let tag = tagManager.getTag(by: tagId) {
-                            Text(tag.name)
-                                .font(FontManager.geist(size: 10, weight: .semibold))
-                                .foregroundColor(tag.color(for: colorScheme))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(
-                                    Capsule()
-                                        .fill(tag.color(for: colorScheme).opacity(0.15))
-                                )
-                        } else if event.id.hasPrefix("cal_") {
-                            // Synced calendar event
-                            Text("Sync")
-                                .font(FontManager.geist(size: 10, weight: .semibold))
-                                .foregroundColor(TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(
-                                    Capsule()
-                                        .fill(TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme).opacity(0.15))
-                                )
+
+                        if event.hasEmailAttachment {
+                            Image(systemName: "envelope.fill")
+                                .font(FontManager.geist(size: 11, weight: .medium))
+                                .foregroundColor(secondaryTextColor)
                         }
                     }
                     
-                    // Event title with icon
+                    Text(event.title)
+                        .font(FontManager.geist(size: 15, weight: .medium))
+                        .foregroundColor(primaryTextColor)
+                        .strikethrough(isCompleted, color: primaryTextColor.opacity(0.5))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+
                     HStack(spacing: 8) {
-                        // Event type icon (only show email attachment icon, not recurring)
-                        if event.hasEmailAttachment {
-                            Image(systemName: "envelope.fill")
-                                .font(FontManager.geist(size: 12, weight: .medium))
-                                .foregroundColor(tagColor)
+                        if let categoryLabel {
+                            Text(categoryLabel)
+                                .font(FontManager.geist(size: 10, weight: .semibold))
+                                .foregroundColor(primaryTextColor.opacity(0.85))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(
+                                    Capsule()
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.08))
+                                )
                         }
-                        
-                        Text(event.title)
-                            .font(FontManager.geist(size: 15, weight: .medium))
-                            .foregroundColor(primaryTextColor)
-                            .strikethrough(isCompleted, color: primaryTextColor.opacity(0.5))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
+
+                        if event.isRecurring, let frequency = event.recurrenceFrequency {
+                            Text(frequency.rawValue.lowercased())
+                                .font(FontManager.geist(size: 10, weight: .medium))
+                                .foregroundColor(tertiaryTextColor)
+                        }
                     }
                     
                     // Description if present
@@ -331,13 +312,6 @@ struct CalendarAgendaView: View {
                             .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(secondaryTextColor)
                             .lineLimit(1)
-                    }
-                    
-                    // Recurring frequency text only (no icon)
-                    if event.isRecurring, let frequency = event.recurrenceFrequency {
-                        Text(frequency.rawValue.lowercased())
-                            .font(FontManager.geist(size: 10, weight: .medium))
-                            .foregroundColor(tertiaryTextColor)
                     }
                 }
                 .padding(.horizontal, 12)
@@ -351,21 +325,14 @@ struct CalendarAgendaView: View {
                 }) {
                     Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                         .font(FontManager.geist(size: 24, weight: .regular))
-                        .foregroundColor(isCompleted ? tagColor : secondaryTextColor)
+                        .foregroundColor(isCompleted ? primaryTextColor : secondaryTextColor)
                 }
                 .buttonStyle(PlainButtonStyle())
                 .padding(.trailing, 12)
             }
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(cardBackgroundColor)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(
-                        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04),
-                        lineWidth: 1
-                    )
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -385,6 +352,16 @@ struct CalendarAgendaView: View {
         }
         
         return startStr
+    }
+
+    private func labelForEventCategory(_ event: TaskItem) -> String? {
+        if let tagId = event.tagId, let tag = tagManager.getTag(by: tagId) {
+            return tag.name
+        }
+        if event.id.hasPrefix("cal_") || event.isFromCalendar || event.calendarEventId != nil || event.tagId == "cal_sync" {
+            return "Sync"
+        }
+        return nil
     }
     
     private func applyFilter(to tasks: [TaskItem]) -> [TaskItem] {
@@ -410,10 +387,11 @@ struct CalendarAgendaView: View {
             || task.calendarEventId != nil
             || task.tagId == "cal_sync"
     }
-    
+
     private func updateCache(for date: Date) {
         let allTasks = taskManager.getAllTasks(for: date)
         let filtered = applyFilter(to: allTasks)
+
         cachedEvents = filtered.sorted { task1, task2 in
             let hasTime1 = task1.scheduledTime != nil
             let hasTime2 = task2.scheduledTime != nil
@@ -424,6 +402,7 @@ struct CalendarAgendaView: View {
             return false
         }
     }
+    
 }
 
 #Preview {

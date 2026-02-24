@@ -19,221 +19,368 @@ struct RecurringExpenseForm: View {
 
     var onSave: (RecurringExpense) -> Void
 
-    var isFormValid: Bool {
-        !title.trimmingCharacters(in: .whitespaces).isEmpty &&
-            !amount.trimmingCharacters(in: .whitespaces).isEmpty &&
-            Double(amount) != nil &&
-            Double(amount) ?? 0 > 0
+    private var isFormValid: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !amount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        (Double(amount) ?? 0) > 0
     }
 
-    private var actionButtonsSection: some View {
-        HStack(spacing: 12) {
-            Button(action: { dismiss() }) {
-                Text("Cancel")
-                    .font(FontManager.geist(size: 15, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
-                    )
-            }
+    private var pageBackgroundColor: Color {
+        colorScheme == .dark ? Color.gmailDarkBackground : Color.emailLightBackground
+    }
 
-            Button(action: saveRecurringExpense) {
-                Text(isSaving ? "Creating..." : "Create")
-                    .font(FontManager.geist(size: 15, weight: .semibold))
-                    .foregroundColor(isFormValid && !isSaving ? (colorScheme == .dark ? Color.black : Color.white) : Color.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(isFormValid && !isSaving ? (colorScheme == .dark ? Color.white : Color.black) : Color.gray.opacity(0.3))
-                    )
-            }
-            .disabled(!isFormValid || isSaving)
+    private var cardFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSectionCard
+    }
+
+    private var cardBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+    }
+
+    private var fieldFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.emailLightSurface
+    }
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : Color.emailLightTextPrimary
+    }
+
+    private var secondaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.64) : Color.emailLightTextSecondary
+    }
+
+    private var primaryButtonFill: Color {
+        if isFormValid && !isSaving {
+            return colorScheme == .dark ? Color.white : Color.black
         }
+        return Color.gray.opacity(0.35)
+    }
+
+    private var primaryButtonText: Color {
+        if isFormValid && !isSaving {
+            return colorScheme == .dark ? .black : .white
+        }
+        return Color.white.opacity(0.9)
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                ScrollView {
-                    VStack(spacing: 24) {
-                        // BASIC INFO Section
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Basic Info")
-                                .font(FontManager.geist(size: 16, weight: .bold))
-                                .padding(.horizontal, 4)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 12) {
+                        introCard
+                        basicInfoCard
+                        detailsCard
+                        scheduleCard
+                        reminderCard
 
-                            // Title
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Title")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                TextField("Enter event title", text: $title)
-                                    .padding(12)
-                                    .background(Color.gray.opacity(0.1))
-                                    .cornerRadius(8)
-                            }
-
-                            // Description
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Description (Optional)")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                TextField("Add details...", text: $description)
-                                    .padding(12)
-                                    .background(Color.gray.opacity(0.1))
-                                    .cornerRadius(8)
-                                    .frame(height: 80, alignment: .topLeading)
-                            }
-                        }
-
-                        // DETAILS Section
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Details")
-                                .font(FontManager.geist(size: 16, weight: .bold))
-                                .padding(.horizontal, 4)
-
-                            // Amount
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Amount")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                HStack(spacing: 4) {
-                                    Text("$")
-                                        .font(.title3)
-                                        .foregroundColor(Color.gray.opacity(0.5))
-                                        .padding(.leading, 12)
-                                    TextField("0.00", text: $amount)
-                                        .keyboardType(.decimalPad)
-                                        .padding(.vertical, 12)
-                                        .padding(.trailing, 12)
-                                }
-                                .background(Color.gray.opacity(0.1))
-                                .cornerRadius(8)
-                            }
-
-                            // Category
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Category (Optional)")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                TextField("e.g., Entertainment", text: $category)
-                                    .padding(12)
-                                    .background(Color.gray.opacity(0.1))
-                                    .cornerRadius(8)
-                            }
-
-                            // Start Date
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Start Date")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                DatePicker(
-                                    "Start Date",
-                                    selection: $startDate,
-                                    in: Date()...,
-                                    displayedComponents: .date
-                                )
-                                .datePickerStyle(.compact)
-                                .labelsHidden()
-                            }
-
-                            // Frequency
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Recurrence Frequency")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                Picker("Frequency", selection: $selectedFrequency) {
-                                    Text("Weekly").tag(RecurrenceFrequency.weekly)
-                                    Text("Bi-weekly").tag(RecurrenceFrequency.biweekly)
-                                    Text("Monthly").tag(RecurrenceFrequency.monthly)
-                                    Text("Yearly").tag(RecurrenceFrequency.yearly)
-                                }
-                                .pickerStyle(.segmented)
-                            }
-                        }
-
-                        // ADVANCED Section
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Advanced")
-                                .font(FontManager.geist(size: 16, weight: .bold))
-                                .padding(.horizontal, 4)
-
-                            // End Date Toggle
-                            VStack(alignment: .leading, spacing: 12) {
-                                Toggle(isOn: $hasEndDate) {
-                                    Text("Set End Date")
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-                                }
-
-                                if hasEndDate {
-                                    DatePicker(
-                                        "End Date",
-                                        selection: Binding(
-                                            get: { endDate ?? Date() },
-                                            set: { endDate = $0 }
-                                        ),
-                                        in: startDate...,
-                                        displayedComponents: .date
-                                    )
-                                    .datePickerStyle(.compact)
-                                    .labelsHidden()
-                                }
-                            }
-
-                            // Reminder Option
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Reminder")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                Picker("Reminder", selection: $selectedReminder) {
-                                    ForEach(ReminderOption.allCases, id: \.self) { option in
-                                        Text(option.displayName).tag(option)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-
-                        // Error Message
                         if showError {
-                            HStack(spacing: 12) {
-                                Image(systemName: "exclamationmark.circle.fill")
-                                    .foregroundColor(.red)
-                                Text(errorMessage)
-                                    .font(.subheadline)
-                                    .lineLimit(3)
-                                Spacer()
-                            }
-                            .padding()
-                            .background(Color.red.opacity(0.1))
-                            .cornerRadius(8)
+                            errorCard
                         }
-                    }
-                    .padding(16)
-                }
 
-                Divider()
-                    .padding(.top, 16)
+                        Spacer(minLength: 80)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 8)
+                }
+                .scrollDismissesKeyboard(.interactively)
 
                 actionButtonsSection
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 16)
             }
-            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-            .navigationTitle("New Recurring Expense")
+            .background(pageBackgroundColor.ignoresSafeArea())
+            .navigationTitle("Recurring Expense")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(colorScheme == .dark ? .dark : .light, for: .navigationBar)
+            .onChange(of: hasEndDate) { enabled in
+                if enabled, endDate == nil {
+                    endDate = startDate
+                }
+            }
+            .onChange(of: startDate) { newDate in
+                if let endDate, endDate < newDate {
+                    self.endDate = newDate
+                }
+            }
         }
     }
 
+    private var introCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("New recurring expense")
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(primaryTextColor)
+
+            Text("Track fixed costs with reminders and clean monthly projections.")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(secondaryTextColor)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
+    }
+
+    private var basicInfoCard: some View {
+        sectionCard(title: "Basic Info") {
+            VStack(spacing: 12) {
+                labeledInput(label: "Title", isRequired: true) {
+                    TextField("Mortgage, internet, gym…", text: $title)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled(true)
+                }
+
+                labeledInput(label: "Description", isRequired: false) {
+                    TextField("Add details...", text: $description, axis: .vertical)
+                        .lineLimit(3, reservesSpace: true)
+                }
+            }
+        }
+    }
+
+    private var detailsCard: some View {
+        sectionCard(title: "Details") {
+            VStack(spacing: 12) {
+                labeledInput(label: "Amount", isRequired: true) {
+                    HStack(spacing: 8) {
+                        Text("$")
+                            .font(FontManager.geist(size: 18, weight: .medium))
+                            .foregroundColor(secondaryTextColor)
+
+                        TextField("0.00", text: $amount)
+                            .keyboardType(.decimalPad)
+                    }
+                }
+
+                labeledInput(label: "Category", isRequired: false) {
+                    TextField("e.g., Utilities", text: $category)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled(true)
+                }
+            }
+        }
+    }
+
+    private var scheduleCard: some View {
+        sectionCard(title: "Schedule") {
+            VStack(spacing: 12) {
+                dateRow(label: "Start Date", selection: $startDate, range: Date()...)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle(isOn: $hasEndDate) {
+                        Text("Set End Date")
+                            .font(FontManager.geist(size: 14, weight: .medium))
+                            .foregroundColor(primaryTextColor)
+                    }
+                    .tint(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black)
+
+                    if hasEndDate {
+                        dateRow(
+                            label: "End Date",
+                            selection: Binding(
+                                get: { endDate ?? startDate },
+                                set: { endDate = $0 }
+                            ),
+                            range: startDate...
+                        )
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Recurrence Frequency")
+                        .font(FontManager.geist(size: 13, weight: .semibold))
+                        .foregroundColor(secondaryTextColor)
+
+                    Picker("Frequency", selection: $selectedFrequency) {
+                        Text("Weekly").tag(RecurrenceFrequency.weekly)
+                        Text("Bi-weekly").tag(RecurrenceFrequency.biweekly)
+                        Text("Monthly").tag(RecurrenceFrequency.monthly)
+                        Text("Yearly").tag(RecurrenceFrequency.yearly)
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+        }
+    }
+
+    private var reminderCard: some View {
+        sectionCard(title: "Reminder") {
+            Menu {
+                ForEach(ReminderOption.allCases, id: \.self) { option in
+                    Button(option.displayName) {
+                        selectedReminder = option
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(selectedReminder.displayName)
+                        .font(FontManager.geist(size: 15, weight: .medium))
+                        .foregroundColor(primaryTextColor)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(secondaryTextColor)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(fieldFillColor)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var errorCard: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.red)
+
+            Text(errorMessage)
+                .font(FontManager.geist(size: 13, weight: .medium))
+                .foregroundColor(primaryTextColor)
+                .lineLimit(3)
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.red.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.red.opacity(0.25), lineWidth: 1)
+                )
+        )
+    }
+
+    private var actionButtonsSection: some View {
+        VStack(spacing: 0) {
+            Divider()
+                .overlay(cardBorderColor)
+
+            HStack(spacing: 12) {
+                Button(action: { dismiss() }) {
+                    Text("Cancel")
+                        .font(FontManager.geist(size: 15, weight: .semibold))
+                        .foregroundColor(primaryTextColor)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(fieldFillColor)
+                        )
+                }
+
+                Button(action: saveRecurringExpense) {
+                    Text(isSaving ? "Creating..." : "Create")
+                        .font(FontManager.geist(size: 15, weight: .semibold))
+                        .foregroundColor(primaryButtonText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(primaryButtonFill)
+                        )
+                }
+                .disabled(!isFormValid || isSaving)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .background(pageBackgroundColor)
+    }
+
+    private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(FontManager.geist(size: 16, weight: .semibold))
+                .foregroundColor(primaryTextColor)
+
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(cardFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        )
+    }
+
+    private func labeledInput<Content: View>(
+        label: String,
+        isRequired: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(secondaryTextColor)
+
+                if isRequired {
+                    Text("*")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(secondaryTextColor)
+                }
+            }
+
+            content()
+                .font(FontManager.geist(size: 16, weight: .regular))
+                .foregroundColor(primaryTextColor)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(fieldFillColor)
+                )
+        }
+    }
+
+    private func dateRow(label: String, selection: Binding<Date>, range: PartialRangeFrom<Date>) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(FontManager.geist(size: 14, weight: .medium))
+                .foregroundColor(primaryTextColor)
+
+            Spacer()
+
+            DatePicker(
+                "",
+                selection: selection,
+                in: range,
+                displayedComponents: .date
+            )
+            .labelsHidden()
+            .datePickerStyle(.compact)
+            .tint(primaryTextColor)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(fieldFillColor)
+        )
+    }
+
     private func saveRecurringExpense() {
-        // Validate
         guard isFormValid else {
             errorMessage = "Please fill in all required fields"
             showError = true
@@ -246,20 +393,19 @@ struct RecurringExpenseForm: View {
             return
         }
 
+        showError = false
         isSaving = true
 
         Task {
             do {
-                // Calculate next occurrence
                 let nextOccurrence = RecurringExpense.calculateNextOccurrence(
                     from: startDate,
                     frequency: selectedFrequency
                 )
 
-                // Create recurring expense
                 let recurringExpense = RecurringExpense(
-                    userId: "", // Will be set by service
-                    title: title.trimmingCharacters(in: .whitespaces),
+                    userId: "",
+                    title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                     description: description.isEmpty ? nil : description,
                     amount: Decimal(amountDouble),
                     category: category.isEmpty ? nil : category,
@@ -271,7 +417,6 @@ struct RecurringExpenseForm: View {
                     isActive: true
                 )
 
-                // Save to database (includes auto-generating instances and scheduling reminders)
                 let savedExpense = try await RecurringExpenseService.shared.createRecurringExpense(recurringExpense)
 
                 await MainActor.run {
@@ -284,7 +429,7 @@ struct RecurringExpenseForm: View {
                     showError = true
                     isSaving = false
                 }
-                print("❌ Error saving recurring expense: \(error.localizedDescription)")
+                print("Error saving recurring expense: \(error.localizedDescription)")
             }
         }
     }

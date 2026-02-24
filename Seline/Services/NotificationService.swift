@@ -19,7 +19,9 @@ class NotificationService: ObservableObject {
     func checkAuthorizationStatus() async {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         authorizationStatus = settings.authorizationStatus
-        isAuthorized = settings.authorizationStatus == .authorized
+        isAuthorized = settings.authorizationStatus == .authorized ||
+            settings.authorizationStatus == .provisional ||
+            settings.authorizationStatus == .ephemeral
     }
 
     func requestAuthorization() async -> Bool {

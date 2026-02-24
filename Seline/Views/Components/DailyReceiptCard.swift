@@ -3,7 +3,7 @@ import SwiftUI
 struct DailyReceiptCard: View {
     let dailySummary: DailyReceiptSummary
     let categorizedReceipts: [ReceiptStat] // Receipts with categories assigned
-    let onReceiptTap: (UUID) -> Void
+    let onReceiptTap: (ReceiptStat) -> Void
     @Environment(\.colorScheme) var colorScheme
     
     // Get receipts for this day from categorized list, falling back to daily summary
@@ -21,21 +21,23 @@ struct DailyReceiptCard: View {
         return matchingReceipts.isEmpty ? dailySummary.receipts : matchingReceipts
     }
 
+    private var displayedTotal: Double {
+        receiptsForDay.reduce(0) { $0 + $1.amount }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Unifed Card Content
-            
             // Header
             HStack {
                 Text(dailySummary.dayString) // E.g. "Fri, Dec 26"
                     .font(FontManager.geist(size: 15, weight: .semibold)) // 15pt Semi-Bold
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
 
                 Spacer()
 
-                Text(CurrencyParser.formatAmount(dailySummary.dailyTotal))
+                Text(CurrencyParser.formatAmount(displayedTotal))
                     .font(FontManager.geist(size: 15, weight: .bold)) // 15pt Bold
-                    .foregroundColor(.primary)
+                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
@@ -59,9 +61,12 @@ struct DailyReceiptCard: View {
             }
             .padding(.vertical, 4)
         }
-        .background(colorScheme == .dark ? Color(white: 0.12) : Color.white) // Unified Card Background
+        .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.white)
         .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2) // Subtle shadow
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+        )
     }
 }
 

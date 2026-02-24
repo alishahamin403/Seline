@@ -224,7 +224,7 @@ struct ReceiptsStatsView: View {
                 title: "Active Recurring",
                 value: "\(recurringExpenseCount)",
                 icon: "repeat.circle.fill",
-                backgroundColor: Color.orange.opacity(0.1)
+                backgroundColor: Color.primary.opacity(0.1)
             )
         }
         .padding(16)
@@ -296,7 +296,7 @@ struct RecurringExpenseRow: View {
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                         Text(expense.statusBadge)
                             .font(FontManager.geist(size: 11, weight: .semibold))
-                            .foregroundColor(expense.isActive ? .green : .orange)
+                            .foregroundColor(expense.isActive ? .green : .primary)
                     }
                 }
 

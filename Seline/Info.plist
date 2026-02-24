@@ -132,10 +132,10 @@
     <!-- Background Task Identifiers -->
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
-        <string>com.seline.emailRefresh</string>
-        <string>com.seline.emailProcessing</string>
-        <string>com.seline.locationRefresh</string>
-        <string>com.seline.locationProcessing</string>
+        <string>com.seline.app.emailRefresh</string>
+        <string>com.seline.app.emailProcessing</string>
+        <string>com.seline.app.locationRefresh</string>
+        <string>com.seline.app.locationProcessing</string>
     </array>
 </dict>
 </plist>

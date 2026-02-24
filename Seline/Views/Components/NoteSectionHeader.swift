@@ -14,35 +14,31 @@ struct NoteSectionHeader: View {
                 }
             }
         }) {
-            HStack {
-                // Section title - matching Quick Access styling
+            HStack(spacing: 6) {
                 Text(title)
                     .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .foregroundColor(headerSecondaryColor)
                     .textCase(.uppercase)
-                    .tracking(0.5)
+                    .tracking(0.6)
+
+                if count > 0 {
+                    Text("· \(count)")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(headerSecondaryColor)
+                }
 
                 Spacer()
-
-                // Count badge - black/white styling
-                if count > 0 {
-                    Text("\(count)")
-                        .font(FontManager.geist(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(minWidth: 24, minHeight: 24)
-                        .padding(.horizontal, 6)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
-                        )
-                }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
             .background(Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    private var headerSecondaryColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.62) : Color.emailLightTextSecondary
     }
 }
 

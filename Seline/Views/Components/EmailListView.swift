@@ -128,7 +128,7 @@ struct ErrorEmailState: View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
                 .font(FontManager.geist(size: 32, weight: .medium))
-                .foregroundColor(.orange)
+                .foregroundColor(.primary)
 
             VStack(spacing: 8) {
                 Text("Something went wrong")

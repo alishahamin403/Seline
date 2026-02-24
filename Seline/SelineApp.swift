@@ -8,6 +8,10 @@ import WidgetKit
 
 @main
 struct SelineApp: App {
+    private enum BackgroundTaskIdentifier {
+        static let emailRefresh = "com.seline.app.emailRefresh"
+    }
+
     // OPTIMIZATION: Centralize all shared managers at app level
     @StateObject private var authManager = AuthenticationManager.shared
     @StateObject private var notificationService = NotificationService.shared
@@ -26,6 +30,7 @@ struct SelineApp: App {
     @State private var isCalendarSyncing: Bool = false
 
     init() {
+        NavigationSwipeBack.installGlobalSupport()
         configureSupabase()
         configureGoogleSignIn()
         configureNotifications()
@@ -152,8 +157,10 @@ struct SelineApp: App {
                         searchService.saveConversationToHistory()
                         print("💾 Current conversation saved to history before background")
                     }
-                    // The email polling timer will continue running
-                    print("App entered background - email polling continues")
+                    // Ask iOS for a fresh background sync window as the app backgrounds.
+                    scheduleBackgroundRefresh()
+                    LocationBackgroundTaskService.shared.scheduleLocationRefresh()
+                    print("App entered background - scheduled background sync")
                 }
         }
     }
@@ -197,7 +204,7 @@ struct SelineApp: App {
     private func configureBackgroundRefresh() {
         // CONSOLIDATED: Single unified background task for all syncing operations
         // Combines email refresh, location checks, and data sync into one efficient task
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.seline.emailRefresh", using: nil) { task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: BackgroundTaskIdentifier.emailRefresh, using: nil) { task in
             Task {
                 // Check if device is in low power mode
                 if ProcessInfo.processInfo.isLowPowerModeEnabled {
@@ -244,7 +251,7 @@ struct SelineApp: App {
     }
 
     private func scheduleBackgroundRefresh() {
-        let request = BGAppRefreshTaskRequest(identifier: "com.seline.emailRefresh")
+        let request = BGAppRefreshTaskRequest(identifier: BackgroundTaskIdentifier.emailRefresh)
         // Schedule refresh in 15 minutes (iOS minimum for app refresh)
         // This consolidated task handles all background sync operations
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)

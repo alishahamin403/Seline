@@ -18,73 +18,81 @@ struct PersonDetailSheet: View {
     @State private var isLoadingStats = true
     @State private var selectedPlace: SavedPlace? = nil
     @State private var selectedVisitPlaceId: UUID? = nil
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var secondaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.66) : Color.black.opacity(0.64)
+    }
+
+    private var tertiaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.48)
+    }
+
+    private var cardFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.white
+    }
+
+    private var cardBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)
+    }
     
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header with avatar and basic info
-                    headerSection
-                    
-                    // Personal attributes section
-                    personalAttributesSection
-                    
-                    // Contact info section
-                    if hasContactInfo {
-                        contactInfoSection
-                    }
-                    
-                    // Favourite places section
-                    if !favouritePlaceIds.isEmpty {
-                        favouritePlacesSection
-                    }
-                    
-                    // Recent visits together section
-                    if visitCount > 0 {
-                        recentVisitsSection
-                    }
-                    
-                    // Receipts together section
-                    if receiptCount > 0 {
-                        receiptsSection
-                    }
-                    
-                    // Notes section
-                    if let notes = person.notes, !notes.isEmpty {
-                        notesSection(notes: notes)
-                    }
-                    
-                    // How we met section
-                    if let howWeMet = person.howWeMet, !howWeMet.isEmpty {
-                        howWeMetSection(text: howWeMet)
-                    }
-                    
-                    // Delete button
-                    deleteButton
-                    
-                    Spacer().frame(height: 40)
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 16) {
+                topActionBar
+
+                // Header with avatar and basic info
+                headerSection
+
+                if !isLoadingStats {
+                    statsOverviewCard
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
+
+                // Personal attributes section
+                personalAttributesSection
+
+                // Contact info section
+                if hasContactInfo {
+                    contactInfoSection
+                }
+
+                // Favourite places section
+                if !favouritePlaceIds.isEmpty {
+                    favouritePlacesSection
+                }
+
+                // Recent visits together section
+                if visitCount > 0 {
+                    recentVisitsSection
+                }
+
+                // Receipts together section
+                if receiptCount > 0 {
+                    receiptsSection
+                }
+
+                // Notes section
+                if let notes = person.notes, !notes.isEmpty {
+                    notesSection(notes: notes)
+                }
+
+                // How we met section
+                if let howWeMet = person.howWeMet, !howWeMet.isEmpty {
+                    howWeMetSection(text: howWeMet)
+                }
+
+                // Delete button
+                deleteButton
+
+                Spacer().frame(height: 24)
             }
-            .background(colorScheme == .dark ? Color.black : Color.white)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") {
-                        onDismiss()
-                    }
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Edit") {
-                        showingEditSheet = true
-                    }
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                }
-            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
         }
+        .background(colorScheme == .dark ? Color.black : Color(uiColor: .systemGroupedBackground))
         .task {
             await loadStats()
         }
@@ -117,6 +125,39 @@ struct PersonDetailSheet: View {
             Text("Are you sure you want to delete \(person.name)? This action cannot be undone.")
         }
     }
+
+    private var topActionBar: some View {
+        HStack(spacing: 12) {
+            topPillButton(title: "Close") {
+                onDismiss()
+            }
+
+            Spacer(minLength: 10)
+
+            topPillButton(title: "Edit") {
+                showingEditSheet = true
+            }
+        }
+    }
+
+    private func topPillButton(title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(FontManager.geist(size: 15, weight: .semibold))
+                .foregroundColor(primaryTextColor)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(cardFillColor)
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(cardBorderColor, lineWidth: 1)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
     
     // MARK: - Header Section
     
@@ -140,27 +181,27 @@ struct PersonDetailSheet: View {
             }
             .overlay(
                 Circle()
-                    .stroke(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1), lineWidth: 2)
+                    .stroke(cardBorderColor, lineWidth: 1.2)
             )
             
             // Name and relationship
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 HStack(spacing: 8) {
                     Text(person.name)
-                        .font(FontManager.geist(size: 24, weight: .bold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .font(FontManager.geist(size: 33, weight: .bold))
+                        .foregroundColor(primaryTextColor)
                     
                     if person.isFavourite {
                         Image(systemName: "star.fill")
-                            .font(FontManager.geist(size: 16, weight: .medium))
+                            .font(FontManager.geist(size: 15, weight: .semibold))
                             .foregroundColor(.yellow)
                     }
                 }
                 
                 if let nickname = person.nickname, !nickname.isEmpty, nickname != person.name {
                     Text("\"\(nickname)\"")
-                        .font(FontManager.geist(size: 16, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        .font(FontManager.geist(size: 17, weight: .regular))
+                        .foregroundColor(secondaryTextColor)
                         .italic()
                 }
                 
@@ -170,42 +211,60 @@ struct PersonDetailSheet: View {
                     Text(person.relationshipDisplayText)
                         .font(FontManager.geist(size: 14, weight: .medium))
                 }
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .foregroundColor(secondaryTextColor)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 7)
                 .background(
                     Capsule()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.06))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(cardBorderColor, lineWidth: 0.8)
                 )
             }
-            
-            // Stats row
-            if !isLoadingStats {
-                HStack(spacing: 24) {
-                    statItem(count: visitCount, label: "Visits", icon: "mappin.circle.fill")
-                    statItem(count: receiptCount, label: "Receipts", icon: "receipt.fill")
-                    statItem(count: favouritePlaceIds.count, label: "Places", icon: "heart.fill")
-                }
-                .padding(.top, 8)
-            }
         }
-        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+        .padding(.horizontal, 14)
+        .background(sectionCardBackground(cornerRadius: 20))
     }
-    
-    private func statItem(count: Int, label: String, icon: String) -> some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(FontManager.geist(size: 14, weight: .medium))
-                Text("\(count)")
-                    .font(FontManager.geist(size: 18, weight: .bold))
-            }
-            .foregroundColor(colorScheme == .dark ? .white : .black)
-            
-            Text(label)
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+
+    private var statsOverviewCard: some View {
+        HStack(spacing: 10) {
+            statTile(count: visitCount, label: "Visits", icon: "mappin")
+            statTile(count: receiptCount, label: "Receipts", icon: "receipt")
+            statTile(count: favouritePlaceIds.count, label: "Places", icon: "heart")
         }
+        .padding(10)
+        .background(sectionCardBackground(cornerRadius: 16))
+    }
+
+    private func statTile(count: Int, label: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(secondaryTextColor)
+
+                Text(label)
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(secondaryTextColor)
+                    .lineLimit(1)
+            }
+
+            Text("\(count)")
+                .font(FontManager.geist(size: 24, weight: .bold))
+                .foregroundColor(primaryTextColor)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
+        )
     }
     
     private func initialsAvatar(size: CGFloat) -> some View {
@@ -222,43 +281,40 @@ struct PersonDetailSheet: View {
     // MARK: - Personal Attributes Section
     
     private var personalAttributesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionHeader(title: "Personal", icon: "person.fill")
             
             VStack(spacing: 0) {
                 if let birthday = person.formattedBirthday {
-                    attributeRow(icon: "gift.fill", title: "Birthday", value: birthday, iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    attributeRow(icon: "gift.fill", title: "Birthday", value: birthday, iconColor: secondaryTextColor)
                     divider
                 }
                 
                 if let age = person.age {
-                    attributeRow(icon: "number", title: "Age", value: "\(age) years old", iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    attributeRow(icon: "number", title: "Age", value: "\(age) years old", iconColor: secondaryTextColor)
                     divider
                 }
                 
                 if let food = person.favouriteFood, !food.isEmpty {
-                    attributeRow(icon: "fork.knife", title: "Favourite Food", value: food, iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    attributeRow(icon: "fork.knife", title: "Favourite Food", value: food, iconColor: secondaryTextColor)
                     divider
                 }
                 
                 if let gift = person.favouriteGift, !gift.isEmpty {
-                    attributeRow(icon: "giftcard.fill", title: "Gift Ideas", value: gift, iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    attributeRow(icon: "giftcard.fill", title: "Gift Ideas", value: gift, iconColor: secondaryTextColor)
                     divider
                 }
                 
                 if let color = person.favouriteColor, !color.isEmpty {
-                    attributeRow(icon: "paintpalette.fill", title: "Favourite Color", value: color, iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    attributeRow(icon: "paintpalette.fill", title: "Favourite Color", value: color, iconColor: secondaryTextColor)
                 }
                 
                 if let interests = person.interests, !interests.isEmpty {
                     divider
-                    attributeRow(icon: "heart.fill", title: "Interests", value: interests.joined(separator: ", "), iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    attributeRow(icon: "heart.fill", title: "Interests", value: interests.joined(separator: ", "), iconColor: secondaryTextColor)
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-            )
+            .background(sectionCardBackground(cornerRadius: 16))
         }
     }
     
@@ -273,45 +329,42 @@ struct PersonDetailSheet: View {
     }
     
     private var contactInfoSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionHeader(title: "Contact", icon: "phone.fill")
             
             VStack(spacing: 0) {
                 if let phone = person.phone, !phone.isEmpty {
-                    contactRow(icon: "phone.fill", value: phone, action: { callPhone(phone) }, iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    contactRow(icon: "phone.fill", value: phone, action: { callPhone(phone) }, iconColor: secondaryTextColor)
                     divider
                 }
                 
                 if let email = person.email, !email.isEmpty {
-                    contactRow(icon: "envelope.fill", value: email, action: { sendEmail(email) }, iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    contactRow(icon: "envelope.fill", value: email, action: { sendEmail(email) }, iconColor: secondaryTextColor)
                     divider
                 }
                 
                 if let address = person.address, !address.isEmpty {
-                    contactRow(icon: "map.fill", value: address, action: { openMaps(address) }, iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    contactRow(icon: "map.fill", value: address, action: { openMaps(address) }, iconColor: secondaryTextColor)
                 }
                 
                 if let instagram = person.instagram, !instagram.isEmpty {
                     divider
-                    contactRow(icon: "camera.fill", value: "@\(instagram)", action: { openInstagram(instagram) }, iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    contactRow(icon: "camera.fill", value: "@\(instagram)", action: { openInstagram(instagram) }, iconColor: secondaryTextColor)
                 }
                 
                 if let linkedIn = person.linkedIn, !linkedIn.isEmpty {
                     divider
-                    contactRow(icon: "link", value: linkedIn, action: { openLinkedIn(linkedIn) }, iconColor: colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    contactRow(icon: "link", value: linkedIn, action: { openLinkedIn(linkedIn) }, iconColor: secondaryTextColor)
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-            )
+            .background(sectionCardBackground(cornerRadius: 16))
         }
     }
     
     // MARK: - Favourite Places Section
     
     private var favouritePlacesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionHeader(title: "Favourite Spots Together", icon: "heart.fill")
             
             ScrollView(.horizontal, showsIndicators: false) {
@@ -333,24 +386,22 @@ struct PersonDetailSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: place.getDisplayIcon())
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .font(FontManager.geist(size: 15, weight: .semibold))
+                        .foregroundColor(secondaryTextColor)
                     
                     Text(place.displayName)
                         .font(FontManager.geist(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .foregroundColor(primaryTextColor)
                         .lineLimit(1)
                 }
                 
                 Text(place.category)
                     .font(FontManager.geist(size: 12, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                    .foregroundColor(tertiaryTextColor)
             }
             .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-            )
+            .frame(width: 220, alignment: .leading)
+            .background(sectionCardBackground(cornerRadius: 14))
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -358,13 +409,13 @@ struct PersonDetailSheet: View {
     // MARK: - Recent Visits Section
     
     private var recentVisitsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 sectionHeader(title: "Recent Visits Together", icon: "clock.fill")
                 Spacer()
                 Text("\(visitCount) total")
                     .font(FontManager.geist(size: 12, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                    .foregroundColor(tertiaryTextColor)
             }
             
             VStack(spacing: 0) {
@@ -375,10 +426,7 @@ struct PersonDetailSheet: View {
                     }
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-            )
+            .background(sectionCardBackground(cornerRadius: 16))
         }
     }
     
@@ -390,34 +438,39 @@ struct PersonDetailSheet: View {
             }
         }) {
             HStack(spacing: 12) {
-                Image(systemName: "mappin.circle.fill")
-                    .font(FontManager.geist(size: 20, weight: .medium))
-                    .foregroundColor(.blue)
+                ZStack {
+                    Circle()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                    Image(systemName: "mappin")
+                        .font(FontManager.geist(size: 13, weight: .semibold))
+                        .foregroundColor(secondaryTextColor)
+                }
+                .frame(width: 30, height: 30)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(visitItem.placeName)
                         .font(FontManager.geist(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .foregroundColor(primaryTextColor)
                         .lineLimit(1)
 
                     HStack(spacing: 8) {
                         Text(formatVisitDate(visitItem.visit.entryTime))
                             .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            .foregroundColor(secondaryTextColor)
 
                         if let duration = visitItem.visit.durationMinutes {
                             Text("•")
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+                                .foregroundColor(tertiaryTextColor)
                             Text(formatDuration(duration))
                                 .font(FontManager.geist(size: 12, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                .foregroundColor(secondaryTextColor)
                         }
                     }
 
                     if let notes = visitItem.visit.visitNotes, !notes.isEmpty {
                         Text(notes)
                             .font(FontManager.geist(size: 11, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                            .foregroundColor(tertiaryTextColor)
                             .lineLimit(1)
                     }
                 }
@@ -426,7 +479,7 @@ struct PersonDetailSheet: View {
 
                 Image(systemName: "chevron.right")
                     .font(FontManager.geist(size: 12, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+                    .foregroundColor(tertiaryTextColor)
             }
             .padding(12)
         }
@@ -436,13 +489,13 @@ struct PersonDetailSheet: View {
     // MARK: - Receipts Section
     
     private var receiptsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 sectionHeader(title: "Receipts Together", icon: "receipt.fill")
                 Spacer()
                 Text("\(receiptCount) total")
                     .font(FontManager.geist(size: 12, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                    .foregroundColor(tertiaryTextColor)
             }
             
             VStack(spacing: 0) {
@@ -453,28 +506,30 @@ struct PersonDetailSheet: View {
                     }
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-            )
+            .background(sectionCardBackground(cornerRadius: 16))
         }
     }
     
     private func receiptRow(receiptId: UUID) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "receipt.fill")
-                .font(FontManager.geist(size: 20, weight: .medium))
-                .foregroundColor(.green)
+            ZStack {
+                Circle()
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                Image(systemName: "receipt")
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(secondaryTextColor)
+            }
+            .frame(width: 30, height: 30)
             
             Text("Receipt \(receiptId.uuidString.prefix(8))...")
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .foregroundColor(primaryTextColor)
             
             Spacer()
             
             Image(systemName: "chevron.right")
                 .font(FontManager.geist(size: 12, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+                .foregroundColor(tertiaryTextColor)
         }
         .padding(12)
     }
@@ -482,36 +537,30 @@ struct PersonDetailSheet: View {
     // MARK: - Notes Section
     
     private func notesSection(notes: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionHeader(title: "Notes", icon: "note.text")
             
             Text(notes)
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+                .foregroundColor(primaryTextColor)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                )
+                .background(sectionCardBackground(cornerRadius: 16))
         }
     }
     
     // MARK: - How We Met Section
     
     private func howWeMetSection(text: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionHeader(title: "How We Met", icon: "hand.wave.fill")
             
             Text(text)
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+                .foregroundColor(primaryTextColor)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                )
+                .background(sectionCardBackground(cornerRadius: 16))
         }
     }
     
@@ -530,41 +579,64 @@ struct PersonDetailSheet: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.red.opacity(0.1))
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(colorScheme == .dark ? Color.red.opacity(0.12) : Color.red.opacity(0.08))
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .padding(.top, 16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.red.opacity(colorScheme == .dark ? 0.35 : 0.25), lineWidth: 0.8)
+        )
+        .padding(.top, 6)
     }
     
     // MARK: - Helper Views
     
     private func sectionHeader(title: String, icon: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(FontManager.geist(size: 14, weight: .medium))
+            ZStack {
+                Circle()
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                Image(systemName: icon)
+                    .font(FontManager.geist(size: 10, weight: .semibold))
+                    .foregroundColor(secondaryTextColor)
+            }
+            .frame(width: 20, height: 20)
+
             Text(title)
-                .font(FontManager.geist(size: 16, weight: .semibold))
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .textCase(.uppercase)
+                .tracking(0.55)
         }
-        .foregroundColor(colorScheme == .dark ? .white : .black)
+        .foregroundColor(secondaryTextColor)
+    }
+
+    private func sectionCardBackground(cornerRadius: CGFloat = 16) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(cardFillColor)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(cardBorderColor, lineWidth: 0.8)
+            )
     }
     
     private func attributeRow(icon: String, title: String, value: String, iconColor: Color) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(FontManager.geist(size: 16, weight: .medium))
+                .font(FontManager.geist(size: 14, weight: .medium))
                 .foregroundColor(iconColor)
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(FontManager.geist(size: 12, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                    .foregroundColor(tertiaryTextColor)
                 
                 Text(value)
                     .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(primaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             
             Spacer()
@@ -582,13 +654,13 @@ struct PersonDetailSheet: View {
                 
                 Text(value)
                     .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(primaryTextColor)
                 
                 Spacer()
                 
                 Image(systemName: "arrow.up.right")
                     .font(FontManager.geist(size: 12, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+                    .foregroundColor(tertiaryTextColor)
             }
             .padding(12)
         }
@@ -597,7 +669,7 @@ struct PersonDetailSheet: View {
     
     private var divider: some View {
         Divider()
-            .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+            .overlay(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08))
             .padding(.leading, 48)
     }
     

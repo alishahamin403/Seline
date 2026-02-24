@@ -274,7 +274,7 @@ struct SettingsView: View {
                             HStack(spacing: 8) {
                                 Image(systemName: "lock.shield.fill")
                                     .font(FontManager.geist(size: 16, weight: .semibold))
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(.primary)
 
                                 Text("Privacy")
                                     .font(FontManager.geist(size: 16, weight: .semibold))

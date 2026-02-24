@@ -18,6 +18,20 @@ class VectorContextBuilder {
     static let shared = VectorContextBuilder()
 
     private let vectorSearch = VectorSearchService.shared
+    private let monthNameToNumber: [String: Int] = [
+        "jan": 1, "january": 1,
+        "feb": 2, "february": 2,
+        "mar": 3, "march": 3,
+        "apr": 4, "april": 4,
+        "may": 5,
+        "jun": 6, "june": 6,
+        "jul": 7, "july": 7,
+        "aug": 8, "august": 8,
+        "sep": 9, "sept": 9, "september": 9,
+        "oct": 10, "october": 10,
+        "nov": 11, "november": 11,
+        "dec": 12, "december": 12
+    ]
 
     // MARK: - Configuration
 
@@ -47,6 +61,162 @@ class VectorContextBuilder {
         case dateRange(start: Date, end: Date)
         case vectorSearch
         case clarify(question: String)
+    }
+
+    /// Cost optimization: only run query-understanding LLM when the prompt likely depends on time disambiguation.
+    private func shouldUseQueryUnderstandingLLM(
+        query: String,
+        conversationHistory: [(role: String, content: String)]
+    ) -> Bool {
+        let lower = query.lowercased()
+
+        // Explicit date/time language where DB date-range retrieval helps accuracy.
+        let dateKeywords = [
+            "today", "yesterday", "tomorrow", "week", "weekend", "month", "year",
+            "last", "next", "ago", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+        ]
+        if dateKeywords.contains(where: { lower.contains($0) }) {
+            return true
+        }
+
+        // Absolute date formats.
+        if lower.range(of: #"\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil {
+            return true
+        }
+        if lower.range(of: #"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        // Referential follow-ups ("that", "then", etc.) benefit from disambiguation.
+        if !conversationHistory.isEmpty {
+            let referenceTerms = ["that", "then", "there", "same day", "before that", "after that", "that weekend"]
+            if referenceTerms.contains(where: { lower.contains($0) }) {
+                return true
+            }
+        }
+
+        // General semantic questions can skip this extra LLM hop.
+        return false
+    }
+
+    private struct DeterministicTemporalRange {
+        let start: Date
+        let end: Date
+        let weekendOnly: Bool
+        let reason: String
+    }
+
+    /// Deterministic routing for explicit month/year queries.
+    /// Example handled: "any weekend in January 2026".
+    private func deterministicTemporalRange(for query: String) -> DeterministicTemporalRange? {
+        let lower = query.lowercased()
+        let weekendOnly = lower.contains("weekend")
+        let calendar = Calendar.current
+
+        // Match single "month year" mention (e.g., January 2026, jan 2026).
+        let pattern = #"\b(?:in|of)?\s*(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s*,?\s*(\d{4})\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let matches = regex.matches(in: lower, range: NSRange(lower.startIndex..., in: lower))
+
+        // If multiple explicit month-year mentions are present, let the LLM handle comparison logic.
+        guard matches.count == 1,
+              let match = matches.first,
+              let monthRange = Range(match.range(at: 1), in: lower),
+              let yearRange = Range(match.range(at: 2), in: lower) else {
+            return nil
+        }
+
+        let monthKey = String(lower[monthRange])
+        guard let month = monthNameToNumber[monthKey], let year = Int(String(lower[yearRange])) else {
+            return nil
+        }
+
+        var startComponents = DateComponents()
+        startComponents.calendar = calendar
+        startComponents.timeZone = TimeZone.current
+        startComponents.year = year
+        startComponents.month = month
+        startComponents.day = 1
+
+        guard let monthStart = calendar.date(from: startComponents),
+              let monthEnd = calendar.date(byAdding: .month, value: 1, to: monthStart) else {
+            return nil
+        }
+
+        let reason = weekendOnly
+            ? "explicit weekend-in-month query (\(monthKey) \(year))"
+            : "explicit month-year query (\(monthKey) \(year))"
+        return DeterministicTemporalRange(
+            start: calendar.startOfDay(for: monthStart),
+            end: calendar.startOfDay(for: monthEnd),
+            weekendOnly: weekendOnly,
+            reason: reason
+        )
+    }
+
+    private func buildWeekendOnlyCompletenessContext(dateRange: (start: Date, end: Date)) async -> String {
+        let calendar = Calendar.current
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateStyle = .full
+        dayFormatter.timeStyle = .none
+
+        var context = "\n=== COMPLETE WEEKEND DATA ===\n"
+        let lastDay = calendar.date(byAdding: .day, value: -1, to: dateRange.end) ?? dateRange.end
+        context += "Date range: \(dayFormatter.string(from: dateRange.start)) – \(dayFormatter.string(from: lastDay))\n"
+        context += "Only Saturday/Sunday data is included for this query.\n\n"
+
+        var cursor = dateRange.start
+        var weekendCount = 0
+
+        while cursor < dateRange.end {
+            let weekday = calendar.component(.weekday, from: cursor) // 1=Sun ... 7=Sat
+            if weekday == 1 || weekday == 7 {
+                let weekendStart: Date
+                let weekendEnd: Date
+
+                if weekday == 7 {
+                    weekendStart = cursor
+                    weekendEnd = min(
+                        dateRange.end,
+                        calendar.date(byAdding: .day, value: 2, to: weekendStart) ?? dateRange.end
+                    )
+                } else {
+                    let previousSaturday = calendar.date(byAdding: .day, value: -1, to: cursor) ?? cursor
+                    if previousSaturday >= dateRange.start {
+                        weekendStart = previousSaturday
+                        weekendEnd = min(
+                            dateRange.end,
+                            calendar.date(byAdding: .day, value: 2, to: weekendStart) ?? dateRange.end
+                        )
+                    } else {
+                        // Range starts on Sunday; include just that in-range day.
+                        weekendStart = cursor
+                        weekendEnd = min(
+                            dateRange.end,
+                            calendar.date(byAdding: .day, value: 1, to: weekendStart) ?? dateRange.end
+                        )
+                    }
+                }
+
+                weekendCount += 1
+                context += "=== WEEKEND \(weekendCount) (\(dayFormatter.string(from: weekendStart))) ===\n"
+                context += await buildDayCompletenessContext(dateRange: (start: weekendStart, end: weekendEnd))
+                context += "\n"
+
+                cursor = weekendEnd
+                continue
+            }
+
+            cursor = calendar.date(byAdding: .day, value: 1, to: cursor) ?? dateRange.end
+        }
+
+        if weekendCount == 0 {
+            context += "(No weekend dates in this range)\n"
+        }
+
+        return context
     }
 
     /// Single LLM call: decide if the query is about a specific date/range (→ DB), general (→ vector), or vague (→ clarify).
@@ -105,7 +275,8 @@ class VectorContextBuilder {
         do {
             let response = try await GeminiService.shared.simpleChatCompletion(
                 systemPrompt: "You are a query understanding assistant. Output only START/END, NONE, or CLARIFY: as instructed. Use the conversation to resolve time references like 'that' or 'last last weekend'.",
-                messages: [["role": "user", "content": prompt]]
+                messages: [["role": "user", "content": prompt]],
+                operationType: "query_understanding"
             )
             let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -176,9 +347,29 @@ class VectorContextBuilder {
             context += memoryContext
         }
 
-        // 3. Single LLM decides: date range (→ DB) vs vector search vs clarify
-        print("🔍 Query understanding...")
-        let understanding = await understandQuery(query: query, conversationHistory: conversationHistory)
+        // 3. Query routing: deterministic temporal parsing first, then LLM understanding.
+        var understanding: QueryUnderstandingResult
+        var useWeekendOnlyCompleteness = false
+
+        if let forcedRange = deterministicTemporalRange(for: query) {
+            understanding = .dateRange(start: forcedRange.start, end: forcedRange.end)
+            useWeekendOnlyCompleteness = forcedRange.weekendOnly
+            print("📅 Deterministic query understanding: \(forcedRange.reason) → DATE RANGE \(forcedRange.start) to \(forcedRange.end)")
+        } else if shouldUseQueryUnderstandingLLM(query: query, conversationHistory: conversationHistory) {
+            print("🔍 Query understanding...")
+            understanding = await understandQuery(query: query, conversationHistory: conversationHistory)
+        } else {
+            print("🔍 Query understanding skipped (general query) → vector search")
+            understanding = .vectorSearch
+        }
+
+        // Guardrail: if LLM returned NONE for a clearly explicit month-year query, force deterministic date range.
+        if case .vectorSearch = understanding,
+           let fallbackRange = deterministicTemporalRange(for: query) {
+            understanding = .dateRange(start: fallbackRange.start, end: fallbackRange.end)
+            useWeekendOnlyCompleteness = fallbackRange.weekendOnly
+            print("📅 Guardrail routing: LLM returned NONE for explicit temporal query; forcing DATE RANGE \(fallbackRange.start) to \(fallbackRange.end)")
+        }
 
         switch understanding {
         case .clarify(let question):
@@ -218,7 +409,9 @@ class VectorContextBuilder {
             }
 
             do {
-                let dayContext = await buildDayCompletenessContext(dateRange: dateRange)
+                let dayContext = useWeekendOnlyCompleteness
+                    ? await buildWeekendOnlyCompletenessContext(dateRange: dateRange)
+                    : await buildDayCompletenessContext(dateRange: dateRange)
                 if !dayContext.isEmpty {
                     if isComparison {
                         context += "\n=== OTHER PERIOD (Requested range, e.g. last week) ===\n"

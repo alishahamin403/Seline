@@ -7,53 +7,74 @@ struct EmailCategoryFilterView: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                EmailCategoryChip(
+                    title: "All",
+                    isSelected: selectedCategory == nil,
+                    colorScheme: colorScheme
+                ) {
+                    HapticManager.shared.selection()
+                    selectedCategory = nil
+                }
+
                 ForEach(EmailCategory.allCases, id: \.self) { category in
                     EmailCategoryChip(
-                        category: category,
+                        title: category.displayName,
                         isSelected: selectedCategory == category,
                         colorScheme: colorScheme
                     ) {
                         HapticManager.shared.selection()
-                        // Toggle behavior: tap to select, tap again to deselect
                         if selectedCategory == category {
-                            selectedCategory = nil // Deselect to show all emails
+                            selectedCategory = nil
                         } else {
-                            selectedCategory = category // Select this category
+                            selectedCategory = category
                         }
                     }
                 }
             }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 2)
+            .padding(.vertical, 2)
         }
-        .background(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
     }
 }
 
 struct EmailCategoryChip: View {
-    let category: EmailCategory
+    let title: String
     let isSelected: Bool
     let colorScheme: ColorScheme
     let action: () -> Void
 
+    private var chipForegroundColor: Color {
+        if isSelected {
+            return colorScheme == .dark ? Color.black : .white
+        }
+        return colorScheme == .dark ? Color.white.opacity(0.7) : Color.emailLightTextSecondary
+    }
+
+    private var chipBackgroundColor: Color {
+        if isSelected {
+            return colorScheme == .dark ? Color.white : Color.emailLightTextPrimary
+        }
+        return colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle
+    }
+
+    private var chipStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+    }
+
     var body: some View {
         Button(action: action) {
-            Text(category.displayName)
+            Text(title)
                 .font(FontManager.geist(size: 12, systemWeight: isSelected ? .semibold : .regular))
-                .foregroundColor(isSelected ?
-                    .white :
-                    (colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .foregroundColor(chipForegroundColor)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(isSelected ?
-                            Color(red: 0.29, green: 0.29, blue: 0.29) :
-                            (colorScheme == .dark ?
-                                Color.white.opacity(0.1) :
-                                Color.black.opacity(0.05))
-                        )
+                        .fill(chipBackgroundColor)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(chipStrokeColor, lineWidth: isSelected ? 0 : 1)
                 )
         }
         .buttonStyle(PlainButtonStyle())

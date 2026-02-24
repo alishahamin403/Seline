@@ -212,7 +212,10 @@ struct LocationSearchModal: View {
         }
 
         do {
-            var results = try await mapsService.searchPlaces(query: query)
+            var results = try await mapsService.searchPlaces(
+                query: query,
+                currentLocation: locationService.currentLocation
+            )
 
             await MainActor.run {
                 // Sort results by distance (closest to furthest)

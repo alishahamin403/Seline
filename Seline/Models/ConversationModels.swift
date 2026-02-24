@@ -302,7 +302,7 @@ enum QueryIntent: String, Codable {
     var color: Color {
         switch self {
         case .calendar: return .blue
-        case .notes: return .orange
+        case .notes: return .primary
         case .locations: return .green
         case .general: return .purple
         }
@@ -397,4 +397,3 @@ struct FollowUpSuggestion: Identifiable, Codable, Hashable {
         self.category = category
     }
 }
-

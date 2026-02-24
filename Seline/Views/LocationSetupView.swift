@@ -6,6 +6,7 @@ struct LocationSetupView: View {
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var googleMapsService = GoogleMapsService.shared
     @StateObject private var supabaseManager = SupabaseManager.shared
+    @StateObject private var locationService = LocationService.shared
 
     @State private var homeSearchQuery = ""
     @State private var workSearchQuery = ""
@@ -140,7 +141,10 @@ struct LocationSetupView: View {
         }
 
         do {
-            let results = try await googleMapsService.searchPlaces(query: query)
+            let results = try await googleMapsService.searchPlaces(
+                query: query,
+                currentLocation: locationService.currentLocation
+            )
             await MainActor.run {
                 if isHome {
                     homeSearchResults = results

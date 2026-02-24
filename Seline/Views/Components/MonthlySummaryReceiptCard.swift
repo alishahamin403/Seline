@@ -3,7 +3,7 @@ import SwiftUI
 struct MonthlySummaryReceiptCard: View {
     let monthlySummary: MonthlyReceiptSummary
     let isLast: Bool
-    let onReceiptTap: (UUID) -> Void
+    let onReceiptTap: (ReceiptStat) -> Void
     let categorizedReceipts: [ReceiptStat]
     @State private var showCategoryBreakdown = false
     @State private var isExpanded = false
@@ -66,8 +66,8 @@ struct MonthlySummaryReceiptCard: View {
 
                         VStack(alignment: .trailing, spacing: 3) {
                             Text(CurrencyParser.formatAmountNoDecimals(monthlySummary.monthlyTotal))
-                                .font(FontManager.geist(size: 16, weight: .semibold))
-                                .foregroundColor(.primary)
+                                .font(FontManager.geist(size: 22, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
 
                             // Category breakdown button
                             Button(action: {
@@ -79,8 +79,15 @@ struct MonthlySummaryReceiptCard: View {
                                     Text("Categories")
                                         .font(FontManager.geist(size: 11, weight: .regular))
                                 }
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                                .foregroundColor(colorScheme == .dark ? .black : Color.emailLightTextPrimary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule()
+                                        .fill(colorScheme == .dark ? Color.white : Color.emailLightChipIdle)
+                                )
                             }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                 }
@@ -99,13 +106,21 @@ struct MonthlySummaryReceiptCard: View {
                 .padding(.bottom, 16)
             }
         }
-        .shadcnTileStyle(colorScheme: colorScheme) // Apply widget style to the whole month card
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                )
+        )
 
         .sheet(isPresented: $showCategoryBreakdown) {
             CategoryBreakdownModal(
                 monthlyReceipts: categorizedReceipts,
                 monthName: monthlySummary.month,
-                monthlyTotal: monthlySummary.monthlyTotal
+                monthlyTotal: monthlySummary.monthlyTotal,
+                onReceiptTap: onReceiptTap
             )
             .presentationDetents([.medium, .large])
         }

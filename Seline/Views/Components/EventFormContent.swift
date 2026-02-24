@@ -601,6 +601,7 @@ struct DateSelectionSheet: View {
                 }
             }
         }
+        .edgeSwipeBackEnabled()
     }
 }
 
@@ -1313,7 +1314,10 @@ struct LocationSelectionSheet: View {
     private func performSearch(query: String) async {
         await MainActor.run { isSearching = true }
         do {
-            let results = try await mapsService.searchPlaces(query: query)
+            let results = try await mapsService.searchPlaces(
+                query: query,
+                currentLocation: locationService.currentLocation
+            )
             await MainActor.run {
                 searchResults = results
                 isSearching = false
@@ -1428,6 +1432,7 @@ struct RecurringOptionsSheet: View {
                 }
             }
         }
+        .edgeSwipeBackEnabled()
     }
 }
 
@@ -1499,6 +1504,7 @@ struct ReminderOptionsSheet: View {
                 }
             }
         }
+        .edgeSwipeBackEnabled()
     }
 }
 

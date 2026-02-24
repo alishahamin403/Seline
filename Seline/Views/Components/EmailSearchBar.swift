@@ -12,12 +12,12 @@ struct EmailSearchBar: View {
             // Search icon
             Image(systemName: "magnifyingglass")
                 .font(FontManager.geist(size: 14, weight: .medium))
-                .foregroundColor(.gray)
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
 
             // Search text field
             TextField("Search emails...", text: $searchText)
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
                 .focused($isSearchFocused)
                 .onChange(of: searchText) { newValue in
                     // Only trigger search if query is meaningful (2+ characters)
@@ -40,7 +40,7 @@ struct EmailSearchBar: View {
                 }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(FontManager.geist(size: 14, weight: .medium))
-                        .foregroundColor(.gray)
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
@@ -49,7 +49,11 @@ struct EmailSearchBar: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                )
         )
         .animation(.easeInOut(duration: 0.2), value: isSearchFocused)
     }

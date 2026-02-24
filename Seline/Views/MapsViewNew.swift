@@ -3,6 +3,40 @@ import CoreLocation
 import MapKit
 
 struct MapsViewNew: View, Searchable {
+    private enum HubPeriod: String, CaseIterable {
+        case today = "Today"
+        case thisWeek = "This Week"
+        case thisMonth = "This Month"
+    }
+
+    private enum HubDetailSection: String, CaseIterable {
+        case places
+        case people
+        case timeline
+
+        var title: String {
+            switch self {
+            case .places:
+                return "Places"
+            case .people:
+                return "People"
+            case .timeline:
+                return "Timeline"
+            }
+        }
+
+        var tabTitle: String {
+            switch self {
+            case .places:
+                return "Locations"
+            case .people:
+                return "People"
+            case .timeline:
+                return "Timeline"
+            }
+        }
+    }
+
     @StateObject private var locationsManager = LocationsManager.shared
     @StateObject private var mapsService = GoogleMapsService.shared
     @StateObject private var locationService = LocationService.shared
@@ -11,9 +45,11 @@ struct MapsViewNew: View, Searchable {
     @StateObject private var peopleManager = PeopleManager.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
-    @Namespace private var tabAnimation
 
-    @State private var selectedTab: String = "folders" // "folders", "people", or "timeline"
+    @State private var selectedHubDetail: HubDetailSection = .places
+    @State private var hubPeriod: HubPeriod = .thisMonth
+    @State private var hubPeriodVisits: [LocationVisitRecord] = []
+    @State private var isLoadingHubPeriodVisits = false
     @State private var selectedCategory: String? = nil
     @State private var showSearchModal = false
     @State private var selectedPlace: SavedPlace? = nil
@@ -49,6 +85,7 @@ struct MapsViewNew: View, Searchable {
     @State private var placeToRename: SavedPlace? = nil  // Place being renamed
     @State private var newPlaceName = ""  // New name for the place
     @FocusState private var isSearchFocused: Bool  // For search bar focus
+    @Namespace private var mapsTabAnimation
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
         self._externalSelectedFolder = externalSelectedFolder
@@ -179,6 +216,11 @@ struct MapsViewNew: View, Searchable {
                     }
                 }
             }
+            .onChange(of: hubPeriod) { _ in
+                Task {
+                    await loadHubPeriodVisits()
+                }
+            }
             .onChange(of: colorScheme) { _ in
                 // Force view refresh when system theme changes
             }
@@ -186,7 +228,6 @@ struct MapsViewNew: View, Searchable {
             .onDisappear {
                 stopLocationTimer()
             }
-            .overlay(folderOverlay)
     }
     
     // MARK: - Main Content View
@@ -205,60 +246,220 @@ struct MapsViewNew: View, Searchable {
     
     private var headerSection: some View {
         VStack(spacing: 0) {
-            // Tab bar with search icon (hide when search is active)
-            if !isLocationSearchActive && !isPeopleSearchActive {
-                HStack(spacing: 12) {
-                    // Empty spacer for balance
-                    Color.clear.frame(width: 44, height: 44)
-
-                    Spacer()
-                    tabBarView
-                    Spacer()
-
-                    // Search icon on the right - activates search based on current tab
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            if selectedTab == "people" {
-                                isPeopleSearchActive = true
-                            } else if selectedTab == "folders" {
-                                isLocationSearchActive = true
-                                isSearchFocused = true
-                            }
-                            // Timeline tab can be added later
-                        }
-                    }) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
+            // Keep People search overlay full-screen when active.
+            if !isPeopleSearchActive {
+                if !isLocationSearchActive {
+                    hubHeader
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 4)
-                .padding(.bottom, 12)
-                .background(
-                    colorScheme == .dark ? Color.black : Color.white
-                )
-            }
 
-            // Search bar (appears when active)
-            if isLocationSearchActive {
-                locationSearchBar
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 12)
-                    .background(
-                        colorScheme == .dark ? Color.black : Color.white
-                    )
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                // Search bar (appears when active)
+                if isLocationSearchActive && selectedHubDetail == .places {
+                    locationSearchBar
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
+                        .background(hubBackgroundColor)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
         }
+        .background(hubBackgroundColor)
+    }
+    
+    private var hubHeader: some View {
+        HStack(spacing: 10) {
+            hubMainPagePicker
+
+            Button(action: {
+                handleHeaderTrailingAction()
+            }) {
+                Image(systemName: headerTrailingIcon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                    .frame(width: 40, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSurface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.top, -4)
+        .padding(.bottom, 10)
+    }
+
+    private var hubMainPagePicker: some View {
+        HStack(spacing: 6) {
+            ForEach(HubDetailSection.allCases, id: \.rawValue) { section in
+                let isSelected = selectedHubDetail == section
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                        selectedHubDetail = section
+
+                        // Keep each page focused and avoid cross-page search overlays.
+                        if section != .places {
+                            isLocationSearchActive = false
+                            isSearchFocused = false
+                            locationSearchText = ""
+                            selectedCategory = nil
+                        }
+                        if section != .people {
+                            isPeopleSearchActive = false
+                        }
+                    }
+                }) {
+                    Text(section.tabTitle)
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(
+                            isSelected
+                                ? (colorScheme == .dark ? .black : .white)
+                                : (colorScheme == .dark ? Color.white.opacity(0.75) : Color.emailLightTextSecondary)
+                        )
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                        .background {
+                            if isSelected {
+                                Capsule()
+                                    .fill(hubAccentColor)
+                                    .matchedGeometryEffect(id: "mapsMainPageTab", in: mapsTabAnimation)
+                            }
+                        }
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(4)
+        .background(
+            Capsule()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
+        )
+        .frame(maxWidth: .infinity)
+    }
+
+    private var headerTrailingIcon: String {
+        selectedHubDetail == .timeline ? "calendar" : "magnifyingglass"
+    }
+
+    private func handleHeaderTrailingAction() {
+        switch selectedHubDetail {
+        case .places:
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isLocationSearchActive = true
+                isSearchFocused = true
+            }
+        case .people:
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isPeopleSearchActive = true
+            }
+        case .timeline:
+            let today = Calendar.current.startOfDay(for: Date())
+            VisitStateManager.shared.currentMonth = today
+            VisitStateManager.shared.selectedDate = today
+        }
+    }
+
+    private func detailHeader(for detail: HubDetailSection) -> some View {
+        HStack(spacing: 10) {
+            Button(action: {
+                HapticManager.shared.buttonTap()
+                closeHubDetail()
+            }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                    .frame(width: 40, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Text(detail.title)
+                .font(FontManager.geist(size: 14, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(1)
+
+            if detail == .places || detail == .people {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if detail == .people {
+                            isPeopleSearchActive = true
+                        } else {
+                            isLocationSearchActive = true
+                            isSearchFocused = true
+                        }
+                    }
+                }) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                        .frame(width: 40, height: 36)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSurface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.top, -4)
+        .padding(.bottom, 10)
+    }
+
+    private var hubPeriodPicker: some View {
+        HStack(spacing: 4) {
+            ForEach(HubPeriod.allCases, id: \.rawValue) { period in
+                let isSelected = period == hubPeriod
+                Button(action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                        hubPeriod = period
+                    }
+                }) {
+                    Text(period.rawValue)
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(isSelected ? (colorScheme == .dark ? .black : .white) : (colorScheme == .dark ? Color.white.opacity(0.75) : Color.emailLightTextSecondary))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(
+                            Capsule()
+                                .fill(isSelected ? hubAccentColor : Color.clear)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(4)
+        .background(
+            Capsule()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
+        )
+        .frame(maxWidth: .infinity)
     }
     
     private var locationSearchBar: some View {
@@ -269,11 +470,10 @@ struct MapsViewNew: View, Searchable {
 
             TextField("Search locations", text: $locationSearchText)
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
                 .focused($isSearchFocused)
                 .submitLabel(.search)
 
-            // Clear button
             if !locationSearchText.isEmpty {
                 Button(action: {
                     locationSearchText = ""
@@ -286,7 +486,6 @@ struct MapsViewNew: View, Searchable {
                 .buttonStyle(PlainButtonStyle())
             }
             
-            // Close button
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     locationSearchText = ""
@@ -296,7 +495,7 @@ struct MapsViewNew: View, Searchable {
             }) {
                 Text("Cancel")
                     .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
             }
             .buttonStyle(PlainButtonStyle())
         }
@@ -304,92 +503,820 @@ struct MapsViewNew: View, Searchable {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.emailLightChipIdle)
         )
-    }
-    
-    // MARK: - Tab Bar View
-    
-    private var tabBarView: some View {
-        HStack(spacing: 4) {
-            ForEach(["folders", "people", "timeline"], id: \.self) { tab in
-                tabButton(for: tab)
-            }
-        }
-        .padding(4)
-        .background(
-            Capsule()
-                .fill(tabContainerColor())
-        )
-    }
-    
-    // MARK: - Tab Button
-    
-    private func tabButton(for tab: String) -> some View {
-        let isSelected = selectedTab == tab
-        let tabIcon = getTabIcon(for: tab)
-        
-        return Button(action: {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                selectedTab = tab
-            }
-        }) {
-            Image(systemName: tabIcon)
-                .font(FontManager.geist(size: 14, weight: .medium))
-                .foregroundColor(tabForegroundColor(isSelected: isSelected))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background {
-                    if isSelected {
-                        Capsule()
-                            .fill(tabBackgroundColor())
-                            .matchedGeometryEffect(id: "tab", in: tabAnimation)
-                    }
-                }
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-    
-    // MARK: - Tab Icon Helper
-    
-    private func getTabIcon(for tab: String) -> String {
-        if tab == "folders" {
-            return "folder.fill"
-        } else if tab == "people" {
-            return "person.2.fill"
-        } else {
-            return "clock.fill"
-        }
     }
     
     // MARK: - Main Scroll Content
-    
+
+    @ViewBuilder
     private var mainScrollContent: some View {
+        detailContent(for: selectedHubDetail)
+    }
+
+    private var hubScrollContent: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 0) {
-                if selectedTab == "folders" {
-                    locationsTabContent
-                } else if selectedTab == "people" {
-                    peopleTabContent
-                } else {
-                    timelineTabContent
-                }
+            VStack(spacing: 14) {
+                unifiedHubContent
+
+                Spacer()
+                    .frame(height: 100)
             }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
         }
         .refreshable {
-            // Activate search when user pulls down
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isLocationSearchActive = true
-            }
-            // Small delay then focus keyboard
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                isSearchFocused = true
-            }
+            await refreshHubData()
         }
         .background(
-            (colorScheme == .dark ? Color.black : Color.white)
+            hubBackgroundColor
                 .ignoresSafeArea()
         )
+    }
+
+    @ViewBuilder
+    private func detailContent(for detail: HubDetailSection) -> some View {
+        if detail == .places {
+            ScrollView(.vertical, showsIndicators: false) {
+                locationsTabContent
+            }
+            .refreshable {
+                loadTopLocations()
+                loadRecentlyVisited()
+                await loadHubPeriodVisits()
+            }
+            .background(
+                hubBackgroundColor
+                    .ignoresSafeArea()
+            )
+        } else if detail == .people {
+            peopleTabContent
+                .background(
+                    hubBackgroundColor
+                        .ignoresSafeArea()
+                )
+        } else {
+            timelineTabContent
+                .background(
+                    hubBackgroundColor
+                        .ignoresSafeArea()
+                )
+        }
+    }
+
+    // MARK: - Unified Hub
+
+    private var unifiedHubContent: some View {
+        Group {
+            hubOverviewSection
+            hubPlacesSection
+            hubPeopleSection
+            hubTimelineSection
+        }
+    }
+
+    private var hubOverviewSection: some View {
+        VStack(spacing: 0) {
+            hubCardHeader(title: "OVERVIEW · \(hubPeriodDisplayText.uppercased())", count: hubPeriodVisits.count)
+
+            HStack(spacing: 8) {
+                hubStatPill(label: "Visits", value: "\(hubPeriodVisits.count)")
+                hubStatPill(label: "Places", value: "\(hubUniqueVisitedPlacesCount)")
+                hubStatPill(label: "Time", value: formatDuration(minutes: hubTotalVisitMinutes))
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+
+            HStack(spacing: 8) {
+                Image(systemName: nearbyLocation != nil ? "mappin.and.ellipse" : "location")
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(hubSecondaryTextColor)
+
+                Text(hubCurrentLocationSummary)
+                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .foregroundColor(hubPrimaryTextColor)
+                    .lineLimit(1)
+
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 14)
+        }
+        .background(hubCardBackground)
+    }
+
+    private var hubPlacesSection: some View {
+        VStack(spacing: 0) {
+            hubCardHeader(
+                title: "PLACES · \(hubPeriodDisplayText.uppercased())",
+                count: hubSavedPlaces.count,
+                addAction: {
+                    HapticManager.shared.buttonTap()
+                    showSearchModal = true
+                }
+            )
+
+            if hubSavedPlaces.isEmpty {
+                hubEmptyState(
+                    icon: "mappin.slash",
+                    title: "No saved places",
+                    subtitle: "Add a location to get started"
+                )
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
+            } else {
+                HStack(spacing: 8) {
+                    hubStatPill(label: "Saved", value: "\(hubSavedPlaces.count)")
+                    hubStatPill(label: "Favorites", value: "\(hubSavedPlaces.filter { $0.isFavourite }.count)")
+                    hubStatPill(label: "Top", value: hubPlaceCategoryBreakdown.first?.name ?? "-")
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+
+                if !hubPlaceCategoryBreakdown.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Top categories")
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(hubSecondaryTextColor)
+
+                        ForEach(Array(hubPlaceCategoryBreakdown.prefix(3)), id: \.name) { row in
+                            hubCategoryRow(
+                                title: row.name,
+                                value: row.count,
+                                maxValue: hubPlaceCategoryBreakdown.first?.count ?? 1
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 12)
+                }
+
+                if !hubVisitedPlacesByCount.isEmpty {
+                    VStack(spacing: 8) {
+                        ForEach(Array(hubVisitedPlacesByCount.prefix(3)), id: \.place.id) { item in
+                            hubPlaceVisitRow(item.place, visitCount: item.count)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 12)
+                }
+            }
+
+            hubPrimaryButton("Open detailed places") {
+                openHubDetail(.places)
+            }
+            .padding(.bottom, 14)
+        }
+        .background(hubCardBackground)
+    }
+
+    private var hubPeopleSection: some View {
+        let people = peopleManager.people
+
+        return VStack(spacing: 0) {
+            hubCardHeader(title: "PEOPLE", count: people.count)
+
+            if people.isEmpty {
+                hubEmptyState(
+                    icon: "person.2.slash",
+                    title: "No people saved",
+                    subtitle: "Add people to connect them with your places"
+                )
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
+            } else {
+                HStack(spacing: 8) {
+                    hubStatPill(label: "Total", value: "\(people.count)")
+                    hubStatPill(label: "Favorites", value: "\(people.filter { $0.isFavourite }.count)")
+                    hubStatPill(label: hubPeriodDisplayText, value: "\(hubPeopleUpdatedInPeriodCount) updated")
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+
+                if !hubPeopleRelationshipBreakdown.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Relationship groups")
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(hubSecondaryTextColor)
+
+                        ForEach(Array(hubPeopleRelationshipBreakdown.prefix(3)), id: \.name) { row in
+                            hubCategoryRow(
+                                title: row.name,
+                                value: row.count,
+                                maxValue: hubPeopleRelationshipBreakdown.first?.count ?? 1
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 12)
+                }
+
+                VStack(spacing: 8) {
+                    ForEach(Array(hubRecentPeople.prefix(3)), id: \.id) { person in
+                        hubPersonRow(person)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 12)
+            }
+
+            hubPrimaryButton("Open people details") {
+                openHubDetail(.people)
+            }
+            .padding(.bottom, 14)
+        }
+        .background(hubCardBackground)
+    }
+
+    private var hubTimelineSection: some View {
+        VStack(spacing: 0) {
+            hubCardHeader(title: "TIMELINE · \(hubPeriodDisplayText.uppercased())", count: hubPeriodVisits.count)
+
+            if isLoadingHubPeriodVisits {
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 24)
+            } else if hubPeriodVisits.isEmpty {
+                hubEmptyState(
+                    icon: "clock.arrow.circlepath",
+                    title: "No visits in this period",
+                    subtitle: "Your visits will show here once tracking records them"
+                )
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
+            } else {
+                HStack(spacing: 8) {
+                    hubStatPill(label: "Visits", value: "\(hubPeriodVisits.count)")
+                    hubStatPill(label: "Unique", value: "\(hubUniqueVisitedPlacesCount)")
+                    hubStatPill(label: "Time", value: formatDuration(minutes: hubTotalVisitMinutes))
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+
+                VStack(spacing: 8) {
+                    ForEach(Array(hubPeriodVisits.prefix(4)), id: \.id) { visit in
+                        hubVisitRow(visit)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 12)
+            }
+
+            hubPrimaryButton("Open day timeline") {
+                openHubDetail(.timeline)
+            }
+            .padding(.bottom, 14)
+        }
+        .background(hubCardBackground)
+    }
+
+    private func hubCardHeader(title: String, count: Int, addAction: (() -> Void)? = nil) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(hubSecondaryTextColor)
+                .textCase(.uppercase)
+                .tracking(0.6)
+
+            if count > 0 {
+                Text("· \(count)")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(hubSecondaryTextColor)
+            }
+
+            Spacer()
+
+            if let addAction {
+                Button(action: addAction) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            Circle()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.14) : Color.emailLightChipIdle)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+    }
+
+    private func hubStatPill(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(hubSecondaryTextColor)
+                .lineLimit(1)
+
+            Text(value)
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(hubPrimaryTextColor)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(hubInnerSurfaceColor)
+        )
+    }
+
+    private func hubCategoryRow(title: String, value: Int, maxValue: Int) -> some View {
+        let ratio = maxValue > 0 ? min(max(Double(value) / Double(maxValue), 0.0), 1.0) : 0.0
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .foregroundColor(hubPrimaryTextColor)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Text("\(value)")
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(hubPrimaryTextColor)
+            }
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.emailLightBorder.opacity(0.7))
+
+                    Capsule()
+                        .fill(hubAccentColor)
+                        .frame(width: max(6, geo.size.width * ratio))
+                }
+            }
+            .frame(height: 6)
+        }
+    }
+
+    private func hubPlaceVisitRow(_ place: SavedPlace, visitCount: Int) -> some View {
+        HStack(spacing: 10) {
+            PlaceImageView(place: place, size: 34, cornerRadius: 8)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(place.displayName)
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(hubPrimaryTextColor)
+                    .lineLimit(1)
+                Text("\(visitCount) visit\(visitCount == 1 ? "" : "s")")
+                    .font(FontManager.geist(size: 12, weight: .regular))
+                    .foregroundColor(hubSecondaryTextColor)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(hubInnerSurfaceColor)
+        )
+    }
+
+    private func hubPersonRow(_ person: Person) -> some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.14) : Color.emailLightChipIdle)
+                .frame(width: 32, height: 32)
+                .overlay(
+                    Text(person.initials)
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(hubPrimaryTextColor)
+                )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(person.displayName)
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(hubPrimaryTextColor)
+                    .lineLimit(1)
+                Text(person.relationshipDisplayText)
+                    .font(FontManager.geist(size: 12, weight: .regular))
+                    .foregroundColor(hubSecondaryTextColor)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(hubInnerSurfaceColor)
+        )
+    }
+
+    private func hubVisitRow(_ visit: LocationVisitRecord) -> some View {
+        let placeName = locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId })?.displayName ?? "Saved Place"
+        let visitMinutes = max(visit.durationMinutes ?? Int(Date().timeIntervalSince(visit.entryTime) / 60), 1)
+
+        return HStack(spacing: 10) {
+            Image(systemName: "mappin.circle")
+                .font(FontManager.geist(size: 16, weight: .regular))
+                .foregroundColor(hubSecondaryTextColor)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(placeName)
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(hubPrimaryTextColor)
+                    .lineLimit(1)
+                Text(visit.entryTime.formatted(date: .abbreviated, time: .shortened))
+                    .font(FontManager.geist(size: 12, weight: .regular))
+                    .foregroundColor(hubSecondaryTextColor)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Text(formatDuration(minutes: visitMinutes))
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(hubPrimaryTextColor)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(hubInnerSurfaceColor)
+        )
+    }
+
+    private func hubEmptyState(icon: String, title: String, subtitle: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .regular))
+                .foregroundColor(hubSecondaryTextColor)
+
+            Text(title)
+                .font(FontManager.geist(size: 14, weight: .semibold))
+                .foregroundColor(hubPrimaryTextColor)
+
+            Text(subtitle)
+                .font(FontManager.geist(size: 12, weight: .regular))
+                .foregroundColor(hubSecondaryTextColor)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
+    }
+
+    private func hubPrimaryButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: {
+            HapticManager.shared.buttonTap()
+            action()
+        }) {
+            Text(title)
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .black : .white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 9)
+                .background(
+                    Capsule()
+                        .fill(hubAccentColor)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Unified Hub Data
+
+    private var hubPeriodDisplayText: String {
+        hubPeriod.rawValue
+    }
+
+    private var hubDateRange: DateInterval {
+        let calendar = Calendar.current
+        let now = Date()
+
+        switch hubPeriod {
+        case .today:
+            let start = calendar.startOfDay(for: now)
+            return DateInterval(start: start, end: now)
+        case .thisWeek:
+            let start = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? calendar.startOfDay(for: now)
+            return DateInterval(start: start, end: now)
+        case .thisMonth:
+            let start = calendar.dateInterval(of: .month, for: now)?.start ?? calendar.startOfDay(for: now)
+            return DateInterval(start: start, end: now)
+        }
+    }
+
+    private var hubVisitFetchLimit: Int {
+        switch hubPeriod {
+        case .today:
+            return 200
+        case .thisWeek:
+            return 600
+        case .thisMonth:
+            return 1500
+        }
+    }
+
+    private var hubSavedPlaces: [SavedPlace] {
+        getFilteredPlaces()
+    }
+
+    private var hubVisitedPlacesByCount: [(place: SavedPlace, count: Int)] {
+        var counts: [UUID: Int] = [:]
+        for visit in hubPeriodVisits {
+            counts[visit.savedPlaceId, default: 0] += 1
+        }
+
+        return counts
+            .compactMap { entry in
+                let place = locationsManager.savedPlaces.first(where: { $0.id == entry.key })
+                return place.map { (place: $0, count: entry.value) }
+            }
+            .sorted { lhs, rhs in
+                if lhs.count == rhs.count {
+                    return lhs.place.displayName < rhs.place.displayName
+                }
+                return lhs.count > rhs.count
+            }
+    }
+
+    private var hubPlaceCategoryBreakdown: [(name: String, count: Int)] {
+        var counts: [String: Int] = [:]
+
+        for visit in hubPeriodVisits {
+            if let place = locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) {
+                counts[place.category, default: 0] += 1
+            }
+        }
+
+        if counts.isEmpty {
+            for place in hubSavedPlaces {
+                counts[place.category, default: 0] += 1
+            }
+        }
+
+        return counts
+            .map { (name: $0.key, count: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.count == rhs.count {
+                    return lhs.name < rhs.name
+                }
+                return lhs.count > rhs.count
+            }
+    }
+
+    private var hubPeopleRelationshipBreakdown: [(name: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for person in peopleManager.people {
+            counts[person.relationshipDisplayText, default: 0] += 1
+        }
+
+        return counts
+            .map { (name: $0.key, count: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.count == rhs.count {
+                    return lhs.name < rhs.name
+                }
+                return lhs.count > rhs.count
+            }
+    }
+
+    private var hubPeopleUpdatedInPeriodCount: Int {
+        let range = hubDateRange
+        return peopleManager.people.filter { $0.dateModified >= range.start && $0.dateModified <= range.end }.count
+    }
+
+    private var hubRecentPeople: [Person] {
+        peopleManager.people.sorted { $0.dateModified > $1.dateModified }
+    }
+
+    private var hubUniqueVisitedPlacesCount: Int {
+        Set(hubPeriodVisits.map { $0.savedPlaceId }).count
+    }
+
+    private var hubTotalVisitMinutes: Int {
+        hubPeriodVisits.reduce(0) { partialResult, visit in
+            let computedMinutes = max(visit.durationMinutes ?? Int(Date().timeIntervalSince(visit.entryTime) / 60), 1)
+            return partialResult + computedMinutes
+        }
+    }
+
+    private var hubCurrentLocationSummary: String {
+        if let nearbyLocation {
+            if !elapsedTimeString.isEmpty {
+                return "At \(nearbyLocation) · \(elapsedTimeString)"
+            }
+            return "At \(nearbyLocation)"
+        }
+
+        if let distanceToNearest {
+            return "Nearest saved place is \(formatDistanceForSummary(distanceToNearest)) away"
+        }
+
+        return currentLocationName
+    }
+
+    private var hubBackgroundColor: Color {
+        colorScheme == .dark ? Color.black : Color.emailLightBackground
+    }
+
+    private var hubCardBackground: some View {
+        RoundedRectangle(cornerRadius: 16)
+            .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSectionCard)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+            )
+            .shadow(
+                color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
+                radius: 8,
+                x: 0,
+                y: 2
+            )
+    }
+
+    private var hubInnerSurfaceColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface
+    }
+
+    private var hubPrimaryTextColor: Color {
+        colorScheme == .dark ? .white : Color.emailLightTextPrimary
+    }
+
+    private var hubSecondaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.62) : Color.emailLightTextSecondary
+    }
+
+    private var hubAccentColor: Color {
+        colorScheme == .dark ? Color.claudeAccent.opacity(0.95) : Color.claudeAccent
+    }
+
+    private var filteredSavedPlacesForQuery: [SavedPlace] {
+        let base = getFilteredPlaces()
+        let query = locationSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return base }
+
+        return base.filter { place in
+            place.displayName.lowercased().contains(query)
+                || place.address.lowercased().contains(query)
+                || place.category.lowercased().contains(query)
+                || (place.city?.lowercased().contains(query) ?? false)
+                || (place.province?.lowercased().contains(query) ?? false)
+                || (place.country?.lowercased().contains(query) ?? false)
+        }
+    }
+
+    private var savedFolderRows: [(name: String, count: Int)] {
+        Dictionary(grouping: filteredSavedPlacesForQuery, by: { $0.category })
+            .map { (name: $0.key, count: $0.value.count) }
+            .sorted { lhs, rhs in
+                if lhs.count == rhs.count {
+                    return lhs.name < rhs.name
+                }
+                return lhs.count > rhs.count
+            }
+    }
+
+    private var todayVisitCount: Int {
+        let calendar = Calendar.current
+        return hubPeriodVisits.filter { calendar.isDateInToday($0.entryTime) }.count
+    }
+
+    private var todayVisitMinutes: Int {
+        let calendar = Calendar.current
+        return hubPeriodVisits.reduce(0) { total, visit in
+            guard calendar.isDateInToday(visit.entryTime) else { return total }
+            let duration = max(visit.durationMinutes ?? Int(Date().timeIntervalSince(visit.entryTime) / 60), 1)
+            return total + duration
+        }
+    }
+
+    private var peopleAddedThisMonth: Int {
+        let calendar = Calendar.current
+        let now = Date()
+        return peopleManager.people.filter {
+            calendar.isDate($0.dateModified, equalTo: now, toGranularity: .month)
+        }.count
+    }
+
+    private func mapsSectionCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22)
+                            .stroke(
+                                colorScheme == .dark
+                                    ? Color.white.opacity(0.08)
+                                    : Color.emailLightBorder.opacity(0.65),
+                                lineWidth: 1
+                            )
+                    )
+            )
+            .shadow(
+                color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
+                radius: 14,
+                x: 0,
+                y: 4
+            )
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+    }
+
+    private func mapsMiniMetric(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(hubSecondaryTextColor)
+                .lineLimit(1)
+
+            Text(value)
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(hubPrimaryTextColor)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(hubInnerSurfaceColor)
+        )
+    }
+
+    private func formatDuration(minutes: Int) -> String {
+        if minutes < 60 {
+            return "\(minutes)m"
+        }
+
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+        if remainingMinutes == 0 {
+            return "\(hours)h"
+        }
+        return "\(hours)h \(remainingMinutes)m"
+    }
+
+    private func formatDistanceForSummary(_ distance: CLLocationDistance) -> String {
+        if distance < 1000 {
+            return "\(Int(distance.rounded()))m"
+        }
+        return String(format: "%.1fkm", distance / 1000)
+    }
+
+    private func openHubDetail(_ detail: HubDetailSection) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selectedHubDetail = detail
+            isLocationSearchActive = false
+            isPeopleSearchActive = false
+            isSearchFocused = false
+            selectedCategory = nil
+        }
+    }
+
+    private func closeHubDetail() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selectedHubDetail = .places
+            selectedCategory = nil
+            isLocationSearchActive = false
+            isPeopleSearchActive = false
+            isSearchFocused = false
+            locationSearchText = ""
+        }
+    }
+
+    @MainActor
+    private func refreshHubData() async {
+        loadTopLocations()
+        loadRecentlyVisited()
+        await loadHubPeriodVisits()
+    }
+
+    @MainActor
+    private func loadHubPeriodVisits() async {
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
+            hubPeriodVisits = []
+            isLoadingHubPeriodVisits = false
+            return
+        }
+
+        isLoadingHubPeriodVisits = true
+
+        let range = hubDateRange
+        let fetched = await geofenceManager.fetchRecentVisits(
+            userId: userId,
+            since: range.start,
+            limit: hubVisitFetchLimit
+        )
+
+        let filtered = fetched
+            .filter { $0.entryTime >= range.start && $0.entryTime <= range.end }
+            .sorted { $0.entryTime > $1.entryTime }
+
+        hubPeriodVisits = filtered
+        isLoadingHubPeriodVisits = false
     }
     
     // MARK: - Floating Add Button
@@ -406,11 +1333,15 @@ struct MapsViewNew: View, Searchable {
                         }) {
                             Image(systemName: "plus")
                                 .font(FontManager.geist(size: 20, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Color.black.opacity(0.9))
                                 .frame(width: 56, height: 56)
                                 .background(
                                     Circle()
-                                        .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
+                                        .fill(Color.white)
+                                )
+                                .overlay(
+                                    Circle()
+                                        .stroke(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.1), lineWidth: 0.8)
                                 )
                                 .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                         }
@@ -474,6 +1405,7 @@ struct MapsViewNew: View, Searchable {
         }
         
         locationService.requestLocationPermission()
+        await loadHubPeriodVisits()
     }
     
     private func handleLocationUpdate() {
@@ -489,6 +1421,7 @@ struct MapsViewNew: View, Searchable {
     private func handleExternalFolderSelection(_ newFolder: String?) {
         if let folder = newFolder {
             withAnimation(.spring(response: 0.3)) {
+                selectedHubDetail = .places
                 selectedCategory = folder
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -500,6 +1433,9 @@ struct MapsViewNew: View, Searchable {
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         if newPhase == .active {
             updateCurrentLocation()
+            Task {
+                await loadHubPeriodVisits()
+            }
             if nearbyLocation != nil {
                 startLocationTimer()
             }
@@ -518,80 +1454,234 @@ struct MapsViewNew: View, Searchable {
 
     @ViewBuilder
     private var locationsTabContent: some View {
-        VStack(spacing: 0) {
-            // Header with "Saved Locations" title and Add button
-            HStack(spacing: 12) {
-                Text("Saved Locations")
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-                Spacer()
+        VStack(spacing: 14) {
+            savedLocationsHeader
+                .alert("New Folder", isPresented: $showNewFolderAlert) {
+                    TextField("Folder name", text: $newFolderName)
+                    Button("Cancel", role: .cancel) {
+                        newFolderName = ""
+                    }
+                    Button("Create") {
+                        locationsManager.addFolder(newFolderName)
+                        newFolderName = ""
+                    }
+                } message: {
+                    Text("Enter a name for the new folder")
+                }
 
-                // Add folder icon button
-                Button(action: {
-                    newFolderName = ""
-                    showNewFolderAlert = true
-                }) {
-                    Image(systemName: "folder.badge.plus")
-                        .font(FontManager.geist(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.white : Color.black)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
+            if filteredSavedPlacesForQuery.isEmpty {
+                mapsSectionCard {
+                    VStack(spacing: 14) {
+                        Image(systemName: "map")
+                            .font(FontManager.geist(size: 34, weight: .light))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.5))
 
-                // Add button in top right
-                Button(action: {
-                    showSearchModal = true
-                }) {
-                    Text("Add")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white : Color.black)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 12)
-            .alert("New Folder", isPresented: $showNewFolderAlert) {
-                TextField("Folder name", text: $newFolderName)
-                Button("Cancel", role: .cancel) {
-                    newFolderName = ""
-                }
-                Button("Create") {
-                    locationsManager.addFolder(newFolderName)
-                    newFolderName = ""
-                }
-            } message: {
-                Text("Enter a name for the new folder")
-            }
+                        Text("No saved places yet")
+                            .font(FontManager.geist(size: 17, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.85))
 
-            if locationsManager.categories.isEmpty {
-                VStack(spacing: 16) {
-                    Image(systemName: "map").font(FontManager.geist(size: 48, weight: .light)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                    Text("No saved places yet").font(FontManager.geist(size: 18, weight: .medium)).foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                    Text("Search for places and save them to categories").font(FontManager.geist(size: 14, weight: .regular)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)).multilineTextAlignment(.center)
-                }.padding(.top, 60)
-            } else if selectedCategory == nil {
-                VStack(spacing: 16) {
-                    miniMapSection
-                    favoritesSection
-                    expandableCategoriesSection
+                        Text("Add locations to build your map and timeline.")
+                            .font(FontManager.geist(size: 13, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.55))
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
                 }
+            } else {
+                savedOverviewCard
+                favoritesSection
+                miniMapSection
+                savedFoldersSection
             }
 
             Spacer().frame(height: 100)
+        }
+        .padding(.top, 12)
+    }
+
+    private var savedLocationsHeader: some View {
+        HStack(spacing: 12) {
+            Text("Saved Locations")
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.6))
+                .textCase(.uppercase)
+                .tracking(0.5)
+            Spacer()
+
+            Button(action: {
+                newFolderName = ""
+                showNewFolderAlert = true
+            }) {
+                Image(systemName: "folder.badge.plus")
+                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .black : .white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(colorScheme == .dark ? Color.white : Color.black)
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Button(action: {
+                showSearchModal = true
+            }) {
+                Text("Add")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .black : .white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white : Color.black)
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private var savedOverviewCard: some View {
+        mapsSectionCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Current location")
+                            .font(FontManager.geist(size: 11, weight: .medium))
+                            .foregroundColor(hubSecondaryTextColor)
+                            .textCase(.uppercase)
+                            .tracking(0.4)
+                        Text(hubCurrentLocationSummary)
+                            .font(FontManager.geist(size: 14, weight: .semibold))
+                            .foregroundColor(hubPrimaryTextColor)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Circle()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.22) : Color.black.opacity(0.08))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Circle()
+                                .fill(
+                                    nearbyLocation == nil
+                                        ? (colorScheme == .dark ? Color.white.opacity(0.26) : Color.black.opacity(0.2))
+                                        : Color.green
+                                )
+                                .frame(width: 10, height: 10)
+                        )
+                }
+
+                HStack(spacing: 10) {
+                    mapsMiniMetric(title: "Saved", value: "\(filteredSavedPlacesForQuery.count)")
+                    mapsMiniMetric(title: "Favorites", value: "\(filteredSavedPlacesForQuery.filter(\.isFavourite).count)")
+                    mapsMiniMetric(title: "Active today", value: "\(todayVisitCount)")
+                }
+            }
+        }
+    }
+
+    private var savedFoldersSection: some View {
+        mapsSectionCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text("Folders")
+                        .font(FontManager.geist(size: 13, weight: .semibold))
+                        .foregroundColor(hubPrimaryTextColor)
+                    Spacer()
+                    Text("\(savedFolderRows.count)")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(hubSecondaryTextColor)
+                }
+
+                if savedFolderRows.isEmpty {
+                    Text("No folders match this search.")
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(hubSecondaryTextColor)
+                        .padding(.vertical, 6)
+                } else {
+                    ForEach(savedFolderRows, id: \.name) { folder in
+                        let isExpanded = selectedCategory == folder.name
+                        let folderPlaces = filteredSavedPlacesForQuery
+                            .filter { $0.category == folder.name }
+                            .sorted { $0.displayName < $1.displayName }
+
+                        Button(action: {
+                            HapticManager.shared.selection()
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedCategory = isExpanded ? nil : folder.name
+                            }
+                        }) {
+                            HStack(spacing: 10) {
+                                Text(folder.name)
+                                    .font(FontManager.geist(size: 14, weight: .medium))
+                                    .foregroundColor(hubPrimaryTextColor)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text("\(folder.count)")
+                                    .font(FontManager.geist(size: 13, weight: .semibold))
+                                    .foregroundColor(hubSecondaryTextColor)
+                                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(hubSecondaryTextColor.opacity(0.8))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 11)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(hubInnerSurfaceColor)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        if isExpanded {
+                            VStack(spacing: 8) {
+                                if folderPlaces.isEmpty {
+                                    Text("No locations in this folder")
+                                        .font(FontManager.geist(size: 12, weight: .regular))
+                                        .foregroundColor(hubSecondaryTextColor)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 10)
+                                } else {
+                                    ForEach(folderPlaces, id: \.id) { place in
+                                        Button(action: {
+                                            selectedPlace = place
+                                        }) {
+                                            HStack(spacing: 10) {
+                                                PlaceImageView(place: place, size: 28, cornerRadius: 8)
+
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(place.displayName)
+                                                        .font(FontManager.geist(size: 13, weight: .medium))
+                                                        .foregroundColor(hubPrimaryTextColor)
+                                                        .lineLimit(1)
+                                                    Text(place.address)
+                                                        .font(FontManager.geist(size: 11, weight: .regular))
+                                                        .foregroundColor(hubSecondaryTextColor)
+                                                        .lineLimit(1)
+                                                }
+
+                                                Spacer()
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 10)
+                                                    .fill(hubInnerSurfaceColor.opacity(colorScheme == .dark ? 0.8 : 1))
+                                            )
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+                                    }
+                                }
+                            }
+                            .padding(.top, 4)
+                            .padding(.bottom, 6)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -690,19 +1780,30 @@ struct MapsViewNew: View, Searchable {
 
     @ViewBuilder
     private var miniMapSection: some View {
-        VStack(spacing: 0) {
-            MiniMapView(
-                places: getFilteredPlaces(),
-                currentLocation: locationService.currentLocation,
-                colorScheme: colorScheme,
-                onPlaceTap: { place in
-                    selectedPlace = place
-                },
-                onExpandTap: {
-                    showFullMapView = true
-                }
-            )
-            .frame(height: 180)
+        mapsSectionCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Map")
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(hubPrimaryTextColor)
+
+                Text("Drag to explore - Tap expand for full view")
+                    .font(FontManager.geist(size: 11, weight: .regular))
+                    .foregroundColor(hubSecondaryTextColor)
+
+                MiniMapView(
+                    places: filteredSavedPlacesForQuery,
+                    currentLocation: locationService.currentLocation,
+                    colorScheme: colorScheme,
+                    onPlaceTap: { place in
+                        selectedPlace = place
+                    },
+                    onExpandTap: {
+                        showFullMapView = true
+                    }
+                )
+                .frame(height: 168)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
         }
     }
 
@@ -819,6 +1920,42 @@ struct MapsViewNew: View, Searchable {
     @ViewBuilder
     private var timelineTabContent: some View {
         LocationTimelineView(colorScheme: colorScheme)
+    }
+
+    private var peopleOverviewCard: some View {
+        mapsSectionCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("People")
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(hubPrimaryTextColor)
+
+                HStack(spacing: 10) {
+                    mapsMiniMetric(title: "People", value: "\(peopleManager.people.count)")
+                    mapsMiniMetric(title: "Favorites", value: "\(peopleManager.people.filter(\.isFavourite).count)")
+                    mapsMiniMetric(title: "New month", value: "\(peopleAddedThisMonth)")
+                }
+            }
+        }
+    }
+
+    private var timelineOverviewCard: some View {
+        mapsSectionCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Timeline")
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(hubPrimaryTextColor)
+
+                Text(Date(), format: .dateTime.weekday(.wide).month(.wide).day())
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(hubPrimaryTextColor)
+
+                HStack(spacing: 10) {
+                    mapsMiniMetric(title: "Visits today", value: "\(todayVisitCount)")
+                    mapsMiniMetric(title: "Saved places", value: "\(filteredSavedPlacesForQuery.count)")
+                    mapsMiniMetric(title: "Time", value: formatDuration(minutes: todayVisitMinutes))
+                }
+            }
+        }
     }
 
     // MARK: - Current Location Tracking
@@ -1191,24 +2328,6 @@ struct MapsViewNew: View, Searchable {
     }
 
 
-    // MARK: - Helper Functions
-
-    private func tabForegroundColor(isSelected: Bool) -> Color {
-        if isSelected {
-            return colorScheme == .dark ? .black : .white
-        } else {
-            return colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)
-        }
-    }
-
-    private func tabBackgroundColor() -> Color {
-        return colorScheme == .dark ? .white : .black
-    }
-
-    private func tabContainerColor() -> Color {
-        return colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)
-    }
-
     // MARK: - Searchable Protocol
 
     func getSearchableContent() -> [SearchableItem] {
@@ -1422,7 +2541,6 @@ struct FolderOverlayView: View {
     let onClose: () -> Void
 
     @StateObject private var locationsManager = LocationsManager.shared
-    @State private var backgroundImage: UIImage? = nil
     @State private var showingRenameAlert = false
     @State private var showingDeleteConfirm = false
     @State private var showingPlaceDetail = false
@@ -1509,18 +2627,8 @@ struct FolderOverlayView: View {
 
     var body: some View {
         ZStack {
-            // Background image (captured screenshot) - blurred and grayed out
-            if let bgImage = backgroundImage {
-                Image(uiImage: bgImage)
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-                    .blur(radius: 10)  // Blur the background
-                    .grayscale(0.5)    // Gray out the background
-            }
-
-            // Dimmed overlay
-            Color.black.opacity(0.2)
+            // Stable dim backdrop (avoids screenshot-capture related crashes on some devices).
+            Color.black.opacity(0.45)
                 .ignoresSafeArea()
                 .onTapGesture {
                     onClose()
@@ -1656,10 +2764,6 @@ struct FolderOverlayView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .ignoresSafeArea()
-        .onAppear {
-            // Capture screenshot when view appears
-            backgroundImage = captureScreen()
-        }
         .alert("Rename Place", isPresented: $showingRenameAlert) {
             TextField("Place name", text: $newPlaceName)
             Button("Cancel", role: .cancel) {
@@ -1891,7 +2995,7 @@ struct MiniMapView: View {
 
     var body: some View {
         ZStack {
-            Map(coordinateRegion: .constant(region), showsUserLocation: true, annotationItems: places) { place in
+            Map(coordinateRegion: $region, showsUserLocation: true, annotationItems: places) { place in
                 MapAnnotation(coordinate: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)) {
                     MiniMapAnnotationView(onTap: {
                         onPlaceTap(place)
@@ -1904,7 +3008,22 @@ struct MiniMapView: View {
             VStack {
                 Spacer()
                 HStack {
+                    Button(action: {
+                        centerOnCurrentLocation()
+                    }) {
+                        Image(systemName: "location.fill")
+                            .font(FontManager.geist(size: 11, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(8)
+                            .background(Color.black.opacity(0.6))
+                            .clipShape(Circle())
+                    }
+                    .disabled(currentLocation == nil)
+                    .opacity(currentLocation == nil ? 0.55 : 1.0)
+                    .padding(8)
+
                     Spacer()
+
                     Button(action: {
                         onExpandTap()
                     }) {
@@ -1941,12 +3060,12 @@ struct MiniMapView: View {
                 center: currentLoc.coordinate,
                 span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
             )
-        } else if !places.isEmpty {
+        } else if let firstPlace = places.first {
             // Calculate region to fit all places
-            var minLat = places[0].latitude
-            var maxLat = places[0].latitude
-            var minLon = places[0].longitude
-            var maxLon = places[0].longitude
+            var minLat = firstPlace.latitude
+            var maxLat = firstPlace.latitude
+            var minLon = firstPlace.longitude
+            var maxLon = firstPlace.longitude
 
             for place in places {
                 minLat = min(minLat, place.latitude)
@@ -1965,6 +3084,14 @@ struct MiniMapView: View {
             )
 
             region = MKCoordinateRegion(center: center, span: span)
+        }
+    }
+
+    private func centerOnCurrentLocation() {
+        guard let currentLoc = currentLocation else { return }
+        withAnimation(.easeInOut(duration: 0.25)) {
+            region.center = currentLoc.coordinate
+            region.span = MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
         }
     }
     
@@ -2236,12 +3363,12 @@ struct FullMapView: View {
                 center: currentLoc.coordinate,
                 span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
             )
-        } else if !places.isEmpty {
+        } else if let firstPlace = places.first {
             // Calculate region to fit all places
-            var minLat = places[0].latitude
-            var maxLat = places[0].latitude
-            var minLon = places[0].longitude
-            var maxLon = places[0].longitude
+            var minLat = firstPlace.latitude
+            var maxLat = firstPlace.latitude
+            var minLon = firstPlace.longitude
+            var maxLon = firstPlace.longitude
 
             for place in places {
                 minLat = min(minLat, place.latitude)
@@ -2443,20 +3570,24 @@ struct MapAnnotationView: View {
     let place: SavedPlace
     let colorScheme: ColorScheme
     let onTap: () -> Void
-    
-    @State private var dragOffset: CGSize = .zero
-    
+
     var body: some View {
         VStack(spacing: 4) {
-            ZStack {
-                Circle()
-                    .fill(Color.red)
-                    .frame(width: 16, height: 16)
-                Circle()
-                    .stroke(Color.white, lineWidth: 2.5)
-                    .frame(width: 16, height: 16)
+            Button(action: {
+                HapticManager.shared.selection()
+                onTap()
+            }) {
+                ZStack {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 16, height: 16)
+                    Circle()
+                        .stroke(Color.white, lineWidth: 2.5)
+                        .frame(width: 16, height: 16)
+                }
             }
-            
+            .buttonStyle(.plain)
+
             Text(place.displayName)
                 .font(FontManager.geist(size: 10, weight: .semibold))
                 .foregroundColor(.white)
@@ -2466,56 +3597,29 @@ struct MapAnnotationView: View {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(Color.black.opacity(0.75))
                 )
+                .allowsHitTesting(false)
         }
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    dragOffset = value.translation
-                }
-                .onEnded { value in
-                    // Only trigger tap if drag distance is very small (< 10 points)
-                    let dragDistance = sqrt(pow(value.translation.width, 2) + pow(value.translation.height, 2))
-                    if dragDistance < 10 {
-                        HapticManager.shared.selection()
-                        onTap()
-                    }
-                    dragOffset = .zero
-                }
-        )
     }
 }
 
 struct MiniMapAnnotationView: View {
     let onTap: () -> Void
-    
-    @State private var dragOffset: CGSize = .zero
-    
+
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color.red)
-                .frame(width: 12, height: 12)
-            Circle()
-                .stroke(Color.white, lineWidth: 2)
-                .frame(width: 12, height: 12)
+        Button(action: {
+            HapticManager.shared.selection()
+            onTap()
+        }) {
+            ZStack {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 12, height: 12)
+                Circle()
+                    .stroke(Color.white, lineWidth: 2)
+                    .frame(width: 12, height: 12)
+            }
         }
-        .contentShape(Circle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    dragOffset = value.translation
-                }
-                .onEnded { value in
-                    // Only trigger tap if drag distance is very small (< 10 points)
-                    let dragDistance = sqrt(pow(value.translation.width, 2) + pow(value.translation.height, 2))
-                    if dragDistance < 10 {
-                        HapticManager.shared.selection()
-                        onTap()
-                    }
-                    dragOffset = .zero
-                }
-        )
+        .buttonStyle(.plain)
     }
 }
 

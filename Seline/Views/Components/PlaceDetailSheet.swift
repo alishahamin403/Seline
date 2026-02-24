@@ -13,6 +13,18 @@ struct PlaceDetailSheet: View {
         !place.name.isEmpty && !place.address.isEmpty && !place.displayName.isEmpty
     }
 
+    private var pageBackgroundColor: Color {
+        colorScheme == .dark ? Color.gmailDarkBackground : Color.white
+    }
+
+    private var sectionFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03)
+    }
+
+    private var sectionBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if !isPlaceDataComplete {
@@ -31,185 +43,101 @@ struct PlaceDetailSheet: View {
                         .ignoresSafeArea()
                 )
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        // Top padding
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 14) {
                         Spacer()
                             .frame(height: 8)
-                        // Photos carousel
-                        if !place.photos.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
-                                    ForEach(place.photos.indices, id: \.self) { index in
-                                        AsyncImage(url: URL(string: place.photos[index])) { phase in
-                                            switch phase {
-                                            case .empty:
-                                                ProgressView()
-                                                    .frame(width: 280, height: 200)
-                                            case .success(let image):
-                                                image
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: .fill)
-                                                    .frame(width: 280, height: 200)
-                                                    .clipped()
-                                                    .cornerRadius(12)
-                                            case .failure:
-                                                RoundedRectangle(cornerRadius: 12)
-                                                    .fill(Color.gray.opacity(0.3))
-                                                    .frame(width: 280, height: 200)
-                                                    .overlay(
-                                                        Image(systemName: "photo")
-                                                            .font(FontManager.geist(size: 40, weight: .regular))
-                                                            .foregroundColor(.gray)
-                                                    )
-                                            @unknown default:
-                                                EmptyView()
+
+                        sectionCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(place.displayName)
+                                        .font(FontManager.geist(size: 34, weight: .bold))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                    HStack(spacing: 8) {
+                                        Text(place.category)
+                                            .font(FontManager.geist(size: 12, weight: .semibold))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 5)
+                                            .background(
+                                                Capsule()
+                                                    .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                                            )
+
+                                        if let rating = place.rating {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "star.fill")
+                                                    .font(FontManager.geist(size: 12, weight: .semibold))
+                                                    .foregroundColor(.yellow)
+                                                Text(String(format: "%.1f", rating))
+                                                    .font(FontManager.geist(size: 14, weight: .semibold))
+                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
                                             }
                                         }
                                     }
                                 }
-                                .padding(.horizontal, 20)
-                            }
-                        }
 
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Place name and category
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(place.displayName)
-                                .font(FontManager.geist(size: 24, weight: .bold))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                Text(place.address)
+                                    .font(FontManager.geist(size: 16, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.82) : Color.black.opacity(0.82))
 
-                            HStack(spacing: 8) {
-                                // Category badge
-                                Text(place.category)
-                                    .font(FontManager.geist(size: 12, weight: .medium))
-                                    .foregroundColor(
-                                        colorScheme == .dark ?
-                                            Color.white :
-                                            Color.black
-                                    )
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(
-                                                colorScheme == .dark ?
-                                                    Color.white.opacity(0.2) :
-                                                    Color.black.opacity(0.1)
-                                            )
-                                    )
+                                HStack(spacing: 10) {
+                                    if let phone = place.phone {
+                                        Button(action: { callPhone(phone) }) {
+                                            Text("Call")
+                                                .font(FontManager.geist(size: 14, weight: .semibold))
+                                                .foregroundColor(colorScheme == .dark ? .black : .white)
+                                                .padding(.horizontal, 18)
+                                                .padding(.vertical, 9)
+                                                .background(
+                                                    Capsule()
+                                                        .fill(colorScheme == .dark ? Color.white : Color.black)
+                                                )
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+                                    }
 
-                                // Rating
-                                if let rating = place.rating {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "star.fill")
-                                            .font(FontManager.geist(size: 14, weight: .regular))
-                                            .foregroundColor(.yellow)
-
-                                        Text(String(format: "%.1f", rating))
+                                    Button(action: { openInMaps(place: place) }) {
+                                        Text("Directions")
                                             .font(FontManager.geist(size: 14, weight: .semibold))
                                             .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            .padding(.horizontal, 18)
+                                            .padding(.vertical, 9)
+                                            .background(
+                                                Capsule()
+                                                    .fill(colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.06))
+                                            )
                                     }
+                                    .buttonStyle(PlainButtonStyle())
                                 }
                             }
                         }
 
-                        // Address with Maps button
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Address")
-                                .font(FontManager.geist(size: 12, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                            HStack(alignment: .top, spacing: 12) {
-                                Text(place.address)
-                                    .font(FontManager.geist(size: 15, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                
-                                Spacer()
-                                
-                                // Maps button (pill-shaped)
-                                Button(action: {
-                                    openInMaps(place: place)
-                                }) {
-                                    Text("Maps")
-                                        .font(FontManager.geist(size: 13, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(
-                                            Capsule()
-                                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1))
-                                        )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                        }
-
-                        // Phone number
-                        if let phone = place.phone {
-                            Button(action: {
-                                callPhone(phone)
-                            }) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "phone.fill")
-                                        .font(FontManager.geist(size: 20, weight: .regular))
-                                        .foregroundColor(
-                                            colorScheme == .dark ?
-                                                Color.white :
-                                                Color.black
-                                        )
-
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Phone")
-                                            .font(FontManager.geist(size: 12, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                                        Text(phone)
-                                            .font(FontManager.geist(size: 15, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    }
-
-                                    Spacer()
-
-                                    Image(systemName: "chevron.right")
-                                        .font(FontManager.geist(size: 14, weight: .semibold))
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                                }
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
-                        
-                        // Opening Hours
                         if let hours = place.openingHours, !hours.isEmpty {
-                            OpeningHoursSection(hours: hours, colorScheme: colorScheme)
+                            sectionCard {
+                                OpeningHoursSection(hours: hours, colorScheme: colorScheme)
+                            }
                         }
-                        
-                        // Location Memories (what user usually gets, why they visit)
-                        LocationMemorySection(place: place, colorScheme: colorScheme)
 
-                        // Visit Stats and History (not shown in Ranking tab)
+                        sectionCard {
+                            LocationMemorySection(place: place, colorScheme: colorScheme)
+                        }
+
                         if !isFromRanking {
-                            VisitStatsCard(place: place)
-
-                            VisitHistoryCard(place: place)
+                            PlaceVisitCalendarHistoryCard(place: place)
                         }
+
+                        Spacer()
+                            .frame(height: 40)
                     }
                     .padding(.horizontal, 20)
-
-                    Spacer()
-                        .frame(height: 40)
                 }
-            }
-            .background(
-                (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-                    .ignoresSafeArea()
-            )
+                .background(pageBackgroundColor)
             }
         }
-        .background(
-            (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-                .ignoresSafeArea()
-        )
+        .background(pageBackgroundColor.ignoresSafeArea())
         .alert("Choose Map App", isPresented: $showingMapSelection) {
             Button("Google Maps") {
                 UserDefaults.standard.set("google", forKey: "preferredMapApp")
@@ -223,6 +151,20 @@ struct PlaceDetailSheet: View {
         } message: {
             Text("Which map app would you like to use? This will be your default choice.")
         }
+    }
+
+    @ViewBuilder
+    private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(sectionFillColor)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22)
+                            .stroke(sectionBorderColor, lineWidth: 1)
+                    )
+            )
     }
 
     private func callPhone(_ phone: String) {
@@ -251,6 +193,554 @@ struct PlaceDetailSheet: View {
             // First time - show selection
             showingMapSelection = true
         }
+    }
+}
+
+// MARK: - Calendar Visit History
+
+struct PlaceVisitCalendarHistoryCard: View {
+    let place: SavedPlace
+    @Environment(\.colorScheme) var colorScheme
+
+    @State private var visitHistory: [VisitHistoryItem] = []
+    @State private var stats: LocationVisitStats?
+    @State private var isLoading = false
+    @State private var currentMonth = Calendar.current.startOfDay(for: Date())
+    @State private var selectedDate = Calendar.current.startOfDay(for: Date())
+    @State private var monthPageSelection: Int = 1
+
+    private let calendar = Calendar.current
+    private let rowHeight: CGFloat = 50
+
+    private var cardFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03)
+    }
+
+    private var cardBorder: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08)
+    }
+
+    private var primaryText: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var secondaryText: Color {
+        colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.62)
+    }
+
+    private var groupedByDay: [Date: [VisitHistoryItem]] {
+        Dictionary(grouping: visitHistory) { item in
+            normalizeDate(item.visit.entryTime)
+        }
+    }
+
+    private var selectedDayVisits: [VisitHistoryItem] {
+        groupedByDay[normalizeDate(selectedDate)]?
+            .sorted { $0.visit.entryTime > $1.visit.entryTime } ?? []
+    }
+
+    private var selectedDayDurationMinutes: Int {
+        selectedDayVisits.reduce(0) { total, item in
+            total + effectiveDurationMinutes(for: item.visit)
+        }
+    }
+
+    private var monthVisitCount: Int {
+        let interval = calendar.dateInterval(of: .month, for: currentMonth)
+        return visitHistory.filter { item in
+            guard let interval else { return false }
+            return interval.contains(item.visit.entryTime)
+        }.count
+    }
+
+    private var monthAverageDuration: String {
+        let interval = calendar.dateInterval(of: .month, for: currentMonth)
+        let monthly = visitHistory.filter { item in
+            guard let interval else { return false }
+            return interval.contains(item.visit.entryTime)
+        }
+        guard !monthly.isEmpty else { return "0 min" }
+        let total = monthly.reduce(0) { $0 + effectiveDurationMinutes(for: $1.visit) }
+        return formatDuration(max(total / monthly.count, 0))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Visit History")
+                    .font(FontManager.geist(size: 18, weight: .semibold))
+                    .foregroundColor(primaryText)
+
+                Spacer()
+
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else {
+                    Text("\(visitHistory.count) total")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(secondaryText)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.05))
+                        )
+                }
+            }
+
+            monthInsightsRow
+            calendarSection
+            selectedDaySection
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 22)
+                .fill(cardFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22)
+                        .stroke(cardBorder, lineWidth: 1)
+                )
+        )
+        .onAppear {
+            loadData()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
+            loadData()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
+            loadData()
+        }
+    }
+
+    private var monthInsightsRow: some View {
+        HStack(spacing: 10) {
+            summaryTile(title: "This month", value: "\(monthVisitCount) visits")
+            summaryTile(title: "Avg duration", value: monthAverageDuration)
+            summaryTile(title: "All visits", value: "\(stats?.totalVisits ?? visitHistory.count)")
+        }
+    }
+
+    private func summaryTile(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(secondaryText)
+            Text(value)
+                .font(FontManager.geist(size: 16, weight: .semibold))
+                .foregroundColor(primaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+        )
+    }
+
+    private var calendarSection: some View {
+        VStack(spacing: 0) {
+            calendarHeader
+            weekdayHeader
+            swipeableMonthGrid
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(cardBorder, lineWidth: 1)
+                )
+        )
+    }
+
+    private var calendarHeader: some View {
+        HStack {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    shiftMonth(by: -1)
+                }
+                HapticManager.shared.selection()
+            }) {
+                Image(systemName: "chevron.left")
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(primaryText)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.05))
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Spacer()
+
+            Text(monthHeaderFormatter.string(from: currentMonth))
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(primaryText)
+
+            Spacer()
+
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    let today = calendar.startOfDay(for: Date())
+                    currentMonth = today
+                    selectedDate = today
+                    monthPageSelection = 1
+                }
+                HapticManager.shared.selection()
+            }) {
+                Text("Today")
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(primaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.05))
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    shiftMonth(by: 1)
+                }
+                HapticManager.shared.selection()
+            }) {
+                Image(systemName: "chevron.right")
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(primaryText)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.05))
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+    }
+
+    private var weekdayHeader: some View {
+        HStack(spacing: 0) {
+            ForEach(["S", "M", "T", "W", "T", "F", "S"], id: \.self) { day in
+                Text(day)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(secondaryText)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private var swipeableMonthGrid: some View {
+        TabView(selection: $monthPageSelection) {
+            monthGrid(for: monthOffset(-1))
+                .frame(height: CGFloat(weeksInMonth(for: monthOffset(-1)).count) * rowHeight, alignment: .top)
+                .tag(0)
+
+            monthGrid(for: currentMonth)
+                .frame(height: CGFloat(weeksInMonth(for: currentMonth).count) * rowHeight, alignment: .top)
+                .tag(1)
+
+            monthGrid(for: monthOffset(1))
+                .frame(height: CGFloat(weeksInMonth(for: monthOffset(1)).count) * rowHeight, alignment: .top)
+                .tag(2)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: CGFloat(weeksInMonth(for: currentMonth).count) * rowHeight)
+        .padding(.bottom, 10)
+        .onChange(of: monthPageSelection) { newValue in
+            guard newValue != 1 else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                shiftMonth(by: newValue == 0 ? -1 : 1)
+            }
+            DispatchQueue.main.async {
+                monthPageSelection = 1
+            }
+        }
+    }
+
+    private func monthGrid(for month: Date) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(weeksInMonth(for: month).enumerated()), id: \.offset) { _, week in
+                HStack(spacing: 0) {
+                    ForEach(Array(week.enumerated()), id: \.offset) { _, date in
+                        if let date {
+                            calendarDayCell(for: date, in: month)
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Color.clear
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .frame(height: rowHeight)
+            }
+        }
+    }
+
+    private func calendarDayCell(for date: Date, in month: Date) -> some View {
+        let normalized = normalizeDate(date)
+        let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
+        let isToday = calendar.isDateInToday(date)
+        let inCurrentMonth = calendar.isDate(date, equalTo: month, toGranularity: .month)
+        let dots = min(groupedByDay[normalized]?.count ?? 0, 3)
+
+        return Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedDate = normalized
+            }
+            HapticManager.shared.selection()
+        }) {
+            VStack(spacing: 4) {
+                Text("\(calendar.component(.day, from: date))")
+                    .font(FontManager.geist(size: 12, weight: isToday || isSelected ? .semibold : .regular))
+                    .foregroundColor(
+                        isSelected ? (colorScheme == .dark ? .black : .white) :
+                        !inCurrentMonth ? secondaryText.opacity(0.55) :
+                        primaryText
+                    )
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Group {
+                            if isSelected {
+                                Circle().fill(colorScheme == .dark ? Color.white : Color.black)
+                            } else if isToday {
+                                Circle()
+                                    .stroke(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.3), lineWidth: 1.5)
+                            }
+                        }
+                    )
+
+                if dots > 0 {
+                    HStack(spacing: 2) {
+                        ForEach(0..<dots, id: \.self) { _ in
+                            Circle()
+                                .fill(isSelected ? (colorScheme == .dark ? Color.black : Color.white) : primaryText.opacity(0.8))
+                                .frame(width: 3.5, height: 3.5)
+                        }
+                    }
+                } else {
+                    Color.clear.frame(height: 3.5)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 38)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    @ViewBuilder
+    private var selectedDaySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(selectedDayTitle)
+                    .font(FontManager.geist(size: 16, weight: .semibold))
+                    .foregroundColor(primaryText)
+
+                Spacer()
+
+                Text("\(selectedDayVisits.count) visit\(selectedDayVisits.count == 1 ? "" : "s") · \(formatDuration(selectedDayDurationMinutes))")
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(secondaryText)
+            }
+
+            if selectedDayVisits.isEmpty {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+                    .frame(height: 86)
+                    .overlay(
+                        Text("No visits on this day")
+                            .font(FontManager.geist(size: 14, weight: .medium))
+                            .foregroundColor(secondaryText)
+                    )
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(selectedDayVisits, id: \.visit.id) { item in
+                        PlaceDayVisitRow(visit: item.visit)
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadData() {
+        isLoading = true
+        Task {
+            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+            let fetched = await LocationVisitAnalytics.shared.fetchVisitHistory(for: place.id, limit: 500)
+
+            await MainActor.run {
+                visitHistory = fetched
+                stats = LocationVisitAnalytics.shared.visitStats[place.id]
+
+                if groupedByDay[normalizeDate(selectedDate)] == nil,
+                   let latest = fetched.first?.visit.entryTime {
+                    selectedDate = normalizeDate(latest)
+                }
+
+                if !calendar.isDate(currentMonth, equalTo: selectedDate, toGranularity: .month) {
+                    currentMonth = selectedDate
+                }
+
+                monthPageSelection = 1
+                isLoading = false
+            }
+        }
+    }
+
+    private func normalizeDate(_ date: Date) -> Date {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return calendar.date(from: components) ?? date
+    }
+
+    private func monthOffset(_ value: Int) -> Date {
+        calendar.date(byAdding: .month, value: value, to: currentMonth) ?? currentMonth
+    }
+
+    private func shiftMonth(by value: Int) {
+        currentMonth = calendar.date(byAdding: .month, value: value, to: currentMonth) ?? currentMonth
+    }
+
+    private func weeksInMonth(for month: Date) -> [[Date?]] {
+        guard let interval = calendar.dateInterval(of: .month, for: month) else { return [] }
+        let firstDay = calendar.startOfDay(for: interval.start)
+        let firstWeekday = calendar.component(.weekday, from: firstDay)
+        let leading = (firstWeekday - calendar.firstWeekday + 7) % 7
+
+        var days: [Date?] = Array(repeating: nil, count: leading)
+        var current = firstDay
+        let monthEnd = calendar.startOfDay(for: interval.end)
+
+        while current < monthEnd {
+            days.append(current)
+            current = calendar.date(byAdding: .day, value: 1, to: current) ?? current
+        }
+
+        while days.count % 7 != 0 {
+            days.append(nil)
+        }
+
+        return stride(from: 0, to: days.count, by: 7).map { index in
+            Array(days[index..<index+7])
+        }
+    }
+
+    private var selectedDayTitle: String {
+        if calendar.isDateInToday(selectedDate) {
+            return "Today"
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMM d"
+        return formatter.string(from: selectedDate)
+    }
+
+    private var monthHeaderFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter
+    }
+
+    private func effectiveDurationMinutes(for visit: LocationVisitRecord) -> Int {
+        if let duration = visit.durationMinutes {
+            return max(duration, 1)
+        }
+        if let exit = visit.exitTime {
+            return max(Int(exit.timeIntervalSince(visit.entryTime) / 60), 1)
+        }
+        return max(Int(Date().timeIntervalSince(visit.entryTime) / 60), 1)
+    }
+
+    private func formatDuration(_ minutes: Int) -> String {
+        let hrs = minutes / 60
+        let mins = minutes % 60
+        if hrs > 0 && mins > 0 { return "\(hrs)h \(mins)m" }
+        if hrs > 0 { return "\(hrs)h" }
+        return "\(mins)m"
+    }
+}
+
+struct PlaceDayVisitRow: View {
+    let visit: LocationVisitRecord
+    @Environment(\.colorScheme) var colorScheme
+
+    private var primaryText: Color { colorScheme == .dark ? .white : .black }
+    private var secondaryText: Color { colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.62) }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entryTime)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(secondaryText)
+
+                Text(timeRange)
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(primaryText)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(durationLabel)
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(primaryText)
+
+                if let notes = visit.visitNotes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(notes)
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(secondaryText)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+        )
+    }
+
+    private var entryTime: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return formatter.string(from: visit.entryTime)
+    }
+
+    private var timeRange: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        let start = formatter.string(from: visit.entryTime)
+        if let exit = visit.exitTime {
+            return "\(start) - \(formatter.string(from: exit))"
+        }
+        return "\(start) - Active"
+    }
+
+    private var durationLabel: String {
+        let minutes: Int
+        if let duration = visit.durationMinutes {
+            minutes = max(duration, 1)
+        } else if let exit = visit.exitTime {
+            minutes = max(Int(exit.timeIntervalSince(visit.entryTime) / 60), 1)
+        } else {
+            minutes = max(Int(Date().timeIntervalSince(visit.entryTime) / 60), 1)
+        }
+
+        let hrs = minutes / 60
+        let mins = minutes % 60
+        if hrs > 0 && mins > 0 { return "\(hrs)h \(mins)m" }
+        if hrs > 0 { return "\(hrs)h" }
+        return "\(mins)m"
     }
 }
 
@@ -283,13 +773,8 @@ struct LocationMemorySection: View {
                             showingPurposeInput = true
                         }) {
                             HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: "brain.head.profile")
-                                    .font(FontManager.geist(size: 20, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    .frame(width: 24)
-
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text("Why you visit")
+                                    Text("Why it matters")
                                         .font(FontManager.geist(size: 12, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
@@ -319,13 +804,10 @@ struct LocationMemorySection: View {
                             showingPurposeInput = true
                         }) {
                             HStack(spacing: 12) {
-                                Image(systemName: "brain.head.profile")
-                                    .font(FontManager.geist(size: 20, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-
-                                Text("What are some reasons you visit this location?")
+                                Text("Why is this location important to you?")
                                     .font(FontManager.geist(size: 15, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                    .multilineTextAlignment(.leading)
 
                                 Spacer()
 
@@ -424,8 +906,8 @@ struct LocationMemorySection: View {
             LocationMemoryInputSheet(
                 place: place,
                 memoryType: .purpose,
-                question: "Why do you visit?",
-                placeholder: "e.g., weekly grocery shopping, picking up prescriptions, meeting friends...",
+                question: "Why is this location important to you?",
+                placeholder: "e.g., family time, routine errands, a place you recharge...",
                 initialText: purposeText,
                 colorScheme: colorScheme,
                 onSave: { text in

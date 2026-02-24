@@ -1438,12 +1438,42 @@ class NotesManager: ObservableObject {
             return false
         }
 
-        // Convert notes to ReceiptStat with year, month, and date extracted
+        // Convert notes to ReceiptStat with resilient date/year/month derivation.
+        // Priority:
+        // 1) explicit date parsed from title
+        // 2) folder year/month (if valid)
+        // 3) note modified date
         let receiptStats = allReceiptsNotes.map { note in
+            let calendar = Calendar.current
             let (folderYear, folderMonth) = extractYearAndMonthFromFolderHierarchy(note.folderId)
-            // Extract full date from title, fallback to note.dateModified if not found
-            let extractedDate = extractFullDateFromTitle(note.title) ?? note.dateModified
-            return ReceiptStat(from: note, year: folderYear, month: folderMonth, date: extractedDate)
+            let parsedDateFromTitle = extractFullDateFromTitle(note.title)
+
+            let fallbackFromFolder: Date? = {
+                guard
+                    let folderYear,
+                    let folderMonth,
+                    let monthIndex = calendar.monthSymbols.firstIndex(of: folderMonth)
+                else {
+                    return nil
+                }
+
+                var components = calendar.dateComponents([.hour, .minute, .second], from: note.dateModified)
+                components.year = folderYear
+                components.month = monthIndex + 1
+                components.day = calendar.component(.day, from: note.dateModified)
+                return calendar.date(from: components)
+            }()
+
+            let effectiveDate = parsedDateFromTitle ?? fallbackFromFolder ?? note.dateModified
+            let effectiveYear = calendar.component(.year, from: effectiveDate)
+            let effectiveMonth = calendar.monthSymbols[calendar.component(.month, from: effectiveDate) - 1]
+
+            return ReceiptStat(
+                from: note,
+                year: effectiveYear,
+                month: effectiveMonth,
+                date: effectiveDate
+            )
         }
 
         // Group by year from folder hierarchy

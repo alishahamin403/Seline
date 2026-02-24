@@ -3,6 +3,7 @@ import SwiftUI
 struct FolderSidebarView: View {
     @Binding var isPresented: Bool
     @Binding var selectedFolderId: UUID?
+    @Binding var showUnfiledNotesOnly: Bool
     @StateObject private var notesManager = NotesManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var showingNewFolderAlert = false
@@ -13,7 +14,15 @@ struct FolderSidebarView: View {
     @State private var searchText = ""
 
     private var sidebarBackgroundColor: Color {
-        colorScheme == .dark ? Color.black : Color(white: 0.99)
+        colorScheme == .dark ? Color.black : .white
+    }
+
+    private var topControlFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : .white
+    }
+
+    private var topControlBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
     }
 
     // Computed property to organize folders by hierarchy (excluding Receipts folder)
@@ -60,11 +69,12 @@ struct FolderSidebarView: View {
         return notesManager.folders.contains { $0.parentFolderId == folder.id }
     }
 
-    // Count non-receipt notes only
-    private var nonReceiptNotesCount: Int {
+    // Count non-receipt pinned notes
+    private var pinnedNotesCount: Int {
         let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
 
         return notesManager.notes.filter { note in
+            guard note.isPinned else { return false }
             // Check if note is in Receipts folder (or a subfolder of Receipts)
             if let folderId = note.folderId, let receiptsFolderId = receiptsFolder?.id {
                 var currentFolderId: UUID? = folderId
@@ -79,56 +89,93 @@ struct FolderSidebarView: View {
         }.count
     }
 
+    // Count non-receipt notes that are not pinned and not tied to a folder
+    private var unfiledNotesCount: Int {
+        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
+
+        return notesManager.notes.filter { note in
+            guard !note.isPinned, note.folderId == nil else { return false }
+            return !isReceiptNote(note, receiptsFolderId: receiptsFolder?.id)
+        }.count
+    }
+
+    private func isReceiptNote(_ note: Note, receiptsFolderId: UUID?) -> Bool {
+        guard let receiptsFolderId else { return false }
+        guard let folderId = note.folderId else { return false }
+
+        var currentFolderId: UUID? = folderId
+        while let currentId = currentFolderId {
+            if currentId == receiptsFolderId {
+                return true
+            }
+            currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+        }
+        return false
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
+        ZStack {
+            sidebarBackgroundColor
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
-
-                    TextField("Search folders", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(FontManager.geist(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity)
-                .background(
-                    Capsule()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-                )
-
-                Button(action: {
-                    HapticManager.shared.buttonTap()
-                    showingNewFolderAlert = true
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus")
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
                             .font(.system(size: 14, weight: .medium))
-                        Text("Folder")
-                            .font(FontManager.geist(size: 13, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
+
+                        TextField("Search folders", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
                     }
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
                     .padding(.horizontal, 12)
-                    .frame(height: 36)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
                     .background(
                         Capsule()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                            .fill(topControlFillColor)
+                            .overlay(
+                                Capsule()
+                                    .stroke(topControlBorderColor, lineWidth: 0.8)
+                            )
                     )
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(sidebarBackgroundColor)
 
-            // Scrollable content
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 20) {
+                    Button(action: {
+                        HapticManager.shared.buttonTap()
+                        showingNewFolderAlert = true
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .medium))
+                            Text("Folder")
+                                .font(FontManager.geist(size: 13, weight: .medium))
+                        }
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                        .background(
+                            Capsule()
+                                .fill(topControlFillColor)
+                                .overlay(
+                                    Capsule()
+                                        .stroke(topControlBorderColor, lineWidth: 0.8)
+                                )
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(sidebarBackgroundColor)
+                .frame(maxWidth: .infinity)
+
+                // Scrollable content
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 20) {
                     // All Notes option
                     if !isSearching {
                         VStack(alignment: .leading, spacing: 2) {
@@ -142,22 +189,47 @@ struct FolderSidebarView: View {
                             Button(action: {
                                 HapticManager.shared.selection()
                                 selectedFolderId = nil
+                                showUnfiledNotesOnly = false
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     isPresented = false
                                 }
                             }) {
                                 HStack(spacing: 12) {
-                                    Text("All Notes")
+                                    Text("Pinned")
                                         .font(FontManager.geist(size: 14, weight: .regular))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                     Spacer()
-                                    Text("\(nonReceiptNotesCount)")
+                                    Text("\(pinnedNotesCount)")
                                         .font(FontManager.geist(size: 12, weight: .regular))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                 }
                                 .padding(.horizontal, 20)
                                 .padding(.vertical, 10)
-                                .background(colorScheme == .dark ? Color.white.opacity(selectedFolderId == nil ? 0.08 : 0) : Color.black.opacity(selectedFolderId == nil ? 0.04 : 0))
+                                .background(colorScheme == .dark ? Color.white.opacity((selectedFolderId == nil && !showUnfiledNotesOnly) ? 0.08 : 0) : Color.black.opacity((selectedFolderId == nil && !showUnfiledNotesOnly) ? 0.04 : 0))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Button(action: {
+                                HapticManager.shared.selection()
+                                selectedFolderId = nil
+                                showUnfiledNotesOnly = true
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isPresented = false
+                                }
+                            }) {
+                                HStack(spacing: 12) {
+                                    Text("Unfiled")
+                                        .font(FontManager.geist(size: 14, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    Spacer()
+                                    Text("\(unfiledNotesCount)")
+                                        .font(FontManager.geist(size: 12, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(colorScheme == .dark ? Color.white.opacity(showUnfiledNotesOnly ? 0.08 : 0) : Color.black.opacity(showUnfiledNotesOnly ? 0.04 : 0))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -193,6 +265,7 @@ struct FolderSidebarView: View {
                                     onTap: {
                                         HapticManager.shared.selection()
                                         selectedFolderId = item.folder.id
+                                        showUnfiledNotesOnly = false
                                         withAnimation(.easeInOut(duration: 0.2)) {
                                             isPresented = false
                                         }
@@ -280,16 +353,16 @@ struct FolderSidebarView: View {
                         .padding(.top, 40)
                     }
 
-                    Spacer()
-                        .frame(height: 100)
+                        Spacer()
+                            .frame(height: 100)
+                    }
+                    .padding(.vertical, 16)
                 }
-                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(sidebarBackgroundColor)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(sidebarBackgroundColor)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(sidebarBackgroundColor)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .shadow(color: .black.opacity(colorScheme == .dark ? 0.5 : 0.12), radius: 24, x: 4, y: 0)
         .onAppear {
             // Initialize with all root folders collapsed

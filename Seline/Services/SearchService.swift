@@ -17,13 +17,14 @@ class SearchService: ObservableObject {
 
     // Conversation state
     @Published var conversationHistory: [ConversationMessage] = []
-    /// Incremented when the last message is updated in place (e.g. eventCreationInfo, followUpSuggestions) so the chat can re-scroll to show new content.
+    /// Incremented when the last message is updated in place (e.g. eventCreationInfo/source pills) so the chat can re-scroll to show new content.
     @Published var lastMessageContentVersion: Int = 0
     @Published var isInConversationMode: Bool = false
     @Published var conversationTitle: String = "New Conversation"
     @Published var savedConversations: [SavedConversation] = []
     @Published var isNewConversation: Bool = false  // Track if this is a new conversation (not loaded from history)
     private var currentlyLoadedConversationId: UUID? = nil
+    private var lastGeneratedTitleMessageCount: Int = 0
 
     // NEW: Conversational action system
     @Published var currentInteractiveAction: InteractiveAction?
@@ -841,18 +842,17 @@ class SearchService: ObservableObject {
         }
 
         guard !matches.isEmpty else {
-            return (normalizedText, content)
+            return (stripCitationMarkers(from: normalizedText), nil)
         }
 
         struct CitationReplacement {
             let range: NSRange
-            let mappedIndex: Int
+            let replacementText: String
         }
 
         var replacements: [CitationReplacement] = []
         var orderedContent: [RelevantContentInfo] = []
         var orderedIndexById: [UUID: Int] = [:]
-        var usedIds = Set<UUID>()
 
         for match in matches {
             guard
@@ -860,16 +860,23 @@ class SearchService: ObservableObject {
                 let citedIndex = Int(String(normalizedText[numberRange]))
             else { continue }
 
+            guard citedIndex >= 0, citedIndex < content.count else {
+                print("⚠️ Dropping citation [\(citedIndex)] - out of range for available sources (\(content.count))")
+                replacements.append(
+                    CitationReplacement(range: match.range, replacementText: "")
+                )
+                continue
+            }
+
+            let selectedItem = content[citedIndex]
             let contextSnippet = citationContext(in: normalizedText, around: match.range)
-            let inferredType = inferSourceType(from: contextSnippet)
-            let selectedIndex = selectRelevantContentIndex(
-                citedIndex: citedIndex,
-                inferredType: inferredType,
-                content: content,
-                usedIds: usedIds
-            )
-            let selectedItem = content[selectedIndex]
-            usedIds.insert(selectedItem.id)
+            guard isCitationLikelyValid(for: selectedItem, context: contextSnippet) else {
+                print("⚠️ Dropping citation [\(citedIndex)] - source/context mismatch")
+                replacements.append(
+                    CitationReplacement(range: match.range, replacementText: "")
+                )
+                continue
+            }
 
             let mappedIndex: Int
             if let existing = orderedIndexById[selectedItem.id] {
@@ -880,45 +887,83 @@ class SearchService: ObservableObject {
                 orderedIndexById[selectedItem.id] = mappedIndex
             }
 
-            replacements.append(CitationReplacement(range: match.range, mappedIndex: mappedIndex))
+            replacements.append(
+                CitationReplacement(
+                    range: match.range,
+                    replacementText: "[[\(mappedIndex)]]"
+                )
+            )
         }
 
         let mutableText = NSMutableString(string: normalizedText)
         for replacement in replacements.reversed() {
-            mutableText.replaceCharacters(in: replacement.range, with: "[[\(replacement.mappedIndex)]]")
+            mutableText.replaceCharacters(in: replacement.range, with: replacement.replacementText)
         }
 
         let cleanedText = cleanupCitationSpacing(in: mutableText as String)
-        return (cleanedText, orderedContent.isEmpty ? content : orderedContent)
+        if orderedContent.isEmpty {
+            return (stripCitationMarkers(from: cleanedText), nil)
+        }
+        return (cleanedText, orderedContent)
     }
 
-    private func selectRelevantContentIndex(
-        citedIndex: Int,
-        inferredType: RelevantContentInfo.ContentType?,
-        content: [RelevantContentInfo],
-        usedIds: Set<UUID>
-    ) -> Int {
-        if citedIndex >= 0, citedIndex < content.count {
-            let citedItem = content[citedIndex]
-            if inferredType == nil || citedItem.contentType == inferredType {
-                return citedIndex
+    private func isCitationLikelyValid(for item: RelevantContentInfo, context: String) -> Bool {
+        let lowerContext = context.lowercased()
+        let sourceTerms = sourceTerms(for: item)
+        let hasSourceTermMatch = sourceTerms.contains { lowerContext.contains($0) }
+
+        switch item.contentType {
+        case .location:
+            // Strict for places/visits: only show pill when the line clearly references that place.
+            return hasSourceTermMatch
+        case .event:
+            // Strict for events: avoid mapping calendar pills to generic lines.
+            return hasSourceTermMatch
+        case .email:
+            if hasSourceTermMatch { return true }
+            return lowerContext.contains("email")
+                || lowerContext.contains("inbox")
+                || lowerContext.contains("sender")
+                || lowerContext.contains("subject")
+        case .note:
+            if hasSourceTermMatch { return true }
+            let isReceiptNote = (item.noteFolder ?? "").lowercased().contains("receipt")
+            if isReceiptNote {
+                return lowerContext.contains("receipt")
+                    || lowerContext.contains("purchase")
+                    || lowerContext.contains("spent")
+                    || lowerContext.contains("charged")
+                    || lowerContext.contains("cost")
             }
+            return lowerContext.contains("note")
+        }
+    }
+
+    private func sourceTerms(for item: RelevantContentInfo) -> [String] {
+        let rawValue: String
+        switch item.contentType {
+        case .location:
+            rawValue = "\(item.locationName ?? "") \(item.locationAddress ?? "")"
+        case .event:
+            rawValue = "\(item.eventTitle ?? "") \(item.eventCategory ?? "")"
+        case .email:
+            rawValue = "\(item.emailSubject ?? "") \(item.emailSender ?? "")"
+        case .note:
+            rawValue = "\(item.noteTitle ?? "") \(item.noteSnippet ?? "")"
         }
 
-        if let inferredType = inferredType,
-           let typeMatch = content.firstIndex(where: { $0.contentType == inferredType && !usedIds.contains($0.id) }) {
-            return typeMatch
-        }
+        let stopWords: Set<String> = [
+            "the", "and", "for", "with", "from", "your", "you", "this", "that",
+            "visit", "visited", "event", "note", "email", "calendar", "place"
+        ]
 
-        if citedIndex >= 0, citedIndex < content.count {
-            return citedIndex
-        }
+        let tokens = rawValue
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { $0.count >= 3 && !stopWords.contains($0) }
 
-        if let firstUnused = content.firstIndex(where: { !usedIds.contains($0.id) }) {
-            return firstUnused
-        }
-
-        return 0
+        return Array(Set(tokens)).sorted(by: { $0.count > $1.count })
     }
 
     private func citationContext(in text: String, around range: NSRange) -> String {
@@ -926,22 +971,6 @@ class SearchService: ObservableObject {
         let start = text.index(rangeInText.lowerBound, offsetBy: -80, limitedBy: text.startIndex) ?? text.startIndex
         let end = text.index(rangeInText.upperBound, offsetBy: 80, limitedBy: text.endIndex) ?? text.endIndex
         return String(text[start..<end]).lowercased()
-    }
-
-    private func inferSourceType(from context: String) -> RelevantContentInfo.ContentType? {
-        if context.contains("calendar") || context.contains("meeting") || context.contains("event") || context.contains("appointment") {
-            return .event
-        }
-        if context.contains("email") || context.contains("inbox") || context.contains("sender") || context.contains("subject") {
-            return .email
-        }
-        if context.contains("note") || context.contains("receipt") || context.contains("purchase") || context.contains("charged") || context.contains("spent") {
-            return .note
-        }
-        if context.contains("visit") || context.contains("place") || context.contains("location") || context.contains("went to") {
-            return .location
-        }
-        return nil
     }
 
     private func stripCitationMarkers(from text: String) -> String {
@@ -1027,6 +1056,7 @@ class SearchService: ObservableObject {
         questionResponse = nil
         conversationTitle = "New Conversation"
         currentlyLoadedConversationId = nil
+        lastGeneratedTitleMessageCount = 0
         isNewConversation = false
     }
 
@@ -1212,11 +1242,21 @@ class SearchService: ObservableObject {
     /// Called when user exits the conversation
     func generateFinalConversationTitle() async {
         guard !conversationHistory.isEmpty else { return }
-        if let generatedTitle = await generateConversationTitleWithGemini(from: conversationHistory) {
-            conversationTitle = generatedTitle
-        } else {
-            conversationTitle = provisionalConversationTitle(from: conversationHistory)
+
+        let currentMessageCount = conversationHistory.count
+        let shouldRegenerateTitle =
+            isWeakConversationTitle(conversationTitle) ||
+            currentMessageCount >= (lastGeneratedTitleMessageCount + 6)
+
+        if shouldRegenerateTitle {
+            if let generatedTitle = await generateConversationTitleWithGemini(from: conversationHistory) {
+                conversationTitle = generatedTitle
+            } else {
+                conversationTitle = provisionalConversationTitle(from: conversationHistory)
+            }
+            lastGeneratedTitleMessageCount = currentMessageCount
         }
+
         _ = upsertCurrentConversationInHistory()
     }
 
@@ -1255,7 +1295,8 @@ class SearchService: ObservableObject {
                 systemPrompt: "You create concise, specific conversation titles.",
                 userPrompt: prompt,
                 maxTokens: 24,
-                temperature: 0.25
+                temperature: 0.25,
+                operationType: "conversation_title"
             )
             let cleaned = sanitizeConversationTitle(rawTitle)
             guard !cleaned.isEmpty, cleaned.count <= 80, !isWeakConversationTitle(cleaned) else { return nil }
@@ -1438,26 +1479,7 @@ class SearchService: ObservableObject {
     /// Save current conversation to history
     func saveConversationToHistory() {
         guard !conversationHistory.isEmpty else { return }
-        let savedId = upsertCurrentConversationInHistory()
-        let snapshotMessages = conversationHistory
-
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            guard let generatedTitle = await self.generateConversationTitleWithGemini(from: snapshotMessages) else { return }
-            if let index = self.savedConversations.firstIndex(where: { $0.id == savedId }) {
-                let existing = self.savedConversations[index]
-                self.savedConversations[index] = SavedConversation(
-                    id: existing.id,
-                    title: generatedTitle,
-                    messages: existing.messages,
-                    createdAt: existing.createdAt
-                )
-                if self.currentlyLoadedConversationId == savedId {
-                    self.conversationTitle = generatedTitle
-                }
-                self.saveConversationHistoryLocally()
-            }
-        }
+        _ = upsertCurrentConversationInHistory()
     }
 
     /// Load all saved conversations from local storage
@@ -1467,35 +1489,8 @@ class SearchService: ObservableObject {
 
         do {
             savedConversations = try JSONDecoder().decode([SavedConversation].self, from: data)
-            refreshWeakSavedConversationTitlesIfNeeded()
         } catch {
             print("❌ Error loading conversation history: \(error)")
-        }
-    }
-
-    private func refreshWeakSavedConversationTitlesIfNeeded() {
-        let candidates = savedConversations.enumerated().filter { _, conversation in
-            isWeakConversationTitle(conversation.title)
-        }
-        guard !candidates.isEmpty else { return }
-
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            var didUpdate = false
-            for (index, conversation) in candidates.prefix(8) {
-                guard let generatedTitle = await self.generateConversationTitleWithGemini(from: conversation.messages) else { continue }
-                let existing = self.savedConversations[index]
-                self.savedConversations[index] = SavedConversation(
-                    id: existing.id,
-                    title: generatedTitle,
-                    messages: existing.messages,
-                    createdAt: existing.createdAt
-                )
-                didUpdate = true
-            }
-            if didUpdate {
-                self.saveConversationHistoryLocally()
-            }
         }
     }
 
@@ -1518,6 +1513,7 @@ class SearchService: ObservableObject {
             isInConversationMode = true
             isNewConversation = false  // This is a loaded conversation, show title immediately
             currentlyLoadedConversationId = id  // Track which conversation is loaded
+            lastGeneratedTitleMessageCount = conversationHistory.count
 
             // Reset SelineChat so the next follow-up message re-initializes with this conversation's history.
             // Otherwise SelineChat keeps stale context and follow-ups get wrong/empty responses.

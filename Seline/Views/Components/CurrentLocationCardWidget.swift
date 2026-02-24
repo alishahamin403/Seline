@@ -27,7 +27,7 @@ struct CurrentLocationCardWidget: View {
     }
 
     private var activeIndicatorColor: Color {
-        Color(red: 0.2, green: 0.78, blue: 0.35)
+        Color.green
     }
 
     private var cardHeadingFont: Font {
@@ -35,7 +35,23 @@ struct CurrentLocationCardWidget: View {
     }
 
     private var currentLocationDisplay: String {
-        nearbyLocation ?? currentLocationName
+        nearbyLocation ?? cityOnlyLocationName
+    }
+
+    private var cityOnlyLocationName: String {
+        let trimmed = currentLocationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Current Location" }
+
+        switch trimmed {
+        case "Finding location...", "Location not available", "Unknown Location", "Current Location":
+            return trimmed
+        default:
+            if let city = trimmed.split(separator: ",").first {
+                let cityString = city.trimmingCharacters(in: .whitespacesAndNewlines)
+                return cityString.isEmpty ? trimmed : cityString
+            }
+            return trimmed
+        }
     }
 
     private var sortedVisits: [VisitSummary] {
@@ -81,23 +97,6 @@ struct CurrentLocationCardWidget: View {
                     .tracking(0.5)
 
                 Spacer()
-
-                Button(action: {
-                    HapticManager.shared.selection()
-                    showAllLocationsSheet = true
-                }) {
-                    Text("All")
-                        .font(FontManager.geist(size: 11, weight: .semibold))
-                        .foregroundColor(primaryTextColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .allowsParentScrolling()
             }
 
             HStack(alignment: .firstTextBaseline) {
@@ -128,11 +127,11 @@ struct CurrentLocationCardWidget: View {
             HStack(spacing: 8) {
                 Image(systemName: locationSymbol(for: visit.displayName))
                     .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(primaryTextColor)
+                    .foregroundColor(activeIndicatorColor)
 
                 Text(visit.displayName)
                     .font(FontManager.geist(size: 14, weight: .semibold))
-                    .foregroundColor(primaryTextColor)
+                    .foregroundColor(activeIndicatorColor)
                     .lineLimit(1)
 
                 Spacer()
@@ -169,7 +168,6 @@ struct CurrentLocationCardWidget: View {
                 .padding(.horizontal, 16)
             }
             .padding(.horizontal, -16)
-            .allowsParentScrolling()
         }
     }
 
@@ -221,9 +219,9 @@ struct CurrentLocationCardWidget: View {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.07), lineWidth: 0.5)
             )
+            .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
     }
 
     private func progressWidth(for minutes: Int, in totalWidth: CGFloat) -> CGFloat {

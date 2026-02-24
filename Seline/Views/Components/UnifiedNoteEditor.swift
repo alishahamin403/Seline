@@ -180,178 +180,129 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: task)
         }
         
-        // MARK: - Auto-continue Todo Lists on Enter AND Handle Backspace
+        // MARK: - Auto-continue List Items on Enter + Smart Cleanup on Backspace
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             let currentText = textView.text ?? ""
             let nsText = currentText as NSString
-            
-            // Handle backspace on empty todo line - delete the entire line
+            let lineRange = nsText.lineRange(for: range)
+            let lineWithNewline = nsText.substring(with: lineRange)
+            let currentLine = lineWithNewline.trimmingCharacters(in: .newlines)
+
+            // Smart backspace: remove empty list/todo markers as a unit.
             if text.isEmpty && range.length == 1 {
-                // Check if we're at the end of a todo marker (cursor right after "- [ ] " or "- [x] ")
-                let cursorLocation = range.location
-                
-                // Look for todo patterns ending at or near cursor
-                let lineRange = nsText.lineRange(for: range)
-                let currentLine = nsText.substring(with: lineRange)
-                
-                // Check if line is just a todo marker with no content
-                let emptyUncheckedPattern = "^- \\[ \\]\\s*$"
-                let emptyCheckedPattern = "^- \\[x\\]\\s*$"
-                
-                let trimmedLine = currentLine.trimmingCharacters(in: .newlines)
-                
-                if let regex = try? NSRegularExpression(pattern: emptyUncheckedPattern, options: .caseInsensitive),
-                   regex.firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: trimmedLine.utf16.count)) != nil {
-                    // Delete the entire empty todo line
-                    let newText = nsText.replacingCharacters(in: lineRange, with: "")
+                let emptyPatterns = [
+                    "^- \\[ \\]\\s*$",
+                    "^- \\[x\\]\\s*$",
+                    "^\\s*-\\s*$",
+                    "^\\s*\\d+\\.\\s*$"
+                ]
 
-                    isInsertingTodo = true
-                    textView.text = newText
-                    parent.text = newText
-                    isInsertingTodo = false
-
-                    // Position cursor at the deletion point
-                    let newPosition = min(max(0, lineRange.location), newText.count)
-                    textView.selectedRange = NSRange(location: newPosition, length: 0)
-
-                    // CRITICAL: Store pending position for updateUIView
-                    pendingCursorPosition = newPosition
-
-                    applyTextStylingOnly(to: textView)
-                    parent.onEditingChanged?()
-
-                    // Defer overlay placement
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak textView] in
-                        guard let self = self, let textView = textView else { return }
-                        self.addAllOverlays(to: textView, text: newText)
-                    }
-                    return false
+                let shouldDeleteLine = emptyPatterns.contains {
+                    lineMatches(currentLine, pattern: $0, options: .caseInsensitive)
                 }
-                
-                if let regex = try? NSRegularExpression(pattern: emptyCheckedPattern, options: .caseInsensitive),
-                   regex.firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: trimmedLine.utf16.count)) != nil {
-                    // Delete the entire empty todo line
+
+                if shouldDeleteLine {
                     let newText = nsText.replacingCharacters(in: lineRange, with: "")
-
-                    isInsertingTodo = true
-                    textView.text = newText
-                    parent.text = newText
-                    isInsertingTodo = false
-
-                    let newPosition = min(max(0, lineRange.location), newText.count)
-                    textView.selectedRange = NSRange(location: newPosition, length: 0)
-
-                    // CRITICAL: Store pending position for updateUIView
-                    pendingCursorPosition = newPosition
-
-                    applyTextStylingOnly(to: textView)
-                    parent.onEditingChanged?()
-
-                    // Defer overlay placement
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak textView] in
-                        guard let self = self, let textView = textView else { return }
-                        self.addAllOverlays(to: textView, text: newText)
-                    }
+                    applyProgrammaticEdit(
+                        newText,
+                        in: textView,
+                        cursorPosition: min(max(0, lineRange.location), newText.count)
+                    )
                     return false
                 }
             }
-            
-            // Check if Enter was pressed
+
+            // Check if Enter was pressed.
             guard text == "\n" else { return true }
-            
-            // Dismiss any date chips when user presses Enter (moving to next line)
+
+            // Dismiss any date chips when user presses Enter (moving to next line).
             if let markdownTextView = textView as? MarkdownTextView {
                 dismissAllDateChips(in: markdownTextView)
             }
-            
-            // Find the current line (reuse nsText from above)
-            let enterLineRange = nsText.lineRange(for: range)
-            let currentLine = nsText.substring(with: enterLineRange).trimmingCharacters(in: CharacterSet.newlines)
-            
-            // Check if current line is a todo item
-            let uncheckedPattern = "^- \\[ \\]\\s*(.*)$"
-            let checkedPattern = "^- \\[x\\]\\s*(.*)$"
-            
-            var isTodoLine = false
-            var todoContent = ""
-            
-            if let regex = try? NSRegularExpression(pattern: uncheckedPattern, options: .caseInsensitive),
-               let match = regex.firstMatch(in: currentLine, options: [], range: NSRange(location: 0, length: currentLine.utf16.count)) {
-                isTodoLine = true
-                if match.numberOfRanges > 1 {
-                    todoContent = (currentLine as NSString).substring(with: match.range(at: 1))
-                }
-            } else if let regex = try? NSRegularExpression(pattern: checkedPattern, options: .caseInsensitive),
-                      let match = regex.firstMatch(in: currentLine, options: [], range: NSRange(location: 0, length: currentLine.utf16.count)) {
-                isTodoLine = true
-                if match.numberOfRanges > 1 {
-                    todoContent = (currentLine as NSString).substring(with: match.range(at: 1))
-                }
-            }
-            
-            if isTodoLine {
-                // If the todo is empty (just "- [ ]" or "- [x]"), remove the todo marker
-                if todoContent.trimmingCharacters(in: .whitespaces).isEmpty {
-                    // Remove the empty todo line and insert a blank line
-                    let newText = nsText.replacingCharacters(in: enterLineRange, with: "\n")
 
-                    isInsertingTodo = true
-                    textView.text = newText
-                    parent.text = newText
-                    isInsertingTodo = false
+            // Continue list formats only when pressing Enter at end of current line.
+            let lineEndsWithNewline = lineWithNewline.hasSuffix("\n")
+            let lineContentLength = lineRange.length - (lineEndsWithNewline ? 1 : 0)
+            let lineContentEnd = lineRange.location + max(0, lineContentLength)
+            guard range.location == lineContentEnd else { return true }
 
-                    // Position cursor after the newline
-                    let newPosition = min(enterLineRange.location + 1, newText.count)
-                    textView.selectedRange = NSRange(location: newPosition, length: 0)
-
-                    // CRITICAL: Store pending position for updateUIView
-                    pendingCursorPosition = newPosition
-
-                    // Apply styling and defer overlays
-                    applyTextStylingOnly(to: textView)
-                    parent.onEditingChanged?()
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak textView] in
-                        guard let self = self, let textView = textView else { return }
-                        self.addAllOverlays(to: textView, text: newText)
-                    }
-                    return false
-                }
-                
-                // Insert new todo line
-                let insertPosition = range.location
-                let todoPrefix = "\n- [ ] "
-                let newText = nsText.replacingCharacters(in: range, with: todoPrefix)
-
-                // Set flag to prevent textViewDidChange from adding overlays prematurely
-                isInsertingTodo = true
-                textView.text = newText
-                parent.text = newText
-                isInsertingTodo = false
-
-                // Position cursor after the new todo prefix
-                let newCursorPosition = insertPosition + todoPrefix.count
-                textView.selectedRange = NSRange(location: newCursorPosition, length: 0)
-
-                // CRITICAL: Store pending position for updateUIView to use
-                // This prevents SwiftUI from resetting cursor to wrong position
-                pendingCursorPosition = newCursorPosition
-
-                // Apply text styling first (without overlays)
-                applyTextStylingOnly(to: textView)
-                parent.onEditingChanged?()
-                textView.invalidateIntrinsicContentSize()
-
-                // Defer overlay placement to next runloop to ensure layout is complete
-                // Use a slightly longer delay to ensure layout calculations are accurate
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak textView] in
-                    guard let self = self, let textView = textView else { return }
-                    self.addAllOverlays(to: textView, text: newText)
-                }
+            // Todo continuation.
+            if let todoMatch = firstMatch(
+                in: currentLine,
+                pattern: #"^(\s*)- \[( |x)\]\s*(.*)$"#,
+                options: .caseInsensitive
+            ) {
+                let indent = capturedText(from: currentLine, match: todoMatch, at: 1)
+                let todoContent = capturedText(from: currentLine, match: todoMatch, at: 3)
+                let replacement = todoContent.trimmingCharacters(in: .whitespaces).isEmpty
+                    ? "\n\(indent)"
+                    : "\n\(indent)- [ ] "
+                let newText = nsText.replacingCharacters(in: range, with: replacement)
+                applyProgrammaticEdit(newText, in: textView, cursorPosition: range.location + replacement.count)
                 return false
             }
-            
+
+            // Bullet continuation.
+            if let bulletMatch = firstMatch(in: currentLine, pattern: #"^(\s*)-\s+(.*)$"#) {
+                let indent = capturedText(from: currentLine, match: bulletMatch, at: 1)
+                let bulletContent = capturedText(from: currentLine, match: bulletMatch, at: 2)
+                let replacement = bulletContent.trimmingCharacters(in: .whitespaces).isEmpty
+                    ? "\n\(indent)"
+                    : "\n\(indent)- "
+                let newText = nsText.replacingCharacters(in: range, with: replacement)
+                applyProgrammaticEdit(newText, in: textView, cursorPosition: range.location + replacement.count)
+                return false
+            }
+
+            // Numbered list continuation.
+            if let numberedMatch = firstMatch(in: currentLine, pattern: #"^(\s*)(\d+)\.\s+(.*)$"#) {
+                let indent = capturedText(from: currentLine, match: numberedMatch, at: 1)
+                let listIndex = Int(capturedText(from: currentLine, match: numberedMatch, at: 2)) ?? 1
+                let listContent = capturedText(from: currentLine, match: numberedMatch, at: 3)
+                let replacement = listContent.trimmingCharacters(in: .whitespaces).isEmpty
+                    ? "\n\(indent)"
+                    : "\n\(indent)\(listIndex + 1). "
+                let newText = nsText.replacingCharacters(in: range, with: replacement)
+                applyProgrammaticEdit(newText, in: textView, cursorPosition: range.location + replacement.count)
+                return false
+            }
+
             return true
+        }
+
+        private func applyProgrammaticEdit(_ newText: String, in textView: UITextView, cursorPosition: Int) {
+            isInsertingTodo = true
+            textView.text = newText
+            parent.text = newText
+            isInsertingTodo = false
+
+            let safePosition = min(max(0, cursorPosition), newText.count)
+            textView.selectedRange = NSRange(location: safePosition, length: 0)
+            pendingCursorPosition = safePosition
+
+            applyTextStylingOnly(to: textView)
+            parent.onEditingChanged?()
+            textView.invalidateIntrinsicContentSize()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak textView] in
+                guard let self = self, let textView = textView else { return }
+                self.addAllOverlays(to: textView, text: newText)
+            }
+        }
+
+        private func firstMatch(in text: String, pattern: String, options: NSRegularExpression.Options = []) -> NSTextCheckingResult? {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return nil }
+            return regex.firstMatch(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
+        }
+
+        private func capturedText(from text: String, match: NSTextCheckingResult, at index: Int) -> String {
+            guard match.numberOfRanges > index else { return "" }
+            let nsText = text as NSString
+            return nsText.substring(with: match.range(at: index))
+        }
+
+        private func lineMatches(_ text: String, pattern: String, options: NSRegularExpression.Options = []) -> Bool {
+            firstMatch(in: text, pattern: pattern, options: options) != nil
         }
         
         func updatePlaceholder(textView: UITextView) {
@@ -361,6 +312,8 @@ struct UnifiedNoteEditor: UIViewRepresentable {
         // MARK: - Markdown Styling Engine
         func applyStyling(to textView: UITextView) {
             guard let text = textView.text else { return }
+            // Clear any stale bullet overlays from previous render cycles.
+            textView.subviews.filter { $0.tag == 999 }.forEach { $0.removeFromSuperview() }
             let attributedString = NSMutableAttributedString(string: text)
             let fullRange = NSRange(location: 0, length: text.utf16.count)
             
@@ -506,12 +459,7 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             let bulletRegex = try? NSRegularExpression(pattern: "^(- )(?!\\[)", options: .anchorsMatchLines)
             bulletRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
                 guard let match = match else { return }
-                // Replace the "- " with a bullet character visually
-                // We hide the dash-space and will add a bullet overlay
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: match.range)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: match.range)
-                
-                // Apply paragraph spacing
+                // Keep markdown marker visible to avoid overlay artifacts while typing.
                 let lineRange = (text as NSString).lineRange(for: match.range)
                 attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
             }
@@ -549,9 +497,6 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             // Add visual checkbox overlays (after layout is complete)
             addCheckboxOverlays(in: textView, text: text)
 
-            // Add visual bullet overlays for bullet lists
-            addBulletOverlays(in: textView, text: text)
-
             // Detect and highlight dates with calendar icon
             detectAndShowDateIcons(in: textView, text: text)
         }
@@ -559,6 +504,8 @@ struct UnifiedNoteEditor: UIViewRepresentable {
         // MARK: - Text Styling Without Overlays (for deferred overlay placement)
         func applyTextStylingOnly(to textView: UITextView) {
             guard let text = textView.text else { return }
+            // Clear any stale bullet overlays from previous render cycles.
+            textView.subviews.filter { $0.tag == 999 }.forEach { $0.removeFromSuperview() }
             let attributedString = NSMutableAttributedString(string: text)
             let fullRange = NSRange(location: 0, length: text.utf16.count)
 
@@ -672,8 +619,6 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             let bulletRegex = try? NSRegularExpression(pattern: "^(- )(?!\\[)", options: .anchorsMatchLines)
             bulletRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
                 guard let match = match else { return }
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: match.range)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: match.range)
                 let lineRange = (text as NSString).lineRange(for: match.range)
                 attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
             }
@@ -708,7 +653,6 @@ struct UnifiedNoteEditor: UIViewRepresentable {
 
             // Add visual overlays
             addCheckboxOverlays(in: textView, text: text)
-            addBulletOverlays(in: textView, text: text)
             detectAndShowDateIcons(in: textView, text: text)
         }
 
@@ -1363,37 +1307,65 @@ class MarkdownTextView: UITextView {
         guard let text = self.text else { return }
         let nsString = text as NSString
         let range = self.selectedRange
-        
-        // Get the line range at cursor
+
+        // Get the current line at cursor.
         let lineRange = nsString.lineRange(for: NSRange(location: range.location, length: 0))
         let lineText = nsString.substring(with: lineRange)
-        
-        // Check if line already has a list prefix (bullet or numbered)
-        let trimmedLine = lineText.trimmingCharacters(in: .whitespaces)
-        let hasNumberedPrefix = (try? NSRegularExpression(pattern: "^\\d+\\.\\s", options: []))?.firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: trimmedLine.utf16.count)) != nil
-        
-        if trimmedLine.hasPrefix(prefix) || trimmedLine.hasPrefix("- ") || hasNumberedPrefix {
-            // Remove existing list prefix
-            var cleanText = lineText
-            if cleanText.hasPrefix("- ") {
-                cleanText = String(cleanText.dropFirst(2))
-            } else if let regex = try? NSRegularExpression(pattern: "^\\d+\\.\\s", options: []),
-                      let match = regex.firstMatch(in: cleanText, options: [], range: NSRange(location: 0, length: cleanText.utf16.count)),
-                      let swiftRange = Range(match.range, in: cleanText) {
-                cleanText = String(cleanText[swiftRange.upperBound...])
-            }
-            
-            if let textRange = self.textRange(from: self.position(from: beginningOfDocument, offset: lineRange.location)!,
-                                              to: self.position(from: beginningOfDocument, offset: lineRange.location + lineRange.length)!) {
-                self.replace(textRange, withText: cleanText)
-            }
+        let hasTrailingNewline = lineText.hasSuffix("\n")
+        let lineCore = hasTrailingNewline ? String(lineText.dropLast()) : lineText
+
+        // Preserve existing indentation.
+        let indentation = String(lineCore.prefix { $0 == " " || $0 == "\t" })
+        let lineWithoutIndent = String(lineCore.dropFirst(indentation.count))
+
+        let hasBulletPrefix = lineWithoutIndent.hasPrefix("- ")
+        let numberedPattern = "^\\d+\\.\\s"
+        let hasNumberedPrefix = (try? NSRegularExpression(pattern: numberedPattern, options: []))?
+            .firstMatch(
+                in: lineWithoutIndent,
+                options: [],
+                range: NSRange(location: 0, length: lineWithoutIndent.utf16.count)
+            ) != nil
+
+        let isSamePrefixType = (prefix == "- " && hasBulletPrefix) || (prefix == "1. " && hasNumberedPrefix)
+
+        var contentWithoutPrefix = lineWithoutIndent
+        if hasBulletPrefix {
+            contentWithoutPrefix = String(lineWithoutIndent.dropFirst(2))
+        } else if hasNumberedPrefix,
+                  let regex = try? NSRegularExpression(pattern: numberedPattern, options: []),
+                  let match = regex.firstMatch(
+                    in: lineWithoutIndent,
+                    options: [],
+                    range: NSRange(location: 0, length: lineWithoutIndent.utf16.count)
+                  ),
+                  let matchRange = Range(match.range, in: lineWithoutIndent) {
+            contentWithoutPrefix = String(lineWithoutIndent[matchRange.upperBound...])
+        }
+
+        let updatedLineCore: String
+        let newCursorOffsetInLine: Int
+        if isSamePrefixType {
+            // Toggle off if user taps the same list style again.
+            updatedLineCore = indentation + contentWithoutPrefix
+            newCursorOffsetInLine = min(max(0, range.location - lineRange.location), updatedLineCore.count)
         } else {
-            // Add the prefix at the start of the line
-            let newText = prefix + lineText
-            if let textRange = self.textRange(from: self.position(from: beginningOfDocument, offset: lineRange.location)!,
-                                              to: self.position(from: beginningOfDocument, offset: lineRange.location + lineRange.length)!) {
-                self.replace(textRange, withText: newText)
-            }
+            // Add or switch list style while keeping indentation.
+            updatedLineCore = indentation + prefix + contentWithoutPrefix
+            newCursorOffsetInLine = min(updatedLineCore.count, indentation.count + prefix.count)
+        }
+
+        let replacementText = hasTrailingNewline ? updatedLineCore + "\n" : updatedLineCore
+        if let textRange = self.textRange(
+            from: self.position(from: beginningOfDocument, offset: lineRange.location)!,
+            to: self.position(from: beginningOfDocument, offset: lineRange.location + lineRange.length)!
+        ) {
+            self.replace(textRange, withText: replacementText)
+
+            // Keep cursor near the line start content to prevent jumpy behavior.
+            let maxCursor = (self.text ?? "").utf16.count
+            let cursorLocation = min(maxCursor, lineRange.location + newCursorOffsetInLine)
+            self.selectedRange = NSRange(location: cursorLocation, length: 0)
         }
     }
 

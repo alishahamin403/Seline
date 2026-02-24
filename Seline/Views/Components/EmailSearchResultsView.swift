@@ -19,7 +19,7 @@ struct EmailSearchResultsView: View {
                             .scaleEffect(1.2)
                         Text("Searching...")
                             .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, minHeight: 200)
@@ -28,13 +28,13 @@ struct EmailSearchResultsView: View {
                         Spacer()
                         Image(systemName: "magnifyingglass")
                             .font(FontManager.geist(size: 50, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.gray)
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.8))
                         Text("No results found")
                             .font(FontManager.geist(size: 18, weight: .semibold))
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
                         Text("Try different keywords or check your spelling")
                             .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
                             .multilineTextAlignment(.center)
                         Spacer()
                     }
@@ -46,7 +46,7 @@ struct EmailSearchResultsView: View {
                         HStack {
                             Text("\(searchResults.count) result\(searchResults.count == 1 ? "" : "s")")
                                 .font(FontManager.geist(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
                             Spacer()
                         }
                         .padding(.horizontal, 20)

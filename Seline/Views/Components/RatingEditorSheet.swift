@@ -247,7 +247,7 @@ struct RatingEditorSheet: View {
         if rating >= 8 {
             return Color.green
         } else if rating >= 5 {
-            return Color.orange
+            return Color.primary
         } else {
             return Color.red
         }

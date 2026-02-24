@@ -915,7 +915,8 @@ class GmailAPIClient {
     /// - Parameter query: Search query (name or email)
     /// - Returns: Array of matching contacts with name and email
     func searchGmailContacts(query: String) async throws -> [(name: String, email: String)] {
-        guard !query.isEmpty else { return [] }
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return [] }
         
         try await refreshAccessTokenIfNeeded()
         
@@ -924,65 +925,132 @@ class GmailAPIClient {
         }
         
         let accessToken = user.accessToken.tokenString
-        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
         
-        // Search contacts using People API
-        let searchURLString = "\(peopleAPIURL)/people:searchContacts?query=\(encodedQuery)&readMask=names,emailAddresses&pageSize=20"
+        // Gmail-like autocomplete coverage:
+        // 1) searchContacts      - explicit contacts
+        // 2) otherContacts:search - auto-saved recipients from past sends
+        // 3) searchDirectoryPeople - workspace directory (may be unavailable on personal Gmail)
+        async let contacts = searchPeopleEndpoint(
+            endpoint: "people:searchContacts",
+            query: trimmedQuery,
+            readMask: "names,emailAddresses",
+            pageSize: 30,
+            accessToken: accessToken
+        )
+        async let otherContacts = searchPeopleEndpoint(
+            endpoint: "otherContacts:search",
+            query: trimmedQuery,
+            readMask: "names,emailAddresses",
+            pageSize: 30,
+            accessToken: accessToken
+        )
+        async let directory = searchPeopleEndpoint(
+            endpoint: "people:searchDirectoryPeople",
+            query: trimmedQuery,
+            readMask: "names,emailAddresses",
+            pageSize: 20,
+            accessToken: accessToken
+        )
         
-        guard let url = URL(string: searchURLString) else {
-            throw GmailAPIError.invalidURL
+        let merged = await (contacts + otherContacts + directory)
+        let queryLower = trimmedQuery.lowercased()
+        
+        // De-duplicate by email while keeping the best display name
+        var deduped: [String: (name: String, email: String)] = [:]
+        for contact in merged {
+            let emailKey = contact.email.lowercased()
+            let existing = deduped[emailKey]
+            if existing == nil || existing?.name == existing?.email {
+                deduped[emailKey] = contact
+            }
         }
+        
+        func score(_ contact: (name: String, email: String)) -> Int {
+            let name = contact.name.lowercased()
+            let email = contact.email.lowercased()
+            let emailPrefix = email.components(separatedBy: "@").first ?? email
+            
+            if name == queryLower || email == queryLower { return 1000 }
+            if name.hasPrefix(queryLower) || emailPrefix.hasPrefix(queryLower) { return 800 }
+            if email.hasPrefix(queryLower) { return 700 }
+            if name.contains(queryLower) || emailPrefix.contains(queryLower) { return 500 }
+            if email.contains(queryLower) { return 300 }
+            return 0
+        }
+        
+        return deduped.values
+            .map { ($0, score($0)) }
+            .filter { $0.1 > 0 }
+            .sorted {
+                if $0.1 == $1.1 { return $0.0.name.localizedCaseInsensitiveCompare($1.0.name) == .orderedAscending }
+                return $0.1 > $1.1
+            }
+            .map { $0.0 }
+    }
+    
+    private func searchPeopleEndpoint(
+        endpoint: String,
+        query: String,
+        readMask: String,
+        pageSize: Int,
+        accessToken: String
+    ) async -> [(name: String, email: String)] {
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let urlString = "\(peopleAPIURL)/\(endpoint)?query=\(encodedQuery)&readMask=\(readMask)&pageSize=\(pageSize)"
+        
+        guard let url = URL(string: urlString) else { return [] }
         
         var request = URLRequest(url: url)
         request.addValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                 return []
             }
-            
-            if httpResponse.statusCode == 200 {
-                // Parse the response
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let results = json["results"] as? [[String: Any]] {
-                    
-                    var contacts: [(name: String, email: String)] = []
-                    
-                    for result in results {
-                        if let person = result["person"] as? [String: Any] {
-                            // Get name
-                            var name = ""
-                            if let names = person["names"] as? [[String: Any]],
-                               let firstN = names.first,
-                               let displayName = firstN["displayName"] as? String {
-                                name = displayName
-                            }
-                            
-                            // Get email
-                            if let emails = person["emailAddresses"] as? [[String: Any]] {
-                                for emailObj in emails {
-                                    if let email = emailObj["value"] as? String, !email.isEmpty {
-                                        contacts.append((
-                                            name: name.isEmpty ? email : name,
-                                            email: email
-                                        ))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    return contacts
-                }
-            }
-            
-            return []
+            return parsePeopleSearchResults(from: data)
         } catch {
-            print("❌ Contact search error: \(error)")
             return []
         }
+    }
+    
+    private func parsePeopleSearchResults(from data: Data) -> [(name: String, email: String)] {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let results = json["results"] as? [[String: Any]]
+        else {
+            return []
+        }
+        
+        var contacts: [(name: String, email: String)] = []
+        
+        for result in results {
+            guard let person = result["person"] as? [String: Any] else { continue }
+            
+            var displayName = ""
+            if
+                let names = person["names"] as? [[String: Any]],
+                let first = names.first,
+                let rawName = first["displayName"] as? String
+            {
+                displayName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            
+            guard let emailAddresses = person["emailAddresses"] as? [[String: Any]] else { continue }
+            for emailObj in emailAddresses {
+                guard
+                    let email = emailObj["value"] as? String,
+                    !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                else { continue }
+                
+                contacts.append((
+                    name: displayName.isEmpty ? email : displayName,
+                    email: email
+                ))
+            }
+        }
+        
+        return contacts
     }
 
     // CRITICAL FIX: Made public so EmailService can check for new emails without fetching full content
@@ -1893,4 +1961,3 @@ enum GmailAPIError: LocalizedError {
         }
     }
 }
-

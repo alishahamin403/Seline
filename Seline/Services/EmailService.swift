@@ -34,6 +34,7 @@ class EmailService: ObservableObject {
     private var cacheTimestamps: [EmailFolder: Date] = [:]
     private let cacheExpirationTime: TimeInterval = 604800 // 7 days for longer persistence
     private let newEmailCheckInterval: TimeInterval = 60 // 1 minute for real-time notifications (uses <1% of Gmail API quota)
+    private let newEmailBaselineCount: Int = 50
 
     // Persistent cache keys
     private enum CacheKeys {
@@ -375,6 +376,7 @@ class EmailService: ObservableObject {
         switch folder {
         case .inbox:
             inboxEmails = emails
+            seedKnownInboxMessageIdsIfNeeded(from: emails)
         case .sent:
             sentEmails = emails
         default:
@@ -1007,6 +1009,11 @@ class EmailService: ObservableObject {
         if let timer = newEmailTimer {
             RunLoop.main.add(timer, forMode: .common)
         }
+
+        // Run one immediate check so users don't wait for the first timer tick.
+        Task { @MainActor [weak self] in
+            await self?.checkForNewEmails()
+        }
     }
 
     private func stopNewEmailPolling() {
@@ -1049,20 +1056,41 @@ class EmailService: ObservableObject {
         // Check for new emails and show detailed notifications
         // Only fetches metadata (5 quota units per email) for lightweight checks
 
-        // Only check for new emails if we have cached data and user is authenticated
-        guard !inboxEmails.isEmpty, GIDSignIn.sharedInstance.currentUser != nil else { return }
+        // Only check for new emails if user is authenticated
+        guard GIDSignIn.sharedInstance.currentUser != nil else { return }
 
         do {
-            // Fetch latest 3 emails from inbox
-            let messageList = try await gmailAPIClient.fetchMessagesList(query: "in:inbox", maxResults: 3)
+            // Fetch latest inbox IDs (lightweight list request).
+            let messageList = try await gmailAPIClient.fetchMessagesList(query: "in:inbox", maxResults: 10)
             let messageIds = messageList.messages?.map { $0.id } ?? []
+            guard !messageIds.isEmpty else { return }
+
+            let persistedKnownIds = loadKnownInboxMessageIds()
+            let inMemoryIds = Set(inboxEmails.map(\.id))
+            let baselineIds: Set<String>
+
+            if !persistedKnownIds.isEmpty {
+                baselineIds = persistedKnownIds
+            } else if !inMemoryIds.isEmpty {
+                baselineIds = inMemoryIds
+            } else {
+                // First run with no baseline: establish it and skip notifying old mail.
+                saveKnownInboxMessageIds(messageIds)
+                print("📧 Established email baseline with \(messageIds.count) IDs")
+                return
+            }
 
             // Check if we have any new message IDs that aren't in our current list
             let newMessageIds = messageIds.filter { newId in
-                !inboxEmails.contains { existingEmail in
-                    existingEmail.id == newId
-                }
+                !baselineIds.contains(newId)
             }
+
+            // Persist refreshed baseline to keep background checks consistent across launches.
+            var refreshedKnownIds = messageIds
+            for knownId in baselineIds where !refreshedKnownIds.contains(knownId) {
+                refreshedKnownIds.append(knownId)
+            }
+            saveKnownInboxMessageIds(refreshedKnownIds)
 
             if !newMessageIds.isEmpty {
                 // CRITICAL FIX: Reload inbox emails to show new emails in UI
@@ -1144,9 +1172,9 @@ class EmailService: ObservableObject {
                         print("📧 Sent notification for email: '\(email.subject)'")
                     }
 
-                    // Update badge count (only count today's unread emails)
-                    let currentUnreadCount = todaysNewEmails.filter { !$0.isRead }.count
-                    notificationService.updateAppBadge(count: currentUnreadCount)
+                    // Update badge count using full inbox unread total.
+                    let unreadCount = inboxEmails.filter { !$0.isRead }.count
+                    notificationService.updateAppBadge(count: unreadCount)
                 }
             }
         } catch {
@@ -1203,6 +1231,9 @@ class EmailService: ObservableObject {
         if let sentTimestamp = UserDefaults.standard.object(forKey: CacheKeys.sentTimestamp) as? Date {
             cacheTimestamps[.sent] = sentTimestamp
         }
+
+        // Initialize baseline IDs from cache on first launch to avoid false positives.
+        seedKnownInboxMessageIdsIfNeeded(from: inboxEmails)
     }
 
     private func saveCachedData(for folder: EmailFolder) {
@@ -1302,8 +1333,25 @@ class EmailService: ObservableObject {
         
         // Check for new emails and send notifications
         await checkForNewEmails()
-        
+
         print("📧 Background refresh: Complete - Checked \(inboxEmails.count) emails")
+    }
+
+    private func loadKnownInboxMessageIds() -> Set<String> {
+        let ids = UserDefaults.standard.stringArray(forKey: CacheKeys.lastEmailIds) ?? []
+        return Set(ids)
+    }
+
+    private func saveKnownInboxMessageIds(_ ids: [String]) {
+        let normalized = Array(ids.prefix(newEmailBaselineCount))
+        UserDefaults.standard.set(normalized, forKey: CacheKeys.lastEmailIds)
+    }
+
+    private func seedKnownInboxMessageIdsIfNeeded(from emails: [Email]) {
+        guard !emails.isEmpty else { return }
+        let existing = UserDefaults.standard.stringArray(forKey: CacheKeys.lastEmailIds) ?? []
+        guard existing.isEmpty else { return }
+        saveKnownInboxMessageIds(emails.map(\.id))
     }
 
     // MARK: - Private Methods

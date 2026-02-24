@@ -205,7 +205,7 @@ struct ContactsImportView: View {
             if showingLimitWarning {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
+                        .foregroundColor(.primary)
                         .font(.system(size: 14))
 
                     Text("Maximum \(MAX_IMPORT_LIMIT) contacts can be imported at once. Additional contacts can be added manually.")
@@ -222,7 +222,7 @@ struct ContactsImportView: View {
                     }
                 }
                 .padding(12)
-                .background(Color.orange.opacity(0.15))
+                .background(Color.primary.opacity(0.15))
                 .cornerRadius(10)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -233,7 +233,7 @@ struct ContactsImportView: View {
                 Text("\(selectedCount)/\(MAX_IMPORT_LIMIT) selected")
                     .font(FontManager.geist(size: 13, weight: .medium))
                     .foregroundColor(selectedCount >= MAX_IMPORT_LIMIT
-                        ? .orange
+                        ? .primary
                         : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
 
                 Spacer()

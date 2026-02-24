@@ -6,6 +6,7 @@ struct PeopleListView: View {
     let colorScheme: ColorScheme
     let searchText: String
     @Binding var isSearchActive: Bool  // Now controlled by parent view
+    let showsHeader: Bool
 
     @State private var selectedPerson: Person? = nil
     @State private var showingAddPerson = false
@@ -33,6 +34,22 @@ struct PeopleListView: View {
     // Internal search text for unified search experience
     @State private var internalSearchText = ""
     @FocusState private var isSearchFocused: Bool
+
+    init(
+        peopleManager: PeopleManager,
+        locationsManager: LocationsManager,
+        colorScheme: ColorScheme,
+        searchText: String,
+        isSearchActive: Binding<Bool>,
+        showsHeader: Bool = true
+    ) {
+        self.peopleManager = peopleManager
+        self.locationsManager = locationsManager
+        self.colorScheme = colorScheme
+        self.searchText = searchText
+        self._isSearchActive = isSearchActive
+        self.showsHeader = showsHeader
+    }
 
     // MARK: - Cache Update Method
 
@@ -253,26 +270,16 @@ struct PeopleListView: View {
 
     private var mainContentView: some View {
         VStack(spacing: 0) {
-            // PINNED HEADER — never scrolls (hide when search is active)
-            if !isSearchActive {
-                stickyHeader
-                    .background(colorScheme == .dark ? Color.black : Color(UIColor.systemBackground))
-            }
-
             // SCROLLABLE CONTENT — everything between header and footer scrolls
             ScrollView {
                 VStack(spacing: 0) {
-                    // Favorites
+                    // Favorites rail
                     if !peopleManager.people.isEmpty && !isEditMode {
                         favoritesSection
                     }
 
-                    // Main list
-                    if !peopleManager.people.isEmpty {
-                        mainContentBox
-                    } else {
-                        emptyStateView
-                    }
+                    // People stream
+                    mainContentBox
                 }
                 .padding(.bottom, isEditMode ? 20 : 0)
             }
@@ -389,42 +396,6 @@ struct PeopleListView: View {
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
-
-                // Import from Contacts button
-                Button(action: {
-                    showingContactsImport = true
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "person.crop.rectangle.stack")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("Import")
-                            .font(FontManager.geist(size: 12, weight: .medium))
-                    }
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                // Add button in top right
-                Button(action: {
-                    showingAddPerson = true
-                }) {
-                    Text("Add")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white : Color.black)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(.horizontal, 20)
@@ -557,24 +528,36 @@ struct PeopleListView: View {
     @ViewBuilder
     private var mainContentBox: some View {
         VStack(alignment: .leading, spacing: 0) {
+            peopleStreamHeader
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, peopleManager.people.isEmpty ? 4 : 8)
+
             // Relationship filter chips (hidden in edit mode – edit mode is for selecting/reordering)
-            if !isEditMode {
+            if !isEditMode && !peopleManager.people.isEmpty {
                 relationshipFilterChips
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
+                    .padding(.horizontal, 0)
                     .padding(.bottom, 8)
             }
 
             // People list content
             if filteredPeopleCache.isEmpty {
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
                     Image(systemName: "person.2.fill")
                         .font(FontManager.geist(size: 48, weight: .light))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
-                    Text(searchText.isEmpty ? "No people found" : "No people match your search")
+                    Text(peopleManager.people.isEmpty ? "No people saved yet" : "No people match your filters")
                         .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+
+                    if peopleManager.people.isEmpty {
+                        Text("Use + to add people and link them to places and timeline")
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.45) : .black.opacity(0.45))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
@@ -606,6 +589,84 @@ struct PeopleListView: View {
         )
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
         .padding(.top, 12)
+    }
+
+    private var peopleStreamHeader: some View {
+        HStack(spacing: 10) {
+            if isEditMode {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isEditMode = false
+                        selectedPeopleForDeletion.removeAll()
+                    }
+                }) {
+                    Text("Done")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            } else {
+                if !peopleManager.people.isEmpty {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isEditMode = true
+                        }
+                    }) {
+                        Text("Edit")
+                            .font(FontManager.geist(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                Button(action: {
+                    showingContactsImport = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.crop.rectangle.stack")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Import")
+                            .font(FontManager.geist(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Spacer()
+
+                Button(action: {
+                    showingAddPerson = true
+                }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(width: 30, height: 30)
+                        .background(
+                            Circle()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.06))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
     }
     
     // MARK: - Relationship Filter Chips

@@ -62,7 +62,7 @@ struct MarkdownText: View {
         case .code(let text):
             Text(text)
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(.orange)
+                .foregroundColor(.primary)
                 .padding(4)
                 .background(colorScheme == .dark ? Color.black.opacity(0.3) : Color.gray.opacity(0.1))
                 .cornerRadius(4)

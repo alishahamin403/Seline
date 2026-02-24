@@ -18,6 +18,10 @@ struct TaskRow: View {
             Color.black
     }
 
+    private var homeAccentColor: Color {
+        colorScheme == .dark ? Color.claudeAccent.opacity(0.95) : Color.claudeAccent
+    }
+
     // Check if task is completed on the specific date (for recurring tasks)
     private var isTaskCompleted: Bool {
         if let date = date {
@@ -28,7 +32,7 @@ struct TaskRow: View {
 
     private var checkboxColor: Color {
         if isTaskCompleted {
-            return blueColor
+            return homeAccentColor
         }
         return colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6)
     }
@@ -61,7 +65,7 @@ struct TaskRow: View {
                 right: SwipeAction(
                     type: .complete,
                     icon: isTaskCompleted ? "circle" : "checkmark.circle.fill",
-                    color: isTaskCompleted ? .gray : .green,
+                    color: isTaskCompleted ? .gray : .primary,
                     haptic: {
                         if isTaskCompleted {
                             HapticManager.shared.light()

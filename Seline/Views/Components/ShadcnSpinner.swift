@@ -173,7 +173,7 @@ struct LoadingOverlay: View {
                 ShadcnSpinner(size: .large, color: .gray)
                 ShadcnSpinner(size: .large, color: .green)
                 ShadcnSpinner(size: .large, color: .red)
-                ShadcnSpinner(size: .large, color: .orange)
+                ShadcnSpinner(size: .large, color: .primary)
             }
         }
     }

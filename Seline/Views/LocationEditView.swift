@@ -44,6 +44,7 @@ struct LocationEditView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var googleMapsService = GoogleMapsService.shared
+    @StateObject private var locationService = LocationService.shared
 
     @State private var searchQuery = ""
     @State private var searchResults: [PlaceSearchResult] = []
@@ -319,7 +320,10 @@ struct LocationEditView: View {
         }
 
         do {
-            let results = try await googleMapsService.searchPlaces(query: query)
+            let results = try await googleMapsService.searchPlaces(
+                query: query,
+                currentLocation: locationService.currentLocation
+            )
             await MainActor.run {
                 searchResults = results
                 isSearching = false

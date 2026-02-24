@@ -6,6 +6,7 @@ struct AllLocationsEditView: View {
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var googleMapsService = GoogleMapsService.shared
     @StateObject private var supabaseManager = SupabaseManager.shared
+    @StateObject private var locationService = LocationService.shared
     @Namespace private var locationAnimation
 
     var currentPreferences: UserLocationPreferences?
@@ -177,7 +178,10 @@ struct AllLocationsEditView: View {
 
         Task {
             do {
-                let results = try await googleMapsService.searchPlaces(query: query)
+                let results = try await googleMapsService.searchPlaces(
+                    query: query,
+                    currentLocation: locationService.currentLocation
+                )
                 switch index {
                 case 1: location1SearchResults = results
                 case 2: location2SearchResults = results

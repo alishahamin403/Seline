@@ -164,7 +164,7 @@ struct VoiceOrbView: View {
                     RadialGradient(
                         gradient: Gradient(colors: [
                             accent.opacity(0.25),
-                            Color.orange.opacity(0.1)
+                            Color.primary.opacity(0.1)
                         ]),
                         center: .center,
                         startRadius: 0,
@@ -180,7 +180,7 @@ struct VoiceOrbView: View {
             // Hourglass icon
             Image(systemName: "hourglass")
                 .font(.system(size: 24, weight: .medium))
-                .foregroundColor(.orange)
+                .foregroundColor(.primary)
         }
         .onAppear {
             withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {

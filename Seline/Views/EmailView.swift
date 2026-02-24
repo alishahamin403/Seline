@@ -12,7 +12,7 @@ struct EmailView: View, Searchable {
     @State private var lastRefreshTime: Date? = nil
     @State private var showingEmailFolderSidebar: Bool = false
     @State private var searchText: String = ""
-    @State private var selectedSearchEmail: Email? = nil
+    @State private var navigationPath = NavigationPath()
     @State private var isSearchActive: Bool = false
     @State private var showNewCompose = false
     @State private var cachedDaySections: [EmailDaySection] = []
@@ -52,10 +52,39 @@ struct EmailView: View, Searchable {
         cachedDaySections
     }
 
+    private var viewBackgroundColor: Color {
+        colorScheme == .dark ? Color.black : Color.emailLightBackground
+    }
+
+    private var headerSurfaceColor: Color {
+        colorScheme == .dark ? Color.black : Color.emailLightBackground
+    }
+
+    private var headerContainerColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSurface
+    }
+
+    private var headerContainerStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+    }
+
+    private var headerControlFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle
+    }
+
+    private var headerControlIconColor: Color {
+        colorScheme == .dark ? Color.white : Color.emailLightTextPrimary
+    }
 
     var body: some View {
-        GeometryReader { geometry in
-            mainContentView(geometry: geometry)
+        NavigationStack(path: $navigationPath) {
+            GeometryReader { geometry in
+                mainContentView(geometry: geometry)
+            }
+            .navigationDestination(for: Email.self) { email in
+                EmailDetailView(email: email)
+                    .edgeSwipeBackEnabled()
+            }
         }
         .onAppear {
             // Register with search service first
@@ -76,6 +105,7 @@ struct EmailView: View, Searchable {
                 let unreadCount = emailService.inboxEmails.filter { !$0.isRead }.count
                 emailService.notificationService.updateAppBadge(count: unreadCount)
             }
+
         }
         .onChange(of: selectedCategory) { _ in
             rebuildDaySections()
@@ -83,8 +113,21 @@ struct EmailView: View, Searchable {
         .onChange(of: showUnreadOnly) { _ in
             rebuildDaySections()
         }
-        .onChange(of: selectedTab) { _ in
+        .onChange(of: selectedTab) { newTab in
+            if newTab == .events {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSearchActive = false
+                    searchText = ""
+                }
+                emailService.searchResults = []
+            }
+
             rebuildDaySections()
+
+            guard newTab != .events else { return }
+            Task {
+                await emailService.loadEmailsForFolder(newTab.folder)
+            }
         }
         .onReceive(emailService.$inboxEmails) { _ in
             if selectedTab.folder == .inbox {
@@ -102,7 +145,7 @@ struct EmailView: View, Searchable {
     
     @ViewBuilder
     private func mainContentView(geometry: GeometryProxy) -> some View {
-        let topPadding = CGFloat(4)
+        let topPadding = CGFloat(-4)
         
         VStack(spacing: 0) {
             headerSection(topPadding: topPadding)
@@ -111,16 +154,12 @@ struct EmailView: View, Searchable {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Animation.smoothTabTransition, value: selectedTab)
         .background(
-            (colorScheme == .dark ? Color.black : Color.white)
+            viewBackgroundColor
                 .ignoresSafeArea()
         )
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .overlay(composeButtonOverlay)
         .overlay(interactiveFolderSidebarOverlay(geometry: geometry))
-        .sheet(item: $selectedSearchEmail) { email in
-            EmailDetailView(email: email)
-                .presentationBg()
-        }
         .sheet(isPresented: $showNewCompose) {
             NewComposeView()
                 .presentationBg()
@@ -229,97 +268,83 @@ struct EmailView: View, Searchable {
     
     @ViewBuilder
     private func headerSection(topPadding: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            // Tab selector and buttons (hide when search is active)
-            if !isSearchActive {
-                tabSelectorSection(topPadding: topPadding)
-            }
+        VStack(spacing: 10) {
+            tabSelectorSection
 
             // Search bar - show when search is active (but not on events tab)
             if isSearchActive && selectedTab != .events {
-                searchBarSection(topPadding: topPadding)
+                searchBarSection
             }
 
-            // Category filter slider - hide in events tab or when search is active
+            // Category filter slider - show only for inbox/sent list views
             if selectedTab != .events && !isSearchActive {
                 EmailCategoryFilterView(selectedCategory: $selectedCategory)
-                    .onChange(of: selectedCategory) { _ in
-                        // Category change doesn't require reloading data, just filtering
-                    }
             }
         }
+        .padding(.top, topPadding)
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.bottom, 10)
         .background(
-            (colorScheme == .dark ? Color.black : Color.white)
+            headerSurfaceColor
         )
     }
-    
+
     @ViewBuilder
-    private func searchBarSection(topPadding: CGFloat) -> some View {
+    private var searchBarSection: some View {
         EmailSearchBar(searchText: $searchText) { query in
             Task { @MainActor in
                 await emailService.searchEmails(query: query)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, topPadding)
-        .padding(.bottom, 12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(headerContainerColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(headerContainerStrokeColor, lineWidth: 1)
+                )
+        )
+        .frame(maxWidth: .infinity)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
-    
+
     @ViewBuilder
-    private func tabSelectorSection(topPadding: CGFloat) -> some View {
-        HStack(spacing: 12) {
-            // Left side buttons - only show when NOT on events tab
-            if selectedTab != .events {
-                folderButton
-            } else {
-                // Empty spacer to balance layout
-                Color.clear.frame(width: 44, height: 44)
-            }
-            
-            Spacer()
+    private var tabSelectorSection: some View {
+        HStack(spacing: 10) {
+            folderButton
+                .frame(width: 40, height: 36)
 
             EmailTabView(selectedTab: $selectedTab)
-                .onChange(of: selectedTab) { newTab in
-                    // Close search when switching to events tab
-                    if newTab == .events && isSearchActive {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isSearchActive = false
-                            searchText = ""
-                            emailService.searchResults = []
-                        }
-                    }
-                    
-                    Task {
-                        await emailService.loadEmailsForFolder(newTab.folder)
-                    }
-                }
+                .frame(maxWidth: .infinity)
 
-            Spacer()
-
-            // Right side buttons - only show when NOT on events tab
-            if selectedTab != .events {
-                HStack(spacing: 12) {
-                    searchButton
-                    unreadFilterButton
-                }
+            if selectedTab == .events {
+                Color.clear
+                    .frame(width: 40, height: 36)
             } else {
-                // Empty spacer to balance layout
-                Color.clear.frame(width: 44, height: 44)
+                searchButton
+                    .frame(width: 40, height: 36)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, topPadding)
-        .padding(.bottom, 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(headerContainerColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(headerContainerStrokeColor, lineWidth: 1)
+                )
+        )
+        .frame(maxWidth: .infinity)
     }
     
     private var searchButton: some View {
         Button(action: {
             withAnimation(.easeInOut(duration: 0.2)) {
                 if isSearchActive {
-                    isSearchActive = false
-                    searchText = ""
-                    emailService.searchResults = []
+                    clearSearch()
                 } else {
                     isSearchActive = true
                 }
@@ -327,12 +352,12 @@ struct EmailView: View, Searchable {
         }) {
             Image(systemName: isSearchActive ? "xmark.circle.fill" : "magnifyingglass")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .foregroundColor(headerControlIconColor)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                        .fill(headerControlFillColor)
                 )
         }
         .buttonStyle(PlainButtonStyle())
@@ -346,39 +371,12 @@ struct EmailView: View, Searchable {
         }) {
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .foregroundColor(headerControlIconColor)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-    
-    private var unreadFilterButton: some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showUnreadOnly.toggle()
-            }
-        }) {
-            Image(systemName: showUnreadOnly ? "envelope.badge.fill" : "envelope.badge")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(
-                    showUnreadOnly ?
-                        (colorScheme == .dark ? .white : .black) :
-                        Color.gray
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(
-                            showUnreadOnly ?
-                                (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)) :
-                                (colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.08))
-                        )
+                        .fill(headerControlFillColor)
                 )
         }
         .buttonStyle(PlainButtonStyle())
@@ -386,10 +384,10 @@ struct EmailView: View, Searchable {
     
     @ViewBuilder
     private var contentSection: some View {
-        if selectedTab == .events {
-            eventsTabContent
-        } else if isSearchActive && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if isSearchActive && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedTab != .events {
             searchResultsView
+        } else if selectedTab == .events {
+            eventsTabContent
         } else {
             emailListView
         }
@@ -401,7 +399,7 @@ struct EmailView: View, Searchable {
             searchResults: emailService.searchResults,
             isLoading: emailService.isSearching,
             onEmailTap: { email in
-                selectedSearchEmail = email
+                openEmailDetail(email)
             },
             onDeleteEmail: { email in
                 Task {
@@ -425,6 +423,9 @@ struct EmailView: View, Searchable {
             loadingState: currentLoadingState,
             onRefresh: {
                 await refreshCurrentFolder()
+            },
+            onEmailTap: { email in
+                openEmailDetail(email)
             },
             onDeleteEmail: { email in
                 Task {
@@ -459,6 +460,16 @@ struct EmailView: View, Searchable {
             )
         }
     }
+
+    private func clearSearch() {
+        isSearchActive = false
+        searchText = ""
+        emailService.searchResults = []
+    }
+
+    private func openEmailDetail(_ email: Email) {
+        navigationPath.append(email)
+    }
     
     private var composeButtonOverlay: some View {
         VStack {
@@ -473,13 +484,17 @@ struct EmailView: View, Searchable {
                     }) {
                         Image(systemName: "plus")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.black.opacity(colorScheme == .dark ? 0.9 : 0.85))
                             .frame(width: 56, height: 56)
                             .background(
                                 Circle()
-                                    .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
+                                    .fill(Color.white)
                             )
-                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                            .overlay(
+                                Circle()
+                                    .stroke(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.1), lineWidth: 0.8)
+                            )
+                            .shadow(color: .black.opacity(colorScheme == .dark ? 0.2 : 0.08), radius: 8, x: 0, y: 4)
                     }
                     .padding(.trailing, 20)
                     .padding(.bottom, 30)
@@ -491,7 +506,7 @@ struct EmailView: View, Searchable {
     private func interactiveFolderSidebarOverlay(geometry: GeometryProxy) -> some View {
         InteractiveSidebarOverlay(
             isPresented: $showingEmailFolderSidebar,
-            canOpen: selectedTab != .events,
+            canOpen: true,
             sidebarWidth: min(300, geometry.size.width * 0.82),
             colorScheme: colorScheme
         ) {
@@ -517,7 +532,7 @@ struct EmailView: View, Searchable {
             monthViewContent
         }
         .background(
-            colorScheme == .dark ? Color.black : Color.white
+            viewBackgroundColor
         )
     }
 
@@ -532,11 +547,12 @@ struct EmailView: View, Searchable {
                     let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme)
 
                     Text("All")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(FontManager.geist(size: 12, systemWeight: isSelected ? .semibold : .regular))
                         .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
+                        .frame(height: 34)
                         .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                        .overlay(filterButtonStroke(isSelected: isSelected))
                 }
                 .buttonStyle(PlainButtonStyle())
 
@@ -548,11 +564,12 @@ struct EmailView: View, Searchable {
                     let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme)
 
                     Text("Personal")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(FontManager.geist(size: 12, systemWeight: isSelected ? .semibold : .regular))
                         .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
+                        .frame(height: 34)
                         .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                        .overlay(filterButtonStroke(isSelected: isSelected))
                 }
                 .buttonStyle(PlainButtonStyle())
 
@@ -564,11 +581,12 @@ struct EmailView: View, Searchable {
                     let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme)
 
                     Text("Sync")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(FontManager.geist(size: 12, systemWeight: isSelected ? .semibold : .regular))
                         .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
+                        .frame(height: 34)
                         .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                        .overlay(filterButtonStroke(isSelected: isSelected))
                 }
                 .buttonStyle(PlainButtonStyle())
 
@@ -581,20 +599,19 @@ struct EmailView: View, Searchable {
                         let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex)
 
                         Text(tag.name)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(FontManager.geist(size: 12, systemWeight: isSelected ? .semibold : .regular))
                             .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
                             .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
+                            .frame(height: 34)
                             .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                            .overlay(filterButtonStroke(isSelected: isSelected))
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
-
-                Spacer()
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
     }
 
     private func filterButtonTextColor(isSelected: Bool, accentColor: Color) -> Color {
@@ -609,14 +626,22 @@ struct EmailView: View, Searchable {
         Capsule()
             .fill(isSelected ?
                 accentColor :
-                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+            )
+    }
+
+    private func filterButtonStroke(isSelected: Bool) -> some View {
+        Capsule()
+            .stroke(
+                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)),
+                lineWidth: isSelected ? 0 : 1
             )
     }
 
     private var monthViewContent: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: true) {
-                VStack(spacing: 0) {
+                VStack(spacing: 12) {
                     // Calendar month grid
                     CalendarMonthView(
                         selectedDate: $selectedDate,
@@ -629,6 +654,15 @@ struct EmailView: View, Searchable {
                             addEventDate = date
                             showAddEventPopup = true
                         }
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .background(
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill((colorScheme == .dark ? Color.white.opacity(0.05) : Color.white))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20)
+                                    .stroke((colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)), lineWidth: 1)
+                            )
                     )
 
                     // Agenda view for selected date
@@ -651,7 +685,19 @@ struct EmailView: View, Searchable {
                         }
                     )
                     .id("agendaView")
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .background(
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill((colorScheme == .dark ? Color.white.opacity(0.05) : Color.white))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20)
+                                    .stroke((colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)), lineWidth: 1)
+                            )
+                    )
                 }
+                .padding(.horizontal, 4)
+                .padding(.top, 10)
+                .padding(.bottom, 90)
             }
             .onChange(of: selectedDate) { _ in
                 withAnimation(.easeInOut(duration: 0.3)) {

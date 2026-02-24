@@ -182,7 +182,7 @@ struct CalendarRow: View {
                     if !calendar.allowsContentModifications {
                         Text("Read-only")
                             .font(.caption)
-                            .foregroundColor(.orange)
+                            .foregroundColor(.primary)
                     }
                 }
 
