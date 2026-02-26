@@ -33,51 +33,20 @@ struct BottomTabBar: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                ForEach(TabSelection.allCases, id: \.self) { tab in
-                    TabButton(
-                        tab: tab,
-                        selectedTab: $selectedTab,
-                        colorScheme: colorScheme
-                    )
-                }
+        HStack(spacing: 0) {
+            ForEach(TabSelection.allCases, id: \.self) { tab in
+                TabButton(
+                    tab: tab,
+                    selectedTab: $selectedTab,
+                    colorScheme: colorScheme
+                )
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(bottomPillBackground)
-            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.12), radius: 10, x: 0, y: 4)
-            .padding(.horizontal, 12)
-            .padding(.top, 0)
-            .padding(.bottom, 0)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
         .background(Color.clear)
-    }
-
-    private var bottomPillBackground: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 26)
-                .fill(.ultraThinMaterial)
-
-            RoundedRectangle(cornerRadius: 26)
-                .fill(
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.62),
-                            colorScheme == .dark ? Color.white.opacity(0.02) : Color.white.opacity(0.34)
-                        ]),
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-
-            RoundedRectangle(cornerRadius: 26)
-                .stroke(
-                    colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08),
-                    lineWidth: 1
-                )
-        }
     }
 }
 
@@ -100,17 +69,6 @@ struct TabButton: View {
 
     private var iconColor: Color {
         isSelected ? selectedColor : unselectedColor
-    }
-
-    private var itemFillColor: Color {
-        if isSelected {
-            return colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.13)
-        }
-        return colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)
-    }
-
-    private var itemStrokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04)
     }
 
     var body: some View {
@@ -153,17 +111,9 @@ struct TabButton: View {
                         .font(.system(size: 20, weight: .regular))
                 }
             }
-                .foregroundColor(iconColor)
-                .frame(width: 22, height: 22)
-                .frame(width: 46, height: 36)
-                .background(
-                    Capsule()
-                        .fill(itemFillColor)
-                )
-                .overlay(
-                    Capsule()
-                        .stroke(itemStrokeColor, lineWidth: 0.5)
-                )
+            .foregroundColor(iconColor)
+            .frame(width: 24, height: 24)
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
     }

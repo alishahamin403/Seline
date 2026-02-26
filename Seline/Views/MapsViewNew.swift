@@ -228,6 +228,38 @@ struct MapsViewNew: View, Searchable {
             .onDisappear {
                 stopLocationTimer()
             }
+            .swipeDownToRevealSearch(
+                enabled: !isLocationSearchActive && !isPeopleSearchActive,
+                topRegion: UIScreen.main.bounds.height * 0.22,
+                minimumDistance: 70
+            ) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if selectedHubDetail == .places {
+                        isLocationSearchActive = true
+                        isSearchFocused = true
+                    } else if selectedHubDetail == .people {
+                        isPeopleSearchActive = true
+                    }
+                }
+            }
+            .swipeUpToDismissSearch(
+                enabled: (selectedHubDetail == .places
+                    && isLocationSearchActive
+                    && locationSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    || (selectedHubDetail == .people && isPeopleSearchActive),
+                topRegion: UIScreen.main.bounds.height * 0.28,
+                minimumDistance: 54
+            ) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if selectedHubDetail == .places {
+                        locationSearchText = ""
+                        isLocationSearchActive = false
+                        isSearchFocused = false
+                    } else if selectedHubDetail == .people {
+                        isPeopleSearchActive = false
+                    }
+                }
+            }
     }
     
     // MARK: - Main Content View
@@ -255,7 +287,7 @@ struct MapsViewNew: View, Searchable {
                 // Search bar (appears when active)
                 if isLocationSearchActive && selectedHubDetail == .places {
                     locationSearchBar
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                         .padding(.top, 8)
                         .padding(.bottom, 12)
                         .background(hubBackgroundColor)
@@ -267,31 +299,18 @@ struct MapsViewNew: View, Searchable {
     }
     
     private var hubHeader: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 0) {
             hubMainPagePicker
-
-            Button(action: {
-                handleHeaderTrailingAction()
-            }) {
-                Image(systemName: headerTrailingIcon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
-                    .frame(width: 40, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
-                    )
-            }
-            .buttonStyle(PlainButtonStyle())
         }
+        .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 18)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSurface)
+                .fill(Color.appSurface(colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 18)
-                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                        .stroke(Color.appBorder(colorScheme), lineWidth: 1)
                 )
         )
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
@@ -326,7 +345,7 @@ struct MapsViewNew: View, Searchable {
                         .foregroundColor(
                             isSelected
                                 ? (colorScheme == .dark ? .black : .white)
-                                : (colorScheme == .dark ? Color.white.opacity(0.75) : Color.emailLightTextSecondary)
+                                : Color.appTextSecondary(colorScheme)
                         )
                         .frame(maxWidth: .infinity)
                         .frame(height: 34)
@@ -344,31 +363,9 @@ struct MapsViewNew: View, Searchable {
         .padding(4)
         .background(
             Capsule()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
+                .fill(Color.appChip(colorScheme))
         )
         .frame(maxWidth: .infinity)
-    }
-
-    private var headerTrailingIcon: String {
-        selectedHubDetail == .timeline ? "calendar" : "magnifyingglass"
-    }
-
-    private func handleHeaderTrailingAction() {
-        switch selectedHubDetail {
-        case .places:
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isLocationSearchActive = true
-                isSearchFocused = true
-            }
-        case .people:
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isPeopleSearchActive = true
-            }
-        case .timeline:
-            let today = Calendar.current.startOfDay(for: Date())
-            VisitStateManager.shared.currentMonth = today
-            VisitStateManager.shared.selectedDate = today
-        }
     }
 
     private func detailHeader(for detail: HubDetailSection) -> some View {
@@ -379,52 +376,34 @@ struct MapsViewNew: View, Searchable {
             }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
                     .frame(width: 40, height: 36)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
+                            .fill(Color.appChip(colorScheme))
                     )
             }
             .buttonStyle(PlainButtonStyle())
 
             Text(detail.title)
                 .font(FontManager.geist(size: 14, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                .foregroundColor(Color.appTextPrimary(colorScheme))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(1)
 
             if detail == .places || detail == .people {
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        if detail == .people {
-                            isPeopleSearchActive = true
-                        } else {
-                            isLocationSearchActive = true
-                            isSearchFocused = true
-                        }
-                    }
-                }) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
-                        .frame(width: 40, height: 36)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
+                Color.clear
+                    .frame(width: 40, height: 36)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 18)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSurface)
+                .fill(Color.appSurface(colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 18)
-                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                        .stroke(Color.appBorder(colorScheme), lineWidth: 1)
                 )
         )
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
@@ -443,7 +422,7 @@ struct MapsViewNew: View, Searchable {
                 }) {
                     Text(period.rawValue)
                         .font(FontManager.geist(size: 12, weight: .semibold))
-                        .foregroundColor(isSelected ? (colorScheme == .dark ? .black : .white) : (colorScheme == .dark ? Color.white.opacity(0.75) : Color.emailLightTextSecondary))
+                        .foregroundColor(isSelected ? (colorScheme == .dark ? .black : .white) : Color.appTextSecondary(colorScheme))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
                         .background(
@@ -457,53 +436,24 @@ struct MapsViewNew: View, Searchable {
         .padding(4)
         .background(
             Capsule()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
+                .fill(Color.appChip(colorScheme))
         )
         .frame(maxWidth: .infinity)
     }
     
     private var locationSearchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(FontManager.geist(size: 14, weight: .medium))
-                .foregroundColor(.gray)
-
-            TextField("Search locations", text: $locationSearchText)
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
-                .focused($isSearchFocused)
-                .submitLabel(.search)
-
-            if !locationSearchText.isEmpty {
-                Button(action: {
-                    locationSearchText = ""
-                    isSearchFocused = false
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(FontManager.geist(size: 14, weight: .medium))
-                        .foregroundColor(.gray)
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            
-            Button(action: {
+        UnifiedSearchBar(
+            searchText: $locationSearchText,
+            isFocused: $isSearchFocused,
+            placeholder: "Search locations",
+            onCancel: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     locationSearchText = ""
                     isLocationSearchActive = false
                     isSearchFocused = false
                 }
-            }) {
-                Text("Cancel")
-                    .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
-            }
-            .buttonStyle(PlainButtonStyle())
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.emailLightChipIdle)
+            },
+            colorScheme: colorScheme
         )
     }
     
@@ -525,9 +475,6 @@ struct MapsViewNew: View, Searchable {
             .padding(.horizontal, 8)
             .padding(.top, 8)
         }
-        .refreshable {
-            await refreshHubData()
-        }
         .background(
             hubBackgroundColor
                 .ignoresSafeArea()
@@ -539,11 +486,6 @@ struct MapsViewNew: View, Searchable {
         if detail == .places {
             ScrollView(.vertical, showsIndicators: false) {
                 locationsTabContent
-            }
-            .refreshable {
-                loadTopLocations()
-                loadRecentlyVisited()
-                await loadHubPeriodVisits()
             }
             .background(
                 hubBackgroundColor
@@ -790,11 +732,11 @@ struct MapsViewNew: View, Searchable {
                 Button(action: addAction) {
                     Image(systemName: "plus")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
                         .frame(width: 28, height: 28)
                         .background(
                             Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.14) : Color.emailLightChipIdle)
+                                .fill(Color.appChip(colorScheme))
                         )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -845,7 +787,7 @@ struct MapsViewNew: View, Searchable {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.emailLightBorder.opacity(0.7))
+                        .fill(Color.appBorder(colorScheme).opacity(0.75))
 
                     Capsule()
                         .fill(hubAccentColor)
@@ -883,7 +825,7 @@ struct MapsViewNew: View, Searchable {
     private func hubPersonRow(_ person: Person) -> some View {
         HStack(spacing: 10) {
             Circle()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.14) : Color.emailLightChipIdle)
+                .fill(Color.appChip(colorScheme))
                 .frame(width: 32, height: 32)
                 .overlay(
                     Text(person.initials)
@@ -1118,15 +1060,15 @@ struct MapsViewNew: View, Searchable {
     }
 
     private var hubBackgroundColor: Color {
-        colorScheme == .dark ? Color.black : Color.emailLightBackground
+        Color.appBackground(colorScheme)
     }
 
     private var hubCardBackground: some View {
         RoundedRectangle(cornerRadius: 16)
-            .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSectionCard)
+            .fill(Color.appSectionCard(colorScheme))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
             )
             .shadow(
                 color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
@@ -1137,15 +1079,15 @@ struct MapsViewNew: View, Searchable {
     }
 
     private var hubInnerSurfaceColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface
+        Color.appInnerSurface(colorScheme)
     }
 
     private var hubPrimaryTextColor: Color {
-        colorScheme == .dark ? .white : Color.emailLightTextPrimary
+        Color.appTextPrimary(colorScheme)
     }
 
     private var hubSecondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.62) : Color.emailLightTextSecondary
+        Color.appTextSecondary(colorScheme)
     }
 
     private var hubAccentColor: Color {
@@ -1205,13 +1147,11 @@ struct MapsViewNew: View, Searchable {
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 22)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+                    .fill(Color.appSurface(colorScheme))
                     .overlay(
                         RoundedRectangle(cornerRadius: 22)
                             .stroke(
-                                colorScheme == .dark
-                                    ? Color.white.opacity(0.08)
-                                    : Color.emailLightBorder.opacity(0.65),
+                                Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 1 : 0.75),
                                 lineWidth: 1
                             )
                     )
@@ -1455,19 +1395,7 @@ struct MapsViewNew: View, Searchable {
     @ViewBuilder
     private var locationsTabContent: some View {
         VStack(spacing: 14) {
-            savedLocationsHeader
-                .alert("New Folder", isPresented: $showNewFolderAlert) {
-                    TextField("Folder name", text: $newFolderName)
-                    Button("Cancel", role: .cancel) {
-                        newFolderName = ""
-                    }
-                    Button("Create") {
-                        locationsManager.addFolder(newFolderName)
-                        newFolderName = ""
-                    }
-                } message: {
-                    Text("Enter a name for the new folder")
-                }
+            savedOverviewCard
 
             if filteredSavedPlacesForQuery.isEmpty {
                 mapsSectionCard {
@@ -1489,7 +1417,6 @@ struct MapsViewNew: View, Searchable {
                     .padding(.vertical, 18)
                 }
             } else {
-                savedOverviewCard
                 favoritesSection
                 miniMapSection
                 savedFoldersSection
@@ -1498,49 +1425,18 @@ struct MapsViewNew: View, Searchable {
             Spacer().frame(height: 100)
         }
         .padding(.top, 12)
-    }
-
-    private var savedLocationsHeader: some View {
-        HStack(spacing: 12) {
-            Text("Saved Locations")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.6))
-                .textCase(.uppercase)
-                .tracking(0.5)
-            Spacer()
-
-            Button(action: {
+        .alert("New Folder", isPresented: $showNewFolderAlert) {
+            TextField("Folder name", text: $newFolderName)
+            Button("Cancel", role: .cancel) {
                 newFolderName = ""
-                showNewFolderAlert = true
-            }) {
-                Image(systemName: "folder.badge.plus")
-                    .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .black : .white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(colorScheme == .dark ? Color.white : Color.black)
-                    )
             }
-            .buttonStyle(PlainButtonStyle())
-
-            Button(action: {
-                showSearchModal = true
-            }) {
-                Text("Add")
-                    .font(FontManager.geist(size: 12, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .black : .white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(colorScheme == .dark ? Color.white : Color.black)
-                    )
+            Button("Create") {
+                locationsManager.addFolder(newFolderName)
+                newFolderName = ""
             }
-            .buttonStyle(PlainButtonStyle())
+        } message: {
+            Text("Enter a name for the new folder")
         }
-        .padding(.horizontal, 20)
     }
 
     private var savedOverviewCard: some View {
@@ -1559,18 +1455,36 @@ struct MapsViewNew: View, Searchable {
                             .lineLimit(1)
                     }
                     Spacer()
-                    Circle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.22) : Color.black.opacity(0.08))
-                        .frame(width: 32, height: 32)
-                        .overlay(
-                            Circle()
-                                .fill(
-                                    nearbyLocation == nil
-                                        ? (colorScheme == .dark ? Color.white.opacity(0.26) : Color.black.opacity(0.2))
-                                        : Color.green
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            newFolderName = ""
+                            showNewFolderAlert = true
+                        }) {
+                            Image(systemName: "folder.badge.plus")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .frame(width: 30, height: 30)
+                                .background(
+                                    Circle()
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.06))
                                 )
-                                .frame(width: 10, height: 10)
-                        )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Button(action: {
+                            showSearchModal = true
+                        }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .frame(width: 30, height: 30)
+                                .background(
+                                    Circle()
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.06))
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
                 }
 
                 HStack(spacing: 10) {
@@ -1585,14 +1499,13 @@ struct MapsViewNew: View, Searchable {
     private var savedFoldersSection: some View {
         mapsSectionCard {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
+                HStack(spacing: 12) {
                     Text("Folders")
-                        .font(FontManager.geist(size: 13, weight: .semibold))
-                        .foregroundColor(hubPrimaryTextColor)
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .textCase(.uppercase)
+                        .tracking(0.5)
                     Spacer()
-                    Text("\(savedFolderRows.count)")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(hubSecondaryTextColor)
                 }
 
                 if savedFolderRows.isEmpty {
@@ -1622,9 +1535,6 @@ struct MapsViewNew: View, Searchable {
                                 Text("\(folder.count)")
                                     .font(FontManager.geist(size: 13, weight: .semibold))
                                     .foregroundColor(hubSecondaryTextColor)
-                                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(hubSecondaryTextColor.opacity(0.8))
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 11)
@@ -1728,7 +1638,7 @@ struct MapsViewNew: View, Searchable {
 
                                     Text(place.displayName)
                                         .font(FontManager.geist(size: 11, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
                                         .lineLimit(2)
                                         .multilineTextAlignment(.center)
                                         .frame(width: 54, height: 28)
@@ -1757,14 +1667,12 @@ struct MapsViewNew: View, Searchable {
             }
             .background(
                 RoundedRectangle(cornerRadius: 22)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+                    .fill(Color.appSurface(colorScheme))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 22)
                     .stroke(
-                        colorScheme == .dark 
-                            ? Color.white.opacity(0.08)
-                            : Color.clear,
+                        Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 1 : 0),
                         lineWidth: 1
                     )
             )
@@ -1780,31 +1688,20 @@ struct MapsViewNew: View, Searchable {
 
     @ViewBuilder
     private var miniMapSection: some View {
-        mapsSectionCard {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Map")
-                    .font(FontManager.geist(size: 13, weight: .semibold))
-                    .foregroundColor(hubPrimaryTextColor)
-
-                Text("Drag to explore - Tap expand for full view")
-                    .font(FontManager.geist(size: 11, weight: .regular))
-                    .foregroundColor(hubSecondaryTextColor)
-
-                MiniMapView(
-                    places: filteredSavedPlacesForQuery,
-                    currentLocation: locationService.currentLocation,
-                    colorScheme: colorScheme,
-                    onPlaceTap: { place in
-                        selectedPlace = place
-                    },
-                    onExpandTap: {
-                        showFullMapView = true
-                    }
-                )
-                .frame(height: 168)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+        MiniMapView(
+            places: filteredSavedPlacesForQuery,
+            currentLocation: locationService.currentLocation,
+            colorScheme: colorScheme,
+            onPlaceTap: { place in
+                selectedPlace = place
+            },
+            onExpandTap: {
+                showFullMapView = true
             }
-        }
+        )
+        .frame(height: 168)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
     }
 
     @ViewBuilder
@@ -1814,7 +1711,7 @@ struct MapsViewNew: View, Searchable {
                 HStack(spacing: 12) {
                     Text("Recently Visited")
                         .font(FontManager.geist(size: 17, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
                     Spacer()
                 }
                 .padding(.horizontal, 20)
@@ -1831,7 +1728,7 @@ struct MapsViewNew: View, Searchable {
 
                                     Text(place.displayName)
                                         .font(FontManager.geist(size: 11, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
                                         .lineLimit(2)
                                         .multilineTextAlignment(.center)
                                         .frame(width: 54, height: 28)
@@ -1847,14 +1744,12 @@ struct MapsViewNew: View, Searchable {
             }
             .background(
                 RoundedRectangle(cornerRadius: 22)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+                    .fill(Color.appSurface(colorScheme))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 22)
                     .stroke(
-                        colorScheme == .dark 
-                            ? Color.white.opacity(0.08)
-                            : Color.clear,
+                        Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 1 : 0),
                         lineWidth: 1
                     )
             )
@@ -2484,8 +2379,7 @@ struct CategoryCard: View {
                     // Folder background
                     RoundedRectangle(cornerRadius: 16)
                         .fill(
-                            colorScheme == .dark ?
-                                Color.white.opacity(0.05) : Color.black.opacity(0.05)
+                            Color.appInnerSurface(colorScheme)
                         )
 
                     // Grid of small location photos/initials (2x2)
@@ -2507,15 +2401,14 @@ struct CategoryCard: View {
                         // Empty folder - show single large icon
                         Image(systemName: "mappin.circle.fill")
                             .font(FontManager.geist(size: 40, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : Color(white: 0.25))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
                     }
                 }
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(
-                            colorScheme == .dark ?
-                                Color.white.opacity(0.1) : Color.black.opacity(0.05),
+                            Color.appBorder(colorScheme),
                             lineWidth: 1
                         )
                 )
@@ -2523,7 +2416,7 @@ struct CategoryCard: View {
                 // Folder name below
                 Text(category)
                     .font(FontManager.geist(size: 13, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -2808,19 +2701,19 @@ struct FolderOverlayView: View {
                 HStack {
                     Text("Edit Icon")
                         .font(FontManager.geist(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
 
                     Spacer()
 
                     Button(action: { showingIconPicker = false }) {
                         Image(systemName: "xmark.circle.fill")
                             .font(FontManager.geist(size: 18, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
-                .background(colorScheme == .dark ? Color.black : Color.white)
+                .background(Color.appSurface(colorScheme))
 
                 ScrollView {
                     IconPickerView(selectedIcon: $selectedIcon)
@@ -2857,9 +2750,9 @@ struct FolderOverlayView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
-                .background(colorScheme == .dark ? Color.black : Color.white)
+                .background(Color.appSurface(colorScheme))
             }
-            .background(colorScheme == .dark ? Color.black : Color.white)
+            .background(Color.appBackground(colorScheme))
         }
         .sheet(isPresented: $showingChangeFolderSheet) {
             if let place = placeToMove {
@@ -3435,19 +3328,19 @@ struct ChangeFolderSheet: View {
                 HStack {
                     Text("Move to Folder")
                         .font(FontManager.geist(size: 20, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
 
                     Spacer()
 
                     Button(action: onDismiss) {
                         Image(systemName: "xmark.circle.fill")
                             .font(FontManager.geist(size: 22, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
-                .background(colorScheme == .dark ? Color.black : Color.white)
+                .background(Color.appSurface(colorScheme))
 
                 // Place info
                 HStack(spacing: 12) {
@@ -3456,11 +3349,11 @@ struct ChangeFolderSheet: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(place.displayName)
                             .font(FontManager.geist(size: 15, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
 
                         Text("Currently in: \(currentCategory)")
                             .font(FontManager.geist(size: 13, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
                     }
 
                     Spacer()
@@ -3469,7 +3362,7 @@ struct ChangeFolderSheet: View {
                 .padding(.vertical, 16)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.03))
+                        .fill(Color.appInnerSurface(colorScheme))
                 )
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
@@ -3486,11 +3379,11 @@ struct ChangeFolderSheet: View {
                                 HStack(spacing: 12) {
                                     Image(systemName: "folder.fill")
                                         .font(FontManager.geist(size: 18, weight: .medium))
-                                        .foregroundColor(category == currentCategory ? .blue : (colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7)))
+                                        .foregroundColor(category == currentCategory ? .blue : Color.appTextSecondary(colorScheme))
 
                                     Text(category)
                                         .font(FontManager.geist(size: 15, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
 
                                     Spacer()
 
@@ -3506,7 +3399,7 @@ struct ChangeFolderSheet: View {
                                     RoundedRectangle(cornerRadius: 12)
                                         .fill(category == currentCategory ?
                                             Color.blue.opacity(0.1) :
-                                            (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02))
+                                            Color.appInnerSurface(colorScheme)
                                         )
                                 )
                             }
@@ -3533,7 +3426,7 @@ struct ChangeFolderSheet: View {
                             .padding(.vertical, 14)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02))
+                                    .fill(Color.appInnerSurface(colorScheme))
                             )
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -3543,7 +3436,7 @@ struct ChangeFolderSheet: View {
                     .padding(.bottom, 30)
                 }
             }
-            .background(colorScheme == .dark ? Color.black : Color.white)
+            .background(Color.appBackground(colorScheme))
             .alert("Create New Folder", isPresented: $showingNewFolderAlert) {
                 TextField("Folder name", text: $newFolderName)
                 Button("Cancel", role: .cancel) {

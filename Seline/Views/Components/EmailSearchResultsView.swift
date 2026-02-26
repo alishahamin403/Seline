@@ -75,12 +75,6 @@ struct EmailSearchResultsView: View {
             }
             .padding(.horizontal, 8)
         }
-        .refreshable {
-            // Refresh search when user pulls down
-            Task {
-                await EmailService.shared.searchEmails(query: searchText)
-            }
-        }
     }
 }
 

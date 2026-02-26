@@ -212,6 +212,33 @@ struct ReceiptStatsView: View {
         return selectedMonthlySummary.monthlyTotal / Double(days)
     }
 
+    private var monthlyTotalsForYear: [Double] {
+        monthlySummaries.map(\.monthlyTotal)
+    }
+
+    private var monthlyBaseline: (average: Double, stdDev: Double)? {
+        let values = monthlyTotalsForYear
+        guard values.count >= 2 else { return nil }
+        let avg = values.reduce(0, +) / Double(values.count)
+        let variance = values.reduce(0) { partial, value in
+            let delta = value - avg
+            return partial + (delta * delta)
+        } / Double(values.count)
+        return (avg, sqrt(max(variance, 0)))
+    }
+
+    private var yearlyAnomalyText: String? {
+        guard let largestMonthlySummary,
+              let baseline = monthlyBaseline,
+              baseline.average > 0 else { return nil }
+
+        let delta = largestMonthlySummary.monthlyTotal - baseline.average
+        let percent = (delta / baseline.average) * 100
+        guard percent >= 25 else { return nil }
+
+        return "\(largestMonthlySummary.month) is \(String(format: "%.0f%%", percent)) above your monthly average."
+    }
+
     var body: some View {
         ZStack {
             pageBackgroundColor.ignoresSafeArea()
@@ -329,7 +356,7 @@ struct ReceiptStatsView: View {
 
     private var overviewContent: some View {
         VStack(spacing: 12) {
-            yearlyHeroCard(title: "Year to Date")
+            yearlyHeroCard()
             overviewTopCategoriesCard
             overviewMonthSnapshots
         }
@@ -514,11 +541,6 @@ struct ReceiptStatsView: View {
 
     private var overviewMonthSnapshots: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Month Snapshots")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(secondaryTextColor)
-                .padding(.horizontal, 16)
-
             if monthlySummaries.isEmpty {
                 emptyReceiptsCard
                     .padding(.horizontal, 16)
@@ -847,26 +869,25 @@ struct ReceiptStatsView: View {
 
                 Spacer()
 
-                Button(action: {
-                    showMonthlyCategoryBreakdown = true
-                }) {
-                    Text("Categories")
-                        .font(FontManager.geist(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .black : primaryTextColor)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule().fill(colorScheme == .dark ? Color.white : mutedFillColor)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .disabled(selectedMonthCategorizedReceipts.isEmpty)
-            }
+                HStack(spacing: 8) {
+                    Button(action: {
+                        showMonthlyCategoryBreakdown = true
+                    }) {
+                        Text("Categories")
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .black : primaryTextColor)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule().fill(colorScheme == .dark ? Color.white : mutedFillColor)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(selectedMonthCategorizedReceipts.isEmpty)
 
-            if onAddReceipt != nil {
-                HStack {
-                    Spacer()
-                    addReceiptCircleButton
+                    if onAddReceipt != nil {
+                        addReceiptCircleButton
+                    }
                 }
             }
         }
@@ -945,15 +966,9 @@ struct ReceiptStatsView: View {
 
     // MARK: - Shared Cards
 
-    private func yearlyHeroCard(title: String) -> some View {
+    private func yearlyHeroCard() -> some View {
         VStack(alignment: .leading, spacing: 8) {
             yearNavigator
-
-            HStack {
-                Text(title.uppercased())
-                    .font(FontManager.geist(size: 11, weight: .semibold))
-                    .foregroundColor(secondaryTextColor)
-            }
 
             Text(CurrencyParser.formatAmountNoDecimals(currentYearTotal))
                 .font(FontManager.geist(size: 40, weight: .bold))
@@ -967,25 +982,35 @@ struct ReceiptStatsView: View {
             .font(FontManager.geist(size: 13, weight: .medium))
             .foregroundColor(secondaryTextColor)
 
+            if let yearlyAnomalyText {
+                anomalyCallout(text: yearlyAnomalyText)
+            }
+
             if let yearOverYearDelta {
                 let isUp = yearOverYearDelta >= 0
                 let trendColor: Color = isUp ? .red : .green
-                HStack(spacing: 4) {
-                    Image(systemName: isUp ? "arrow.up.right" : "arrow.down.right")
-                        .font(FontManager.geist(size: 10, weight: .semibold))
-                    Text(String(format: "%.1f%% vs %d", abs(yearOverYearDelta), currentYear - 1))
-                        .font(FontManager.geist(size: 11, weight: .semibold))
-                }
-                .foregroundColor(trendColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule()
-                        .fill(trendColor.opacity(colorScheme == .dark ? 0.22 : 0.14))
-                )
-            }
+                HStack(spacing: 8) {
+                    HStack(spacing: 4) {
+                        Image(systemName: isUp ? "arrow.up.right" : "arrow.down.right")
+                            .font(FontManager.geist(size: 10, weight: .semibold))
+                        Text(String(format: "%.1f%% vs %d", abs(yearOverYearDelta), currentYear - 1))
+                            .font(FontManager.geist(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(trendColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(trendColor.opacity(colorScheme == .dark ? 0.22 : 0.14))
+                    )
 
-            if onAddReceipt != nil {
+                    Spacer()
+
+                    if onAddReceipt != nil {
+                        addReceiptCircleButton
+                    }
+                }
+            } else if onAddReceipt != nil {
                 HStack {
                     Spacer()
                     addReceiptCircleButton
@@ -1020,6 +1045,23 @@ struct ReceiptStatsView: View {
         }
         .buttonStyle(PlainButtonStyle())
         .accessibilityLabel("Add receipt")
+    }
+
+    private func anomalyCallout(text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "waveform.path.ecg")
+                .font(FontManager.geist(size: 10, weight: .semibold))
+            Text(text)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .lineLimit(2)
+        }
+        .foregroundColor(colorScheme == .dark ? Color.orange.opacity(0.95) : Color.orange.opacity(0.9))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(colorScheme == .dark ? Color.orange.opacity(0.18) : Color.orange.opacity(0.1))
+        )
     }
 
     private var emptyReceiptsCard: some View {
@@ -1186,6 +1228,7 @@ struct RecurringExpenseStatsContent: View {
     @State private var selectedExpense: RecurringExpense? = nil
     @State private var showEditSheet = false
     @State private var hasLoadedData = false
+    @State private var quickFocusBucket: RecurringBucket? = nil
     @Environment(\.colorScheme) var colorScheme
 
     var searchText: String? = nil
@@ -1220,6 +1263,24 @@ struct RecurringExpenseStatsContent: View {
 
     private var upcomingExpenses: [RecurringExpense] {
         activeExpenses.filter { !isDueNow($0.nextOccurrence) }
+    }
+
+    private var next7DayTotal: Double {
+        let cutoff = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+        return activeExpenses
+            .filter { $0.nextOccurrence <= cutoff }
+            .reduce(0) { partial, expense in
+                partial + Double(truncating: expense.amount as NSDecimalNumber)
+            }
+    }
+
+    private var next30DayTotal: Double {
+        let cutoff = Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? Date()
+        return activeExpenses
+            .filter { $0.nextOccurrence <= cutoff }
+            .reduce(0) { partial, expense in
+                partial + Double(truncating: expense.amount as NSDecimalNumber)
+            }
     }
 
     private var monthlyTotal: Double {
@@ -1264,6 +1325,14 @@ struct RecurringExpenseStatsContent: View {
         colorScheme == .dark ? Color.white.opacity(0.12) : Color.emailLightChipIdle
     }
 
+    private func recurringCardTitle(_ title: String) -> some View {
+        Text(title)
+            .font(FontManager.geist(size: 12, weight: .semibold))
+            .foregroundColor(secondaryTextColor)
+            .textCase(.uppercase)
+            .tracking(0.6)
+    }
+
     var body: some View {
         Group {
             if isLoading {
@@ -1275,9 +1344,17 @@ struct RecurringExpenseStatsContent: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 12) {
                         recurringControlCard
-                        recurringBucketCard(bucket: .dueNow, expenses: dueNowExpenses)
-                        recurringBucketCard(bucket: .upcoming, expenses: upcomingExpenses)
-                        recurringBucketCard(bucket: .paused, expenses: pausedExpenses)
+
+                        if quickFocusBucket == nil || quickFocusBucket == .dueNow {
+                            recurringBucketCard(bucket: .dueNow, expenses: dueNowExpenses)
+                        }
+                        if quickFocusBucket == nil || quickFocusBucket == .upcoming {
+                            recurringBucketCard(bucket: .upcoming, expenses: upcomingExpenses)
+                        }
+                        if quickFocusBucket == nil || quickFocusBucket == .paused {
+                            recurringBucketCard(bucket: .paused, expenses: pausedExpenses)
+                        }
+
                         Spacer(minLength: 90)
                     }
                     .padding(.horizontal, 16)
@@ -1317,11 +1394,7 @@ struct RecurringExpenseStatsContent: View {
     private var recurringControlCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Recurring Control")
-                        .font(FontManager.geist(size: 18, weight: .semibold))
-                        .foregroundColor(primaryTextColor)
-                }
+                recurringCardTitle("Recurring Expenses")
                 Spacer()
                 if let onAddRecurring {
                     Button(action: onAddRecurring) {
@@ -1353,6 +1426,43 @@ struct RecurringExpenseStatsContent: View {
                 recurringSummaryTile(label: "Monthly", value: CurrencyParser.formatAmountNoDecimals(monthlyTotal))
                 recurringSummaryTile(label: "Yearly", value: CurrencyParser.formatAmountNoDecimals(yearlyProjection))
                 recurringSummaryTile(label: "Active", value: "\(activeCount)")
+            }
+
+            HStack(spacing: 8) {
+                recurringSummaryTile(label: "7d impact", value: CurrencyParser.formatAmountNoDecimals(next7DayTotal))
+                recurringSummaryTile(label: "30d impact", value: CurrencyParser.formatAmountNoDecimals(next30DayTotal))
+            }
+
+            HStack(spacing: 8) {
+                quickActionChip(
+                    title: "Due now",
+                    isActive: quickFocusBucket == .dueNow,
+                    action: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            quickFocusBucket = quickFocusBucket == .dueNow ? nil : .dueNow
+                        }
+                    }
+                )
+
+                quickActionChip(
+                    title: "Upcoming",
+                    isActive: quickFocusBucket == .upcoming,
+                    action: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            quickFocusBucket = quickFocusBucket == .upcoming ? nil : .upcoming
+                        }
+                    }
+                )
+
+                quickActionChip(
+                    title: "Paused",
+                    isActive: quickFocusBucket == .paused,
+                    action: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            quickFocusBucket = quickFocusBucket == .paused ? nil : .paused
+                        }
+                    }
+                )
             }
         }
         .padding(.horizontal, 14)
@@ -1387,14 +1497,35 @@ struct RecurringExpenseStatsContent: View {
         )
     }
 
+    private func quickActionChip(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(
+                    isActive
+                        ? (colorScheme == .dark ? .black : .white)
+                        : primaryTextColor
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(
+                    Capsule()
+                        .fill(
+                            isActive
+                                ? (colorScheme == .dark ? Color.white : Color.black)
+                                : controlButtonFillColor
+                        )
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
     private func recurringBucketCard(bucket: RecurringBucket, expenses: [RecurringExpense]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text(bucket.title)
-                    .font(FontManager.geist(size: 17, weight: .semibold))
-                    .foregroundColor(primaryTextColor)
+                recurringCardTitle(bucket.title)
                 Text("· \(expenses.count)")
-                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(secondaryTextColor)
                 Spacer()
             }

@@ -264,6 +264,12 @@ struct PeopleListView: View {
                 updateFilteredResults()
                 syncCategoryOrder()
             }
+            .swipeDownToRevealSearch(enabled: !isSearchActive) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSearchActive = true
+                    isSearchFocused = true
+                }
+            }
     }
 
     // MARK: - Main Content & Search Overlay
@@ -273,6 +279,11 @@ struct PeopleListView: View {
             // SCROLLABLE CONTENT — everything between header and footer scrolls
             ScrollView {
                 VStack(spacing: 0) {
+                    peopleStreamHeader
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
+                        .padding(.bottom, peopleManager.people.isEmpty ? 8 : 12)
+
                     // Favorites rail
                     if !peopleManager.people.isEmpty && !isEditMode {
                         favoritesSection
@@ -528,15 +539,11 @@ struct PeopleListView: View {
     @ViewBuilder
     private var mainContentBox: some View {
         VStack(alignment: .leading, spacing: 0) {
-            peopleStreamHeader
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, peopleManager.people.isEmpty ? 4 : 8)
-
             // Relationship filter chips (hidden in edit mode – edit mode is for selecting/reordering)
             if !isEditMode && !peopleManager.people.isEmpty {
                 relationshipFilterChips
                     .padding(.horizontal, 0)
+                    .padding(.top, 16)
                     .padding(.bottom, 8)
             }
 
@@ -973,6 +980,14 @@ struct PersonRowView: View {
     let onFavouriteTap: () -> Void
     var onLongPress: (() -> Void)? = nil
 
+    private var linkedPlacesCount: Int {
+        person.favouritePlaceIds?.count ?? 0
+    }
+
+    private var linkedPeopleCount: Int {
+        person.linkedPeople?.count ?? 0
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             // Selection circle in edit mode
@@ -1012,6 +1027,20 @@ struct PersonRowView: View {
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                     }
                 }
+
+                HStack(spacing: 8) {
+                    Text("Updated \(relativeDate(person.dateModified))")
+
+                    if linkedPlacesCount > 0 {
+                        Text("• \(linkedPlacesCount) place\(linkedPlacesCount == 1 ? "" : "s")")
+                    }
+
+                    if linkedPeopleCount > 0 {
+                        Text("• \(linkedPeopleCount) link\(linkedPeopleCount == 1 ? "" : "s")")
+                    }
+                }
+                .font(FontManager.geist(size: 11, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.48) : Color.black.opacity(0.5))
             }
 
             Spacer()
@@ -1093,6 +1122,12 @@ struct PersonRowView: View {
         case .other:
             return Color(red: 0.4, green: 0.4, blue: 0.4)
         }
+    }
+
+    private func relativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 

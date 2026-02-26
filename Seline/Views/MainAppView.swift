@@ -72,6 +72,7 @@ struct MainAppView: View {
     @State private var hasAppeared = false
     @State private var dismissedVisitReasonIds: Set<UUID> = [] // Track visits where user dismissed the reason popup
     @State private var isSidebarOverlayVisible = false
+    @State private var isEmailDetailOpen = false
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -1188,7 +1189,7 @@ struct MainAppView: View {
                 // The fixed header is removed from here and replaced with a floating bar at the bottom
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .background((colorScheme == .dark ? Color.black : Color.white))
+            .background(Color.appBackground(colorScheme))
             .blur(radius: isAnySheetPresented ? 5 : 0)
             .animation(.gentleFade, value: isAnySheetPresented)
         }
@@ -1203,7 +1204,8 @@ struct MainAppView: View {
         searchSelectedTask == nil &&
         !authManager.showLocationSetup &&
         !notesManager.isViewingNoteInNavigation &&
-        !isSidebarOverlayVisible
+        !isSidebarOverlayVisible &&
+        !isEmailDetailOpen
     }
 
     private func mainContentVStack(geometry: GeometryProxy) -> some View {
@@ -1235,7 +1237,9 @@ struct MainAppView: View {
                         }
                 }
                 if selectedTab == .email {
-                    EmailView()
+                    EmailView(onDetailNavigationChanged: { isShowingDetail in
+                        isEmailDetailOpen = isShowingDetail
+                    })
                 }
                 if selectedTab == .events {
                     EventsView()
@@ -1267,7 +1271,7 @@ struct MainAppView: View {
             }
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
-        .background((colorScheme == .dark ? Color.black : Color.white))
+        .background(Color.appBackground(colorScheme))
         // Swipe gestures disabled - user requested removal of left/right swipe navigation
     }
 

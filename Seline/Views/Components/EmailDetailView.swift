@@ -16,6 +16,7 @@ struct EmailDetailView: View {
     @State private var showSaveFolderSheet: Bool = false
     @State private var showForwardSheet: Bool = false
     @State private var isSenderInfoExpanded: Bool = false
+    @State private var senderProfilePictureUrl: String? = nil
     
     // Inline reply states
     @State private var showReplySection: Bool = false
@@ -59,8 +60,11 @@ struct EmailDetailView: View {
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 16) {
                     modernTopBar
+                        .padding(.horizontal, 16)
                     modernSubjectSection
+                        .padding(.horizontal, 16)
                     modernSenderSection
+                        .padding(.horizontal, 16)
 
                     if !showReplySection {
                         AISummaryCard(
@@ -69,19 +73,21 @@ struct EmailDetailView: View {
                                 await generateAISummary(for: email, forceRegenerate: forceRegenerate)
                             }
                         )
+                        .padding(.horizontal, 16)
                     }
 
                     if showReplySection {
                         gmailReplySection
+                            .padding(.horizontal, 16)
                     }
 
                     modernEmailBodySection
 
                     if hasAttachments {
                         modernAttachmentsCard
+                            .padding(.horizontal, 16)
                     }
                 }
-                .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
             }
@@ -117,6 +123,7 @@ struct EmailDetailView: View {
             toRecipients = email.sender.email
             Task {
                 await fetchFullEmailBodyIfNeeded()
+                await fetchSenderProfilePictureIfNeeded()
             }
         }
     }
@@ -302,18 +309,11 @@ struct EmailDetailView: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.vertical, 6)
+                        .padding(.horizontal, 16)
                 }
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(cardBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(cardBorder, lineWidth: 1)
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func containsLikelyHTML(_ content: String) -> Bool {
@@ -543,8 +543,24 @@ struct EmailDetailView: View {
     
     @ViewBuilder
     private var gmailAvatarView: some View {
-        // Sender avatar - colored circle with initials
-        fallbackAvatar
+        if let avatarURL = resolvedSenderAvatarURL,
+           URL(string: avatarURL) != nil {
+            CachedAsyncImage(
+                url: avatarURL,
+                content: { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 40, height: 40)
+                        .clipShape(Circle())
+                },
+                placeholder: {
+                    fallbackAvatar
+                }
+            )
+        } else {
+            fallbackAvatar
+        }
     }
     
     private var fallbackAvatar: some View {
@@ -570,6 +586,16 @@ struct EmailDetailView: View {
                     .font(FontManager.geist(size: 16, weight: .semibold))
                     .foregroundColor(.white)
             )
+    }
+
+    private var resolvedSenderAvatarURL: String? {
+        if let senderAvatar = email.sender.avatarUrl, !senderAvatar.isEmpty {
+            return senderAvatar
+        }
+        if let senderProfilePictureUrl, !senderProfilePictureUrl.isEmpty {
+            return senderProfilePictureUrl
+        }
+        return nil
     }
     
     /// Generate initials from a name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")
@@ -1193,6 +1219,34 @@ struct EmailDetailView: View {
     }
     
     // MARK: - Full Email Body Fetching
+    private func fetchSenderProfilePictureIfNeeded() async {
+        if let senderAvatar = email.sender.avatarUrl, !senderAvatar.isEmpty {
+            await MainActor.run {
+                senderProfilePictureUrl = senderAvatar
+            }
+            return
+        }
+
+        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
+        if let cachedURL: String = CacheManager.shared.get(forKey: cacheKey), !cachedURL.isEmpty {
+            await MainActor.run {
+                senderProfilePictureUrl = cachedURL
+            }
+            return
+        }
+
+        do {
+            if let fetchedURL = try await GmailAPIClient.shared.fetchProfilePicture(for: email.sender.email),
+               !fetchedURL.isEmpty {
+                await MainActor.run {
+                    senderProfilePictureUrl = fetchedURL
+                }
+            }
+        } catch {
+            // Keep initials fallback if photo fetch fails.
+        }
+    }
+
     private func fetchFullEmailBodyIfNeeded() async {
         guard fullEmail == nil else { return }
         guard let messageId = email.gmailMessageId else { return }
@@ -1305,16 +1359,13 @@ struct EmailDetailView: View {
         }
 
         do {
-            guard let messageId = email.gmailMessageId else {
-                throw NSError(domain: "EmailError", code: 1, userInfo: [NSLocalizedDescriptionKey: "No message ID available"])
-            }
-
-            let bodyForAI = try await GmailAPIClient.shared.fetchBodyForAI(messageId: messageId)
-            let body = bodyForAI ?? email.snippet
+            let context = await EmailSummaryBuilderService.shared.buildContext(for: email)
 
             let summary = try await openAIService.summarizeEmail(
                 subject: email.subject,
-                body: body
+                body: context.bodyForSummary,
+                analyzedSources: context.analyzedSources,
+                confidenceHint: context.confidenceHint
             )
 
             let finalSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No content available" : summary
@@ -1580,7 +1631,7 @@ struct ZoomableHTMLView: UIViewRepresentable {
                 }
                 body {
                     margin: 0 !important;
-                    padding: 16px !important;
+                    padding: 0 !important;
                     width: 100% !important;
                     max-width: 100% !important;
                     overflow-x: hidden !important;

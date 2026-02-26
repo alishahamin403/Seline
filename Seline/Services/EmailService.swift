@@ -83,8 +83,14 @@ class EmailService: ObservableObject {
         if !sentEmails.isEmpty {
             sentLoadingState = .loaded(sentEmails)
         }
-        // Don't start polling on init - only when app becomes active
+        // Start observing lifecycle immediately.
         setupAppLifecycleObservers()
+
+        // If the service is initialized while app is already active, lifecycle
+        // notifications may have already fired. Ensure live updates still start.
+        if UIApplication.shared.applicationState == .active {
+            ensureAutomaticRefreshActive()
+        }
     }
 
     deinit {
@@ -834,6 +840,7 @@ class EmailService: ObservableObject {
     }
 
     func updateEmailWithAISummary(_ email: Email, summary: String) async {
+        let normalizedSummary = normalizeSummary(summary)
         var wasUpdated = false
 
         // Update in inbox emails
@@ -854,7 +861,7 @@ class EmailService: ObservableObject {
                 hasAttachments: currentEmail.hasAttachments,
                 attachments: currentEmail.attachments,
                     labels: currentEmail.labels,
-                    aiSummary: summary, // Update AI summary
+                    aiSummary: normalizedSummary, // Update AI summary
                     gmailMessageId: currentEmail.gmailMessageId,
                     gmailThreadId: currentEmail.gmailThreadId,
                     unsubscribeInfo: currentEmail.unsubscribeInfo
@@ -881,7 +888,7 @@ class EmailService: ObservableObject {
                 hasAttachments: currentEmail.hasAttachments,
                 attachments: currentEmail.attachments,
                 labels: currentEmail.labels,
-                aiSummary: summary, // Update AI summary
+                aiSummary: normalizedSummary, // Update AI summary
                 gmailMessageId: currentEmail.gmailMessageId,
                 gmailThreadId: currentEmail.gmailThreadId,
                 unsubscribeInfo: currentEmail.unsubscribeInfo
@@ -913,26 +920,13 @@ class EmailService: ObservableObject {
         // Generate summaries one at a time to respect rate limits
         for email in emailsNeedingSummary {
             do {
-                // CRITICAL FIX: Fetch raw email body optimized for AI processing
-                // This gets clean HTML/text without display wrapping
-                var rawEmailBody: String?
-
-                if let gmailMessageId = email.gmailMessageId {
-                    // Use the new AI-optimized body extraction
-                    rawEmailBody = try await gmailAPIClient.fetchBodyForAI(messageId: gmailMessageId)
-
-                    // Debug logging to track content extraction
-                    if rawEmailBody == nil || rawEmailBody?.isEmpty == true {
-                        print("⚠️ No body content extracted for email: '\(email.subject)' (ID: \(gmailMessageId))")
-                    }
-                }
-
-                // Fall back to snippet if body is unavailable
-                let emailBody = rawEmailBody ?? email.snippet
+                let context = await EmailSummaryBuilderService.shared.buildContext(for: email)
 
                 let summary = try await openAIService.summarizeEmail(
                     subject: email.subject,
-                    body: emailBody
+                    body: context.bodyForSummary,
+                    analyzedSources: context.analyzedSources,
+                    confidenceHint: context.confidenceHint
                 )
 
                 // Update the email with the summary
@@ -1036,6 +1030,20 @@ class EmailService: ObservableObject {
         // Update app badge with total unread count
         let unreadCount = inboxEmails.filter { !$0.isRead }.count
         notificationService.updateAppBadge(count: unreadCount)
+    }
+
+    /// Ensures email polling and near-real-time inbox updates are active while app is foregrounded.
+    func ensureAutomaticRefreshActive() {
+        guard UIApplication.shared.applicationState == .active else { return }
+        isAppActive = true
+
+        if newEmailTimer == nil {
+            startNewEmailPolling()
+        } else {
+            Task { @MainActor [weak self] in
+                await self?.checkForNewEmailsIfNeeded()
+            }
+        }
     }
     
     /// Last time we checked for new emails (for rate limiting)
@@ -1185,28 +1193,18 @@ class EmailService: ObservableObject {
     // MARK: - Cache Management
 
     /// Validates and cleans cached data on app startup
-    /// Removes emails that are not from today to prevent stale notifications
+    /// Keeps cached timestamps aligned with cache expiry rules.
     private func validateAndCleanCache() {
-        // Load current cache
-        if let inboxData = UserDefaults.standard.data(forKey: CacheKeys.inboxEmails),
-           let cachedInboxEmails = try? JSONDecoder().decode([Email].self, from: inboxData) {
-            // Filter to keep only today's emails
-            let todaysEmails = filterTodaysEmails(cachedInboxEmails)
-
-            // If we had emails and now we have fewer, save the cleaned cache
-            if cachedInboxEmails.count > todaysEmails.count {
-                // Save cleaned emails back to cache
-                if let encoded = try? JSONEncoder().encode(todaysEmails) {
-                    UserDefaults.standard.set(encoded, forKey: CacheKeys.inboxEmails)
-                }
+        // Clear cache timestamps only when they are truly expired.
+        if let inboxTimestamp = UserDefaults.standard.object(forKey: CacheKeys.inboxTimestamp) as? Date {
+            if Date().timeIntervalSince(inboxTimestamp) >= cacheExpirationTime {
+                UserDefaults.standard.removeObject(forKey: CacheKeys.inboxTimestamp)
             }
         }
 
-        // Clear cache timestamps if older than today (force refresh)
-        if let inboxTimestamp = UserDefaults.standard.object(forKey: CacheKeys.inboxTimestamp) as? Date {
-            let calendar = Calendar.current
-            if !calendar.isDateInToday(inboxTimestamp) {
-                UserDefaults.standard.removeObject(forKey: CacheKeys.inboxTimestamp)
+        if let sentTimestamp = UserDefaults.standard.object(forKey: CacheKeys.sentTimestamp) as? Date {
+            if Date().timeIntervalSince(sentTimestamp) >= cacheExpirationTime {
+                UserDefaults.standard.removeObject(forKey: CacheKeys.sentTimestamp)
             }
         }
     }
@@ -1215,12 +1213,20 @@ class EmailService: ObservableObject {
         // Load cached emails from persistent storage
         if let inboxData = UserDefaults.standard.data(forKey: CacheKeys.inboxEmails),
            let cachedInboxEmails = try? JSONDecoder().decode([Email].self, from: inboxData) {
-            inboxEmails = cachedInboxEmails
+            let (normalizedInbox, didMutateInbox) = normalizeCachedAISummaries(in: cachedInboxEmails)
+            inboxEmails = normalizedInbox
+            if didMutateInbox {
+                persistEmailsToCache(normalizedInbox, key: CacheKeys.inboxEmails)
+            }
         }
 
         if let sentData = UserDefaults.standard.data(forKey: CacheKeys.sentEmails),
            let cachedSentEmails = try? JSONDecoder().decode([Email].self, from: sentData) {
-            sentEmails = cachedSentEmails
+            let (normalizedSent, didMutateSent) = normalizeCachedAISummaries(in: cachedSentEmails)
+            sentEmails = normalizedSent
+            if didMutateSent {
+                persistEmailsToCache(normalizedSent, key: CacheKeys.sentEmails)
+            }
         }
 
         // Load cache timestamps
@@ -1234,6 +1240,57 @@ class EmailService: ObservableObject {
 
         // Initialize baseline IDs from cache on first launch to avoid false positives.
         seedKnownInboxMessageIdsIfNeeded(from: inboxEmails)
+    }
+
+    private func persistEmailsToCache(_ emails: [Email], key: String) {
+        if let encoded = try? JSONEncoder().encode(emails) {
+            UserDefaults.standard.set(encoded, forKey: key)
+        }
+    }
+
+    private func normalizeCachedAISummaries(in emails: [Email]) -> ([Email], Bool) {
+        var didMutate = false
+        let normalizedEmails = emails.map { email in
+            guard let summary = email.aiSummary else {
+                return email
+            }
+            let normalizedSummary = normalizeSummary(summary)
+            if normalizedSummary == summary {
+                return email
+            }
+            didMutate = true
+            return emailByUpdatingSummary(email, summary: normalizedSummary)
+        }
+        return (normalizedEmails, didMutate)
+    }
+
+    private func normalizeSummary(_ summary: String) -> String {
+        let normalized = openAIService.sanitizeEmailSummary(summary)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? "No content available." : normalized
+    }
+
+    private func emailByUpdatingSummary(_ email: Email, summary: String?) -> Email {
+        Email(
+            id: email.id,
+            threadId: email.threadId,
+            sender: email.sender,
+            recipients: email.recipients,
+            ccRecipients: email.ccRecipients,
+            subject: email.subject,
+            snippet: email.snippet,
+            body: email.body,
+            timestamp: email.timestamp,
+            isRead: email.isRead,
+            isImportant: email.isImportant,
+            hasAttachments: email.hasAttachments,
+            attachments: email.attachments,
+            labels: email.labels,
+            aiSummary: summary,
+            gmailMessageId: email.gmailMessageId,
+            gmailThreadId: email.gmailThreadId,
+            unsubscribeInfo: email.unsubscribeInfo
+        )
     }
 
     private func saveCachedData(for folder: EmailFolder) {
@@ -1359,34 +1416,64 @@ class EmailService: ObservableObject {
     /// Merges new emails with existing emails, preserving AI summaries that were already generated
     private func mergeWithExistingAISummaries(newEmails: [Email], existingEmails: [Email]) -> [Email] {
         // Create a dictionary of existing emails by their ID for quick lookup
-        let existingSummaries = Dictionary(uniqueKeysWithValues: existingEmails.map { ($0.id, $0.aiSummary) })
+        let existingById = Dictionary(uniqueKeysWithValues: existingEmails.map { ($0.id, $0) })
 
-        // Map through new emails and restore AI summaries if they exist
+        // Map through new emails and restore durable local fields if they exist
         return newEmails.map { newEmail in
-            // If this email had an AI summary before, restore it
-            if let existingSummary = existingSummaries[newEmail.id], existingSummary != nil && !existingSummary!.isEmpty {
-                return Email(
-                    id: newEmail.id,
-                    threadId: newEmail.threadId,
-                    sender: newEmail.sender,
-                    recipients: newEmail.recipients,
-                    ccRecipients: newEmail.ccRecipients,
-                    subject: newEmail.subject,
-                    snippet: newEmail.snippet,
-                    body: newEmail.body,
-                    timestamp: newEmail.timestamp,
-                    isRead: newEmail.isRead,
-                    isImportant: newEmail.isImportant,
-                    hasAttachments: newEmail.hasAttachments,
-                    attachments: newEmail.attachments,
-                    labels: newEmail.labels,
-                    aiSummary: existingSummary, // Restore the existing AI summary
-                    gmailMessageId: newEmail.gmailMessageId,
-                    gmailThreadId: newEmail.gmailThreadId,
-                    unsubscribeInfo: newEmail.unsubscribeInfo
+            guard let existingEmail = existingById[newEmail.id] else {
+                return newEmail
+            }
+
+            var mergedSender = newEmail.sender
+            if (mergedSender.avatarUrl == nil || mergedSender.avatarUrl?.isEmpty == true),
+               let cachedAvatar = existingEmail.sender.avatarUrl,
+               !cachedAvatar.isEmpty {
+                mergedSender = EmailAddress(
+                    name: newEmail.sender.name,
+                    email: newEmail.sender.email,
+                    avatarUrl: cachedAvatar
                 )
             }
-            return newEmail
+
+            let normalizedExistingSummary = existingEmail.aiSummary.flatMap { summary in
+                summary.isEmpty ? nil : normalizeSummary(summary)
+            }
+            let normalizedNewSummary = newEmail.aiSummary.flatMap { summary in
+                summary.isEmpty ? nil : normalizeSummary(summary)
+            }
+
+            let mergedSummary: String?
+            if let existingSummary = normalizedExistingSummary,
+               normalizedNewSummary == nil {
+                mergedSummary = existingSummary
+            } else {
+                mergedSummary = normalizedNewSummary
+            }
+
+            if mergedSender == newEmail.sender && mergedSummary == newEmail.aiSummary {
+                return newEmail
+            }
+
+            return Email(
+                id: newEmail.id,
+                threadId: newEmail.threadId,
+                sender: mergedSender,
+                recipients: newEmail.recipients,
+                ccRecipients: newEmail.ccRecipients,
+                subject: newEmail.subject,
+                snippet: newEmail.snippet,
+                body: newEmail.body,
+                timestamp: newEmail.timestamp,
+                isRead: newEmail.isRead,
+                isImportant: newEmail.isImportant,
+                hasAttachments: newEmail.hasAttachments,
+                attachments: newEmail.attachments,
+                labels: newEmail.labels,
+                aiSummary: mergedSummary,
+                gmailMessageId: newEmail.gmailMessageId,
+                gmailThreadId: newEmail.gmailThreadId,
+                unsubscribeInfo: newEmail.unsubscribeInfo
+            )
         }
     }
 
@@ -1494,15 +1581,17 @@ class EmailService: ObservableObject {
         // Generate AI summary
         var aiSummary: String? = nil
         do {
-            let emailBody = emailToSave.body ?? emailToSave.snippet
-            let plainTextContent = Self.stripHTMLTags(from: emailBody ?? "")
+            let context = await EmailSummaryBuilderService.shared.buildContext(for: emailToSave)
+            let plainTextContent = Self.stripHTMLTags(from: context.bodyForSummary)
 
             if plainTextContent.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).count >= 20 {
                 let summary = try await openAIService.summarizeEmail(
                     subject: emailToSave.subject,
-                    body: emailBody ?? ""
+                    body: context.bodyForSummary,
+                    analyzedSources: context.analyzedSources,
+                    confidenceHint: context.confidenceHint
                 )
-                aiSummary = summary.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty ? nil : summary
+                aiSummary = normalizeSummary(summary)
                 print("✅ Generated AI summary for email")
             }
         } catch {

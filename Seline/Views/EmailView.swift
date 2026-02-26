@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct EmailView: View, Searchable {
+    var onDetailNavigationChanged: ((Bool) -> Void)? = nil
+
     @StateObject private var emailService = EmailService.shared
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var tagManager = TagManager.shared
@@ -14,6 +16,7 @@ struct EmailView: View, Searchable {
     @State private var searchText: String = ""
     @State private var navigationPath = NavigationPath()
     @State private var isSearchActive: Bool = false
+    @FocusState private var isSearchFieldFocused: Bool
     @State private var showNewCompose = false
     @State private var cachedDaySections: [EmailDaySection] = []
 
@@ -53,27 +56,27 @@ struct EmailView: View, Searchable {
     }
 
     private var viewBackgroundColor: Color {
-        colorScheme == .dark ? Color.black : Color.emailLightBackground
+        Color.appBackground(colorScheme)
     }
 
     private var headerSurfaceColor: Color {
-        colorScheme == .dark ? Color.black : Color.emailLightBackground
+        Color.appBackground(colorScheme)
     }
 
     private var headerContainerColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSurface
+        Color.appSurface(colorScheme)
     }
 
     private var headerContainerStrokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+        Color.appBorder(colorScheme)
     }
 
     private var headerControlFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle
+        Color.appChip(colorScheme)
     }
 
     private var headerControlIconColor: Color {
-        colorScheme == .dark ? Color.white : Color.emailLightTextPrimary
+        Color.appTextPrimary(colorScheme)
     }
 
     var body: some View {
@@ -87,6 +90,9 @@ struct EmailView: View, Searchable {
             }
         }
         .onAppear {
+            onDetailNavigationChanged?(!navigationPath.isEmpty)
+            emailService.ensureAutomaticRefreshActive()
+
             // Register with search service first
             SearchService.shared.registerSearchableProvider(self, for: .email)
             // Also register EmailService to provide saved emails for LLM access
@@ -118,6 +124,7 @@ struct EmailView: View, Searchable {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isSearchActive = false
                     searchText = ""
+                    isSearchFieldFocused = false
                 }
                 emailService.searchResults = []
             }
@@ -129,6 +136,14 @@ struct EmailView: View, Searchable {
                 await emailService.loadEmailsForFolder(newTab.folder)
             }
         }
+        .onChange(of: searchText) { newValue in
+            guard isSearchActive, selectedTab != .events else { return }
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count >= 2 || trimmed.isEmpty else { return }
+            Task { @MainActor in
+                await emailService.searchEmails(query: trimmed)
+            }
+        }
         .onReceive(emailService.$inboxEmails) { _ in
             if selectedTab.folder == .inbox {
                 rebuildDaySections()
@@ -137,6 +152,33 @@ struct EmailView: View, Searchable {
         .onReceive(emailService.$sentEmails) { _ in
             if selectedTab.folder == .sent {
                 rebuildDaySections()
+            }
+        }
+        .onChange(of: navigationPath.count) { _ in
+            onDetailNavigationChanged?(!navigationPath.isEmpty)
+        }
+        .onDisappear {
+            onDetailNavigationChanged?(false)
+        }
+        .swipeDownToRevealSearch(
+            enabled: selectedTab != .events && !isSearchActive,
+            topRegion: UIScreen.main.bounds.height * 0.22,
+            minimumDistance: 70
+        ) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isSearchActive = true
+                isSearchFieldFocused = true
+            }
+        }
+        .swipeUpToDismissSearch(
+            enabled: selectedTab != .events
+                && isSearchActive
+                && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            topRegion: UIScreen.main.bounds.height * 0.28,
+            minimumDistance: 54
+        ) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                clearSearch()
             }
         }
     }
@@ -268,22 +310,23 @@ struct EmailView: View, Searchable {
     
     @ViewBuilder
     private func headerSection(topPadding: CGFloat) -> some View {
-        VStack(spacing: 10) {
-            tabSelectorSection
+        let isSearchHeaderVisible = isSearchActive && selectedTab != .events
 
-            // Search bar - show when search is active (but not on events tab)
-            if isSearchActive && selectedTab != .events {
+        VStack(spacing: 10) {
+            if isSearchHeaderVisible {
                 searchBarSection
+            } else {
+                tabSelectorSection
             }
 
-            // Category filter slider - show only for inbox/sent list views
+            // Category filter slider - show only for inbox/sent list views when search is hidden
             if selectedTab != .events && !isSearchActive {
                 EmailCategoryFilterView(selectedCategory: $selectedCategory)
             }
         }
         .padding(.top, topPadding)
-        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.bottom, 10)
+        .padding(.horizontal, isSearchHeaderVisible ? 0 : ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.bottom, isSearchHeaderVisible ? 0 : 10)
         .background(
             headerSurfaceColor
         )
@@ -291,22 +334,20 @@ struct EmailView: View, Searchable {
 
     @ViewBuilder
     private var searchBarSection: some View {
-        EmailSearchBar(searchText: $searchText) { query in
-            Task { @MainActor in
-                await emailService.searchEmails(query: query)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(headerContainerColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(headerContainerStrokeColor, lineWidth: 1)
-                )
+        UnifiedSearchBar(
+            searchText: $searchText,
+            isFocused: $isSearchFieldFocused,
+            placeholder: "Search emails",
+            onCancel: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    clearSearch()
+                }
+            },
+            colorScheme: colorScheme
         )
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
@@ -318,14 +359,8 @@ struct EmailView: View, Searchable {
 
             EmailTabView(selectedTab: $selectedTab)
                 .frame(maxWidth: .infinity)
-
-            if selectedTab == .events {
-                Color.clear
-                    .frame(width: 40, height: 36)
-            } else {
-                searchButton
-                    .frame(width: 40, height: 36)
-            }
+            Color.clear
+                .frame(width: 40, height: 36)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -338,29 +373,6 @@ struct EmailView: View, Searchable {
                 )
         )
         .frame(maxWidth: .infinity)
-    }
-    
-    private var searchButton: some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                if isSearchActive {
-                    clearSearch()
-                } else {
-                    isSearchActive = true
-                }
-            }
-        }) {
-            Image(systemName: isSearchActive ? "xmark.circle.fill" : "magnifyingglass")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(headerControlIconColor)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(headerControlFillColor)
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
     }
     
     private var folderButton: some View {
@@ -463,6 +475,7 @@ struct EmailView: View, Searchable {
 
     private func clearSearch() {
         isSearchActive = false
+        isSearchFieldFocused = false
         searchText = ""
         emailService.searchResults = []
     }
@@ -488,11 +501,11 @@ struct EmailView: View, Searchable {
                             .frame(width: 56, height: 56)
                             .background(
                                 Circle()
-                                    .fill(Color.white)
+                                    .fill(colorScheme == .dark ? Color.wsLightSurface : Color.white)
                             )
                             .overlay(
                                 Circle()
-                                    .stroke(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.1), lineWidth: 0.8)
+                                    .stroke(Color.appBorder(colorScheme), lineWidth: 0.8)
                             )
                             .shadow(color: .black.opacity(colorScheme == .dark ? 0.2 : 0.08), radius: 8, x: 0, y: 4)
                     }
@@ -626,14 +639,14 @@ struct EmailView: View, Searchable {
         Capsule()
             .fill(isSelected ?
                 accentColor :
-                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                Color.appChip(colorScheme)
             )
     }
 
     private func filterButtonStroke(isSelected: Bool) -> some View {
         Capsule()
             .stroke(
-                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)),
+                Color.appBorder(colorScheme),
                 lineWidth: isSelected ? 0 : 1
             )
     }
@@ -658,10 +671,10 @@ struct EmailView: View, Searchable {
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .background(
                         RoundedRectangle(cornerRadius: 20)
-                            .fill((colorScheme == .dark ? Color.white.opacity(0.05) : Color.white))
+                            .fill(Color.appSurface(colorScheme))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 20)
-                                    .stroke((colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)), lineWidth: 1)
+                                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
                             )
                     )
 
@@ -688,10 +701,10 @@ struct EmailView: View, Searchable {
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .background(
                         RoundedRectangle(cornerRadius: 20)
-                            .fill((colorScheme == .dark ? Color.white.opacity(0.05) : Color.white))
+                            .fill(Color.appSurface(colorScheme))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 20)
-                                    .stroke((colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)), lineWidth: 1)
+                                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
                             )
                     )
                 }

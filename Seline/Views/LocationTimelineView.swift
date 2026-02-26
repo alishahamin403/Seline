@@ -52,6 +52,33 @@ struct LocationTimelineView: View {
         }
         return hasher.finalize()
     }
+
+    private var followUpSuggestionText: String? {
+        guard !visitsWithNotes.isEmpty else { return nil }
+
+        for visit in visitsWithNotes {
+            let lowerNotes = (visit.visitNotes ?? "").lowercased()
+
+            if lowerNotes.contains("invoice") || lowerNotes.contains("bill") || lowerNotes.contains("payment") {
+                return "Suggested follow-up: close out any pending payment or invoice from today."
+            }
+
+            if lowerNotes.contains("meeting") || lowerNotes.contains("call") || lowerNotes.contains("follow up") {
+                return "Suggested follow-up: send a quick recap while today is still fresh."
+            }
+
+            if lowerNotes.contains("book") || lowerNotes.contains("reservation") || lowerNotes.contains("schedule") {
+                return "Suggested follow-up: confirm dates and lock in the next step."
+            }
+
+            if let linkedPeople = visitPeopleCache[visit.id], !linkedPeople.isEmpty {
+                let names = linkedPeople.prefix(2).map(\.displayName).joined(separator: ", ")
+                return "Suggested follow-up: check in with \(names) on any open items from this visit."
+            }
+        }
+
+        return "Suggested follow-up: capture one concrete next step from today's visits."
+    }
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM yyyy"
@@ -616,26 +643,12 @@ struct LocationTimelineView: View {
                                         .font(FontManager.geist(size: 10, weight: .regular))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                         .padding(.leading, 8)
-                                } else {
-                                    // Show "Add people" button if no people connected
-                                    Button(action: {
-                                        selectedVisitForPeople = visit
-                                    }) {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "person.badge.plus")
-                                                .font(FontManager.geist(size: 10, weight: .medium))
-                                            Text("Add people")
-                                                .font(FontManager.geist(size: 10, weight: .medium))
-                                        }
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
                                 }
                             }
                             .padding(.top, 4)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                if !isMergeMode {
+                                if !isMergeMode, let people = visitPeopleCache[visit.id], !people.isEmpty {
                                     selectedVisitForPeople = visit
                                 }
                             }
@@ -768,7 +781,13 @@ struct LocationTimelineView: View {
             if isGeneratingSummary {
                 daySummaryLoadingView
             } else if let summary = daySummaryText {
-                daySummaryTextView(summary)
+                VStack(alignment: .leading, spacing: 8) {
+                    daySummaryTextView(summary)
+
+                    if let followUpSuggestionText {
+                        followUpSuggestionView(text: followUpSuggestionText)
+                    }
+                }
             }
         }
     }
@@ -791,6 +810,23 @@ struct LocationTimelineView: View {
             .foregroundColor(colorScheme == .dark ? .white.opacity(0.85) : .black.opacity(0.85))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
+    }
+
+    private func followUpSuggestionView(text: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "arrowshape.turn.up.right.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.85) : Color.black.opacity(0.75))
+                .padding(.top, 2)
+
+            Text(text)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.78) : Color.black.opacity(0.72))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(3)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
     }
 
     private var daySummaryBackground: some View {

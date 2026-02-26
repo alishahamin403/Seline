@@ -179,11 +179,14 @@ struct ConversationSearchView: View {
             Spacer()
             
             // Claude-style centered greeting
-            VStack(spacing: 20) {
-                // Coral sparkle icon (no circle background)
-                Image(systemName: "sparkles")
-                    .font(FontManager.geist(size: 32, weight: .medium))
-                    .foregroundColor(Color.claudeAccent)
+            VStack(spacing: 16) {
+                // Use the same branded S icon as the bottom tab.
+                Image("AITabSIcon")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 40, height: 40)
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 
                 // Single line greeting matching Claude's style
                 Text(claudeGreetingText)
@@ -1357,20 +1360,28 @@ struct ConversationMessageView: View {
         if contentPills.isEmpty && eventPills.isEmpty {
             EmptyView()
         } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(contentPills) { item in
-                        sourcePill(
-                            sourceLabel: sourceLabelForContentType(item),
-                            title: displayTitle(for: item),
-                            icon: iconForContentType(item.contentType)
-                        ) {
-                            openRelevantContent(item)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Sources used")
+                    .font(FontManager.geist(size: 10, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.45))
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(contentPills) { item in
+                            sourcePill(
+                                sourceLabel: sourceLabelForContentType(item),
+                                title: displayTitle(for: item),
+                                icon: iconForContentType(item.contentType)
+                            ) {
+                                openRelevantContent(item)
+                            }
                         }
-                    }
-                    ForEach(eventPills) { event in
-                        sourcePill(sourceLabel: "Calendar", title: event.title, icon: "calendar") {
-                            // Event creation items don't have a TaskItem yet
+                        ForEach(eventPills) { event in
+                            sourcePill(sourceLabel: "Calendar", title: event.title, icon: "calendar") {
+                                // Event creation items don't have a TaskItem yet
+                            }
                         }
                     }
                 }

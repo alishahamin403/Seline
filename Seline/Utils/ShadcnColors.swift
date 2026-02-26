@@ -1,12 +1,70 @@
 import SwiftUI
 
 extension Color {
-    // MARK: - Custom Blue Color Palette
-    // Colors: #d8ecf7, #84cae9, #65a2bc, #4c7c90, #345766, #1e353f, #09161b
-    // Darker colors for light mode, lighter colors for dark mode
+    // MARK: - Neutral Grayscale Palette
+    // Keeps previous light/dark structure while removing blue tint.
+
+    // Light mode
+    static let wsLightBackground = Color(red: 0.961, green: 0.961, blue: 0.965) // #F5F5F6
+    static let wsLightSurface = Color.white // #FFFFFF
+    static let wsLightSectionCard = Color(red: 0.976, green: 0.976, blue: 0.980) // #F9F9FA
+    static let wsLightInnerSurface = Color(red: 0.945, green: 0.945, blue: 0.953) // #F1F1F3
+    static let wsLightChip = Color(red: 0.925, green: 0.929, blue: 0.937) // #ECEDEE
+    static let wsLightChipStrong = Color(red: 0.898, green: 0.902, blue: 0.914) // #E5E6E9
+    static let wsLightBorder = Color(red: 0.890, green: 0.894, blue: 0.910) // #E3E4E8
+    static let wsLightTextPrimary = Color(red: 0.102, green: 0.102, blue: 0.110) // #1A1A1C
+    static let wsLightTextSecondary = Color(red: 0.400, green: 0.416, blue: 0.451) // #666A73
+
+    // Dark mode
+    static let wsDarkBackground = Color.black // #000000
+    static let wsDarkSurface = Color(red: 0.078, green: 0.078, blue: 0.086) // #141416
+    static let wsDarkSectionCard = Color(red: 0.094, green: 0.094, blue: 0.102) // #18181A
+    static let wsDarkInnerSurface = Color(red: 0.114, green: 0.114, blue: 0.122) // #1D1D1F
+    static let wsDarkChip = Color(red: 0.157, green: 0.157, blue: 0.169) // #28282B
+    static let wsDarkChipStrong = Color(red: 0.196, green: 0.196, blue: 0.208) // #323235
+    static let wsDarkBorder = Color.white.opacity(0.1)
+    static let wsDarkTextPrimary = Color.white
+    static let wsDarkTextSecondary = Color.white.opacity(0.7)
+
+    // App-wide dynamic tokens
+    static func appBackground(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? .black : emailLightBackground
+    }
+
+    static func appSurface(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : emailLightSurface
+    }
+
+    static func appSectionCard(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : emailLightSectionCard
+    }
+
+    static func appInnerSurface(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : emailLightSurface
+    }
+
+    static func appChip(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : emailLightChipIdle
+    }
+
+    static func appChipStrong(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.14) : emailLightChipIdle
+    }
+
+    static func appBorder(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : emailLightBorder
+    }
+
+    static func appTextPrimary(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? .white : emailLightTextPrimary
+    }
+
+    static func appTextSecondary(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.7) : emailLightTextSecondary
+    }
 
     // Primary Colors
-    static let shadcnPrimary = Color(red: 0.20, green: 0.34, blue: 0.40) // #345766 (dark blue)
+    static let shadcnPrimary = Color(red: 0.22, green: 0.22, blue: 0.24)
     static let shadcnPrimaryForeground = Color.white
 
     // MARK: - Gmail Dark Mode Colors
@@ -27,69 +85,69 @@ extension Color {
 
     // MARK: - Email Light Mode Tokens
     // Kept for compatibility across email/notes/receipt/map surfaces.
-    static let emailLightBackground = Color(red: 0.969, green: 0.973, blue: 0.980) // #F7F8FA
-    static let emailLightSurface = Color.white // #FFFFFF
-    static let emailLightSectionCard = Color(red: 0.988, green: 0.988, blue: 0.992) // #FCFCFD
-    static let emailLightChipIdle = Color(red: 0.933, green: 0.945, blue: 0.961) // #EEF1F5
-    static let emailLightTextPrimary = Color(red: 0.067, green: 0.075, blue: 0.094) // #111318
-    static let emailLightTextSecondary = Color(red: 0.420, green: 0.447, blue: 0.502) // #6B7280
-    static let emailLightBorder = Color(red: 0.906, green: 0.914, blue: 0.933) // #E7E9EE
+    static let emailLightBackground = wsLightBackground
+    static let emailLightSurface = wsLightSurface
+    static let emailLightSectionCard = wsLightSectionCard
+    static let emailLightChipIdle = wsLightChip
+    static let emailLightTextPrimary = wsLightTextPrimary
+    static let emailLightTextSecondary = wsLightTextSecondary
+    static let emailLightBorder = wsLightBorder
 
     // Background Colors
     static func shadcnBackground(_ colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ?
-            Color(red: 0.035, green: 0.086, blue: 0.106) : // #09161b (darkest blue)
-            Color(red: 0.847, green: 0.925, blue: 0.969) // #d8ecf7 (lightest blue)
+            Color(red: 0.059, green: 0.059, blue: 0.063) : // #0F0F10
+            emailLightBackground
     }
 
     static func shadcnCard(_ colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ?
-            Color(red: 0.118, green: 0.208, blue: 0.247) : // #1e353f (very dark blue)
-            Color(red: 0.518, green: 0.792, blue: 0.914) // #84cae9 (medium blue)
+            Color(red: 0.114, green: 0.114, blue: 0.122) : // #1D1D1F
+            emailLightSectionCard
     }
 
     // Border Colors
     static func shadcnBorder(_ colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ?
-            Color(red: 0.20, green: 0.34, blue: 0.40) : // #345766 (dark blue)
-            Color(red: 0.396, green: 0.635, blue: 0.737) // #65a2bc (blue-gray)
+            Color.white.opacity(0.1) :
+            emailLightBorder
     }
 
     // Text Colors
     static func shadcnForeground(_ colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ?
-            Color.white : // Pure white in dark mode
-            Color(red: 0.035, green: 0.086, blue: 0.106) // #09161b (darkest blue)
+            Color.white :
+            emailLightTextPrimary
     }
 
     static func shadcnMuted(_ colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ?
-            Color(red: 0.396, green: 0.635, blue: 0.737) : // #65a2bc (blue-gray)
-            Color(red: 0.298, green: 0.486, blue: 0.565) // #4c7c90 (dark blue-gray)
+            Color.white.opacity(0.7) :
+            emailLightTextSecondary
     }
 
     static func shadcnMutedForeground(_ colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ?
-            Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (medium blue)
-            Color(red: 0.298, green: 0.486, blue: 0.565) // #4c7c90 (dark blue-gray)
+            Color.white.opacity(0.7) :
+            emailLightTextSecondary
     }
 
-    // Accent Colors (Blue variants)
-    static let shadcnAccent = Color(red: 0.518, green: 0.792, blue: 0.914) // #84cae9 (medium blue)
-    static let shadcnAccentLight = Color(red: 0.847, green: 0.925, blue: 0.969) // #d8ecf7 (lightest blue)
-    static let shadcnAccentDark = Color(red: 0.118, green: 0.208, blue: 0.247) // #1e353f (very dark blue)
+    // Accent Colors (neutral grayscale)
+    static let shadcnAccent = Color(red: 0.231, green: 0.231, blue: 0.247) // #3B3B3F
+    static let shadcnAccentLight = Color(red: 0.910, green: 0.910, blue: 0.922) // #E8E8EB
+    static let shadcnAccentDark = Color(red: 0.133, green: 0.133, blue: 0.145) // #222225
 
     // Interactive States
-    static let shadcnHover = Color(red: 0.396, green: 0.635, blue: 0.737) // #65a2bc (blue-gray)
-    static let shadcnHoverDark = Color(red: 0.298, green: 0.486, blue: 0.565) // #4c7c90 (dark blue-gray)
+    static let shadcnHover = Color(red: 0.631, green: 0.639, blue: 0.663) // #A1A3A9
+    static let shadcnHoverDark = Color(red: 0.333, green: 0.333, blue: 0.353) // #55555A
 
     // Focus Ring
-    static let shadcnRing = Color(red: 0.518, green: 0.792, blue: 0.914).opacity(0.3) // #84cae9 with opacity
+    static let shadcnRing = Color(red: 0.333, green: 0.333, blue: 0.353).opacity(0.3)
     
     // MARK: - Tile Background Colors
     // Standardized tile background color for consistent rounded square design
     static func shadcnTileBackground(_ colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.white
+        appInnerSurface(colorScheme)
     }
 }
 

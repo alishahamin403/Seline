@@ -70,9 +70,6 @@ struct EmailListByDay: View {
             .padding(.top, 8)
             .padding(.bottom, 80) // Extra padding for compose button
         }
-        .refreshable {
-            await onRefresh()
-        }
     }
     
     // MARK: - Day Sections List
@@ -146,15 +143,15 @@ struct EmailListByDay: View {
         VStack(spacing: 16) {
             Image(systemName: "tray")
                 .font(FontManager.geist(size: 48, weight: .light))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.emailLightTextSecondary.opacity(0.7))
+                .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.7))
             
             Text("No Emails in the Last 7 Days")
                 .font(FontManager.geist(size: 17, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
+                .foregroundColor(Color.appTextPrimary(colorScheme))
             
-            Text("Pull down to refresh")
+            Text("New emails appear automatically")
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
+                .foregroundColor(Color.appTextSecondary(colorScheme))
         }
         .padding(.top, 60)
     }
@@ -166,11 +163,11 @@ struct DayLoadingPlaceholder: View {
     @Environment(\.colorScheme) var colorScheme
     
     private var cardBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSectionCard
+        Color.appSectionCard(colorScheme)
     }
     
     private var strokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+        Color.appBorder(colorScheme)
     }
     
     var body: some View {
@@ -178,17 +175,17 @@ struct DayLoadingPlaceholder: View {
             // Header placeholder
             HStack(spacing: 12) {
                 Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
+                    .fill(Color.appChip(colorScheme))
                     .frame(width: 40, height: 40)
                 
                 VStack(alignment: .leading, spacing: 6) {
                     Rectangle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.emailLightTextSecondary.opacity(0.35))
+                        .fill(Color.appTextSecondary(colorScheme).opacity(0.35))
                         .frame(width: 100, height: 14)
                         .clipShape(RoundedRectangle(cornerRadius: 3))
                     
                     Rectangle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
+                        .fill(Color.appChip(colorScheme))
                         .frame(width: 80, height: 10)
                         .clipShape(RoundedRectangle(cornerRadius: 2))
                 }
@@ -196,7 +193,7 @@ struct DayLoadingPlaceholder: View {
                 Spacer()
                 
                 Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
+                    .fill(Color.appChip(colorScheme))
                     .frame(width: 24, height: 24)
             }
             .padding(.horizontal, 16)

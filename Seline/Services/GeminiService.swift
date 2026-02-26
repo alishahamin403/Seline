@@ -122,75 +122,448 @@ class GeminiService: ObservableObject {
     }
 
     /// Summarize email (drop-in replacement for OpenAI method)
-    func summarizeEmail(subject: String, body: String) async throws -> String {
-        let bodyPreview = String(body.prefix(1000))
+    func summarizeEmail(
+        subject: String,
+        body: String,
+        analyzedSources: [String] = [],
+        confidenceHint: String? = nil
+    ) async throws -> String {
+        let preparedBody = prepareEmailBodyForSummary(body)
+        let bodyPreview = String(preparedBody.prefix(1000))
         print("📧 ===========================================")
         print("📧 Summarizing email - Subject: \(subject)")
         print("📧 Body preview (first 1000 chars):")
         print(bodyPreview)
         print("📧 ===========================================")
 
+        let sourceLine = analyzedSources.isEmpty ? "Email body/snippet" : analyzedSources.joined(separator: ", ")
+        let confidenceLine = confidenceHint ?? "Medium"
+
         let prompt = """
-        Read this email and extract what actually matters to the reader. Be their smart assistant.
+        You are an email assistant. Summarize this email as direct facts only.
 
-        EMAIL CONTENT:
-        \(body.prefix(8000))
+        EMAIL SUBJECT:
+        \(subject)
 
-        YOUR TASK: Create 2-4 concise bullet points (MAX 4) that answer "What do I need to know?" and "What should I do?"
+        EMAIL BODY + EXTRACTED CONTEXT:
+        \(preparedBody.prefix(14000))
 
-        CRITICAL RULES:
-        1. Write like a helpful friend, NOT a robot. Never say "this email", "the email states", "the sender"
-        2. NEVER repeat the subject line or sender name - the user already sees those
-        3. Focus on: amounts, dates, deadlines, action items, important details, links, tracking numbers
-        4. If there's something to DO, start with an action verb (Review, Confirm, Pay, Check, Track, etc.)
-        5. Include specific numbers: $amounts, dates, percentages, quantities, order numbers, tracking numbers
-        6. 🚨 CRITICAL - LINKS FORMATTING:
-           - ALWAYS convert URLs to markdown links: [descriptive text](URL)
-           - NEVER show raw URLs like https://example.com/long-url
-           - Use descriptive link text like [Select your bank], [Learn more], [Track package]
-           - Example: "Select your bank: [RBC Royal Bank](https://etransfer.interac.ca/...)" NOT "using this link: (https://etransfer.interac.ca/...)"
-        7. Skip fluff - no "Thank you for your business" type content
-        8. If it's a receipt/transaction: state the key numbers (amount, what it's for, order number)
-        9. If it's a request: state what they're asking and any deadline
-        10. If it's informational: state the key takeaway with all relevant details
-        11. Keep it concise - combine related info into single bullets when possible
+        KNOWN SOURCES ANALYZED:
+        \(sourceLine)
 
-        EXAMPLES OF GOOD SUMMARIES:
+        CONFIDENCE HINT:
+        \(confidenceLine)
 
-        For a money transfer:
-        • You received $500.00 CAD - select your bank to claim: [RBC Royal Bank](url) or [Other institution](url)
-        • Funds expire March 9, 2026
-        • Reference number: CAEvQgGX
+        OUTPUT REQUIREMENTS:
+        - Return ONLY bullet points with "•" at the start of each bullet.
+        - Return 3 to 5 bullets.
+        - Every bullet must be a direct fact or direct action from the email.
+        - Do NOT use lead-ins like:
+          "What this says:", "What it's asking from you:", "Key details:", "Recommended next step:", "Sources analyzed:", "Confidence:"
+        - If action is required, state the exact action and deadline/date.
+        - If no action is required, include one bullet: "No action required."
+        - Keep each bullet concise and complete.
+        - Bullet length can be 1-2 lines on mobile; completeness is more important than strict length.
+        - Do not output sentence fragments or cut-off endings.
+        - If details are unclear, state exactly what is unclear in one concise bullet.
 
-        For an order confirmation:
-        • Your order (#702-7867393-7724246) arrives tomorrow - [Track package](https://tracking-url.com)
-        • Charged $81.34 CAD for 2 items: cleanser ($20.99) and DIY kit ($50.99)
+        LINK FORMAT:
+        - Never output raw URLs.
+        - Always format links as markdown: [descriptive text](https://...)
 
-        For a deposit notification:
-        • $500 deposited to your TFSA account
-        • New balance: $12,450.32 (as of Jan 24, 2026)
-
-        For a bill/invoice:
-        • $89.99 due by Jan 25th - [Pay now](https://account.example.com/pay)
-        • Invoice #12345
-
-        Return ONLY the bullet points using • symbol. NEVER show raw URLs - always use markdown [text](url) format. Keep it to 4 points maximum.
+        STYLE:
+        - No filler text.
+        - Start directly with facts.
         """
 
         let messages = [Message(role: "user", content: prompt)]
         let response = try await chat(
             messages: messages,
             temperature: 0.0,
-            maxTokens: 300,  // COST OPTIMIZATION: Reduced from 400 for concise email summaries
+            maxTokens: 700,
             operationType: "email_summary"
         )
 
-        let summary = response.choices.first?.message.content ?? ""
+        let rawSummary = response.choices.first?.message.content ?? ""
+        let summary = normalizeEmailSummary(rawSummary)
         print("✅ Generated summary:")
         print(summary)
         print("📧 ===========================================")
 
         return summary
+    }
+
+    private func prepareEmailBodyForSummary(_ body: String) -> String {
+        var cleaned = body.replacingOccurrences(of: "\r\n", with: "\n")
+
+        if cleaned.contains("<") && cleaned.contains(">") {
+            cleaned = convertHTMLToTextForSummary(cleaned)
+        }
+
+        cleaned = cleaned.replacingOccurrences(
+            of: "\\n{3,}",
+            with: "\n\n",
+            options: .regularExpression
+        )
+
+        let filteredLines = cleaned.components(separatedBy: .newlines).compactMap { rawLine -> String? in
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { return nil }
+
+            let lower = line.lowercased()
+            let isBoilerplateLine =
+                lower.hasPrefix("unsubscribe") ||
+                lower.contains("manage preferences") ||
+                lower.contains("view in browser") ||
+                lower.contains("privacy policy") ||
+                lower.contains("all rights reserved")
+
+            if isBoilerplateLine && line.count < 160 {
+                return nil
+            }
+
+            return line
+        }
+
+        let joined = filteredLines.joined(separator: "\n")
+        let normalized = joined.replacingOccurrences(
+            of: "[ \\t]{2,}",
+            with: " ",
+            options: .regularExpression
+        )
+
+        return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func convertHTMLToTextForSummary(_ html: String) -> String {
+        var text = html
+
+        text = text.replacingOccurrences(
+            of: "<(script|style|noscript)[^>]*>[\\s\\S]*?</\\1>",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        text = text.replacingOccurrences(
+            of: "<!--[\\s\\S]*?-->",
+            with: "",
+            options: .regularExpression
+        )
+
+        text = text.replacingOccurrences(
+            of: "(?i)<img[^>]*alt=[\"']([^\"']+)[\"'][^>]*>",
+            with: "\nImage: $1\n",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: "(?i)<a[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)</a>",
+            with: "$2 ($1)",
+            options: .regularExpression
+        )
+
+        text = text.replacingOccurrences(of: "(?i)<br\\s*/?>", with: "\n", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)<li[^>]*>", with: "\n• ", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)</li>", with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)</(p|div|section|article|tr|h[1-6]|table|ul|ol)>", with: "\n", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)<(td|th)[^>]*>", with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)</(td|th)>", with: " | ", options: .regularExpression)
+        text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+
+        let entities = [
+            "&nbsp;": " ",
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": "\"",
+            "&apos;": "'",
+            "&rsquo;": "'",
+            "&lsquo;": "'",
+            "&rdquo;": "\"",
+            "&ldquo;": "\"",
+            "&#39;": "'",
+            "&#x27;": "'",
+            "&#8217;": "'",
+            "&#8220;": "\"",
+            "&#8221;": "\"",
+            "&hellip;": "…",
+            "&mdash;": "—",
+            "&ndash;": "–"
+        ]
+
+        for (entity, replacement) in entities {
+            text = text.replacingOccurrences(of: entity, with: replacement)
+        }
+
+        return text
+    }
+
+    func sanitizeEmailSummary(_ summary: String) -> String {
+        normalizeEmailSummary(summary)
+    }
+
+    private func normalizeEmailSummary(_ summary: String) -> String {
+        let normalized = summary
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalized.isEmpty else {
+            return ""
+        }
+
+        let lines = normalized.components(separatedBy: .newlines)
+        var bullets: [String] = []
+        var currentBullet = ""
+
+        func appendCurrentBullet() {
+            let cleaned = cleanSummaryBullet(currentBullet)
+            if !cleaned.isEmpty {
+                bullets.append(cleaned)
+            }
+            currentBullet = ""
+        }
+
+        for rawLine in lines {
+            let trimmedLine = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedLine.isEmpty {
+                if !currentBullet.isEmpty {
+                    appendCurrentBullet()
+                }
+                continue
+            }
+
+            let (isNewBullet, cleanedLine) = parseBulletLine(trimmedLine)
+
+            if isNewBullet {
+                if !currentBullet.isEmpty {
+                    appendCurrentBullet()
+                }
+                currentBullet = cleanedLine
+            } else if currentBullet.isEmpty {
+                currentBullet = cleanedLine
+            } else {
+                currentBullet += " \(cleanedLine)"
+            }
+        }
+
+        if !currentBullet.isEmpty {
+            appendCurrentBullet()
+        }
+
+        if bullets.isEmpty {
+            bullets = splitParagraphIntoBullets(normalized)
+        }
+
+        let repairedBullets = repairContinuationBullets(bullets)
+        let uniqueBullets = deduplicateBullets(repairedBullets)
+        let cappedBullets = Array(uniqueBullets.prefix(6))
+
+        return cappedBullets.map { "• \($0)" }.joined(separator: "\n")
+    }
+
+    private func parseBulletLine(_ line: String) -> (isBullet: Bool, cleaned: String) {
+        var cleaned = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        var isBullet = false
+
+        if cleaned.hasPrefix("•") || cleaned.hasPrefix("-") || cleaned.hasPrefix("*") {
+            cleaned = String(cleaned.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            isBullet = true
+        }
+
+        if let range = cleaned.range(of: "^\\d+[\\.)]\\s*", options: .regularExpression) {
+            cleaned = String(cleaned[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            isBullet = true
+        }
+
+        return (isBullet, cleaned)
+    }
+
+    private func cleanSummaryBullet(_ text: String) -> String {
+        var cleaned = normalizeSummaryTextForMerge(text)
+        cleaned = finalizeSummarySentence(cleaned, maxCharacters: 220)
+        return cleaned
+    }
+
+    private func normalizeSummaryTextForMerge(_ text: String) -> String {
+        var cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        cleaned = cleaned.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        )
+        cleaned = stripLeadInLabel(from: cleaned)
+        cleaned = cleaned.replacingOccurrences(of: "\\s*\\.\\.\\.$", with: "", options: .regularExpression)
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func stripLeadInLabel(from text: String) -> String {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefixes = [
+            "what this says:",
+            "what this says -",
+            "what it's asking from you:",
+            "what it's asking from you -",
+            "what it is asking from you:",
+            "what this email says:",
+            "what this email is asking:",
+            "key details:",
+            "recommended next step:",
+            "sources analyzed:",
+            "confidence:",
+            "summary:"
+        ]
+
+        var didStrip = true
+        while didStrip {
+            didStrip = false
+            let lower = value.lowercased()
+            for prefix in prefixes {
+                if lower.hasPrefix(prefix) {
+                    value = String(value.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    didStrip = true
+                    break
+                }
+            }
+        }
+
+        return value
+    }
+
+    private func finalizeSummarySentence(_ text: String, maxCharacters: Int) -> String {
+        var sentence = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sentence.isEmpty else { return sentence }
+
+        sentence = sentence.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
+        sentence = sentence.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+
+        // Avoid visibly cut-off endings from model truncation.
+        sentence = sentence.replacingOccurrences(of: "\\s*\\.\\.\\.$", with: "", options: .regularExpression)
+        sentence = sentence.replacingOccurrences(of: "[\\s,:;\\-]+$", with: "", options: .regularExpression)
+        sentence = sentence.replacingOccurrences(
+            of: "(?i)(?:and|or|to|for|with|about)\\s*$",
+            with: "",
+            options: .regularExpression
+        )
+        sentence = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sentence.isEmpty else { return "" }
+
+        if sentence.count > maxCharacters {
+            let prefix = String(sentence.prefix(maxCharacters))
+            if let punctuationIndex = prefix.lastIndex(where: { $0 == "." || $0 == "!" || $0 == "?" }),
+               prefix.distance(from: prefix.startIndex, to: punctuationIndex) >= Int(Double(maxCharacters) * 0.55) {
+                sentence = String(prefix[...punctuationIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if let spaceIndex = prefix.lastIndex(of: " "),
+                      prefix.distance(from: prefix.startIndex, to: spaceIndex) >= Int(Double(maxCharacters) * 0.55) {
+                sentence = String(prefix[..<spaceIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                sentence = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        if !sentence.hasSuffix(".") && !sentence.hasSuffix("!") && !sentence.hasSuffix("?") {
+            sentence += "."
+        }
+
+        return sentence
+    }
+
+    private func repairContinuationBullets(_ bullets: [String]) -> [String] {
+        var merged: [String] = []
+
+        for rawBullet in bullets {
+            let bullet = normalizeSummaryTextForMerge(rawBullet)
+            guard !bullet.isEmpty else { continue }
+
+            guard let last = merged.last else {
+                merged.append(bullet)
+                continue
+            }
+
+            if shouldMergeBullet(previous: last, next: bullet) {
+                let previous = merged.removeLast()
+                let combined = "\(previous.trimmingCharacters(in: .whitespacesAndNewlines)) \(bullet.trimmingCharacters(in: .whitespacesAndNewlines))"
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                merged.append(combined)
+            } else {
+                merged.append(bullet)
+            }
+        }
+
+        return merged.map { cleanSummaryBullet($0) }
+    }
+
+    private func shouldMergeBullet(previous: String, next: String) -> Bool {
+        let prev = previous.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextTrimmed = next.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prev.isEmpty, !nextTrimmed.isEmpty else { return false }
+
+        let prevLower = prev.lowercased()
+        let trailingConnectors = [",", ":", ";", "-", "/", " and", " or", " to", " for", " with", " about"]
+        if trailingConnectors.contains(where: { prevLower.hasSuffix($0) }) {
+            return true
+        }
+
+        let hasTerminalPunctuation = prev.hasSuffix(".") || prev.hasSuffix("!") || prev.hasSuffix("?")
+        if !hasTerminalPunctuation, let firstChar = nextTrimmed.first, firstChar.isLowercase {
+            return true
+        }
+
+        // Short dangling fragments should join the next bullet.
+        let prevWordCount = prev.split(whereSeparator: \.isWhitespace).count
+        if !hasTerminalPunctuation && prevWordCount <= 7 {
+            return true
+        }
+
+        return false
+    }
+
+    private func splitParagraphIntoBullets(_ text: String) -> [String] {
+        let compact = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !compact.isEmpty else { return [] }
+
+        // If explicit bullet symbols exist on a single line, split there first.
+        if compact.contains("•") {
+            return compact
+                .components(separatedBy: "•")
+                .map { cleanSummaryBullet($0) }
+                .filter { !$0.isEmpty }
+        }
+
+        let sentenceParts = compact.components(separatedBy: ". ")
+        if sentenceParts.count > 1 {
+            return sentenceParts
+                .map { part in
+                    var sentence = cleanSummaryBullet(part)
+                    if !sentence.isEmpty && !sentence.hasSuffix(".") {
+                        sentence += "."
+                    }
+                    return sentence
+                }
+                .filter { !$0.isEmpty }
+        }
+
+        return [compact]
+    }
+
+    private func deduplicateBullets(_ bullets: [String]) -> [String] {
+        var seen = Set<String>()
+        var unique: [String] = []
+
+        for bullet in bullets {
+            let cleaned = cleanSummaryBullet(bullet)
+            if isSummaryMetadataBullet(cleaned) { continue }
+            let normalized = cleaned.lowercased()
+            guard !cleaned.isEmpty, !seen.contains(normalized) else { continue }
+            seen.insert(normalized)
+            unique.append(cleaned)
+        }
+
+        return unique
+    }
+
+    private func isSummaryMetadataBullet(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.hasPrefix("sources analyzed")
+            || lower.hasPrefix("confidence")
     }
 
     // MARK: - Quota Management

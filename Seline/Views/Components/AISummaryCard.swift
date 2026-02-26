@@ -17,18 +17,7 @@ struct AISummaryCard: View {
     private var summaryBullets: [String] {
         switch summaryState {
         case .loaded(let summary):
-            // Split the summary into bullet points by newlines
-            return summary
-                .components(separatedBy: .newlines)
-                .map { line in
-                    // Remove bullet point characters (•, *, -, etc.) since UI adds its own
-                    var cleaned = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if cleaned.hasPrefix("•") || cleaned.hasPrefix("*") || cleaned.hasPrefix("-") {
-                        cleaned = String(cleaned.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
-                    return cleaned
-                }
-                .filter { !$0.isEmpty }
+            return parseSummaryIntoBullets(summary)
         default:
             return []
         }
@@ -75,13 +64,14 @@ struct AISummaryCard: View {
         .onAppear {
             // If we already have a summary, check if it's valid
             if let existingSummary = email.aiSummary {
+                let sanitizedExisting = GeminiService.shared.sanitizeEmailSummary(existingSummary)
                 // If it's a dummy summary, regenerate it
-                if isDummySummary(existingSummary) {
+                if isDummySummary(sanitizedExisting) {
                     Task {
                         await generateSummary(forceRegenerate: true)
                     }
                 } else {
-                    summaryState = .loaded(existingSummary)
+                    summaryState = .loaded(sanitizedExisting)
                 }
             } else {
                 // Automatically start generating summary when view appears
@@ -118,6 +108,219 @@ struct AISummaryCard: View {
         }
         
         return result
+    }
+
+    private func parseSummaryIntoBullets(_ summary: String) -> [String] {
+        let normalizedSummary = summary
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalizedSummary.isEmpty else {
+            return []
+        }
+
+        let lines = normalizedSummary.components(separatedBy: .newlines)
+        var bullets: [String] = []
+        var currentBullet = ""
+        var foundExplicitBullet = false
+
+        func appendCurrentBullet() {
+            let cleaned = normalizeSummaryTextForMerge(currentBullet)
+            let sanitized = sanitizeDisplayedSummaryBullet(cleaned)
+            if !sanitized.isEmpty {
+                bullets.append(sanitized)
+            }
+            currentBullet = ""
+        }
+
+        for rawLine in lines {
+            let trimmedLine = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedLine.isEmpty {
+                if !currentBullet.isEmpty {
+                    appendCurrentBullet()
+                }
+                continue
+            }
+
+            let (isBullet, cleanedLine) = parseBulletLine(trimmedLine)
+            if isBullet {
+                foundExplicitBullet = true
+            }
+
+            if isBullet {
+                if !currentBullet.isEmpty {
+                    appendCurrentBullet()
+                }
+                currentBullet = cleanedLine
+            } else if currentBullet.isEmpty {
+                currentBullet = cleanedLine
+            } else {
+                currentBullet += " \(cleanedLine)"
+            }
+        }
+
+        if !currentBullet.isEmpty {
+            appendCurrentBullet()
+        }
+
+        if !foundExplicitBullet && bullets.count <= 1 {
+            let sentenceBullets = normalizedSummary
+                .components(separatedBy: ". ")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .map { sentence in
+                    if sentence.hasSuffix(".") || sentence.hasSuffix("!") || sentence.hasSuffix("?") {
+                        return sentence
+                    }
+                    return sentence + "."
+                }
+
+            if sentenceBullets.count > 1 {
+                bullets = sentenceBullets
+            }
+        }
+
+        let repaired = repairContinuationBullets(bullets)
+        return Array(deduplicateBullets(repaired).prefix(6))
+    }
+
+    private func parseBulletLine(_ line: String) -> (isBullet: Bool, cleaned: String) {
+        var cleaned = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        var isBullet = false
+
+        if cleaned.hasPrefix("•") || cleaned.hasPrefix("*") || cleaned.hasPrefix("-") {
+            cleaned = String(cleaned.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            isBullet = true
+        }
+
+        if let range = cleaned.range(of: "^\\d+[\\.)]\\s*", options: .regularExpression) {
+            cleaned = String(cleaned[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            isBullet = true
+        }
+
+        return (isBullet, cleaned)
+    }
+
+    private func deduplicateBullets(_ bullets: [String]) -> [String] {
+        var seen = Set<String>()
+        var unique: [String] = []
+
+        for bullet in bullets {
+            let cleaned = sanitizeDisplayedSummaryBullet(bullet)
+            let key = cleaned.lowercased()
+            guard !cleaned.isEmpty, !seen.contains(key) else { continue }
+            seen.insert(key)
+            unique.append(cleaned)
+        }
+
+        return unique
+    }
+
+    private func repairContinuationBullets(_ bullets: [String]) -> [String] {
+        var merged: [String] = []
+
+        for rawBullet in bullets {
+            let bullet = normalizeSummaryTextForMerge(rawBullet)
+            guard !bullet.isEmpty else { continue }
+
+            guard let last = merged.last else {
+                merged.append(bullet)
+                continue
+            }
+
+            if shouldMergeBullet(previous: last, next: bullet) {
+                let previous = merged.removeLast()
+                let combined = "\(previous.trimmingCharacters(in: .whitespacesAndNewlines)) \(bullet.trimmingCharacters(in: .whitespacesAndNewlines))"
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                merged.append(combined)
+            } else {
+                merged.append(bullet)
+            }
+        }
+
+        return merged.map { sanitizeDisplayedSummaryBullet($0) }
+    }
+
+    private func normalizeSummaryTextForMerge(_ text: String) -> String {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        value = value.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
+        value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func shouldMergeBullet(previous: String, next: String) -> Bool {
+        let prev = previous.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextTrimmed = next.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prev.isEmpty, !nextTrimmed.isEmpty else { return false }
+
+        let prevLower = prev.lowercased()
+        let trailingConnectors = [",", ":", ";", "-", "/", " and", " or", " to", " for", " with", " about"]
+        if trailingConnectors.contains(where: { prevLower.hasSuffix($0) }) {
+            return true
+        }
+
+        let hasTerminalPunctuation = prev.hasSuffix(".") || prev.hasSuffix("!") || prev.hasSuffix("?")
+        if !hasTerminalPunctuation, let firstChar = nextTrimmed.first, firstChar.isLowercase {
+            return true
+        }
+
+        let prevWordCount = prev.split(whereSeparator: \.isWhitespace).count
+        if !hasTerminalPunctuation && prevWordCount <= 7 {
+            return true
+        }
+
+        return false
+    }
+
+    private func sanitizeDisplayedSummaryBullet(_ text: String) -> String {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefixes = [
+            "what this says:",
+            "what this says -",
+            "what it's asking from you:",
+            "what it's asking from you -",
+            "what it is asking from you:",
+            "what this email says:",
+            "what this email is asking:",
+            "key details:",
+            "recommended next step:",
+            "sources analyzed:",
+            "confidence:",
+            "summary:"
+        ]
+
+        var didStrip = true
+        while didStrip {
+            didStrip = false
+            let lower = value.lowercased()
+            for prefix in prefixes {
+                if lower.hasPrefix(prefix) {
+                    value = String(value.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    didStrip = true
+                    break
+                }
+            }
+        }
+
+        value = value.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
+        value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+
+        if value.hasSuffix("...") {
+            value = String(value.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        value = value.replacingOccurrences(of: "[\\s,:;\\-–—/]+$", with: "", options: .regularExpression)
+        value = value.replacingOccurrences(
+            of: "(?i)(?:and|or|to|for|with|about)\\s*$",
+            with: "",
+            options: .regularExpression
+        )
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !value.isEmpty && !value.hasSuffix(".") && !value.hasSuffix("!") && !value.hasSuffix("?") {
+            value += "."
+        }
+
+        return value
     }
     
     private func isDummySummary(_ summary: String) -> Bool {
@@ -185,7 +388,7 @@ struct AISummaryCard: View {
                         .padding(.top, 6)
 
                     ClickableTextView(
-                        text: cleanMarkdownText(bullet),
+                        text: sanitizeDisplayedSummaryBullet(cleanMarkdownText(bullet)),
                         font: .systemFont(ofSize: 13),
                         textColor: colorScheme == .dark ? .white : .black
                     )
@@ -241,7 +444,7 @@ struct AISummaryCard: View {
         await MainActor.run {
             switch result {
             case .success(let summary):
-                summaryState = .loaded(summary)
+                summaryState = .loaded(GeminiService.shared.sanitizeEmailSummary(summary))
             case .failure(let error):
                 summaryState = .error(error.localizedDescription)
             }
@@ -566,6 +769,9 @@ struct ClickableTextView: UIViewRepresentable {
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
+        textView.textContainer.lineBreakMode = .byWordWrapping
+        textView.textContainer.widthTracksTextView = true
+        textView.textContainer.maximumNumberOfLines = 0
         textView.delegate = context.coordinator
         textView.isUserInteractionEnabled = true
         textView.dataDetectorTypes = [.link]
@@ -575,7 +781,9 @@ struct ClickableTextView: UIViewRepresentable {
         ]
         // CRITICAL: Prevent UITextView from expanding beyond its container
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.setContentCompressionResistancePriority(.required, for: .vertical)
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        textView.setContentHuggingPriority(.required, for: .vertical)
         return textView
     }
     

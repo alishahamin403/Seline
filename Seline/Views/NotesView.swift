@@ -335,11 +335,11 @@ struct NotesView: View, Searchable {
                                 }) {
                                     Image(systemName: "line.3.horizontal")
                                         .font(.system(size: 14, weight: .semibold))
-                                        .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
                                         .frame(width: 40, height: 36)
                                         .background(
                                             RoundedRectangle(cornerRadius: 10)
-                                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
+                                                .fill(Color.appChip(colorScheme))
                                         )
                                 }
                                 .buttonStyle(PlainButtonStyle())
@@ -347,33 +347,17 @@ struct NotesView: View, Searchable {
                                 notesPageTabSelector
                                     .frame(maxWidth: .infinity)
 
-                                Button(action: {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        isSearchActive = true
-                                        isSearchFocused = true
-                                    }
-                                }) {
-                                    Image(systemName: "magnifyingglass")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.emailLightChipIdle)
-                                        )
-                                }
-                                .buttonStyle(PlainButtonStyle())
+                                Color.clear
                                 .frame(width: 40, height: 36)
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 18)
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSurface)
+                                    .fill(Color.appSurface(colorScheme))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 18)
-                                            .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                                            .stroke(Color.appBorder(colorScheme), lineWidth: 1)
                                     )
                             )
                             .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
@@ -386,7 +370,9 @@ struct NotesView: View, Searchable {
                                 UnifiedSearchBar(
                                     searchText: $searchText,
                                     isFocused: $isSearchFocused,
-                                    placeholder: "Search notes, receipts, recurring",
+                                    placeholder: selectedMainPage == .notes
+                                        ? "Search notes"
+                                        : (selectedMainPage == .receipts ? "Search receipts" : "Search recurring expenses"),
                                     onCancel: {
                                         withAnimation(.easeInOut(duration: 0.2)) {
                                             isSearchActive = false
@@ -404,7 +390,7 @@ struct NotesView: View, Searchable {
                         }
                     }
                     .background(
-                        colorScheme == .dark ? Color.black : Color.emailLightBackground
+                        Color.appBackground(colorScheme)
                     )
 
                     mainTabContent
@@ -416,7 +402,7 @@ struct NotesView: View, Searchable {
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 0)
                 .background(
-                    (colorScheme == .dark ? Color.black : Color.emailLightBackground)
+                    Color.appBackground(colorScheme)
                         .ignoresSafeArea()
                 )
                 .overlay(alignment: .top) {
@@ -471,6 +457,27 @@ struct NotesView: View, Searchable {
         .onChange(of: selectedFolderId) { _ in refreshNoteCaches() }
         .onChange(of: showUnfiledNotesOnly) { _ in refreshNoteCaches() }
         .onReceive(notesManager.objectWillChange) { _ in refreshNoteCaches() }
+        .swipeDownToRevealSearch(
+            enabled: !isSearchActive,
+            topRegion: UIScreen.main.bounds.height * 0.22,
+            minimumDistance: 70
+        ) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isSearchActive = true
+                isSearchFocused = true
+            }
+        }
+        .swipeUpToDismissSearch(
+            enabled: isSearchActive && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            topRegion: UIScreen.main.bounds.height * 0.28,
+            minimumDistance: 54
+        ) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isSearchActive = false
+                isSearchFocused = false
+                searchText = ""
+            }
+        }
         .fullScreenCover(isPresented: $showingNewNoteSheet, onDismiss: {
             notesManager.isViewingNoteInNavigation = false
         }) {
@@ -655,9 +662,6 @@ struct NotesView: View, Searchable {
                 }
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
-            }
-            .refreshable {
-                refreshNoteCaches()
             }
         case .receipts:
             receiptsTabContent
@@ -930,11 +934,11 @@ struct NotesView: View, Searchable {
                 Button(action: addAction) {
                     Image(systemName: "plus")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
                         .frame(width: 28, height: 28)
                         .background(
                             Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.14) : Color.emailLightChipIdle)
+                                .fill(Color.appChip(colorScheme))
                         )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -960,7 +964,7 @@ struct NotesView: View, Searchable {
         .padding(.vertical, 9)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface)
+                .fill(Color.appInnerSurface(colorScheme))
         )
     }
 
@@ -982,7 +986,7 @@ struct NotesView: View, Searchable {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.emailLightBorder.opacity(0.7))
+                        .fill(Color.appBorder(colorScheme).opacity(0.75))
 
                     Capsule()
                         .fill(hubAccentColor)
@@ -1020,7 +1024,7 @@ struct NotesView: View, Searchable {
             .padding(.vertical, 11)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface)
+                    .fill(Color.appInnerSurface(colorScheme))
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -1050,7 +1054,7 @@ struct NotesView: View, Searchable {
         .padding(.vertical, 11)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface)
+                .fill(Color.appInnerSurface(colorScheme))
         )
     }
 
@@ -1072,11 +1076,11 @@ struct NotesView: View, Searchable {
     }
 
     private var hubPrimaryTextColor: Color {
-        colorScheme == .dark ? .white : Color.emailLightTextPrimary
+        Color.appTextPrimary(colorScheme)
     }
 
     private var hubSecondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.62) : Color.emailLightTextSecondary
+        Color.appTextSecondary(colorScheme)
     }
 
     private var hubAccentColor: Color {
@@ -1267,16 +1271,16 @@ struct NotesView: View, Searchable {
                 VStack(spacing: 16) {
                     Image(systemName: "note.text")
                         .font(FontManager.geist(size: 48, weight: .light))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.6))
+                        .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.6))
 
                     Text(searchText.isEmpty ? "No notes yet" : "No notes found")
                         .font(FontManager.geist(size: 18, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : Color.emailLightTextPrimary)
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
 
                     if searchText.isEmpty {
                         Text("Tap the + button to create your first note")
                             .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : Color.emailLightTextSecondary)
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
                             .multilineTextAlignment(.center)
                     }
                 }
@@ -1295,9 +1299,13 @@ struct NotesView: View, Searchable {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 8) {
-                    searchResultsDropdown
-                    receiptSearchResults
-                    recurringExpenseSearchResults
+                    if selectedMainPage == .notes {
+                        searchResultsDropdown
+                    } else if selectedMainPage == .receipts {
+                        receiptSearchResults
+                    } else {
+                        recurringExpenseSearchResults
+                    }
                 }
                 .padding(.top, 8)
                 .padding(.bottom, 120)
@@ -1317,10 +1325,10 @@ struct NotesView: View, Searchable {
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .font(FontManager.geist(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
                     Text("No results for \"\(searchText)\"")
                         .font(FontManager.geist(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
                     Spacer()
                 }
                 .padding(.horizontal, 16)
@@ -1343,12 +1351,12 @@ struct NotesView: View, Searchable {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(note.title.isEmpty ? "Untitled" : note.title)
                                     .font(FontManager.geist(size: 15, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                                    .foregroundColor(Color.appTextPrimary(colorScheme))
                                     .lineLimit(1)
                                 
                                 Text(note.content.prefix(50).replacingOccurrences(of: "\n", with: " "))
                                     .font(FontManager.geist(size: 12, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                                    .foregroundColor(Color.appTextSecondary(colorScheme))
                                     .lineLimit(1)
                             }
                             
@@ -1357,7 +1365,7 @@ struct NotesView: View, Searchable {
                             // Date
                             Text(note.dateModified.formatted(.relative(presentation: .named)))
                                 .font(FontManager.geist(size: 11, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
@@ -1373,10 +1381,10 @@ struct NotesView: View, Searchable {
         }
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.emailLightSurface)
+                .fill(Color.appSurface(colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                        .stroke(Color.appBorder(colorScheme), lineWidth: 1)
                 )
                 .shadow(color: Color.black.opacity(colorScheme == .dark ? 0 : 0.06), radius: 8, x: 0, y: 4)
         )
@@ -1423,10 +1431,10 @@ struct NotesView: View, Searchable {
         HStack {
             Image(systemName: "magnifyingglass")
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                .foregroundColor(Color.appTextSecondary(colorScheme))
             Text("No receipts match your search")
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                .foregroundColor(Color.appTextSecondary(colorScheme))
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -1463,12 +1471,12 @@ struct NotesView: View, Searchable {
             VStack(alignment: .leading, spacing: 2) {
                 Text(note.title.isEmpty ? "Untitled Receipt" : note.title)
                     .font(FontManager.geist(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
                     .lineLimit(1)
 
                 Text(note.content.prefix(50).replacingOccurrences(of: "\n", with: " "))
                     .font(FontManager.geist(size: 12, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
                     .lineLimit(1)
             }
 
@@ -1476,7 +1484,7 @@ struct NotesView: View, Searchable {
 
             Text(note.dateModified.formatted(.relative(presentation: .named)))
                 .font(FontManager.geist(size: 11, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                .foregroundColor(Color.appTextSecondary(colorScheme))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -1484,10 +1492,10 @@ struct NotesView: View, Searchable {
 
     private var searchResultsBackground: some View {
         RoundedRectangle(cornerRadius: 12)
-            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.emailLightSurface)
+            .fill(Color.appSurface(colorScheme))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
             )
             .shadow(color: Color.black.opacity(colorScheme == .dark ? 0 : 0.06), radius: 8, x: 0, y: 4)
     }
@@ -1530,10 +1538,10 @@ struct NotesView: View, Searchable {
         HStack {
             Image(systemName: "magnifyingglass")
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                .foregroundColor(Color.appTextSecondary(colorScheme))
             Text("No recurring expenses match your search")
                 .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                .foregroundColor(Color.appTextSecondary(colorScheme))
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -1569,18 +1577,18 @@ struct NotesView: View, Searchable {
             VStack(alignment: .leading, spacing: 2) {
                 Text(expense.title)
                     .font(FontManager.geist(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : Color.emailLightTextPrimary)
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
                     .lineLimit(1)
 
                 HStack(spacing: 8) {
                     if let category = expense.category {
                         Text(category)
                             .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
                     }
                     Text("$\(String(format: "%.2f", Double(truncating: expense.amount as NSDecimalNumber)))")
                         .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
                 }
             }
 
@@ -1588,7 +1596,7 @@ struct NotesView: View, Searchable {
 
             Text(expense.frequency.displayName)
                 .font(FontManager.geist(size: 11, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .secondary : Color.emailLightTextSecondary)
+                .foregroundColor(Color.appTextSecondary(colorScheme))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -1620,10 +1628,10 @@ struct NotesView: View, Searchable {
 
     private var notesSectionCardBackground: some View {
         RoundedRectangle(cornerRadius: 16)
-            .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSectionCard)
+            .fill(Color.appSectionCard(colorScheme))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder, lineWidth: 1)
+                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
             )
             .shadow(
                 color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
@@ -1721,7 +1729,7 @@ struct NotesView: View, Searchable {
         if isSelected {
             return colorScheme == .dark ? .black : .white
         } else {
-            return colorScheme == .dark ? Color.white.opacity(0.7) : Color.emailLightTextSecondary
+            return Color.appTextSecondary(colorScheme)
         }
     }
 
@@ -1730,11 +1738,11 @@ struct NotesView: View, Searchable {
     }
 
     private func tabContainerColor() -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle
+        Color.appChip(colorScheme)
     }
 
     private func tabContainerStrokeColor() -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+        Color.appBorder(colorScheme)
     }
 
     // MARK: - Searchable Protocol
@@ -1939,6 +1947,50 @@ struct NoteEditView: View {
 
     var isAnyProcessing: Bool {
         isProcessingCleanup || isProcessingSummarize || isProcessingAddMore || isProcessingReceipt || isGeneratingTitle || isProcessingFile
+    }
+
+    private var backlinkNotes: [Note] {
+        let currentId = editingNote?.id ?? note?.id ?? currentNoteId
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalizedTitle.count >= 3 else { return [] }
+
+        return notesManager.notes
+            .filter { other in
+                guard other.id != currentId else { return false }
+                return other.content.lowercased().contains(normalizedTitle)
+            }
+            .sorted { $0.dateModified > $1.dateModified }
+            .prefix(4)
+            .map { $0 }
+    }
+
+    private var outboundLinkedNotes: [Note] {
+        let currentId = editingNote?.id ?? note?.id ?? currentNoteId
+        let lowerContent = content.lowercased()
+        guard !lowerContent.isEmpty else { return [] }
+
+        return notesManager.notes
+            .filter { other in
+                guard other.id != currentId else { return false }
+                let candidate = other.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard candidate.count >= 3 else { return false }
+                return lowerContent.contains(candidate)
+            }
+            .sorted { $0.dateModified > $1.dateModified }
+            .prefix(4)
+            .map { $0 }
+    }
+
+    private var combinedLinkedNotes: [Note] {
+        var seen = Set<UUID>()
+        var merged: [Note] = []
+        for note in backlinkNotes + outboundLinkedNotes {
+            if !seen.contains(note.id) {
+                seen.insert(note.id)
+                merged.append(note)
+            }
+        }
+        return merged
     }
     
     var eventCreationMessage: String {
@@ -2520,9 +2572,65 @@ struct NoteEditView: View {
             )
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+
+            if !combinedLinkedNotes.isEmpty {
+                backlinksSection
+                    .padding(.horizontal, 12)
+                    .padding(.top, 2)
+            }
             
             Spacer()
         }
+    }
+
+    private var backlinksSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Backlinks")
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.58) : Color.black.opacity(0.58))
+                .textCase(.uppercase)
+                .tracking(0.5)
+
+            VStack(spacing: 6) {
+                ForEach(combinedLinkedNotes, id: \.id) { linked in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "link")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.5))
+                            .padding(.top, 2)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(linked.title.isEmpty ? "Untitled Note" : linked.title)
+                                .font(FontManager.geist(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .lineLimit(1)
+
+                            Text(referencePreview(for: linked))
+                                .font(FontManager.geist(size: 11, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.58) : Color.black.opacity(0.55))
+                                .lineLimit(2)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                    )
+                }
+            }
+        }
+    }
+
+    private func referencePreview(for note: Note) -> String {
+        let cleaned = note.content
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.isEmpty {
+            return note.formattedDateModified
+        }
+        return cleaned.count > 90 ? String(cleaned.prefix(90)) + "..." : cleaned
     }
     
     // Insert a todo checkbox at the cursor position

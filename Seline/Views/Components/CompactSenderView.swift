@@ -32,17 +32,16 @@ struct CompactSenderView: View {
                 HStack(spacing: 12) {
                     // Sender avatar - show profile picture if available
                     if let profilePictureUrl = profilePictureUrl, !profilePictureUrl.isEmpty {
-                        // Display actual Google profile picture
-                        AsyncImage(url: URL(string: profilePictureUrl)) { phase in
-                            switch phase {
-                            case .success(let image):
+                        CachedAsyncImage(
+                            url: profilePictureUrl,
+                            content: { image in
                                 image
                                     .resizable()
                                     .scaledToFill()
                                     .frame(width: 32, height: 32)
                                     .clipShape(Circle())
-                            @unknown default:
-                                // Fallback to initials while loading
+                            },
+                            placeholder: {
                                 Circle()
                                     .fill(avatarColor)
                                     .frame(width: 32, height: 32)
@@ -52,7 +51,7 @@ struct CompactSenderView: View {
                                             .foregroundColor(.white)
                                     )
                             }
-                        }
+                        )
                     } else {
                         // Default avatar with initials
                         Circle()
@@ -162,6 +161,13 @@ struct CompactSenderView: View {
     // MARK: - Private Methods
 
     private func fetchProfilePicture() async {
+        if let senderAvatar = email.sender.avatarUrl, !senderAvatar.isEmpty {
+            await MainActor.run {
+                self.profilePictureUrl = senderAvatar
+            }
+            return
+        }
+
         // Check CacheManager first for instant display
         let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
         if let cachedUrl: String = CacheManager.shared.get(forKey: cacheKey), !cachedUrl.isEmpty {

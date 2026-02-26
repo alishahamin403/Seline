@@ -12,27 +12,27 @@ struct EmailDaySectionView: View {
     // MARK: - Theme Colors
     
     private var primaryTextColor: Color {
-        colorScheme == .dark ? Color.white : Color.emailLightTextPrimary
+        Color.appTextPrimary(colorScheme)
     }
     
     private var secondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.7) : Color.emailLightTextSecondary
+        Color.appTextSecondary(colorScheme)
     }
     
     private var tertiaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.8)
+        Color.appTextSecondary(colorScheme).opacity(0.8)
     }
 
     private var sectionCardBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSectionCard
+        Color.appSectionCard(colorScheme)
     }
 
     private var sectionCardStroke: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+        Color.appBorder(colorScheme)
     }
 
     private var unreadAccentColor: Color {
-        colorScheme == .dark ? Color.blue : Color.emailLightTextPrimary
+        Color.appTextPrimary(colorScheme)
     }
 
     private var isToday: Bool {
@@ -142,11 +142,6 @@ struct EmailDaySectionView: View {
             }
             
             Spacer()
-
-            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                .font(FontManager.geist(size: 11, weight: .semibold))
-                .foregroundColor(tertiaryTextColor)
-                .frame(width: 22, height: 22)
         }
         .padding(.vertical, 14)
         .contentShape(Rectangle())
@@ -205,17 +200,173 @@ struct EmailRowWithSummary: View {
     @State private var isSummaryExpanded = false
     @State private var aiSummary: String?
     @State private var isLoadingSummary = false
+    @State private var profilePictureUrl: String?
     @StateObject private var openAIService = GeminiService.shared
     @StateObject private var emailService = EmailService.shared
     
 
     
     private var unreadBackgroundColor: Color {
-        colorScheme == .dark ? Color(red: 0.17, green: 0.21, blue: 0.29) : Color.emailLightChipIdle
+        Color.appChipStrong(colorScheme)
     }
     
     private var readBackgroundColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : Color.white
+        Color.appSurface(colorScheme)
+    }
+
+    private var summarySignalText: String {
+        [
+            email.subject,
+            email.snippet,
+            aiSummary ?? email.aiSummary ?? "",
+            email.sender.displayName,
+            email.sender.email
+        ]
+        .joined(separator: " ")
+        .lowercased()
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    }
+
+    private var isActionRequired: Bool {
+        let signal = summarySignalText
+
+        let noActionPhrases = [
+            "no action required",
+            "no response required",
+            "for your information",
+            "fyi",
+            "informational only"
+        ]
+
+        let directRequestPhrases = [
+            "action required",
+            "requires your action",
+            "please reply",
+            "reply needed",
+            "reply required",
+            "respond by",
+            "response required",
+            "please confirm",
+            "verify your",
+            "review and sign",
+            "sign and return",
+            "approval required",
+            "please approve",
+            "rsvp",
+            "confirm attendance",
+            "complete your",
+            "submit",
+            "update your",
+            "upload",
+            "accept or decline"
+        ]
+
+        let deadlineTaskPhrases = [
+            "payment due",
+            "invoice due",
+            "past due",
+            "overdue",
+            "due today",
+            "due tomorrow",
+            "due by",
+            "deadline",
+            "expires on",
+            "payment failed",
+            "card declined"
+        ]
+
+        let criticalAlertPhrases = [
+            "security alert",
+            "fraud alert",
+            "suspicious activity",
+            "password reset",
+            "verify your account",
+            "low balance",
+            "account locked"
+        ]
+
+        let announcementPhrases = [
+            "newsletter",
+            "announcement",
+            "new feature",
+            "new features",
+            "release notes",
+            "changelog",
+            "product update",
+            "developer news",
+            "what's new",
+            "introducing",
+            "now available",
+            "tips",
+            "learn more",
+            "read more",
+            "webinar",
+            "community update"
+        ]
+
+        let broadcastSenderHints = [
+            "noreply",
+            "no-reply",
+            "donotreply",
+            "newsletter",
+            "updates@",
+            "news@",
+            "notifications@"
+        ]
+
+        if containsAny(in: signal, phrases: noActionPhrases) {
+            return false
+        }
+
+        let hasCriticalAlert = containsAny(in: signal, phrases: criticalAlertPhrases)
+        if hasCriticalAlert {
+            return true
+        }
+
+        let hasDirectRequest = containsAny(in: signal, phrases: directRequestPhrases)
+        let hasDeadlineTask = containsAny(in: signal, phrases: deadlineTaskPhrases)
+
+        let senderEmail = email.sender.email.lowercased()
+        let subjectSnippet = "\(email.subject) \(email.snippet)".lowercased()
+        let isLikelyBroadcastSender = containsAny(in: senderEmail, phrases: broadcastSenderHints)
+        let isAnnouncement = containsAny(in: signal, phrases: announcementPhrases)
+            || containsAny(in: subjectSnippet, phrases: announcementPhrases)
+            || email.category == .promotions
+            || email.category == .social
+
+        if isAnnouncement && !hasDirectRequest && !hasDeadlineTask {
+            return false
+        }
+
+        if isLikelyBroadcastSender && !hasDeadlineTask && !hasCriticalAlert {
+            return false
+        }
+
+        if hasDeadlineTask {
+            return true
+        }
+
+        return hasDirectRequest && !isAnnouncement
+    }
+
+    private func containsAny(in text: String, phrases: [String]) -> Bool {
+        phrases.contains(where: { text.contains($0) })
+    }
+
+    private var emailStatusChip: (text: String, fill: Color, textColor: Color) {
+        if isActionRequired {
+            return (
+                text: "Action",
+                fill: colorScheme == .dark ? Color.orange.opacity(0.2) : Color.orange.opacity(0.12),
+                textColor: colorScheme == .dark ? Color.orange.opacity(0.95) : Color.orange.opacity(0.9)
+            )
+        }
+
+        return (
+            text: "FYI",
+            fill: colorScheme == .dark ? Color.blue.opacity(0.18) : Color.blue.opacity(0.1),
+            textColor: colorScheme == .dark ? Color.blue.opacity(0.9) : Color.blue.opacity(0.8)
+        )
     }
     
     var body: some View {
@@ -230,20 +381,26 @@ struct EmailRowWithSummary: View {
                     HStack {
                         Text(email.sender.shortDisplayName)
                             .font(FontManager.geist(size: 13, systemWeight: email.isRead ? .medium : .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
                             .lineLimit(1)
                         
                         Spacer()
                         
                         Text(email.formattedTime)
                             .font(FontManager.geist(size: 10, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.8))
+                            .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.8))
                     }
                     
                     Text(email.subject)
                         .font(FontManager.geist(size: 12, systemWeight: email.isRead ? .regular : .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.emailLightTextSecondary)
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
                         .lineLimit(1)
+
+                    statusChip(
+                        text: emailStatusChip.text,
+                        fill: emailStatusChip.fill,
+                        textColor: emailStatusChip.textColor
+                    )
                 }
                 
                 // Indicators and expand button
@@ -257,7 +414,7 @@ struct EmailRowWithSummary: View {
                     if email.hasAttachments {
                         Image(systemName: "paperclip")
                             .font(FontManager.geist(size: 10, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.8))
+                            .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.8))
                     }
                     
                     // AI Summary expand button
@@ -286,7 +443,7 @@ struct EmailRowWithSummary: View {
                     }) {
                         Image(systemName: isSummaryExpanded ? "chevron.up" : "chevron.down")
                             .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.8))
+                            .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.8))
                             .frame(width: 24, height: 24)
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -314,7 +471,7 @@ struct EmailRowWithSummary: View {
                             ShadcnSpinner(size: .small)
                             Text("Generating AI summary...")
                                 .font(FontManager.geist(size: .small, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
                         }
                     } else if let summary = aiSummary ?? email.aiSummary {
                         // Parse into bullet points like AISummaryCard
@@ -323,7 +480,7 @@ struct EmailRowWithSummary: View {
                         if bullets.isEmpty {
                             Text("No content available")
                                 .font(FontManager.geist(size: .small, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
                         } else {
                             VStack(alignment: .leading, spacing: 8) {
                                 ForEach(Array(bullets.enumerated()), id: \.offset) { index, bullet in
@@ -392,24 +549,33 @@ struct EmailRowWithSummary: View {
                 Label("Delete", systemImage: "trash")
             }
         }
+        .task(id: email.sender.email) {
+            await fetchProfilePictureIfNeeded()
+        }
     }
     
     // MARK: - Avatar View
     
     @ViewBuilder
     private var avatarView: some View {
-        // Sender avatar - colored circle with initials
-        fallbackAvatar
-    }
-    
-    private var loadingAvatar: some View {
-        Circle()
-            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
-            .frame(width: 40, height: 40)
-            .overlay(
-                ProgressView()
-                    .scaleEffect(0.6)
+        if let avatarURL = resolvedAvatarURL,
+           URL(string: avatarURL) != nil {
+            CachedAsyncImage(
+                url: avatarURL,
+                content: { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 40, height: 40)
+                        .clipShape(Circle())
+                },
+                placeholder: {
+                    fallbackAvatar
+                }
             )
+        } else {
+            fallbackAvatar
+        }
     }
     
     private var fallbackAvatar: some View {
@@ -438,6 +604,44 @@ struct EmailRowWithSummary: View {
                     .foregroundColor(.white)
             )
     }
+
+    private var resolvedAvatarURL: String? {
+        if let senderAvatar = email.sender.avatarUrl, !senderAvatar.isEmpty {
+            return senderAvatar
+        }
+        if let profilePictureUrl, !profilePictureUrl.isEmpty {
+            return profilePictureUrl
+        }
+        return nil
+    }
+
+    private func fetchProfilePictureIfNeeded() async {
+        if let senderAvatar = email.sender.avatarUrl, !senderAvatar.isEmpty {
+            await MainActor.run {
+                profilePictureUrl = senderAvatar
+            }
+            return
+        }
+
+        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
+        if let cachedURL: String = CacheManager.shared.get(forKey: cacheKey), !cachedURL.isEmpty {
+            await MainActor.run {
+                profilePictureUrl = cachedURL
+            }
+            return
+        }
+
+        do {
+            if let fetchedURL = try await GmailAPIClient.shared.fetchProfilePicture(for: email.sender.email),
+               !fetchedURL.isEmpty {
+                await MainActor.run {
+                    profilePictureUrl = fetchedURL
+                }
+            }
+        } catch {
+            // Keep initials fallback if photo fetch fails.
+        }
+    }
     
     /// Generate initials from a name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")
     private func generateInitials(from name: String) -> String {
@@ -465,28 +669,45 @@ struct EmailRowWithSummary: View {
     // MARK: - Parse Summary Into Bullets
     
     private func parseSummaryIntoBullets(_ summary: String) -> [String] {
-        let lines = summary.components(separatedBy: .newlines)
+        let normalizedSummary = summary
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalizedSummary.isEmpty else {
+            return []
+        }
+
+        let lines = normalizedSummary.components(separatedBy: .newlines)
         var bullets: [String] = []
         var currentBullet = ""
+        var foundExplicitBullet = false
+
+        func appendCurrentBullet() {
+            let cleaned = normalizeSummaryTextForMerge(currentBullet)
+            let sanitized = sanitizeDisplayedSummaryBullet(cleaned)
+            if !sanitized.isEmpty {
+                bullets.append(sanitized)
+            }
+            currentBullet = ""
+        }
 
         for rawLine in lines {
             let trimmedLine = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmedLine.isEmpty {
                 if !currentBullet.isEmpty {
-                    bullets.append(currentBullet.trimmingCharacters(in: .whitespacesAndNewlines))
-                    currentBullet = ""
+                    appendCurrentBullet()
                 }
                 continue
             }
 
-            let startsWithBullet = trimmedLine.hasPrefix("•") || trimmedLine.hasPrefix("*") || trimmedLine.hasPrefix("-")
-            let cleanedLine = startsWithBullet
-                ? String(trimmedLine.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-                : trimmedLine
+            let (startsWithBullet, cleanedLine) = parseBulletLine(trimmedLine)
+            if startsWithBullet {
+                foundExplicitBullet = true
+            }
 
             if startsWithBullet {
                 if !currentBullet.isEmpty {
-                    bullets.append(currentBullet.trimmingCharacters(in: .whitespacesAndNewlines))
+                    appendCurrentBullet()
                 }
                 currentBullet = cleanedLine
             } else if currentBullet.isEmpty {
@@ -497,22 +718,193 @@ struct EmailRowWithSummary: View {
         }
 
         if !currentBullet.isEmpty {
-            bullets.append(currentBullet.trimmingCharacters(in: .whitespacesAndNewlines))
+            appendCurrentBullet()
         }
 
-        return bullets.filter { !$0.isEmpty }
+        if !foundExplicitBullet && bullets.count <= 1 {
+            let sentenceBullets = normalizedSummary
+                .components(separatedBy: ". ")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .map { sentence in
+                    if sentence.hasSuffix(".") || sentence.hasSuffix("!") || sentence.hasSuffix("?") {
+                        return sentence
+                    }
+                    return sentence + "."
+                }
+
+            if sentenceBullets.count > 1 {
+                bullets = sentenceBullets
+            }
+        }
+
+        let repaired = repairContinuationBullets(bullets)
+        let unique = deduplicateBullets(repaired)
+        return Array(unique.prefix(6))
+    }
+
+    private func parseBulletLine(_ line: String) -> (isBullet: Bool, cleaned: String) {
+        var cleaned = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        var isBullet = false
+
+        if cleaned.hasPrefix("•") || cleaned.hasPrefix("*") || cleaned.hasPrefix("-") {
+            cleaned = String(cleaned.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            isBullet = true
+        }
+
+        if let range = cleaned.range(of: "^\\d+[\\.)]\\s*", options: .regularExpression) {
+            cleaned = String(cleaned[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            isBullet = true
+        }
+
+        return (isBullet, cleaned)
+    }
+
+    private func deduplicateBullets(_ bullets: [String]) -> [String] {
+        var seen = Set<String>()
+        var unique: [String] = []
+
+        for bullet in bullets {
+            let cleaned = sanitizeDisplayedSummaryBullet(bullet)
+            let key = cleaned.lowercased()
+            guard !cleaned.isEmpty, !seen.contains(key) else { continue }
+            seen.insert(key)
+            unique.append(cleaned)
+        }
+
+        return unique
+    }
+
+    private func repairContinuationBullets(_ bullets: [String]) -> [String] {
+        var merged: [String] = []
+
+        for rawBullet in bullets {
+            let bullet = normalizeSummaryTextForMerge(rawBullet)
+            guard !bullet.isEmpty else { continue }
+
+            guard let last = merged.last else {
+                merged.append(bullet)
+                continue
+            }
+
+            if shouldMergeBullet(previous: last, next: bullet) {
+                let previous = merged.removeLast()
+                let combined = "\(previous.trimmingCharacters(in: .whitespacesAndNewlines)) \(bullet.trimmingCharacters(in: .whitespacesAndNewlines))"
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                merged.append(combined)
+            } else {
+                merged.append(bullet)
+            }
+        }
+
+        return merged.map { sanitizeDisplayedSummaryBullet($0) }
+    }
+
+    private func normalizeSummaryTextForMerge(_ text: String) -> String {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        value = value.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
+        value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func shouldMergeBullet(previous: String, next: String) -> Bool {
+        let prev = previous.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextTrimmed = next.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prev.isEmpty, !nextTrimmed.isEmpty else { return false }
+
+        let prevLower = prev.lowercased()
+        let trailingConnectors = [",", ":", ";", "-", "/", " and", " or", " to", " for", " with", " about"]
+        if trailingConnectors.contains(where: { prevLower.hasSuffix($0) }) {
+            return true
+        }
+
+        let hasTerminalPunctuation = prev.hasSuffix(".") || prev.hasSuffix("!") || prev.hasSuffix("?")
+        if !hasTerminalPunctuation, let firstChar = nextTrimmed.first, firstChar.isLowercase {
+            return true
+        }
+
+        let prevWordCount = prev.split(whereSeparator: \.isWhitespace).count
+        if !hasTerminalPunctuation && prevWordCount <= 7 {
+            return true
+        }
+
+        return false
+    }
+
+    private func sanitizeDisplayedSummaryBullet(_ text: String) -> String {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefixes = [
+            "what this says:",
+            "what this says -",
+            "what it's asking from you:",
+            "what it's asking from you -",
+            "what it is asking from you:",
+            "what this email says:",
+            "what this email is asking:",
+            "key details:",
+            "recommended next step:",
+            "sources analyzed:",
+            "confidence:",
+            "summary:"
+        ]
+
+        var didStrip = true
+        while didStrip {
+            didStrip = false
+            let lower = value.lowercased()
+            for prefix in prefixes {
+                if lower.hasPrefix(prefix) {
+                    value = String(value.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    didStrip = true
+                    break
+                }
+            }
+        }
+
+        value = value.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
+        value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+
+        if value.hasSuffix("...") {
+            value = String(value.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        value = value.replacingOccurrences(of: "[\\s,:;\\-–—/]+$", with: "", options: .regularExpression)
+        value = value.replacingOccurrences(
+            of: "(?i)(?:and|or|to|for|with|about)\\s*$",
+            with: "",
+            options: .regularExpression
+        )
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !value.isEmpty && !value.hasSuffix(".") && !value.hasSuffix("!") && !value.hasSuffix("?") {
+            value += "."
+        }
+
+        return value
+    }
+
+    private func statusChip(text: String, fill: Color, textColor: Color) -> some View {
+        Text(text)
+            .font(FontManager.geist(size: 10, weight: .semibold))
+            .foregroundColor(textColor)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(fill)
+            )
     }
     
     // MARK: - Parse Markdown Links and Bold
     
     /// Parse markdown links [text](url) and bold **text**, make them clickable/rendered properly
     private func parseMarkdownText(_ text: String) -> some View {
-        let cleanedText = cleanMarkdownBold(text)
+        let cleanedText = sanitizeDisplayedSummaryBullet(cleanMarkdownBold(text))
         return AnyView(
             ClickableTextView(
                 text: cleanedText,
                 font: .systemFont(ofSize: 12, weight: .regular),
-                textColor: colorScheme == .dark ? .white : UIColor(Color.emailLightTextPrimary),
+                textColor: UIColor(Color.appTextPrimary(colorScheme)),
                 linkColor: UIColor(Color.claudeAccent)
             )
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -544,26 +936,34 @@ struct EmailRowWithSummary: View {
     private func loadAISummary() async {
         // Check if already have a summary
         if let existing = email.aiSummary {
-            aiSummary = existing
+            let sanitizedExisting = openAIService.sanitizeEmailSummary(existing)
+            aiSummary = sanitizedExisting
+            if sanitizedExisting != existing {
+                await emailService.updateEmailWithAISummary(email, summary: sanitizedExisting)
+            }
             return
         }
         
         isLoadingSummary = true
         
         do {
-            // Use snippet for quick summary
-            let body = email.body ?? email.snippet
+            let context = await EmailSummaryBuilderService.shared.buildContext(for: email)
             let summary = try await openAIService.summarizeEmail(
                 subject: email.subject,
-                body: body
+                body: context.bodyForSummary,
+                analyzedSources: context.analyzedSources,
+                confidenceHint: context.confidenceHint
             )
-            
-            let finalSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No content available" : summary
-            
+
+            let sanitizedSummary = openAIService.sanitizeEmailSummary(summary)
+            let finalSummary = sanitizedSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "No content available"
+                : sanitizedSummary
+
             await MainActor.run {
                 self.aiSummary = finalSummary
             }
-            
+
             // Cache it
             await emailService.updateEmailWithAISummary(email, summary: finalSummary)
         } catch {
@@ -597,18 +997,18 @@ struct SmartReplySection: View {
         VStack(alignment: .leading, spacing: 12) {
             // Divider
             Rectangle()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+                .fill(Color.appBorder(colorScheme))
                 .frame(height: 1)
             
             // Smart Reply Header
             HStack(spacing: 8) {
                 Image(systemName: "sparkles")
                     .font(FontManager.geist(size: 12, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
                 
                 Text("Smart Reply")
                     .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
             }
             
             if !showConfirmation {
@@ -618,12 +1018,12 @@ struct SmartReplySection: View {
                     HStack(spacing: 10) {
                         TextField("Describe how you'd like to reply...", text: $replyPrompt)
                             .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 12)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                                    .fill(Color.appInnerSurface(colorScheme))
                             )
                             .focused($isInputFocused)
                         
@@ -641,8 +1041,8 @@ struct SmartReplySection: View {
                                 Image(systemName: "arrow.up.circle.fill")
                                     .font(FontManager.geist(size: 28, weight: .medium))
                                     .foregroundColor(replyPrompt.isEmpty ? 
-                                        (colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3)) :
-                                        (colorScheme == .dark ? .white : .black))
+                                        Color.appTextSecondary(colorScheme).opacity(0.45) :
+                                        Color.appTextPrimary(colorScheme))
                             }
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -686,7 +1086,7 @@ struct SmartReplySection: View {
                     
                     Text("Reply sent successfully!")
                         .font(FontManager.geist(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
                 }
                 .padding(.vertical, 8)
                 .onAppear {
@@ -707,17 +1107,17 @@ struct SmartReplySection: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Preview")
                             .font(FontManager.geist(size: 11, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
                             .textCase(.uppercase)
                         
                         Text(generatedReply)
                             .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                                    .fill(Color.appInnerSurface(colorScheme))
                             )
                     }
                     
@@ -740,12 +1140,12 @@ struct SmartReplySection: View {
                         }) {
                             Text("Edit")
                                 .font(FontManager.geist(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
                                 .padding(.horizontal, 20)
                                 .padding(.vertical, 10)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .stroke(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2), lineWidth: 1)
+                                        .stroke(Color.appBorder(colorScheme), lineWidth: 1)
                                 )
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -775,7 +1175,7 @@ struct SmartReplySection: View {
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(colorScheme == .dark ? .white : .black)
+                                    .fill(colorScheme == .dark ? Color.wsLightSurface : Color.appTextPrimary(colorScheme))
                             )
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -884,13 +1284,13 @@ struct QuickReplyChip: View {
         Button(action: action) {
             Text(text)
                 .font(FontManager.geist(size: 12, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                        .fill(Color.appChip(colorScheme))
                 )
         }
         .buttonStyle(PlainButtonStyle())

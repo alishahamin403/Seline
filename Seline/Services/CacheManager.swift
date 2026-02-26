@@ -172,7 +172,7 @@ extension CacheManager {
         
         // Email Profile Pictures
         static func emailProfilePicture(_ email: String) -> String {
-            return "cache.email.profilePicture.\(email.lowercased())"
+            return "cache.email.profilePicture.v2.\(email.lowercased())"
         }
     }
 

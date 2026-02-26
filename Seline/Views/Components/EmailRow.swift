@@ -6,6 +6,7 @@ struct EmailRow: View {
     let onMarkAsUnread: (Email) -> Void
     let onArchive: ((Email) -> Void)?
     @Environment(\.colorScheme) var colorScheme
+    @State private var profilePictureUrl: String?
 
     init(
         email: Email,
@@ -32,6 +33,161 @@ struct EmailRow: View {
         let hash = HashUtils.deterministicHash(email.sender.email)
         let colorIndex = abs(hash) % colors.count
         return colors[colorIndex]
+    }
+
+    private var summarySignalText: String {
+        [
+            email.subject,
+            email.snippet,
+            email.aiSummary ?? "",
+            email.sender.displayName,
+            email.sender.email
+        ]
+        .joined(separator: " ")
+        .lowercased()
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    }
+
+    private var isActionRequired: Bool {
+        let signal = summarySignalText
+
+        let noActionPhrases = [
+            "no action required",
+            "no response required",
+            "for your information",
+            "fyi",
+            "informational only"
+        ]
+
+        let directRequestPhrases = [
+            "action required",
+            "requires your action",
+            "please reply",
+            "reply needed",
+            "reply required",
+            "respond by",
+            "response required",
+            "please confirm",
+            "verify your",
+            "review and sign",
+            "sign and return",
+            "approval required",
+            "please approve",
+            "rsvp",
+            "confirm attendance",
+            "complete your",
+            "submit",
+            "update your",
+            "upload",
+            "accept or decline"
+        ]
+
+        let deadlineTaskPhrases = [
+            "payment due",
+            "invoice due",
+            "past due",
+            "overdue",
+            "due today",
+            "due tomorrow",
+            "due by",
+            "deadline",
+            "expires on",
+            "payment failed",
+            "card declined"
+        ]
+
+        let criticalAlertPhrases = [
+            "security alert",
+            "fraud alert",
+            "suspicious activity",
+            "password reset",
+            "verify your account",
+            "low balance",
+            "account locked"
+        ]
+
+        let announcementPhrases = [
+            "newsletter",
+            "announcement",
+            "new feature",
+            "new features",
+            "release notes",
+            "changelog",
+            "product update",
+            "developer news",
+            "what's new",
+            "introducing",
+            "now available",
+            "tips",
+            "learn more",
+            "read more",
+            "webinar",
+            "community update"
+        ]
+
+        let broadcastSenderHints = [
+            "noreply",
+            "no-reply",
+            "donotreply",
+            "newsletter",
+            "updates@",
+            "news@",
+            "notifications@"
+        ]
+
+        if containsAny(in: signal, phrases: noActionPhrases) {
+            return false
+        }
+
+        let hasCriticalAlert = containsAny(in: signal, phrases: criticalAlertPhrases)
+        if hasCriticalAlert {
+            return true
+        }
+
+        let hasDirectRequest = containsAny(in: signal, phrases: directRequestPhrases)
+        let hasDeadlineTask = containsAny(in: signal, phrases: deadlineTaskPhrases)
+
+        let senderEmail = email.sender.email.lowercased()
+        let subjectSnippet = "\(email.subject) \(email.snippet)".lowercased()
+        let isLikelyBroadcastSender = containsAny(in: senderEmail, phrases: broadcastSenderHints)
+        let isAnnouncement = containsAny(in: signal, phrases: announcementPhrases)
+            || containsAny(in: subjectSnippet, phrases: announcementPhrases)
+            || email.category == .promotions
+            || email.category == .social
+
+        if isAnnouncement && !hasDirectRequest && !hasDeadlineTask {
+            return false
+        }
+
+        if isLikelyBroadcastSender && !hasDeadlineTask && !hasCriticalAlert {
+            return false
+        }
+
+        if hasDeadlineTask {
+            return true
+        }
+
+        return hasDirectRequest && !isAnnouncement
+    }
+
+    private func containsAny(in text: String, phrases: [String]) -> Bool {
+        phrases.contains(where: { text.contains($0) })
+    }
+
+    private var emailStatusChip: (text: String, fill: Color, textColor: Color) {
+        if isActionRequired {
+            return (
+                text: "Action",
+                fill: colorScheme == .dark ? Color.orange.opacity(0.2) : Color.orange.opacity(0.12),
+                textColor: colorScheme == .dark ? Color.orange.opacity(0.95) : Color.orange.opacity(0.9)
+            )
+        }
+
+        return (
+            text: "FYI",
+            fill: colorScheme == .dark ? Color.blue.opacity(0.18) : Color.blue.opacity(0.1),
+            textColor: colorScheme == .dark ? Color.blue.opacity(0.9) : Color.blue.opacity(0.8)
+        )
     }
 
     var body: some View {
@@ -67,12 +223,15 @@ struct EmailRow: View {
                             }
                         ) : nil)
             )
+            .task(id: email.sender.email) {
+                await fetchProfilePictureIfNeeded()
+            }
     }
 
     private var rowContent: some View {
         HStack(spacing: 10) {
-                // Sender avatar - colored circle with initials
-                fallbackAvatarView
+                // Sender avatar - prefer real photo/logo when available
+                avatarView
 
                 // Email content
                 VStack(alignment: .leading, spacing: 3) {
@@ -82,7 +241,7 @@ struct EmailRow: View {
                             // Sender name
                             Text(email.sender.shortDisplayName)
                                 .font(FontManager.geist(size: 13, systemWeight: email.isRead ? .medium : .semibold))
-                                .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
                                 .lineLimit(1)
 
                             // Subject
@@ -90,10 +249,16 @@ struct EmailRow: View {
                                 .font(FontManager.geist(size: 12, systemWeight: email.isRead ? .regular : .medium))
                                 .foregroundColor(
                                     email.isRead ?
-                                    (colorScheme == .dark ? Color.white.opacity(0.7) : Color.emailLightTextSecondary) :
-                                    (colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
+                                    Color.appTextSecondary(colorScheme) :
+                                    Color.appTextPrimary(colorScheme)
                                 )
                                 .lineLimit(1)
+
+                            statusChip(
+                                text: emailStatusChip.text,
+                                fill: emailStatusChip.fill,
+                                textColor: emailStatusChip.textColor
+                            )
                         }
 
                         Spacer()
@@ -102,7 +267,7 @@ struct EmailRow: View {
                         VStack(alignment: .trailing, spacing: 3) {
                             Text(email.formattedTime)
                                 .font(FontManager.geist(size: 10, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
 
                             HStack(spacing: 3) {
                                 if email.isImportant {
@@ -114,7 +279,7 @@ struct EmailRow: View {
                                 if email.hasAttachments {
                                     Image(systemName: "paperclip")
                                         .font(FontManager.geist(size: 8, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
+                                        .foregroundColor(Color.appTextSecondary(colorScheme))
                                 }
 
                                 if !email.isRead {
@@ -153,7 +318,42 @@ struct EmailRow: View {
         }
     }
 
+    @ViewBuilder
+    private var avatarView: some View {
+        if let avatarURL = resolvedAvatarURL,
+           URL(string: avatarURL) != nil {
+            CachedAsyncImage(
+                url: avatarURL,
+                content: { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 32, height: 32)
+                        .clipShape(Circle())
+                },
+                placeholder: {
+                    fallbackAvatarView
+                }
+            )
+        } else {
+            fallbackAvatarView
+        }
+    }
+
     // MARK: - Private Methods
+
+    private func statusChip(text: String, fill: Color, textColor: Color) -> some View {
+        Text(text)
+            .font(FontManager.geist(size: 10, weight: .semibold))
+            .foregroundColor(textColor)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(fill)
+            )
+    }
 
     private var fallbackAvatarView: some View {
         // Generate initials from sender name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")
@@ -167,6 +367,44 @@ struct EmailRow: View {
                     .font(FontManager.geist(size: 12, weight: .semibold))
                     .foregroundColor(.white)
             )
+    }
+
+    private var resolvedAvatarURL: String? {
+        if let senderAvatar = email.sender.avatarUrl, !senderAvatar.isEmpty {
+            return senderAvatar
+        }
+        if let profilePictureUrl, !profilePictureUrl.isEmpty {
+            return profilePictureUrl
+        }
+        return nil
+    }
+
+    private func fetchProfilePictureIfNeeded() async {
+        if let senderAvatar = email.sender.avatarUrl, !senderAvatar.isEmpty {
+            await MainActor.run {
+                profilePictureUrl = senderAvatar
+            }
+            return
+        }
+
+        let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
+        if let cachedURL: String = CacheManager.shared.get(forKey: cacheKey), !cachedURL.isEmpty {
+            await MainActor.run {
+                profilePictureUrl = cachedURL
+            }
+            return
+        }
+
+        do {
+            if let fetchedURL = try await GmailAPIClient.shared.fetchProfilePicture(for: email.sender.email),
+               !fetchedURL.isEmpty {
+                await MainActor.run {
+                    profilePictureUrl = fetchedURL
+                }
+            }
+        } catch {
+            // Keep initials fallback if photo fetch fails.
+        }
     }
     
     /// Generate initials from a name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")

@@ -13,6 +13,8 @@ class GmailAPIClient {
 
     // MARK: - Cache
     private var profilePictureCache: [String: String] = [:] // email -> profile picture URL
+    private let persistentAvatarTTL: TimeInterval = 60 * 60 * 24 * 14 // 14 days
+    private let persistentEmptyAvatarTTL: TimeInterval = 60 * 60 * 12  // 12 hours
 
     // MARK: - Token Management
     private func refreshAccessTokenIfNeeded() async throws {
@@ -92,6 +94,7 @@ class GmailAPIClient {
 
     func fetchProfilePicture(for email: String) async throws -> String? {
         let cacheKey = CacheManager.CacheKey.emailProfilePicture(email)
+        let normalizedEmail = email.lowercased()
         
         // Check CacheManager first (persists across tab switches)
         if let cachedUrl: String = CacheManager.shared.get(forKey: cacheKey) {
@@ -99,35 +102,48 @@ class GmailAPIClient {
         }
         
         // Also check in-memory cache for faster access
-        if let cachedUrl = profilePictureCache[email] {
+        if let cachedUrl = profilePictureCache[normalizedEmail] {
             return cachedUrl.isEmpty ? nil : cachedUrl
         }
 
-        try await refreshAccessTokenIfNeeded()
-
-        // 1. Try to fetch from Google People API (Authentic user photo)
-        if let profilePicUrl = try? await fetchContactProfilePicture(email: email) {
-            // Cache in both places
-            profilePictureCache[email] = profilePicUrl
-            CacheManager.shared.set(profilePicUrl, forKey: cacheKey, ttl: CacheManager.TTL.veryLong) // 24 hours
-            return profilePicUrl
+        // Check persistent cache (survives app restarts)
+        if let persistedUrl = loadPersistentAvatarURL(for: normalizedEmail) {
+            profilePictureCache[normalizedEmail] = persistedUrl
+            CacheManager.shared.set(persistedUrl, forKey: cacheKey, ttl: CacheManager.TTL.veryLong)
+            return persistedUrl
         }
-        
-        // 2. Fallback: Try Domain Favicon (Company Logo)
-        // Useful for transactional emails like "receipts@uber.com"
-        if let domainLogoUrl = fetchDomainLogo(for: email) {
-            profilePictureCache[email] = domainLogoUrl
+
+        // 1) Try Google People API first (true personal/contact photo).
+        // If auth fails or no usable photo exists, continue to domain logo fallback.
+        do {
+            try await refreshAccessTokenIfNeeded()
+            if let profilePicUrl = try? await fetchContactProfilePicture(email: email),
+               !profilePicUrl.isEmpty {
+                profilePictureCache[normalizedEmail] = profilePicUrl
+                CacheManager.shared.set(profilePicUrl, forKey: cacheKey, ttl: CacheManager.TTL.veryLong)
+                persistAvatarURL(profilePicUrl, for: normalizedEmail, ttl: persistentAvatarTTL)
+                return profilePicUrl
+            }
+        } catch {
+            // Continue to domain-based logo resolution.
+        }
+
+        // 2) Domain logo fallback for newsletters/transactional senders.
+        if let domainLogoUrl = await fetchDomainLogo(for: email) {
+            profilePictureCache[normalizedEmail] = domainLogoUrl
             CacheManager.shared.set(domainLogoUrl, forKey: cacheKey, ttl: CacheManager.TTL.veryLong)
+            persistAvatarURL(domainLogoUrl, for: normalizedEmail, ttl: persistentAvatarTTL)
             return domainLogoUrl
         }
 
         // Cache empty result to avoid repeated lookups
-        profilePictureCache[email] = ""
+        profilePictureCache[normalizedEmail] = ""
         CacheManager.shared.set("", forKey: cacheKey, ttl: CacheManager.TTL.long) // 1 hour for empty results
+        persistAvatarURL("", for: normalizedEmail, ttl: persistentEmptyAvatarTTL)
         return nil
     }
     
-    private func fetchDomainLogo(for email: String) -> String? {
+    private func fetchDomainLogo(for email: String) async -> String? {
         let components = email.components(separatedBy: "@")
         guard components.count == 2 else { return nil }
         let domain = components[1].lowercased()
@@ -144,9 +160,105 @@ class GmailAPIClient {
         if genericDomains.contains(domain) {
             return nil
         }
-        
-        // Use Google's reliable favicon service (128px)
-        return "https://www.google.com/s2/favicons?domain=\(domain)&sz=128"
+
+        let normalizedDomains = normalizedDomainCandidates(from: domain)
+        var logoCandidates: [String] = []
+
+        for candidateDomain in normalizedDomains {
+            logoCandidates.append("https://logo.clearbit.com/\(candidateDomain)?size=128")
+            logoCandidates.append("https://www.google.com/s2/favicons?domain=\(candidateDomain)&sz=128")
+        }
+
+        for candidateURL in logoCandidates {
+            if await isReachableImageURL(candidateURL) {
+                return candidateURL
+            }
+        }
+
+        return nil
+    }
+
+    private func normalizedDomainCandidates(from domain: String) -> [String] {
+        var candidates: [String] = [domain]
+
+        let parts = domain.split(separator: ".").map(String.init)
+        if parts.count >= 2 {
+            let rootDomain = parts.suffix(2).joined(separator: ".")
+            if !candidates.contains(rootDomain) {
+                candidates.append(rootDomain)
+            }
+        }
+
+        return candidates
+    }
+
+    private func isReachableImageURL(_ urlString: String) async -> Bool {
+        guard let url = URL(string: urlString) else { return false }
+
+        var headRequest = URLRequest(url: url)
+        headRequest.httpMethod = "HEAD"
+        headRequest.timeoutInterval = 4
+
+        if let result = try? await URLSession.shared.data(for: headRequest),
+           let response = result.1 as? HTTPURLResponse,
+           (200..<300).contains(response.statusCode) {
+            let contentType = response.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+            return contentType.isEmpty || contentType.contains("image")
+        }
+
+        // Some providers block HEAD. Try a lightweight ranged GET.
+        var getRequest = URLRequest(url: url)
+        getRequest.httpMethod = "GET"
+        getRequest.timeoutInterval = 4
+        getRequest.setValue("bytes=0-64", forHTTPHeaderField: "Range")
+
+        guard let (data, response) = try? await URLSession.shared.data(for: getRequest),
+              let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            return false
+        }
+
+        let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+        return contentType.contains("image") || !data.isEmpty
+    }
+
+    // MARK: - Persistent Avatar URL Cache
+
+    private func persistentAvatarURLKey(for email: String) -> String {
+        "cache.email.avatar.url.\(email)"
+    }
+
+    private func persistentAvatarExpiryKey(for email: String) -> String {
+        "cache.email.avatar.expiry.\(email)"
+    }
+
+    private func loadPersistentAvatarURL(for email: String) -> String? {
+        let defaults = UserDefaults.standard
+        let expiryKey = persistentAvatarExpiryKey(for: email)
+        let urlKey = persistentAvatarURLKey(for: email)
+
+        guard let expiry = defaults.object(forKey: expiryKey) as? Date else {
+            defaults.removeObject(forKey: urlKey)
+            return nil
+        }
+
+        if Date() >= expiry {
+            defaults.removeObject(forKey: urlKey)
+            defaults.removeObject(forKey: expiryKey)
+            return nil
+        }
+
+        guard let value = defaults.string(forKey: urlKey), !value.isEmpty else {
+            return nil
+        }
+
+        return value
+    }
+
+    private func persistAvatarURL(_ url: String, for email: String, ttl: TimeInterval) {
+        let defaults = UserDefaults.standard
+        defaults.set(url, forKey: persistentAvatarURLKey(for: email))
+        defaults.set(Date().addingTimeInterval(ttl), forKey: persistentAvatarExpiryKey(for: email))
     }
     
     
@@ -899,8 +1011,13 @@ class GmailAPIClient {
                 let decoder = JSONDecoder()
                 let person = try decoder.decode(GooglePerson.self, from: data)
 
-                // Get the first photo URL (should be the profile picture)
-                return person.photos?.first?.url
+                // Ignore default placeholder photos and prefer real user/contact photos.
+                if let realPhoto = person.photos?.first(where: { ($0.defaultPhoto ?? false) == false })?.url,
+                   !realPhoto.isEmpty {
+                    return realPhoto
+                }
+
+                return nil
             }
 
             return nil
@@ -1364,9 +1481,12 @@ class GmailAPIClient {
             let components = trimmed.components(separatedBy: "<")
             let name = components.first?.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\"", with: "")
             let email = components.last?.replacingOccurrences(of: ">", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return EmailAddress(name: name?.isEmpty == false ? name : nil, email: email ?? trimmed, avatarUrl: nil)
+            let parsedEmail = email ?? trimmed
+            let avatarUrl = loadPersistentAvatarURL(for: parsedEmail.lowercased())
+            return EmailAddress(name: name?.isEmpty == false ? name : nil, email: parsedEmail, avatarUrl: avatarUrl)
         } else {
-            return EmailAddress(name: nil, email: trimmed, avatarUrl: nil)
+            let avatarUrl = loadPersistentAvatarURL(for: trimmed.lowercased())
+            return EmailAddress(name: nil, email: trimmed, avatarUrl: avatarUrl)
         }
     }
 
@@ -1445,104 +1565,85 @@ class GmailAPIClient {
 
     // MARK: - AI Processing Body Extraction
 
-    /// Extracts raw email body content for AI processing (no display formatting)
-    /// This returns clean HTML or text without wrapping in display HTML structure
+    /// Extracts full raw email content for AI processing.
+    /// Preserves meaningful HTML structure (tables/lists/links/image alt text) so summaries are less lossy.
     private func extractBodyForAI(from payload: GmailMessagePayload) -> String? {
-        // First, try to get the main body
-        if let body = payload.body?.data,
-           let decodedContent = decodeBase64String(body) {
-            // Strip HTML tags if content is HTML
-            if let mimeType = payload.mimeType, mimeType.contains("html") {
-                return stripHTMLTags(from: decodedContent)
+        // First, use the root payload body if present.
+        if let bodyData = payload.body?.data,
+           let decodedContent = decodeBase64String(bodyData),
+           !decodedContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let mimeType = payload.mimeType?.lowercased() ?? ""
+            if mimeType.contains("html") || decodedContent.contains("<") {
+                return extractTextFromHTMLForAISummary(decodedContent)
             }
-            return decodedContent
+            return normalizeAIExtractedText(decodedContent)
         }
 
-        // Recursively search through parts for text content
-        if let parts = payload.parts {
-            // First pass: look for plain text content (better for AI)
-            if let plainContent = findContentInParts(parts, mimeType: "text/plain") {
-                return plainContent
-            }
-
-            // Second pass: fall back to HTML and strip tags
-            if let htmlContent = findContentInParts(parts, mimeType: "text/html") {
-                return stripHTMLTags(from: htmlContent)
-            }
+        guard let parts = payload.parts else {
+            return nil
         }
 
-        return nil
+        // Gather all matching parts instead of returning the first match.
+        let plainParts = findAllContentInParts(parts, mimeType: "text/plain")
+            .map { normalizeAIExtractedText($0) }
+            .filter { !$0.isEmpty }
+        let htmlParts = findAllContentInParts(parts, mimeType: "text/html")
+            .map { extractTextFromHTMLForAISummary($0) }
+            .filter { !$0.isEmpty }
+
+        let uniquePlain = deduplicateContentSegments(plainParts)
+        let uniqueHTML = deduplicateContentSegments(htmlParts)
+        let plainCombined = uniquePlain.joined(separator: "\n\n")
+        let htmlCombined = uniqueHTML.joined(separator: "\n\n")
+
+        if !plainCombined.isEmpty && !htmlCombined.isEmpty {
+            if plainCombined.contains(htmlCombined) {
+                return plainCombined
+            }
+            if htmlCombined.contains(plainCombined) {
+                return htmlCombined
+            }
+            return "\(plainCombined)\n\nHTML details:\n\(htmlCombined)"
+        }
+
+        if !plainCombined.isEmpty {
+            return plainCombined
+        }
+
+        return htmlCombined.isEmpty ? nil : htmlCombined
     }
 
-    /// Strip HTML tags to get plain text for AI processing
-    private func stripHTMLTags(from html: String) -> String {
-        var text = html
+    private func findAllContentInParts(_ parts: [GmailMessagePart], mimeType: String) -> [String] {
+        var results: [String] = []
 
-        // Remove script and style tags with their content
-        text = text.replacingOccurrences(
-            of: "<(script|style)[^>]*>[\\s\\S]*?</\\1>",
-            with: "",
-            options: .regularExpression
-        )
-
-        // Replace common block elements with newlines for better structure
-        let blockElements = ["div", "p", "br", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6"]
-        for element in blockElements {
-            text = text.replacingOccurrences(
-                of: "</?\(element)[^>]*>",
-                with: "\n",
-                options: [.regularExpression, .caseInsensitive]
-            )
-        }
-
-        // Remove all remaining HTML tags
-        text = text.replacingOccurrences(
-            of: "<[^>]+>",
-            with: "",
-            options: .regularExpression
-        )
-
-        // Decode common HTML entities
-        let entities = [
-            "&nbsp;": " ",
-            "&amp;": "&",
-            "&lt;": "<",
-            "&gt;": ">",
-            "&quot;": "\"",
-            "&apos;": "'",
-            "&hellip;": "...",
-            "&mdash;": "—",
-            "&ndash;": "–"
-        ]
-        for (entity, replacement) in entities {
-            text = text.replacingOccurrences(of: entity, with: replacement)
-        }
-
-        // Clean up excessive whitespace and newlines
-        text = text.replacingOccurrences(
-            of: "[ \\t]+",
-            with: " ",
-            options: .regularExpression
-        )
-        text = text.replacingOccurrences(
-            of: "\\n{3,}",
-            with: "\n\n",
-            options: .regularExpression
-        )
-
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    // Recursively search through nested parts to find content with specific mime type
-    private func findContentInParts(_ parts: [GmailMessagePart], mimeType: String) -> String? {
         for part in parts {
-            // Check if this part has the mime type we're looking for
-            if part.mimeType == mimeType,
+            let partMimeType = part.mimeType?.lowercased() ?? ""
+            if partMimeType.contains(mimeType.lowercased()),
+               let bodyData = part.body?.data,
+               let decoded = decodeBase64String(bodyData),
+               !decoded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                results.append(decoded)
+            }
+
+            if let nestedParts = part.parts {
+                results.append(contentsOf: findAllContentInParts(nestedParts, mimeType: mimeType))
+            }
+        }
+
+        return results
+    }
+
+    // Recursively search through nested parts to find the first content with specific mime type.
+    private func findContentInParts(_ parts: [GmailMessagePart], mimeType: String) -> String? {
+        let targetMimeType = mimeType.lowercased()
+
+        for part in parts {
+            let partMimeType = part.mimeType?.lowercased() ?? ""
+            if partMimeType.contains(targetMimeType),
                let bodyData = part.body?.data {
                 return decodeBase64String(bodyData)
             }
 
-            // Recursively check nested parts (for multipart/alternative, multipart/mixed, etc.)
             if let nestedParts = part.parts {
                 if let foundContent = findContentInParts(nestedParts, mimeType: mimeType) {
                     return foundContent
@@ -1551,6 +1652,167 @@ class GmailAPIClient {
         }
 
         return nil
+    }
+
+    private func extractTextFromHTMLForAISummary(_ html: String) -> String {
+        var text = html
+
+        // Remove invisible/noisy regions first.
+        text = text.replacingOccurrences(
+            of: "<(script|style|noscript)[^>]*>[\\s\\S]*?</\\1>",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        text = text.replacingOccurrences(
+            of: "<!--[\\s\\S]*?-->",
+            with: "",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: "<(head|meta|link|title)[^>]*>[\\s\\S]*?</\\1>",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        text = text.replacingOccurrences(
+            of: "<(meta|link|base)[^>]*>",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        // Preserve contextual information from images and links.
+        text = text.replacingOccurrences(
+            of: "(?i)<img[^>]*alt=[\"']([^\"']+)[\"'][^>]*>",
+            with: "\nImage: $1\n",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: "(?i)<img[^>]*title=[\"']([^\"']+)[\"'][^>]*>",
+            with: "\nImage detail: $1\n",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: "(?i)<img[^>]*>",
+            with: "\n",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: "(?i)<a[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)</a>",
+            with: "$2 ($1)",
+            options: .regularExpression
+        )
+
+        // Preserve table/list/paragraph structure before removing all tags.
+        text = text.replacingOccurrences(of: "(?i)<tr[^>]*>", with: "\n", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)</tr>", with: "\n", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)<(td|th)[^>]*>", with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)</(td|th)>", with: " | ", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)<li[^>]*>", with: "\n• ", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)</li>", with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?i)<br\\s*/?>", with: "\n", options: .regularExpression)
+
+        let blockTags = ["p", "div", "section", "article", "header", "footer", "main", "h1", "h2", "h3", "h4", "h5", "h6", "table", "ul", "ol"]
+        for tag in blockTags {
+            text = text.replacingOccurrences(
+                of: "(?i)</?\(tag)[^>]*>",
+                with: "\n",
+                options: .regularExpression
+            )
+        }
+
+        text = text.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "",
+            options: .regularExpression
+        )
+
+        return normalizeAIExtractedText(text)
+    }
+
+    private func normalizeAIExtractedText(_ text: String) -> String {
+        var cleaned = decodeCommonHTMLEntities(text)
+
+        cleaned = cleaned.replacingOccurrences(
+            of: "[ \\t]{2,}",
+            with: " ",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: "\\s*\\|\\s*",
+            with: " | ",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: "(\\|\\s*){2,}",
+            with: "| ",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: "\\n[ \\t]+",
+            with: "\n",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: "\\n{3,}",
+            with: "\n\n",
+            options: .regularExpression
+        )
+
+        let lines = cleaned.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func decodeCommonHTMLEntities(_ text: String) -> String {
+        var decoded = text
+        let htmlEntities = [
+            "&nbsp;": " ",
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": "\"",
+            "&apos;": "'",
+            "&rsquo;": "'",
+            "&lsquo;": "'",
+            "&rdquo;": "\"",
+            "&ldquo;": "\"",
+            "&#39;": "'",
+            "&#x27;": "'",
+            "&#8217;": "'",
+            "&#8220;": "\"",
+            "&#8221;": "\"",
+            "&hellip;": "…",
+            "&#8230;": "…",
+            "&mdash;": "—",
+            "&ndash;": "–",
+            "&bull;": "•"
+        ]
+
+        for (entity, replacement) in htmlEntities {
+            decoded = decoded.replacingOccurrences(of: entity, with: replacement)
+        }
+
+        return decoded
+    }
+
+    private func deduplicateContentSegments(_ segments: [String]) -> [String] {
+        var uniqueSegments: [String] = []
+
+        for segment in segments {
+            let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            let isDuplicate = uniqueSegments.contains { existing in
+                existing == trimmed || existing.contains(trimmed) || trimmed.contains(existing)
+            }
+
+            if !isDuplicate {
+                uniqueSegments.append(trimmed)
+            }
+        }
+
+        return uniqueSegments
     }
 
     private func processEmailContent(_ content: String?, mimeType: String?) -> String? {
@@ -1608,12 +1870,10 @@ class GmailAPIClient {
              options: .regularExpression
          )
 
-         // Ensure images have proper styling for mobile display
-         cleanedHTML = cleanedHTML.replacingOccurrences(
-             of: "<img([^>]*)>",
-             with: "<img$1 style=\"max-width: 100%; height: auto;\">",
-             options: .regularExpression
-         )
+         // Avoid regex-based <img> rewrites here. Some transactional emails include
+         // malformed/self-closing image tags, and rewriting with regex can leak raw
+         // attribute fragments into visible text. Image sizing is already enforced
+         // in ZoomableHTMLView CSS/JS.
 
          // Return the cleaned HTML without wrapping - ZoomableHTMLView will handle wrapping
          return cleanedHTML
@@ -1885,10 +2145,12 @@ struct GooglePerson: Codable {
 struct GooglePhoto: Codable {
     let metadata: GooglePhotoMetadata?
     let url: String?
+    let defaultPhoto: Bool?
 
     enum CodingKeys: String, CodingKey {
         case metadata
         case url
+        case defaultPhoto = "default"
     }
 }
 
