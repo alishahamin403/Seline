@@ -4,6 +4,7 @@ import EventKit
 /// View for selecting which iPhone calendars to sync with Seline
 struct CalendarSelectionView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @State private var calendars: [CalendarMetadata] = []
     @State private var preferences: CalendarSyncPreferences = CalendarSyncPreferences.load()
     @State private var isLoading = true
@@ -20,26 +21,37 @@ struct CalendarSelectionView: View {
 
     var body: some View {
         NavigationView {
-            Group {
-                if isLoading {
-                    ProgressView("Loading calendars...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if calendars.isEmpty {
-                    VStack(spacing: 20) {
-                        Image(systemName: "calendar.badge.exclamationmark")
-                            .font(.system(size: 60))
-                            .foregroundColor(.gray)
-                        Text("No Calendars Found")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        Text("Please check your calendar permissions in Settings")
-                            .font(.body)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
+            ZStack {
+                AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .topTrailing)
+
+                Group {
+                    if isLoading {
+                        ProgressView("Loading calendars...")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if calendars.isEmpty {
+                        VStack(spacing: 20) {
+                            Image(systemName: "calendar.badge.exclamationmark")
+                                .font(.system(size: 60))
+                                .foregroundColor(.gray)
+                            Text("No Calendars Found")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                            Text("Please check your calendar permissions in Settings")
+                                .font(.body)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(24)
+                        .appAmbientCardStyle(
+                            colorScheme: colorScheme,
+                            variant: .bottomLeading,
+                            cornerRadius: 28,
+                            highlightStrength: 0.62
+                        )
+                        .padding(.horizontal, 12)
+                    } else {
+                        calendarList
                     }
-                    .padding()
-                } else {
-                    calendarList
                 }
             }
             .navigationTitle("Select Calendars")
@@ -76,6 +88,7 @@ struct CalendarSelectionView: View {
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
+            .listRowBackground(Color.appSurface(colorScheme))
 
             if selectedCount > 0 {
                 Section {
@@ -94,6 +107,7 @@ struct CalendarSelectionView: View {
                         .font(.footnote)
                     }
                 }
+                .listRowBackground(Color.appSurface(colorScheme))
             }
 
             ForEach(groupedCalendars, id: \.0) { sourceType, calendarsInGroup in
@@ -112,8 +126,12 @@ struct CalendarSelectionView: View {
                         }
                     }
                 }
+                .listRowBackground(Color.appSurface(colorScheme))
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .listStyle(.insetGrouped)
     }
 
     private func sectionHeader(for sourceType: CalendarSourceType) -> some View {

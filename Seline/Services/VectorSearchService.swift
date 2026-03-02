@@ -34,7 +34,7 @@ class VectorSearchService: ObservableObject {
     // MARK: - Configuration
 
     private let maxBatchSize = 50 // Max documents per batch
-    private let similarityThreshold: Float = 0.10 // Lowered from 0.20 for better recall
+    private let similarityThreshold: Float = 0.22 // Higher precision to reduce noisy context contamination
     private let defaultResultLimit = 15 // Reduced from 50 to 15 for better UI performance
     // Removed recentDaysThreshold - now embedding ALL historical data
     
@@ -113,11 +113,12 @@ class VectorSearchService: ObservableObject {
             print("🔍 Vector search returned 0 results (threshold: \(similarityThreshold)) - no matches found")
         }
 
-        // Apply recency boost to vector results
+        // Apply query-aware recency boost to vector results
+        let recencyWeight = recencyWeight(for: query, dateRange: dateRange)
         let vectorResults = rawResults.map { result -> SearchResult in
             let baseScore = result.similarity
             let recencyScore = calculateRecencyScore(metadata: result.metadata)
-            let boostedScore = (0.7 * baseScore) + (0.3 * recencyScore)
+            let boostedScore = ((1 - recencyWeight) * baseScore) + (recencyWeight * recencyScore)
 
             return SearchResult(
                 documentType: DocumentType(rawValue: result.document_type) ?? .note,
@@ -171,7 +172,7 @@ class VectorSearchService: ObservableObject {
         // Group by document type with per-type caps
         let grouped = Dictionary(grouping: results) { $0.documentType }
         let perTypeCaps: [DocumentType: Int] = [
-            // NOTE: Emails excluded from embeddings to save space
+            .email: 8,
             .task: 10,
             .visit: 10,
             .receipt: 8,
@@ -225,8 +226,8 @@ class VectorSearchService: ObservableObject {
     // MARK: - Date Filtering Helpers
 
     private func matchesDateRange(metadata: [String: Any]?, dateRange: (start: Date, end: Date)) -> Bool {
-        // If no metadata, include the document - let semantic similarity decide
-        guard let metadata = metadata else { return true }
+        // Date-range query: unknown-date items are excluded to prevent cross-period leakage.
+        guard let metadata = metadata else { return false }
 
         // Prefer explicit date fields when available
         if let date = parseISODate(metadata["date"]) {
@@ -250,27 +251,37 @@ class VectorSearchService: ObservableObject {
             return scheduled >= dateRange.start && scheduled < dateRange.end
         }
 
-        // Fallbacks - if no date fields found, include document
-        // This ensures semantic similarity can still find relevant results
+        // Fallbacks
         if let createdAt = parseISODate(metadata["created_at"]) {
             return createdAt >= dateRange.start && createdAt < dateRange.end
         }
 
-        // No date fields found - include document, let semantic matching decide
-        return true
+        // No parseable date fields
+        return false
     }
 
     private func parseISODate(_ value: Any?) -> Date? {
-        guard let dateString = value as? String else { return nil }
+        guard let rawString = value as? String else { return nil }
+        let dateString = rawString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !dateString.isEmpty else { return nil }
+
+        let isoWithFractional = ISO8601DateFormatter()
+        isoWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = isoWithFractional.date(from: dateString) {
+            return date
+        }
+
         let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        iso.formatOptions = [.withInternetDateTime]
         if let date = iso.date(from: dateString) {
             return date
         }
 
         // Fallback format (YYYY-MM-DD)
         let fallback = DateFormatter()
+        fallback.locale = Locale(identifier: "en_US_POSIX")
         fallback.dateFormat = "yyyy-MM-dd"
+        fallback.timeZone = TimeZone.current
         return fallback.date(from: dateString)
     }
 
@@ -333,8 +344,55 @@ class VectorSearchService: ObservableObject {
             }
         }
 
-        // NOTE: Emails removed from keyword search (use vector search for emails instead)
-        // This saves significant context space for more relevant data
+        // Emails
+        if typeFilter == nil || typeFilter?.contains(.email) == true {
+            let inboxEmails = EmailService.shared.inboxEmails.map { ($0, "inbox") }
+            let sentEmails = EmailService.shared.sentEmails.map { ($0, "sent") }
+            let allEmails = inboxEmails + sentEmails
+
+            for (email, mailbox) in allEmails {
+                var content = """
+                Subject: \(email.subject)
+                From: \(email.sender.displayName) <\(email.sender.email)>
+                Snippet: \(email.snippet)
+                """
+
+                if let body = email.body, !body.isEmpty {
+                    content += "\nBody: \(String(body.prefix(4000)))"
+                }
+                if let summary = email.aiSummary, !summary.isEmpty {
+                    content += "\nAI Summary: \(summary)"
+                }
+                if !email.labels.isEmpty {
+                    content += "\nLabels: \(email.labels.joined(separator: ", "))"
+                }
+
+                let s = score(for: content)
+                if s > 0 {
+                    let metadata: [String: Any] = [
+                        "date": iso.string(from: email.timestamp),
+                        "sender": email.sender.displayName,
+                        "sender_email": email.sender.email,
+                        "mailbox": mailbox,
+                        "is_read": email.isRead,
+                        "has_attachments": email.hasAttachments,
+                        "thread_id": email.threadId ?? email.gmailThreadId ?? NSNull(),
+                        "labels": email.labels.isEmpty ? NSNull() : email.labels
+                    ]
+                    if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
+                        let boosted = (0.8 * s) + (0.2 * calculateRecencyScore(metadata: metadata))
+                        results.append(SearchResult(
+                            documentType: .email,
+                            documentId: email.id,
+                            title: email.subject,
+                            content: content,
+                            metadata: metadata,
+                            similarity: boosted
+                        ))
+                    }
+                }
+            }
+        }
 
         // Tasks
         if typeFilter == nil || typeFilter?.contains(.task) == true {
@@ -464,28 +522,53 @@ class VectorSearchService: ObservableObject {
         return results
     }
 
+    private func recencyWeight(for query: String, dateRange: (start: Date, end: Date)?) -> Float {
+        let lower = query.lowercased()
+        let historicalHints = [
+            "which weekend", "what weekend", "that weekend", "weekend before",
+            "when did", "trip", "stay", "last year", "years ago", "ago"
+        ]
+        let recentHints = ["today", "this week", "recent", "latest", "now", "currently"]
+
+        if recentHints.contains(where: { lower.contains($0) }) {
+            return 0.30
+        }
+
+        if historicalHints.contains(where: { lower.contains($0) }) {
+            return 0.08
+        }
+
+        let currentYear = Calendar.current.component(.year, from: Date())
+        if let explicitYear = extractExplicitYear(from: lower), explicitYear < currentYear {
+            return 0.05
+        }
+
+        if let dateRange {
+            let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+            if dateRange.end < sevenDaysAgo {
+                return 0.08
+            }
+        }
+
+        return 0.18
+    }
+
+    private func extractExplicitYear(from text: String) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: #"\b(20\d{2})\b"#) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              let yearRange = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+        return Int(text[yearRange])
+    }
+
     /// Calculate recency boost score (1.0 for today, decays to 0.1 for 1+ year ago)
     private func calculateRecencyScore(metadata: [String: Any]?) -> Float {
         guard let metadata = metadata,
-              let dateString = metadata["date"] as? String else {
+              let parsedDate = extractDateForRecency(from: metadata) else {
             // No date metadata, assume recent (neutral score)
             return 0.5
-        }
-
-        // Parse date from ISO8601 or common formats
-        let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var date = dateFormatter.date(from: dateString)
-
-        if date == nil {
-            // Try fallback format (YYYY-MM-DD)
-            let fallbackFormatter = DateFormatter()
-            fallbackFormatter.dateFormat = "yyyy-MM-dd"
-            date = fallbackFormatter.date(from: dateString)
-        }
-
-        guard let parsedDate = date else {
-            return 0.5  // Can't parse, neutral score
         }
 
         // Calculate age in days
@@ -501,6 +584,45 @@ class VectorSearchService: ObservableObject {
         } else {
             return 0.1  // 1+ year old
         }
+    }
+
+    private func extractDateForRecency(from metadata: [String: Any]) -> Date? {
+        let candidateKeys = [
+            "date",
+            "entry_time",
+            "start",
+            "scheduled_time",
+            "target_date",
+            "created_at",
+            "updated_at"
+        ]
+
+        for key in candidateKeys {
+            guard let rawValue = metadata[key] as? String, !rawValue.isEmpty else { continue }
+            if let parsed = parseMetadataDate(rawValue) {
+                return parsed
+            }
+        }
+        return nil
+    }
+
+    private func parseMetadataDate(_ value: String) -> Date? {
+        let isoWithFractional = ISO8601DateFormatter()
+        isoWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = isoWithFractional.date(from: value) {
+            return date
+        }
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: value) {
+            return date
+        }
+
+        let fallbackFormatter = DateFormatter()
+        fallbackFormatter.dateFormat = "yyyy-MM-dd"
+        fallbackFormatter.timeZone = TimeZone.current
+        return fallbackFormatter.date(from: value)
     }
 
     /// Batch fetch all memories for annotation (call once before annotating multiple titles)
@@ -599,26 +721,30 @@ class VectorSearchService: ObservableObject {
         
         do {
             // Sync each document type - COMPREHENSIVE coverage
-            // NOTE: Emails removed from embeddings to save space for more relevant data
             
             embeddingStatus = "Syncing notes..."
             let notesCount = await syncNoteEmbeddings()
-            embeddingProgress = 0.2
+            embeddingProgress = 0.12
+
+            embeddingStatus = "Syncing emails..."
+            let emailsCount = await syncEmailEmbeddings()
+            embeddingProgress = 0.24
             
             embeddingStatus = "Syncing tasks..."
             let tasksCount = await syncTaskEmbeddings()
-            embeddingProgress = 0.4
+            embeddingProgress = 0.40
             
             embeddingStatus = "Syncing locations..."
             let locationsCount = await syncLocationEmbeddings()
-            embeddingProgress = 0.6
+            embeddingProgress = 0.56
             
             embeddingStatus = "Syncing receipts..."
             let receiptsCount = await syncReceiptEmbeddings()
-            embeddingProgress = 0.8
+            embeddingProgress = 0.72
             
             embeddingStatus = "Syncing visits..."
             let visitsCount = await syncLocationVisitEmbeddings()
+            embeddingProgress = 0.88
             
             embeddingStatus = "Syncing people..."
             let peopleCount = await syncPeopleEmbeddings()
@@ -626,15 +752,14 @@ class VectorSearchService: ObservableObject {
             embeddingProgress = 1.0
             embeddingStatus = "Complete"
             
-            let totalCount = notesCount + tasksCount + locationsCount + receiptsCount + visitsCount + peopleCount
+            let totalCount = notesCount + emailsCount + tasksCount + locationsCount + receiptsCount + visitsCount + peopleCount
             embeddingsCount = totalCount
             lastSyncTime = Date()
             hasCompletedFirstSync = true
             
             let duration = Date().timeIntervalSince(startTime)
             print("✅ Embedding sync complete: \(totalCount) documents in \(String(format: "%.1f", duration))s")
-            print("   Notes: \(notesCount), Tasks: \(tasksCount), Locations: \(locationsCount), Receipts: \(receiptsCount), Visits: \(visitsCount), People: \(peopleCount)")
-            print("   (Emails excluded from embeddings)")
+            print("   Notes: \(notesCount), Emails: \(emailsCount), Tasks: \(tasksCount), Locations: \(locationsCount), Receipts: \(receiptsCount), Visits: \(visitsCount), People: \(peopleCount)")
             
             // Log any potential issues
             if totalCount == 0 {
@@ -713,11 +838,101 @@ class VectorSearchService: ObservableObject {
         }
     }
     
-    /// Email embeddings disabled - emails take too much space
-    /// Keeping function for future reference
+    /// Sync email embeddings
     private func syncEmailEmbeddings() async -> Int {
-        print("📧 Emails: Disabled - emails excluded from embeddings")
-        return 0
+        let inboxEmails = EmailService.shared.inboxEmails.map { ($0, "inbox") }
+        let sentEmails = EmailService.shared.sentEmails.map { ($0, "sent") }
+        let allEmails = (inboxEmails + sentEmails).sorted { $0.0.timestamp > $1.0.timestamp }
+        guard !allEmails.isEmpty else { return 0 }
+
+        print("📧 Emails: Syncing \(allEmails.count) emails")
+        let iso = ISO8601DateFormatter()
+
+        let documents = allEmails.map { (email, mailbox) -> [String: Any] in
+            var content = """
+            Subject: \(email.subject)
+            From: \(email.sender.displayName) <\(email.sender.email)>
+            Snippet: \(email.snippet)
+            """
+
+            if !email.recipients.isEmpty {
+                let recipientNames = email.recipients
+                    .map { "\($0.displayName) <\($0.email)>" }
+                    .joined(separator: ", ")
+                content += "\nTo: \(recipientNames)"
+            }
+            if !email.ccRecipients.isEmpty {
+                let ccNames = email.ccRecipients
+                    .map { "\($0.displayName) <\($0.email)>" }
+                    .joined(separator: ", ")
+                content += "\nCC: \(ccNames)"
+            }
+            if let body = email.body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                content += "\nBody: \(String(body.prefix(6000)))"
+            }
+            if let aiSummary = email.aiSummary, !aiSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                content += "\nAI Summary: \(aiSummary)"
+            }
+            if !email.labels.isEmpty {
+                content += "\nLabels: \(email.labels.joined(separator: ", "))"
+            }
+            if email.hasAttachments {
+                content += "\nHas attachments: Yes"
+            }
+
+            return [
+                "document_type": "email",
+                "document_id": email.id,
+                "title": email.subject,
+                "content": content,
+                "metadata": [
+                    "date": iso.string(from: email.timestamp),
+                    "sender": email.sender.displayName,
+                    "sender_email": email.sender.email,
+                    "mailbox": mailbox,
+                    "is_read": email.isRead,
+                    "is_important": email.isImportant,
+                    "has_attachments": email.hasAttachments,
+                    "thread_id": email.threadId ?? email.gmailThreadId ?? NSNull(),
+                    "gmail_message_id": email.gmailMessageId ?? NSNull(),
+                    "labels": email.labels.isEmpty ? NSNull() : email.labels,
+                    "created_at": iso.string(from: email.timestamp)
+                ] as [String: Any]
+            ]
+        }
+
+        do {
+            let userId = try await SupabaseManager.shared.authClient.session.user.id
+            let ids = documents.compactMap { $0["document_id"] as? String }
+            let hashes = documents.compactMap { doc -> Int64? in
+                guard let content = doc["content"] as? String else { return nil }
+                return hashContent32BitDjb2(content)
+            }
+
+            let neededIds = try await checkDocumentsNeedingEmbedding(
+                userId: userId,
+                documentType: "email",
+                documentIds: ids,
+                contentHashes: hashes
+            )
+
+            guard !neededIds.isEmpty else {
+                print("📧 Emails: All \(documents.count) already embedded, skipping")
+                return 0
+            }
+
+            let neededSet = Set(neededIds)
+            let docsToEmbed = documents.filter { doc in
+                guard let id = doc["document_id"] as? String else { return false }
+                return neededSet.contains(id)
+            }
+
+            print("📧 Emails: Embedding \(docsToEmbed.count) of \(documents.count) (\(documents.count - docsToEmbed.count) unchanged)")
+            return await batchEmbed(documents: docsToEmbed, type: "email")
+        } catch {
+            print("❌ Error checking email embeddings: \(error)")
+            return await batchEmbed(documents: documents, type: "email")
+        }
     }
 
     /// Sync task embeddings - embed ALL tasks (no date limit)
@@ -1652,7 +1867,7 @@ class VectorSearchService: ObservableObject {
     
     enum DocumentType: String, CaseIterable {
         case note = "note"
-        // case email = "email" // Disabled - emails excluded from embeddings
+        case email = "email"
         case task = "task"
         case location = "location"
         case receipt = "receipt"
@@ -1662,7 +1877,7 @@ class VectorSearchService: ObservableObject {
         var displayName: String {
             switch self {
             case .note: return "Notes"
-            // case .email: return "Emails" // Disabled
+            case .email: return "Emails"
             case .task: return "Events/Tasks"
             case .location: return "Locations"
             case .receipt: return "Receipts"

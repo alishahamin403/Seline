@@ -125,10 +125,7 @@ struct NoteRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(rowBackgroundColor)
-        )
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 12)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .allowsParentScrolling()
@@ -187,10 +184,6 @@ struct NoteRow: View {
 
     private var pinInactiveColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.62) : Color.emailLightTextSecondary
-    }
-
-    private var rowBackgroundColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface
     }
 
     private func formatReminderDate(_ date: Date) -> String {

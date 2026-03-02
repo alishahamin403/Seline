@@ -49,29 +49,31 @@ struct CalendarAgendaView: View {
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var tagManager = TagManager.shared
     @Environment(\.colorScheme) var colorScheme
+    private static let headerDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d"
+        return formatter
+    }()
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return formatter
+    }()
     
     private var primaryTextColor: Color {
-        colorScheme == .dark ? Color.white : Color.black
+        Color.appTextPrimary(colorScheme)
     }
     
     private var secondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)
+        Color.emailGlassMutedText(colorScheme)
     }
     
     private var tertiaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.35) : Color.black.opacity(0.35)
+        Color.emailGlassMutedText(colorScheme).opacity(0.82)
     }
     
     private var backgroundColor: Color {
-        colorScheme == .dark ? Color.black : Color.white
-    }
-    
-    private var cardBackgroundColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03)
-    }
-    
-    private var sectionHeaderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02)
+        .clear
     }
 
     @State private var cachedEvents: [TaskItem] = []
@@ -100,9 +102,7 @@ struct CalendarAgendaView: View {
     }
     
     private var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMMM d"
-        return formatter.string(from: selectedDate)
+        Self.headerDateFormatter.string(from: selectedDate)
     }
     
     private var isToday: Bool {
@@ -144,16 +144,19 @@ struct CalendarAgendaView: View {
     
     private var headerView: some View {
         HStack {
-            // Event count on the left
-            Text("\(eventsForDate.count) event\(eventsForDate.count == 1 ? "" : "s")")
-                .font(FontManager.geist(size: 14, weight: .medium))
-                .foregroundColor(primaryTextColor)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Agenda")
+                    .font(FontManager.geist(size: 22, weight: .semibold))
+                    .foregroundColor(primaryTextColor)
+
+                Text("\(formattedDate) · \(eventsForDate.count) event\(eventsForDate.count == 1 ? "" : "s")")
+                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .foregroundColor(secondaryTextColor)
+            }
             
             Spacer()
             
-            // Pill buttons on the right
             HStack(spacing: 8) {
-                // Camera button
                 if let onCameraAction = onCameraAction {
                     Button(action: {
                         HapticManager.shared.selection()
@@ -161,18 +164,13 @@ struct CalendarAgendaView: View {
                     }) {
                         Image(systemName: "camera.fill")
                             .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .black : .white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .fill(colorScheme == .dark ? Color.white : Color.black)
-                            )
+                            .foregroundColor(primaryTextColor)
+                            .frame(width: 36, height: 36)
+                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
                 
-                // Add event button
                 if let onAddEvent = onAddEvent {
                     Button(action: {
                         HapticManager.shared.selection()
@@ -180,21 +178,20 @@ struct CalendarAgendaView: View {
                     }) {
                         Text("Add")
                             .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white : Color.black)
-                        )
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .padding(.horizontal, 12)
+                            .frame(height: 36)
+                            .background(
+                                Capsule()
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.92) : Color.appTextPrimary(colorScheme))
+                            )
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(cardBackgroundColor)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
     }
     
     // MARK: - Empty State View
@@ -236,7 +233,7 @@ struct CalendarAgendaView: View {
                 
                 Spacer()
             }
-            .padding(.horizontal, 12)
+        .padding(.horizontal, 12)
             
             // Event Cards
             VStack(spacing: 8) {
@@ -295,7 +292,11 @@ struct CalendarAgendaView: View {
                                 .padding(.vertical, 3)
                                 .background(
                                     Capsule()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.08))
+                                        .fill(Color.appChip(colorScheme))
+                                )
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.appBorder(colorScheme), lineWidth: 0.8)
                                 )
                         }
 
@@ -319,21 +320,17 @@ struct CalendarAgendaView: View {
                 
                 Spacer(minLength: 0)
                 
-                // Completion checkbox
                 Button(action: { 
                     onToggleCompletion(event)
                 }) {
                     Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                         .font(FontManager.geist(size: 24, weight: .regular))
-                        .foregroundColor(isCompleted ? primaryTextColor : secondaryTextColor)
+                        .foregroundColor(isCompleted ? Color.emailGlassAccent : secondaryTextColor)
                 }
                 .buttonStyle(PlainButtonStyle())
                 .padding(.trailing, 12)
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-            )
+            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -341,13 +338,10 @@ struct CalendarAgendaView: View {
     // MARK: - Helper Methods
     
     private func formatTimeRange(start: Date, end: Date?) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        
-        let startStr = formatter.string(from: start)
+        let startStr = Self.timeFormatter.string(from: start)
         
         if let end = end {
-            let endStr = formatter.string(from: end)
+            let endStr = Self.timeFormatter.string(from: end)
             return "\(startStr) - \(endStr)"
         }
         

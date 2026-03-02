@@ -4,6 +4,7 @@ struct FolderSidebarView: View {
     @Binding var isPresented: Bool
     @Binding var selectedFolderId: UUID?
     @Binding var showUnfiledNotesOnly: Bool
+    let onOpenJournal: (() -> Void)?
     @StateObject private var notesManager = NotesManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var showingNewFolderAlert = false
@@ -25,12 +26,14 @@ struct FolderSidebarView: View {
         colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
     }
 
-    // Computed property to organize folders by hierarchy (excluding Receipts folder)
+    // Computed property to organize folders by hierarchy (excluding special system folders)
     var organizedFolders: [(folder: NoteFolder, depth: Int)] {
         var result: [(folder: NoteFolder, depth: Int)] = []
 
-        // Get root folders (no parent), excluding the Receipts folder
-        let rootFolders = notesManager.folders.filter { $0.parentFolderId == nil && $0.name != "Receipts" }
+        // Get root folders (no parent), excluding special folders handled elsewhere.
+        let rootFolders = notesManager.folders.filter {
+            $0.parentFolderId == nil && $0.name != "Receipts" && $0.name != "Journal"
+        }
 
         for rootFolder in rootFolders {
             result.append((rootFolder, 0))
@@ -75,6 +78,7 @@ struct FolderSidebarView: View {
 
         return notesManager.notes.filter { note in
             guard note.isPinned else { return false }
+            guard !note.isJournalEntry && !note.isJournalWeeklyRecap else { return false }
             // Check if note is in Receipts folder (or a subfolder of Receipts)
             if let folderId = note.folderId, let receiptsFolderId = receiptsFolder?.id {
                 var currentFolderId: UUID? = folderId
@@ -95,6 +99,7 @@ struct FolderSidebarView: View {
 
         return notesManager.notes.filter { note in
             guard !note.isPinned, note.folderId == nil else { return false }
+            guard !note.isJournalEntry && !note.isJournalWeeklyRecap else { return false }
             return !isReceiptNote(note, receiptsFolderId: receiptsFolder?.id)
         }.count
     }
@@ -233,6 +238,32 @@ struct FolderSidebarView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PlainButtonStyle())
+
+                            if let onOpenJournal {
+                                Button(action: {
+                                    HapticManager.shared.selection()
+                                    selectedFolderId = nil
+                                    showUnfiledNotesOnly = false
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        isPresented = false
+                                    }
+                                    onOpenJournal()
+                                }) {
+                                    HStack(spacing: 12) {
+                                        Text("Journal")
+                                            .font(FontManager.geist(size: 14, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        Spacer()
+                                        Text("\(notesManager.journalEntries.count)")
+                                            .font(FontManager.geist(size: 12, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                    }
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
                         }
                     }
 

@@ -158,18 +158,7 @@ struct Email: Identifiable, Codable, Equatable, Hashable {
     let unsubscribeInfo: UnsubscribeInfo? // Unsubscribe info from List-Unsubscribe header
 
     var formattedTime: String {
-        let formatter = DateFormatter()
-        let calendar = Calendar.current
-
-        if calendar.isDateInToday(timestamp) {
-            formatter.timeStyle = .short
-            return formatter.string(from: timestamp)
-        } else if calendar.isDateInYesterday(timestamp) {
-            return "Yesterday"
-        } else {
-            formatter.dateStyle = .short
-            return formatter.string(from: timestamp)
-        }
+        FormatterCache.formattedEmailTimestamp(timestamp)
     }
 
     var previewText: String {
@@ -456,9 +445,7 @@ struct EmailSection: Identifiable {
 
 struct EmailDaySection: Identifiable {
     var id: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        FormatterCache.emailDayIdentifier.string(from: date)
     }
     let date: Date
     let emails: [Email]
@@ -472,24 +459,18 @@ struct EmailDaySection: Identifiable {
         } else if calendar.isDateInYesterday(date) {
             return "Yesterday"
         } else {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE, MMM d"
-            return formatter.string(from: date)
+            return FormatterCache.emailDayTitle.string(from: date)
         }
     }
     
     /// Short day label (e.g., "Mon", "Tue")
     var dayLabel: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE"
-        return formatter.string(from: date)
+        FormatterCache.emailDayLabel.string(from: date)
     }
     
     /// Date number (e.g., "23")
     var dateNumber: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d"
-        return formatter.string(from: date)
+        FormatterCache.dayNumber.string(from: date)
     }
     
     var emailCount: Int {
@@ -839,4 +820,3 @@ extension Email {
         return hasForumKeywords || hasForumDomain
     }
 }
-

@@ -5,6 +5,40 @@ import WidgetKit
 
 // MARK: - Note Models
 
+enum NoteKind: String, Codable, Hashable {
+    case standard
+    case journalEntry
+    case journalWeeklyRecap
+}
+
+enum JournalTodayStatus: Hashable {
+    case missing
+    case complete
+}
+
+struct JournalStats: Hashable {
+    let currentStreak: Int
+    let longestStreak: Int
+    let completedThisWeek: Int
+    let totalEntries: Int
+    let lastEntryDate: Date?
+    let todayStatus: JournalTodayStatus
+}
+
+struct JournalSummaryInput: Hashable {
+    let date: Date
+    let title: String
+    let preview: String
+}
+
+struct JournalDraft: Identifiable, Hashable {
+    let id = UUID()
+    let title: String
+    let folderId: UUID
+    let kind: NoteKind
+    let journalDate: Date
+}
+
 struct Note: Identifiable, Codable, Hashable {
     var id: UUID
     var title: String
@@ -17,6 +51,9 @@ struct Note: Identifiable, Codable, Hashable {
     var imageUrls: [String] // Store image URLs from Supabase Storage
     var attachmentId: UUID? // Single file attachment per note (for documents like bank statements, invoices)
     var blocksData: String? // JSON string of blocks for block-based editor
+    var kind: NoteKind?
+    var journalDate: Date?
+    var journalWeekStartDate: Date?
     
     // Note Reminder fields
     var reminderDate: Date? // When to remind the user
@@ -28,7 +65,14 @@ struct Note: Identifiable, Codable, Hashable {
         set { }
     }
 
-    init(title: String, content: String = "", folderId: UUID? = nil) {
+    init(
+        title: String,
+        content: String = "",
+        folderId: UUID? = nil,
+        kind: NoteKind? = nil,
+        journalDate: Date? = nil,
+        journalWeekStartDate: Date? = nil
+    ) {
         self.id = UUID()
         self.title = title
         self.content = content
@@ -38,6 +82,9 @@ struct Note: Identifiable, Codable, Hashable {
         self.folderId = folderId
         self.isLocked = false
         self.imageUrls = []
+        self.kind = kind
+        self.journalDate = journalDate
+        self.journalWeekStartDate = journalWeekStartDate
         self.reminderDate = nil
         self.reminderNote = nil
     }
@@ -55,20 +102,7 @@ struct Note: Identifiable, Codable, Hashable {
     }
 
     var formattedDateModified: String {
-        let formatter = DateFormatter()
-        let calendar = Calendar.current
-        let now = Date()
-
-        if calendar.isDate(dateModified, inSameDayAs: now) {
-            formatter.timeStyle = .short
-            return "Today \(formatter.string(from: dateModified))"
-        } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
-                  calendar.isDate(dateModified, inSameDayAs: yesterday) {
-            return "Yesterday"
-        } else {
-            formatter.dateStyle = .medium
-            return formatter.string(from: dateModified)
-        }
+        FormatterCache.formattedNoteModified(dateModified)
     }
 
     var preview: String {
@@ -77,6 +111,18 @@ struct Note: Identifiable, Codable, Hashable {
             return "No additional text"
         }
         return String(trimmed.prefix(100))
+    }
+
+    var resolvedKind: NoteKind {
+        kind ?? .standard
+    }
+
+    var isJournalEntry: Bool {
+        resolvedKind == .journalEntry
+    }
+
+    var isJournalWeeklyRecap: Bool {
+        resolvedKind == .journalWeeklyRecap
     }
 }
 
@@ -372,7 +418,10 @@ class NotesManager: ObservableObject {
             "is_pinned": .bool(encryptedNote.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
             "attachment_id": note.attachmentId != nil ? .string(note.attachmentId!.uuidString) : .null,
-            "image_attachments": .array(imageUrlsArray)
+            "image_attachments": .array(imageUrlsArray),
+            "kind": .string(note.resolvedKind.rawValue),
+            "journal_date": note.journalDate != nil ? .string(formatter.string(from: note.journalDate!)) : .null,
+            "journal_week_start_date": note.journalWeekStartDate != nil ? .string(formatter.string(from: note.journalWeekStartDate!)) : .null
             // NOTE: reminder_date and reminder_note columns must be added to Supabase before enabling:
             // "reminder_date": note.reminderDate != nil ? .string(formatter.string(from: note.reminderDate!)) : .null,
             // "reminder_note": note.reminderNote != nil ? .string(note.reminderNote!) : .null
@@ -563,7 +612,10 @@ class NotesManager: ObservableObject {
             "is_pinned": .bool(encryptedNote.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
             "attachment_id": note.attachmentId != nil ? .string(note.attachmentId!.uuidString) : .null,
-            "image_attachments": .array(imageUrlsArray)
+            "image_attachments": .array(imageUrlsArray),
+            "kind": .string(note.resolvedKind.rawValue),
+            "journal_date": note.journalDate != nil ? .string(formatter.string(from: note.journalDate!)) : .null,
+            "journal_week_start_date": note.journalWeekStartDate != nil ? .string(formatter.string(from: note.journalWeekStartDate!)) : .null
             // NOTE: reminder_date and reminder_note columns must be added to Supabase before enabling:
             // "reminder_date": note.reminderDate != nil ? .string(formatter.string(from: note.reminderDate!)) : .null,
             // "reminder_note": note.reminderNote != nil ? .string(note.reminderNote!) : .null
@@ -1004,6 +1056,16 @@ class NotesManager: ObservableObject {
         return receiptsFolder.id
     }
 
+    func getOrCreateJournalFolder() -> UUID {
+        if let existingFolder = folders.first(where: { $0.name == "Journal" && $0.parentFolderId == nil }) {
+            return existingFolder.id
+        }
+
+        let journalFolder = NoteFolder(name: "Journal", color: "#F3B27A")
+        addFolder(journalFolder)
+        return journalFolder.id
+    }
+
     // MARK: - Receipt Organization by Month/Year
 
     // Extract month and year from receipt title (e.g., "Receipt - Store - December 15, 2024" -> (12, 2024))
@@ -1227,6 +1289,21 @@ class NotesManager: ObservableObject {
         return receiptsFolder.id
     }
 
+    func getOrCreateJournalFolderAsync() async -> UUID {
+        if let existingFolder = folders.first(where: { $0.name == "Journal" && $0.parentFolderId == nil }) {
+            return existingFolder.id
+        }
+
+        let journalFolder = NoteFolder(name: "Journal", color: "#F3B27A")
+        let synced = await addFolderAndSync(journalFolder)
+        if synced {
+            print("✅ Journal folder synced to Supabase")
+        } else {
+            print("⚠️ Failed to sync Journal folder, but using local ID")
+        }
+        return journalFolder.id
+    }
+
     /// Async version that ensures sync to Supabase
     private func getOrCreateYearFolderAsync(_ year: Int, parentFolderId: UUID) async -> UUID {
         let yearFolderName = String(year)
@@ -1340,6 +1417,26 @@ class NotesManager: ObservableObject {
         notes.filter { !$0.isPinned }.sorted { $0.dateModified > $1.dateModified }
     }
 
+    var journalEntries: [Note] {
+        notes
+            .filter { $0.isJournalEntry }
+            .sorted {
+                let lhs = $0.journalDate ?? $0.dateModified
+                let rhs = $1.journalDate ?? $1.dateModified
+                return lhs > rhs
+            }
+    }
+
+    var journalWeeklyRecaps: [Note] {
+        notes
+            .filter { $0.isJournalWeeklyRecap }
+            .sorted {
+                let lhs = $0.journalWeekStartDate ?? $0.dateModified
+                let rhs = $1.journalWeekStartDate ?? $1.dateModified
+                return lhs > rhs
+            }
+    }
+
     func searchNotes(query: String) -> [Note] {
         if query.isEmpty {
             return notes.sorted { $0.dateModified > $1.dateModified }
@@ -1349,6 +1446,65 @@ class NotesManager: ObservableObject {
             note.title.localizedCaseInsensitiveContains(query) ||
             note.content.localizedCaseInsensitiveContains(query)
         }.sorted { $0.dateModified > $1.dateModified }
+    }
+
+    func journalEntry(for day: Date, calendar: Calendar = .current) -> Note? {
+        journalEntries.first { entry in
+            guard let journalDate = entry.journalDate else { return false }
+            return calendar.isDate(journalDate, inSameDayAs: day)
+        }
+    }
+
+    func latestJournalRecap() -> Note? {
+        journalWeeklyRecaps.first
+    }
+
+    func journalStats(referenceDate: Date = Date(), calendar: Calendar = .current) -> JournalStats {
+        let uniqueEntryDays = Set(
+            journalEntries.compactMap { entry in
+                entry.journalDate.map { calendar.startOfDay(for: $0) }
+            }
+        )
+
+        let sortedDays = uniqueEntryDays.sorted(by: >)
+        let today = calendar.startOfDay(for: referenceDate)
+        let currentWeekInterval = calendar.dateInterval(of: .weekOfYear, for: referenceDate)
+        let completedThisWeek = uniqueEntryDays.filter { day in
+            guard let currentWeekInterval else { return false }
+            return currentWeekInterval.contains(day)
+        }.count
+
+        var currentStreak = 0
+        var cursor = today
+        while uniqueEntryDays.contains(cursor) {
+            currentStreak += 1
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = previous
+        }
+
+        var longestStreak = 0
+        var activeStreak = 0
+        var previousDay: Date?
+        for day in sortedDays.reversed() {
+            if let previousDay,
+               let expectedNext = calendar.date(byAdding: .day, value: 1, to: previousDay),
+               calendar.isDate(expectedNext, inSameDayAs: day) {
+                activeStreak += 1
+            } else {
+                activeStreak = 1
+            }
+            longestStreak = max(longestStreak, activeStreak)
+            previousDay = day
+        }
+
+        return JournalStats(
+            currentStreak: currentStreak,
+            longestStreak: longestStreak,
+            completedThisWeek: completedThisWeek,
+            totalEntries: uniqueEntryDays.count,
+            lastEntryDate: sortedDays.first,
+            todayStatus: uniqueEntryDays.contains(today) ? .complete : .missing
+        )
     }
 
     // MARK: - Clear Data on Logout
@@ -1820,6 +1976,25 @@ class NotesManager: ObservableObject {
         }
         // Store image URLs directly - no download!
         note.imageUrls = data.image_attachments ?? []
+        note.kind = data.kind.flatMap(NoteKind.init(rawValue:))
+        if let journalDateString = data.journal_date {
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let parsedDate = formatter.date(from: journalDateString) {
+                note.journalDate = parsedDate
+            } else {
+                formatter.formatOptions = [.withInternetDateTime]
+                note.journalDate = formatter.date(from: journalDateString)
+            }
+        }
+        if let journalWeekStartDateString = data.journal_week_start_date {
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let parsedDate = formatter.date(from: journalWeekStartDateString) {
+                note.journalWeekStartDate = parsedDate
+            } else {
+                formatter.formatOptions = [.withInternetDateTime]
+                note.journalWeekStartDate = formatter.date(from: journalWeekStartDateString)
+            }
+        }
         
         // Parse reminder details
         if let reminderDateString = data.reminder_date {
@@ -2425,11 +2600,14 @@ struct NoteSupabaseData: Codable {
     let folder_id: String?
     let attachment_id: String? // Single file attachment
     let image_attachments: [String]? // Array of image URLs from JSONB
+    let kind: String?
+    let journal_date: String?
+    let journal_week_start_date: String?
     let reminder_date: String?
     let reminder_note: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, attachment_id, image_attachments, reminder_date, reminder_note
+        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, attachment_id, image_attachments, kind, journal_date, journal_week_start_date, reminder_date, reminder_note
     }
 
     init(from decoder: Decoder) throws {
@@ -2455,6 +2633,10 @@ struct NoteSupabaseData: Codable {
         } else {
             image_attachments = nil
         }
+
+        kind = try container.decodeIfPresent(String.self, forKey: .kind)
+        journal_date = try container.decodeIfPresent(String.self, forKey: .journal_date)
+        journal_week_start_date = try container.decodeIfPresent(String.self, forKey: .journal_week_start_date)
         
         reminder_date = try container.decodeIfPresent(String.self, forKey: .reminder_date)
         reminder_note = try container.decodeIfPresent(String.self, forKey: .reminder_note)

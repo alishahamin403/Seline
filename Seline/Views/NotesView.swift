@@ -16,6 +16,7 @@ struct NotesView: View, Searchable {
     }
 
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var journalService = JournalService.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var searchText = ""
     @State private var isSearchActive = false
@@ -23,8 +24,6 @@ struct NotesView: View, Searchable {
     @State private var showingNewNoteSheet = false
     @State private var selectedNote: Note? = nil
     @State private var navigationPath: [Note] = []
-    @State private var isPinnedExpanded = true
-    @State private var expandedSections: Set<String> = ["RECENT"]
     @State private var showingFolderSidebar = false
     @State private var selectedFolderId: UUID? = nil
     @State private var showUnfiledNotesOnly = false
@@ -35,123 +34,40 @@ struct NotesView: View, Searchable {
     @State private var showingReceiptAddOptions = false
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
+    @State private var selectedReceiptImages: [UIImage] = []
+    @State private var processingQueue: [UIImage] = []
+    @State private var currentProcessingIndex = 0
     @StateObject private var openAIService = GeminiService.shared
     @Namespace private var tabAnimation
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var noteForReminder: Note? = nil
+    @State private var showJournalHub = false
+    @State private var showAllNotesArchive = false
+    @State private var journalOpenTodayOnHubAppear = false
+    @State private var journalScrollToHistoryOnHubAppear = false
+    @State private var journalDraftToOpen: JournalDraft? = nil
+    @State private var journalExistingNoteToOpen: Note? = nil
     @State private var recurringExpenses: [RecurringExpense] = []
     @State private var selectedMainPage: NotesMainPage = .notes
     @State private var hubPeriod: HubPeriod = .thisYear
     @State private var didLoadRecurringHubData = false
-    // Cached filtered arrays to avoid recomputing on every body evaluation
-    @State private var cachedFilteredPinned: [Note] = []
-    @State private var cachedAllUnpinned: [Note] = []
-    @State private var cachedRecentNotes: [Note] = []
-    @State private var cachedNotesByMonth: [(month: String, notes: [Note])] = []
+    @StateObject private var hubState = NotesHubState()
 
-    var filteredPinnedNotes: [Note] {
-        var notes: [Note]
-        if searchText.isEmpty {
-            notes = notesManager.pinnedNotes
-        } else {
-            notes = notesManager.searchNotes(query: searchText).filter { $0.isPinned }
-        }
-
-        // Filter by selected folder if one is selected
-        if let folderId = selectedFolderId {
-            notes = notes.filter { $0.folderId == folderId }
-        }
-
-        return notes
-    }
-
-
-    var allUnpinnedNotes: [Note] {
-        var notes: [Note]
-        if searchText.isEmpty {
-            notes = notesManager.recentNotes
-        } else {
-            notes = notesManager.searchNotes(query: searchText).filter { !$0.isPinned }
-        }
-
-        // Filter by selected folder if one is selected
-        if let folderId = selectedFolderId {
-            notes = notes.filter { $0.folderId == folderId }
-        }
-
-        return notes
-    }
-
-    // Notes updated in the last 7 days (excluding receipts)
-    var recentNotes: [Note] {
-        let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
-
-        return allUnpinnedNotes.filter { note in
-            // Include if updated in last 7 days AND not in Receipts folder
-            guard note.dateModified >= oneWeekAgo else { return false }
-
-            // Check if note is in Receipts folder (or a subfolder of Receipts)
-            if let folderId = note.folderId, let receiptsFolderId = receiptsFolder?.id {
-                var currentFolderId: UUID? = folderId
-                while let currentId = currentFolderId {
-                    if currentId == receiptsFolderId {
-                        return false // This is a receipt, exclude it
-                    }
-                    currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
-                }
-            }
-
-            return true
-        }
-    }
-
-    // Group older notes by month (excluding receipts)
-    var notesByMonth: [(month: String, notes: [Note])] {
-        let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
-
-        let olderNotes = allUnpinnedNotes.filter { note in
-            // Include if older than 7 days AND not in Receipts folder
-            guard note.dateModified < oneWeekAgo else { return false }
-
-            // Check if note is in Receipts folder (or a subfolder of Receipts)
-            if let folderId = note.folderId, let receiptsFolderId = receiptsFolder?.id {
-                var currentFolderId: UUID? = folderId
-                while let currentId = currentFolderId {
-                    if currentId == receiptsFolderId {
-                        return false // This is a receipt, exclude it
-                    }
-                    currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
-                }
-            }
-
-            return true
-        }
-
-        // Group by month and year
-        let grouped = Dictionary(grouping: olderNotes) { note -> String in
-            let formatter = DateFormatter()
-            formatter.dateFormat = "MMMM yyyy"
-            return formatter.string(from: note.dateModified)
-        }
-
-        // Sort by date (most recent first)
-        return grouped.map { (month: $0.key, notes: $0.value) }
-            .sorted { first, second in
-                guard let firstDate = first.notes.first?.dateModified,
-                      let secondDate = second.notes.first?.dateModified else {
-                    return false
-                }
-                return firstDate > secondDate
-            }
-    }
+    private var filteredPinnedNotes: [Note] { hubState.filteredPinnedNotes }
+    private var allUnpinnedNotes: [Note] { hubState.allUnpinnedNotes }
+    private var recentNotes: [Note] { hubState.recentNotes }
+    private var notesByMonth: [(month: String, notes: [Note])] { hubState.notesByMonth }
+    private var cachedFilteredPinned: [Note] { hubState.filteredPinnedNotes }
+    private var cachedAllUnpinned: [Note] { hubState.allUnpinnedNotes }
+    private var cachedRecentNotes: [Note] { hubState.recentNotes }
+    private var cachedNotesByMonth: [(month: String, notes: [Note])] { hubState.notesByMonth }
 
     private func refreshNoteCaches() {
-        cachedFilteredPinned = filteredPinnedNotes
-        cachedAllUnpinned = allUnpinnedNotes
-        cachedRecentNotes = recentNotes
-        cachedNotesByMonth = notesByMonth
+        hubState.updateInputs(
+            searchText: searchText,
+            selectedFolderId: selectedFolderId,
+            showUnfiledNotesOnly: showUnfiledNotesOnly
+        )
     }
 
     var hasReceipts: Bool {
@@ -267,20 +183,26 @@ struct NotesView: View, Searchable {
 
     private var hubPinnedNotes: [Note] {
         notesManager.pinnedNotes
-            .filter { !isReceiptNote($0) }
+            .filter(isStandardNotesListNote)
             .sorted { $0.dateModified > $1.dateModified }
     }
 
     private var hubUnfiledNotes: [Note] {
         notesManager.notes
-            .filter { !$0.isPinned && $0.folderId == nil && !isReceiptNote($0) }
+            .filter { !$0.isPinned && $0.folderId == nil && isStandardNotesListNote($0) }
+            .sorted { $0.dateModified > $1.dateModified }
+    }
+
+    private var hubLooseNotes: [Note] {
+        notesManager.notes
+            .filter { $0.folderId == nil && isStandardNotesListNote($0) }
             .sorted { $0.dateModified > $1.dateModified }
     }
 
     private var hubFolderNotes: [Note] {
         guard let selectedFolderId else { return [] }
         return notesManager.notes
-            .filter { $0.folderId == selectedFolderId && !isReceiptNote($0) }
+            .filter { $0.folderId == selectedFolderId && isStandardNotesListNote($0) }
             .sorted { $0.dateModified > $1.dateModified }
     }
 
@@ -307,6 +229,64 @@ struct NotesView: View, Searchable {
         }
 
         return "PINNED NOTES"
+    }
+
+    private var notesHeroSearchPlaceholder: String {
+        if showUnfiledNotesOnly {
+            return "Search loose notes"
+        }
+
+        if let selectedFolderId,
+           let folderName = notesManager.folders.first(where: { $0.id == selectedFolderId })?.name,
+           !folderName.isEmpty {
+            return "Search \(folderName)"
+        }
+
+        return "Search notes and journal"
+    }
+
+    private var notesHeroPinnedRailTitle: String {
+        showUnfiledNotesOnly ? "Pinned" : "Pinned notes"
+    }
+
+    private var notesHeroContextMetric: (title: String, value: String) {
+        if showUnfiledNotesOnly {
+            return ("Visible", "\(hubLooseNotes.count)")
+        }
+
+        if selectedFolderId != nil {
+            return ("In folder", "\(hubFolderNotes.count)")
+        }
+
+        return ("Unfiled", "\(hubLooseNotes.count)")
+    }
+
+    private var notesHeroPinnedNotes: [Note] {
+        Array(cachedFilteredPinned.prefix(8))
+    }
+
+    private var journalOverviewHistory: [Note] {
+        Array(notesManager.journalEntries.prefix(3))
+    }
+
+    private var latestJournalRecap: Note? {
+        notesManager.latestJournalRecap()
+    }
+
+    private var journalOverviewStats: JournalStats {
+        journalService.stats(referenceDate: Date())
+    }
+
+    private var journalOverviewWeekProgress: String {
+        "\(journalOverviewStats.completedThisWeek) / 7"
+    }
+
+    private var shouldShowJournalOverview: Bool {
+        selectedFolderId == nil && !showUnfiledNotesOnly
+    }
+
+    private func isStandardNotesListNote(_ note: Note) -> Bool {
+        !isReceiptNote(note) && !note.isJournalEntry && !note.isJournalWeeklyRecap
     }
 
     private func isReceiptNote(_ note: Note) -> Bool {
@@ -371,7 +351,7 @@ struct NotesView: View, Searchable {
                                     searchText: $searchText,
                                     isFocused: $isSearchFocused,
                                     placeholder: selectedMainPage == .notes
-                                        ? "Search notes"
+                                        ? "Search notes and journal"
                                         : (selectedMainPage == .receipts ? "Search receipts" : "Search recurring expenses"),
                                     onCancel: {
                                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -437,6 +417,24 @@ struct NotesView: View, Searchable {
                     .navigationTitle("Recurring")
                     .navigationBarTitleDisplayMode(.inline)
             }
+            .navigationDestination(isPresented: $showJournalHub) {
+                JournalHubView(
+                    openTodayOnAppear: journalOpenTodayOnHubAppear,
+                    onConsumeOpenToday: { journalOpenTodayOnHubAppear = false },
+                    scrollToHistoryOnAppear: journalScrollToHistoryOnHubAppear,
+                    onConsumeScrollToHistory: { journalScrollToHistoryOnHubAppear = false }
+                )
+            }
+            .navigationDestination(isPresented: $showAllNotesArchive) {
+                NotesArchiveView(
+                    onOpenNote: { note in
+                        navigationPath.append(note)
+                    },
+                    onSetReminder: { note in
+                        noteForReminder = note
+                    }
+                )
+            }
             .animation(nil, value: navigationPath.count)
             .overlay(alignment: .top) {
                 if receiptProcessingState != .idle {
@@ -452,11 +450,24 @@ struct NotesView: View, Searchable {
         .onAppear {
             refreshNoteCaches()
             loadRecurringHubDataIfNeeded()
+            Task {
+                await journalService.ensureWeeklyRecapIfNeeded()
+                if journalService.isPromptEnabled {
+                    await journalService.scheduleDailyPromptIfNeeded()
+                }
+            }
         }
         .onChange(of: searchText) { _ in refreshNoteCaches() }
         .onChange(of: selectedFolderId) { _ in refreshNoteCaches() }
         .onChange(of: showUnfiledNotesOnly) { _ in refreshNoteCaches() }
-        .onReceive(notesManager.objectWillChange) { _ in refreshNoteCaches() }
+        .onReceive(NotificationCenter.default.publisher(for: .openJournalFromMainApp)) { notification in
+            selectedMainPage = .notes
+            selectedFolderId = nil
+            showUnfiledNotesOnly = false
+            journalOpenTodayOnHubAppear = (notification.userInfo?["openToday"] as? Bool) ?? false
+            journalScrollToHistoryOnHubAppear = false
+            showJournalHub = true
+        }
         .swipeDownToRevealSearch(
             enabled: !isSearchActive,
             topRegion: UIScreen.main.bounds.height * 0.22,
@@ -482,6 +493,32 @@ struct NotesView: View, Searchable {
             notesManager.isViewingNoteInNavigation = false
         }) {
             NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+        }
+        .fullScreenCover(item: $journalExistingNoteToOpen, onDismiss: {
+            notesManager.isViewingNoteInNavigation = false
+        }) { note in
+            NoteEditView(
+                note: note,
+                isPresented: Binding(
+                    get: { journalExistingNoteToOpen != nil },
+                    set: { if !$0 { journalExistingNoteToOpen = nil } }
+                )
+            )
+        }
+        .fullScreenCover(item: $journalDraftToOpen, onDismiss: {
+            notesManager.isViewingNoteInNavigation = false
+        }) { draft in
+            NoteEditView(
+                note: nil,
+                isPresented: Binding(
+                    get: { journalDraftToOpen != nil },
+                    set: { if !$0 { journalDraftToOpen = nil } }
+                ),
+                initialFolderId: draft.folderId,
+                initialTitle: draft.title,
+                initialNoteKind: draft.kind,
+                initialJournalDate: draft.journalDate
+            )
         }
         .sheet(isPresented: $showingRecurringExpenseForm) {
             RecurringExpenseForm { expense in
@@ -524,14 +561,15 @@ struct NotesView: View, Searchable {
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingReceiptImagePicker) {
-            ImagePicker(selectedImage: Binding(
-                get: { nil },
-                set: { newImage in
-                    if let image = newImage {
-                        processReceiptImageDirectly(image)
-                    }
-                }
-            ))
+            ImagePicker(selectedImages: $selectedReceiptImages)
+        }
+        .onChange(of: selectedReceiptImages) { newImages in
+            if !newImages.isEmpty {
+                processingQueue = newImages
+                currentProcessingIndex = 0
+                selectedReceiptImages = []
+                processNextReceiptInQueue()
+            }
         }
         .sheet(isPresented: $showingReceiptCameraPicker) {
             CameraPicker(selectedImage: Binding(
@@ -544,11 +582,11 @@ struct NotesView: View, Searchable {
             ))
         }
         .confirmationDialog("Add Receipt", isPresented: $showingReceiptAddOptions, titleVisibility: .visible) {
-            Button("Scan Receipt (Camera)") {
+            Button("Take Picture") {
                 HapticManager.shared.buttonTap()
                 showingReceiptCameraPicker = true
             }
-            Button("Import Receipt (Gallery)") {
+            Button("Upload Images") {
                 HapticManager.shared.buttonTap()
                 showingReceiptImagePicker = true
             }
@@ -642,6 +680,101 @@ struct NotesView: View, Searchable {
                         try? await Task.sleep(nanoseconds: 3_000_000_000)
                         await MainActor.run {
                             receiptProcessingState = .idle
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func processNextReceiptInQueue() {
+        guard currentProcessingIndex < processingQueue.count else {
+            processingQueue = []
+            currentProcessingIndex = 0
+
+            Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await MainActor.run {
+                    receiptProcessingState = .idle
+                }
+            }
+            return
+        }
+
+        let image = processingQueue[currentProcessingIndex]
+        let totalCount = processingQueue.count
+        let currentNumber = currentProcessingIndex + 1
+
+        Task {
+            await MainActor.run {
+                receiptProcessingState = totalCount > 1
+                    ? .processingMultiple(current: currentNumber, total: totalCount)
+                    : .processing
+            }
+
+            do {
+                let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
+
+                let cleanedContent = receiptContent
+                    .split(separator: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+
+                var folderIdForReceipt: UUID?
+                if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
+                    folderIdForReceipt = await notesManager.getOrCreateReceiptMonthFolderAsync(month: month, year: year)
+                } else {
+                    folderIdForReceipt = notesManager.getOrCreateReceiptsFolder()
+                }
+
+                var newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
+                let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
+
+                if syncSuccess {
+                    let imageUrls = await notesManager.uploadNoteImages([image], noteId: newNote.id)
+
+                    var updatedNote = newNote
+                    updatedNote.imageUrls = imageUrls
+                    updatedNote.dateModified = Date()
+                    let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
+
+                    await MainActor.run {
+                        HapticManager.shared.success()
+                        currentProcessingIndex += 1
+                        receiptProcessingState = .success
+
+                        Task {
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            await MainActor.run {
+                                processNextReceiptInQueue()
+                            }
+                        }
+                    }
+                } else {
+                    await MainActor.run {
+                        HapticManager.shared.error()
+                        receiptProcessingState = .error("Failed to save receipt")
+
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            await MainActor.run {
+                                currentProcessingIndex += 1
+                                processNextReceiptInQueue()
+                            }
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    receiptProcessingState = .error(error.localizedDescription)
+                    HapticManager.shared.error()
+
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        await MainActor.run {
+                            currentProcessingIndex += 1
+                            processNextReceiptInQueue()
                         }
                     }
                 }
@@ -757,7 +890,12 @@ struct NotesView: View, Searchable {
                 }
             }
         }
-        .background(notesSectionCardBackground)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .bottomLeading,
+            cornerRadius: 18,
+            highlightStrength: 0.42
+        )
     }
 
     private var hubReceiptsSection: some View {
@@ -841,7 +979,12 @@ struct NotesView: View, Searchable {
             .frame(maxWidth: .infinity)
             .padding(.bottom, 14)
         }
-        .background(notesSectionCardBackground)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .bottomLeading,
+            cornerRadius: 18,
+            highlightStrength: 0.42
+        )
     }
 
     private var hubRecurringSection: some View {
@@ -908,7 +1051,12 @@ struct NotesView: View, Searchable {
             .frame(maxWidth: .infinity)
             .padding(.bottom, 14)
         }
-        .background(notesSectionCardBackground)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .bottomLeading,
+            cornerRadius: 18,
+            highlightStrength: 0.42
+        )
         .onAppear {
             loadRecurringHubDataIfNeeded()
         }
@@ -962,10 +1110,7 @@ struct NotesView: View, Searchable {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.appInnerSurface(colorScheme))
-        )
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 12)
     }
 
     private func hubCategoryRow(category: String, total: Double) -> some View {
@@ -1022,10 +1167,7 @@ struct NotesView: View, Searchable {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 11)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.appInnerSurface(colorScheme))
-            )
+            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 12)
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -1052,10 +1194,7 @@ struct NotesView: View, Searchable {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.appInnerSurface(colorScheme))
-        )
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 12)
     }
 
     private func hubEmptyState(icon: String, title: String, subtitle: String) -> some View {
@@ -1126,148 +1265,17 @@ struct NotesView: View, Searchable {
     // MARK: - Legacy Tab Content Views
 
     private var notesTabContent: some View {
-        Group {
-                        // Pinned section card
-                        VStack(spacing: 0) {
-                            ZStack(alignment: .trailing) {
-                                NoteSectionHeader(
-                                    title: "PINNED",
-                                    count: cachedFilteredPinned.count,
-                                    isExpanded: $isPinnedExpanded
-                                )
+        VStack(spacing: 14) {
+            notesOverviewCard
+            if shouldShowJournalOverview {
+                journalOverviewCard
+            }
 
-                                Button(action: {
-                                    HapticManager.shared.buttonTap()
-                                    openNewNoteEditor()
-                                }) {
-                                    Image(systemName: "plus")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                        .frame(width: 30, height: 30)
-                                        .background(
-                                            Circle()
-                                                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.06))
-                                        )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .accessibilityLabel("New note")
-                                .padding(.trailing, 14)
-                            }
-
-                            if isPinnedExpanded {
-                                ForEach(cachedFilteredPinned) { note in
-                                    NoteRow(
-                                        note: note,
-                                        onPinToggle: { note in
-                                            notesManager.togglePinStatus(note)
-                                        },
-                                        onTap: { note in
-                                            navigationPath.append(note)
-                                        },
-                                        onDelete: { note in
-                                            notesManager.deleteNote(note)
-                                        },
-                                        onSetReminder: { note in
-                                            noteForReminder = note
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                        .background(
-                            notesSectionCardBackground
-                        )
-
-                        // Recent section card (last 7 days)
-                        if !cachedRecentNotes.isEmpty {
-                            VStack(spacing: 0) {
-                                NoteSectionHeader(
-                                    title: "RECENT",
-                                    count: cachedRecentNotes.count,
-                                    isExpanded: Binding(
-                                        get: { expandedSections.contains("RECENT") },
-                                        set: { isExpanded in
-                                            if isExpanded {
-                                                expandedSections.insert("RECENT")
-                                            } else {
-                                                expandedSections.remove("RECENT")
-                                            }
-                                        }
-                                    )
-                                )
-
-                                if expandedSections.contains("RECENT") {
-                                    ForEach(cachedRecentNotes) { note in
-                                        NoteRow(
-                                            note: note,
-                                            onPinToggle: { note in
-                                                notesManager.togglePinStatus(note)
-                                            },
-                                            onTap: { note in
-                                                navigationPath.append(note)
-                                            },
-                                            onDelete: { note in
-                                                notesManager.deleteNote(note)
-                                            },
-                                            onSetReminder: { note in
-                                                noteForReminder = note
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                            .background(
-                                notesSectionCardBackground
-                            )
-                        }
-
-                        // Monthly sections for older notes
-                        ForEach(cachedNotesByMonth.indices, id: \.self) { index in
-                            let monthGroup = cachedNotesByMonth[index]
-
-                            VStack(spacing: 0) {
-                                NoteSectionHeader(
-                                    title: monthGroup.month.uppercased(),
-                                    count: monthGroup.notes.count,
-                                    isExpanded: Binding(
-                                        get: { expandedSections.contains(monthGroup.month) },
-                                        set: { isExpanded in
-                                            if isExpanded {
-                                                expandedSections.insert(monthGroup.month)
-                                            } else {
-                                                expandedSections.remove(monthGroup.month)
-                                            }
-                                        }
-                                    )
-                                )
-
-                                if expandedSections.contains(monthGroup.month) {
-                                    ForEach(monthGroup.notes) { note in
-                                        NoteRow(
-                                            note: note,
-                                            onPinToggle: { note in
-                                                notesManager.togglePinStatus(note)
-                                            },
-                                            onTap: { note in
-                                                navigationPath.append(note)
-                                            },
-                                            onDelete: { note in
-                                                notesManager.deleteNote(note)
-                                            },
-                                            onSetReminder: { note in
-                                                noteForReminder = note
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                            .background(
-                                notesSectionCardBackground
-                            )
-                        }
-
-            // Empty state for notes tab
-            if cachedFilteredPinned.isEmpty && cachedRecentNotes.isEmpty && cachedNotesByMonth.isEmpty {
+            if cachedFilteredPinned.isEmpty &&
+                cachedRecentNotes.isEmpty &&
+                cachedNotesByMonth.isEmpty &&
+                (!shouldShowJournalOverview ||
+                    (notesManager.journalEntries.isEmpty && notesManager.journalWeeklyRecaps.isEmpty)) {
                 VStack(spacing: 16) {
                     Image(systemName: "note.text")
                         .font(FontManager.geist(size: 48, weight: .light))
@@ -1286,6 +1294,348 @@ struct NotesView: View, Searchable {
                 }
                 .padding(.top, 60)
             }
+        }
+    }
+
+    private var notesOverviewCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Text("Notes")
+                    .font(FontManager.geist(size: 28, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 8) {
+                    Button(action: {
+                        HapticManager.shared.buttonTap()
+                        openNewNoteEditor()
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                            .foregroundColor(.black)
+                            .background(
+                                Circle()
+                                    .fill(Color(red: 0.98, green: 0.64, blue: 0.41))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .accessibilityLabel("New note")
+
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        showAllNotesArchive = true
+                    }) {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                            .background(
+                                Circle()
+                                    .fill(Color.appChip(colorScheme).opacity(colorScheme == .dark ? 0.72 : 0.88))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .accessibilityLabel("Open all notes")
+                }
+            }
+
+            Button(action: activateNotesSearch) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+
+                    Text(notesHeroSearchPlaceholder)
+                        .font(FontManager.geist(size: 14, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.appInnerSurface(colorScheme))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 1 : 0.8), lineWidth: 1)
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            HStack(spacing: 10) {
+                notesHeroMetricTile(title: "Pinned", value: "\(cachedFilteredPinned.count)")
+                notesHeroMetricTile(title: "Recent 7d", value: "\(cachedRecentNotes.count)")
+                notesHeroMetricTile(title: notesHeroContextMetric.title, value: notesHeroContextMetric.value)
+            }
+
+            if notesHeroPinnedNotes.isEmpty {
+                notesOverviewEmptyPinnedState
+            } else {
+                embeddedPinnedNotesOverview
+            }
+        }
+        .padding(16)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topTrailing,
+            cornerRadius: 24,
+            highlightStrength: 0.76
+        )
+    }
+
+    private var journalOverviewCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Journal")
+                        .font(FontManager.geist(size: 24, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                    Text(journalOverviewStats.todayStatus == .complete ? "Today's entry is saved." : "A quick daily reflection that stays inside Notes.")
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                }
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 8) {
+                    Button(action: {
+                        HapticManager.shared.buttonTap()
+                        openTodayJournalEntry()
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                            .foregroundColor(.black)
+                            .background(
+                                Circle()
+                                    .fill(Color(red: 0.98, green: 0.64, blue: 0.41))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .accessibilityLabel("Open today journal")
+
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        openJournalHub(openToday: false)
+                    }) {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                            .background(
+                                Circle()
+                                    .fill(Color.appChip(colorScheme).opacity(colorScheme == .dark ? 0.72 : 0.88))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .accessibilityLabel("Open journal details")
+                }
+            }
+
+            HStack(spacing: 10) {
+                notesHeroMetricTile(title: "Streak", value: "\(journalOverviewStats.currentStreak)d")
+                notesHeroMetricTile(title: "This week", value: journalOverviewWeekProgress)
+                notesHeroMetricTile(title: "Entries", value: "\(journalOverviewStats.totalEntries)")
+            }
+
+            HStack(alignment: .top, spacing: 10) {
+                journalOverviewMiniCard(
+                    title: "Latest recap",
+                    badge: latestJournalRecap == nil ? nil : "Saved recap",
+                    body: latestJournalRecap?.preview ?? "Weekly recaps appear here after you complete enough entries in a finished week.",
+                    actionTitle: latestJournalRecap == nil ? nil : "Open",
+                    action: {
+                        guard let latestJournalRecap else { return }
+                        journalExistingNoteToOpen = latestJournalRecap
+                    }
+                )
+
+                journalOverviewMiniCard(
+                    title: "History",
+                    badge: nil,
+                    body: journalOverviewHistory.isEmpty
+                        ? "No journal entries yet. Start with today."
+                        : journalOverviewHistory
+                            .map { note in
+                                let formatter = DateFormatter()
+                                formatter.dateFormat = "EEE"
+                                let dayLabel = formatter.string(from: note.journalDate ?? note.dateModified)
+                                return "\(dayLabel) • \(note.preview)"
+                            }
+                            .joined(separator: "\n"),
+                    actionTitle: nil,
+                    makesWholeCardTappable: true,
+                    action: {
+                        openJournalHub(openToday: false, scrollToHistory: true)
+                    }
+                )
+            }
+        }
+        .padding(16)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .bottomLeading,
+            cornerRadius: 18,
+            highlightStrength: 0.42
+        )
+    }
+
+    private var embeddedPinnedNotesOverview: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(notesHeroPinnedRailTitle)
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(notesHeroPinnedNotes) { note in
+                        Button(action: {
+                            HapticManager.shared.selection()
+                            navigationPath.append(note)
+                        }) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text(note.title.isEmpty ? "Untitled" : note.title)
+                                        .font(FontManager.geist(size: 14, weight: .semibold))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .lineLimit(2)
+
+                                    Spacer(minLength: 0)
+
+                                    Image(systemName: "pin.fill")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                                }
+
+                                Text(notesHeroPreview(for: note))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
+                                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                                    .lineLimit(3)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                HStack(spacing: 6) {
+                                    Text(notesHeroRelativeDate(for: note.dateModified))
+                                        .font(FontManager.geist(size: 11, weight: .medium))
+                                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                                        .lineLimit(1)
+
+                                    if let reminderDate = note.reminderDate {
+                                        Circle()
+                                            .fill(Color.appBorder(colorScheme))
+                                            .frame(width: 3, height: 3)
+
+                                        Text(notesHeroReminderText(for: reminderDate))
+                                            .font(FontManager.geist(size: 11, weight: .medium))
+                                            .foregroundColor(note.isReminderDue ? hubAccentColor : Color.appTextSecondary(colorScheme))
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                            .frame(width: 190, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 14)
+                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(.horizontal, -16)
+        }
+    }
+
+    private var notesOverviewEmptyPinnedState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "pin.slash")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+
+            Text(showUnfiledNotesOnly ? "No pinned loose notes" : "No pinned notes yet")
+                .font(FontManager.geist(size: 14, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            Text("Pin the notes you reach for most and they will stay anchored here.")
+                .font(FontManager.geist(size: 12, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
+        .padding(.horizontal, 14)
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+    }
+
+    @ViewBuilder
+    private func journalOverviewMiniCard(
+        title: String,
+        badge: String?,
+        body: String,
+        actionTitle: String?,
+        makesWholeCardTappable: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        let cardContent = VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(FontManager.geist(size: 14, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                    if let badge {
+                        Text(badge)
+                            .font(FontManager.geist(size: 11, weight: .semibold))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(Color.appBackground(colorScheme))
+                            )
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                if let actionTitle {
+                    Button(action: action) {
+                        Text(actionTitle)
+                            .font(FontManager.geist(size: 11, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .fill(Color.appBackground(colorScheme))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+
+            Text(body)
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineLimit(5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+
+        if makesWholeCardTappable {
+            Button(action: action) {
+                cardContent
+            }
+            .buttonStyle(PlainButtonStyle())
+        } else {
+            cardContent
         }
     }
     
@@ -1343,7 +1693,7 @@ struct NotesView: View, Searchable {
                     }) {
                         HStack(spacing: 12) {
                             // Icon
-                            Image(systemName: note.isPinned ? "pin.fill" : "doc.text")
+                            Image(systemName: note.isJournalWeeklyRecap ? "book.closed.fill" : (note.isJournalEntry ? "square.and.pencil" : (note.isPinned ? "pin.fill" : "doc.text")))
                                 .font(FontManager.geist(size: 14, weight: .regular))
                                 .foregroundColor(note.isPinned ? .primary : .secondary)
                                 .frame(width: 24)
@@ -1608,6 +1958,12 @@ struct NotesView: View, Searchable {
             onAddReceipt: {
                 HapticManager.shared.buttonTap()
                 showingReceiptAddOptions = true
+            },
+            onActivateSearch: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSearchActive = true
+                    isSearchFocused = true
+                }
             }
         )
             .padding(.horizontal, -8) // Remove padding since content has its own
@@ -1619,6 +1975,12 @@ struct NotesView: View, Searchable {
             onAddRecurring: {
                 HapticManager.shared.buttonTap()
                 showingRecurringExpenseForm = true
+            },
+            onActivateSearch: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSearchActive = true
+                    isSearchFocused = true
+                }
             }
         )
             .padding(.horizontal, -8) // Remove padding since content has its own
@@ -1626,25 +1988,87 @@ struct NotesView: View, Searchable {
 
     // MARK: - Helper Views
 
-    private var notesSectionCardBackground: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .fill(Color.appSectionCard(colorScheme))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
-            )
-            .shadow(
-                color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
-                radius: 8,
-                x: 0,
-                y: 2
-            )
+    private func notesHeroMetricTile(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineLimit(1)
+
+            Text(value)
+                .font(FontManager.geist(size: 23, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+    }
+
+    private func openJournalHub(openToday: Bool, scrollToHistory: Bool = false) {
+        selectedMainPage = .notes
+        selectedFolderId = nil
+        showUnfiledNotesOnly = false
+        journalOpenTodayOnHubAppear = openToday
+        journalScrollToHistoryOnHubAppear = scrollToHistory
+        showJournalHub = true
+    }
+
+    private func openTodayJournalEntry() {
+        if let existingEntry = notesManager.journalEntry(for: Date()) {
+            journalExistingNoteToOpen = existingEntry
+        } else {
+            Task {
+                journalDraftToOpen = await journalService.prepareTodayDraftEnsuringFolder()
+            }
+        }
     }
 
     private func openNewNoteEditor() {
         // Set this before presentation to prevent bottom-tab overlap during the transition.
         notesManager.isViewingNoteInNavigation = true
         showingNewNoteSheet = true
+    }
+
+    private func activateNotesSearch() {
+        HapticManager.shared.selection()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isSearchActive = true
+            isSearchFocused = true
+        }
+    }
+
+    private func notesHeroPreview(for note: Note) -> String {
+        let trimmed = note.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        let singleLine = trimmed.replacingOccurrences(of: "\n", with: " ")
+        if singleLine.count <= 86 {
+            return singleLine
+        }
+
+        let endIndex = singleLine.index(singleLine.startIndex, offsetBy: 86)
+        return String(singleLine[..<endIndex]) + "..."
+    }
+
+    private func notesHeroRelativeDate(for date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func notesHeroReminderText(for date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Today"
+        }
+        if calendar.isDateInTomorrow(date) {
+            return "Tomorrow"
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: date)
     }
 
     private func performMainPageAddAction() {
@@ -1718,7 +2142,10 @@ struct NotesView: View, Searchable {
             FolderSidebarView(
                 isPresented: $showingFolderSidebar,
                 selectedFolderId: $selectedFolderId,
-                showUnfiledNotesOnly: $showUnfiledNotesOnly
+                showUnfiledNotesOnly: $showUnfiledNotesOnly,
+                onOpenJournal: {
+                    openJournalHub(openToday: false)
+                }
             )
         }
     }
@@ -1855,9 +2282,19 @@ struct NotesView: View, Searchable {
 // MARK: - Note Edit View
 
 struct NoteEditView: View {
+    private struct FilePreviewItem: Identifiable {
+        let url: URL
+        var id: String { url.absoluteString }
+    }
+
     let note: Note?
     @Binding var isPresented: Bool
     let initialFolderId: UUID?
+    let initialTitle: String?
+    let initialContent: String
+    let initialNoteKind: NoteKind?
+    let initialJournalDate: Date?
+    let initialJournalWeekStartDate: Date?
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var attachmentService = AttachmentService.shared
     @Environment(\.colorScheme) var colorScheme
@@ -1876,6 +2313,11 @@ struct NoteEditView: View {
     @FocusState private var isTitleFocused: Bool
     @FocusState private var isContentFocused: Bool
     @State private var selectedFolderId: UUID? = nil
+    @State private var noteKind: NoteKind? = nil
+    @State private var journalDate: Date? = nil
+    @State private var journalWeekStartDate: Date? = nil
+    @State private var journalHeaderAISummary: String? = nil
+    @State private var journalHeaderSummaryTask: Task<Void, Never>? = nil
     @State private var showingFolderPicker = false
     @State private var showingNewFolderAlert = false
     @State private var newFolderName = ""
@@ -1902,13 +2344,13 @@ struct NoteEditView: View {
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var isGeneratingTitle = false
     @State private var reminderNoteTarget: Note? = nil
+    @State private var pendingTitleFocusWorkItems: [DispatchWorkItem] = []
 
     // File attachment states
     @State private var attachment: NoteAttachment?
     @State private var extractedData: ExtractedData?
-    @State private var showingExtractionSheet = false
-    @State private var showingFilePreview = false
-    @State private var filePreviewURL: URL?
+    @State private var extractedDataSheet: ExtractedData?
+    @State private var filePreviewItem: FilePreviewItem?
     @State private var isProcessingFile = false
 
     // Recurring expense states
@@ -1949,50 +2391,6 @@ struct NoteEditView: View {
         isProcessingCleanup || isProcessingSummarize || isProcessingAddMore || isProcessingReceipt || isGeneratingTitle || isProcessingFile
     }
 
-    private var backlinkNotes: [Note] {
-        let currentId = editingNote?.id ?? note?.id ?? currentNoteId
-        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard normalizedTitle.count >= 3 else { return [] }
-
-        return notesManager.notes
-            .filter { other in
-                guard other.id != currentId else { return false }
-                return other.content.lowercased().contains(normalizedTitle)
-            }
-            .sorted { $0.dateModified > $1.dateModified }
-            .prefix(4)
-            .map { $0 }
-    }
-
-    private var outboundLinkedNotes: [Note] {
-        let currentId = editingNote?.id ?? note?.id ?? currentNoteId
-        let lowerContent = content.lowercased()
-        guard !lowerContent.isEmpty else { return [] }
-
-        return notesManager.notes
-            .filter { other in
-                guard other.id != currentId else { return false }
-                let candidate = other.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                guard candidate.count >= 3 else { return false }
-                return lowerContent.contains(candidate)
-            }
-            .sorted { $0.dateModified > $1.dateModified }
-            .prefix(4)
-            .map { $0 }
-    }
-
-    private var combinedLinkedNotes: [Note] {
-        var seen = Set<UUID>()
-        var merged: [Note] = []
-        for note in backlinkNotes + outboundLinkedNotes {
-            if !seen.contains(note.id) {
-                seen.insert(note.id)
-                merged.append(note)
-            }
-        }
-        return merged
-    }
-    
     var eventCreationMessage: String {
         var message = "\"\(detectedEventTitle)\""
         if let date = detectedEventDate {
@@ -2004,10 +2402,24 @@ struct NoteEditView: View {
         return message
     }
 
-    init(note: Note?, isPresented: Binding<Bool>, initialFolderId: UUID? = nil) {
+    init(
+        note: Note?,
+        isPresented: Binding<Bool>,
+        initialFolderId: UUID? = nil,
+        initialTitle: String? = nil,
+        initialContent: String = "",
+        initialNoteKind: NoteKind? = nil,
+        initialJournalDate: Date? = nil,
+        initialJournalWeekStartDate: Date? = nil
+    ) {
         self.note = note
         self._isPresented = isPresented
         self.initialFolderId = initialFolderId
+        self.initialTitle = initialTitle
+        self.initialContent = initialContent
+        self.initialNoteKind = initialNoteKind
+        self.initialJournalDate = initialJournalDate
+        self.initialJournalWeekStartDate = initialJournalWeekStartDate
     }
 
     var body: some View {
@@ -2046,8 +2458,6 @@ struct NoteEditView: View {
                 }
         )
         .navigationBarHidden(true)
-        .toolbarBackground(.hidden, for: .tabBar)
-        .toolbar(.hidden, for: .tabBar)
         .interactiveDismissDisabled()
         .onAppear(perform: onAppearAction)
         .onDisappear(perform: onDisappearAction)
@@ -2146,24 +2556,20 @@ struct NoteEditView: View {
                 }
             }
         )
-        .sheet(isPresented: $showingExtractionSheet) {
-            if let extractedData = extractedData {
-                ExtractionDetailSheet(
-                    extractedData: extractedData,
-                    onSave: { updatedData in
-                        Task {
-                            await saveExtractedData(updatedData)
-                        }
+        .sheet(item: $extractedDataSheet) { extractedData in
+            ExtractionDetailSheet(
+                extractedData: extractedData,
+                onSave: { updatedData in
+                    Task {
+                        await saveExtractedData(updatedData)
                     }
-                )
-                .presentationBg()
-            }
+                }
+            )
+            .presentationBg()
         }
-        .sheet(isPresented: $showingFilePreview) {
-            if let fileURL = filePreviewURL {
-                FilePreviewSheet(fileURL: fileURL)
-                    .presentationBg()
-            }
+        .sheet(item: $filePreviewItem) { item in
+            FilePreviewSheet(fileURL: item.url)
+                .presentationBg()
         }
         .sheet(isPresented: $showingRecurringExpenseForm) {
             RecurringExpenseForm { expense in
@@ -2267,7 +2673,11 @@ struct NoteEditView: View {
                 // Custom toolbar - fixed at top
                 customToolbar
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background((colorScheme == .dark ? Color.black : Color.white))
+                    .background(
+                        isJournalStyledNote
+                            ? Color.clear
+                            : (colorScheme == .dark ? Color.black : Color.white)
+                    )
                     .padding(.horizontal, 12)
                     .padding(.top, 4)
                     .padding(.bottom, 4)
@@ -2329,8 +2739,130 @@ struct NoteEditView: View {
 
     // MARK: - View Components
 
+    private var activeEditorKind: NoteKind {
+        if let noteKind {
+            return noteKind
+        }
+        if let editingNote {
+            return editingNote.resolvedKind
+        }
+        if let note {
+            return note.resolvedKind
+        }
+        return initialNoteKind ?? .standard
+    }
+
+    private var isJournalStyledNote: Bool {
+        activeEditorKind == .journalEntry || activeEditorKind == .journalWeeklyRecap
+    }
+
+    private var isJournalEntryEditor: Bool {
+        activeEditorKind == .journalEntry
+    }
+
+    private var journalAccentColor: Color {
+        Color(red: 0.98, green: 0.64, blue: 0.41)
+    }
+
+    private var journalCanvasMinHeight: CGFloat {
+        max(UIScreen.main.bounds.height * 0.62, 420)
+    }
+
+    private var secondaryToolbarIconColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var secondaryToolbarCircleFill: Color {
+        if isJournalStyledNote {
+            return colorScheme == .dark
+                ? journalAccentColor.opacity(0.18)
+                : Color.white.opacity(0.8)
+        }
+
+        return colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)
+    }
+
+    private var primarySaveCircleFill: Color {
+        isJournalStyledNote ? journalAccentColor : (colorScheme == .dark ? Color.white : Color.black)
+    }
+
+    private var primarySaveIconColor: Color {
+        if isJournalStyledNote {
+            return .black
+        }
+        return colorScheme == .dark ? .black : .white
+    }
+
+    private var journalHeaderBadgeTitle: String {
+        isJournalEntryEditor ? "Journal" : "Weekly recap"
+    }
+
+    private var journalHeaderSubtitle: String {
+        if isJournalEntryEditor {
+            return journalHeaderAISummary ?? journalHeaderFallbackSummary
+        }
+        return "A saved summary of the finished week, kept separate from regular notes."
+    }
+
+    private var journalHeaderFallbackSummary: String {
+        let normalized = content
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalized.isEmpty else {
+            return "No summary yet for this journal entry."
+        }
+
+        let preview = normalized.count > 130 ? String(normalized.prefix(130)).trimmingCharacters(in: .whitespacesAndNewlines) + "..." : normalized
+        return preview
+    }
+
+    private var journalHeaderDateLabel: String {
+        let formatter = DateFormatter()
+        if isJournalEntryEditor {
+            formatter.dateFormat = "EEEE, MMM d"
+            return formatter.string(from: journalDate ?? Date())
+        }
+
+        formatter.dateFormat = "MMM d"
+        let weekStart = journalWeekStartDate ?? Date()
+        let weekEnd = Calendar.current.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+        return "\(formatter.string(from: weekStart)) - \(formatter.string(from: weekEnd))"
+    }
+
     private var backgroundColor: some View {
-        (colorScheme == .dark ? Color.black : Color.white)
+        ZStack {
+            colorScheme == .dark ? Color.black : Color.white
+
+            if isJournalStyledNote {
+                LinearGradient(
+                    colors: colorScheme == .dark
+                        ? [
+                            journalAccentColor.opacity(0.18),
+                            Color.clear
+                        ]
+                        : [
+                            journalAccentColor.opacity(0.16),
+                            Color(red: 0.996, green: 0.977, blue: 0.94),
+                            Color.white
+                        ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                RadialGradient(
+                    colors: [
+                        Color.white.opacity(colorScheme == .dark ? 0.04 : 0.72),
+                        Color.clear
+                    ],
+                    center: .topLeading,
+                    startRadius: 20,
+                    endRadius: 420
+                )
+                .blendMode(.screen)
+            }
+        }
     }
 
     private var customToolbar: some View {
@@ -2341,9 +2873,9 @@ struct NoteEditView: View {
             }) {
                 Image(systemName: "chevron.left")
                     .font(FontManager.geist(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(secondaryToolbarIconColor)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
+                    .background(Circle().fill(secondaryToolbarCircleFill))
             }
 
             // Undo button - no haptic for common action
@@ -2352,9 +2884,9 @@ struct NoteEditView: View {
             }) {
                 Image(systemName: "arrow.uturn.backward")
                     .font(FontManager.geist(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(secondaryToolbarIconColor)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
+                    .background(Circle().fill(secondaryToolbarCircleFill))
             }
             .disabled(undoHistory.isEmpty)
             .opacity(undoHistory.isEmpty ? 0.5 : 1.0)
@@ -2367,9 +2899,9 @@ struct NoteEditView: View {
             }) {
                 Image(systemName: "square.and.arrow.up")
                     .font(FontManager.geist(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(secondaryToolbarIconColor)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
+                    .background(Circle().fill(secondaryToolbarCircleFill))
             }
 
             // Folder button - no haptic for common action
@@ -2378,9 +2910,9 @@ struct NoteEditView: View {
             }) {
                 Image(systemName: "folder")
                     .font(FontManager.geist(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(secondaryToolbarIconColor)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
+                    .background(Circle().fill(secondaryToolbarCircleFill))
             }
 
             // Delete button - keep haptic for destructive action
@@ -2403,9 +2935,9 @@ struct NoteEditView: View {
             }) {
                 Image(systemName: noteIsLocked ? "lock.fill" : "lock.open")
                     .font(FontManager.geist(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(secondaryToolbarIconColor)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
+                    .background(Circle().fill(secondaryToolbarCircleFill))
             }
 
             // Save button - keep haptic for important action
@@ -2415,19 +2947,13 @@ struct NoteEditView: View {
             }) {
                 Image(systemName: "checkmark")
                     .font(FontManager.geist(size: 16, weight: .bold))
-                    .foregroundColor(colorScheme == .dark ? .black : .white)
+                    .foregroundColor(primarySaveIconColor)
                     .frame(width: 36, height: 36)
-                    .background(
-                        Circle().fill(
-                            colorScheme == .dark ?
-                                Color.white :
-                                Color.black
-                        )
-                    )
+                    .background(Circle().fill(primarySaveCircleFill))
             }
         }
         .padding(.horizontal, 20)
-        .padding(.top, 2)
+        .padding(.top, isJournalStyledNote ? 8 : 2)
         .padding(.bottom, 20)
     }
     
@@ -2517,7 +3043,13 @@ struct NoteEditView: View {
             return false
         }()
         
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: isJournalStyledNote ? 16 : 12) {
+            if isJournalStyledNote {
+                journalEditorIdentityCard
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+            }
+
             // Title - NO multiline axis so Enter triggers submit properly
             // Auto-focus title when creating new note (like Apple Notes)
             NoteTitleField(
@@ -2525,19 +3057,11 @@ struct NoteEditView: View {
                 isFocused: $isTitleFocused,
                 onEnterPressed: {
                     // Explicitly transfer focus from title -> body for reliable "Next" behavior.
-                    isTitleFocused = false
-                    DispatchQueue.main.async {
-                        isContentFocused = true
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        if !isContentFocused {
-                            isContentFocused = true
-                        }
-                    }
+                    moveFocusFromTitleToBody()
                 }
             )
             .padding(.horizontal, 12)
-            .padding(.top, 4)
+            .padding(.top, isJournalStyledNote ? 2 : 4)
             .onChange(of: title) { _ in
                 // Save to undo history on title change
                 saveToUndoHistory()
@@ -2571,71 +3095,79 @@ struct NoteEditView: View {
                 isReceiptNote: isReceiptNote
             )
             .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: isJournalStyledNote ? journalCanvasMinHeight : 100,
+                alignment: .topLeading
+            )
 
-            if !combinedLinkedNotes.isEmpty {
-                backlinksSection
-                    .padding(.horizontal, 12)
-                    .padding(.top, 2)
+            if !isJournalStyledNote {
+                Spacer()
             }
-            
-            Spacer()
         }
     }
 
-    private var backlinksSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Backlinks")
-                .font(FontManager.geist(size: 11, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.58) : Color.black.opacity(0.58))
-                .textCase(.uppercase)
-                .tracking(0.5)
-
-            VStack(spacing: 6) {
-                ForEach(combinedLinkedNotes, id: \.id) { linked in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "link")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.5))
-                            .padding(.top, 2)
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(linked.title.isEmpty ? "Untitled Note" : linked.title)
-                                .font(FontManager.geist(size: 12, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .lineLimit(1)
-
-                            Text(referencePreview(for: linked))
-                                .font(FontManager.geist(size: 11, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.58) : Color.black.opacity(0.55))
-                                .lineLimit(2)
-                        }
-                        Spacer()
-                    }
+    private var journalEditorIdentityCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(journalHeaderBadgeTitle)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 9)
+                    .padding(.vertical, 6)
                     .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                        Capsule()
+                            .fill(journalAccentColor.opacity(colorScheme == .dark ? 0.22 : 0.18))
                     )
-                }
-            }
-        }
-    }
 
-    private func referencePreview(for note: Note) -> String {
-        let cleaned = note.content
-            .replacingOccurrences(of: "\n", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if cleaned.isEmpty {
-            return note.formattedDateModified
+                Text(journalHeaderDateLabel)
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.64) : Color.black.opacity(0.56))
+            }
+
+            Text(journalHeaderSubtitle)
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.78) : Color.black.opacity(0.72))
+                .fixedSize(horizontal: false, vertical: true)
         }
-        return cleaned.count > 90 ? String(cleaned.prefix(90)) + "..." : cleaned
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 26)
+                .fill(
+                    LinearGradient(
+                        colors: colorScheme == .dark
+                            ? [
+                                journalAccentColor.opacity(0.2),
+                                Color.white.opacity(0.05)
+                            ]
+                            : [
+                                Color.white.opacity(0.82),
+                                journalAccentColor.opacity(0.12)
+                            ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 26)
+                .stroke(
+                    journalAccentColor.opacity(colorScheme == .dark ? 0.3 : 0.2),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: journalAccentColor.opacity(colorScheme == .dark ? 0.12 : 0.08), radius: 18, x: 0, y: 10)
     }
     
     // Insert a todo checkbox at the cursor position
     private func insertTodoAtCursor() {
-        // Add todo at end of content or on new line
+        if isContentFocused {
+            applyFormattingAction(.checklist)
+            return
+        }
+
+        // Fallback when editor is not focused yet.
         if content.isEmpty {
             content = "- [ ] "
         } else if content.hasSuffix("\n") {
@@ -2643,6 +3175,7 @@ struct NoteEditView: View {
         } else {
             content += "\n- [ ] "
         }
+        isContentFocused = true
     }
 
     // Insert a table from template
@@ -2725,7 +3258,7 @@ struct NoteEditView: View {
                                     if let extracted = try await AttachmentService.shared.loadExtractedData(for: attachment.id) {
                                         await MainActor.run {
                                             self.extractedData = extracted
-                                            self.showingExtractionSheet = true
+                                            self.extractedDataSheet = extracted
                                         }
                                     }
                                 }
@@ -2736,6 +3269,7 @@ struct NoteEditView: View {
                                     await MainActor.run {
                                         self.attachment = nil
                                         self.extractedData = nil
+                                        self.extractedDataSheet = nil
                                         if imageAttachments.isEmpty {
                                             showingAttachmentsSheet = false
                                         }
@@ -2780,6 +3314,7 @@ struct NoteEditView: View {
                     }
 
                     Button(action: {
+                        notesManager.isViewingNoteInNavigation = false
                         dismiss()
                     }) {
                         Text("Cancel")
@@ -2889,16 +3424,16 @@ struct NoteEditView: View {
                 }
                 .opacity(isAnyProcessing ? 0.6 : 1)
 
-                Menu {
-                    Button {
-                        HapticManager.shared.selection()
-                        withAnimation {
-                            showingFormattingBar.toggle()
-                        }
-                    } label: {
-                        Label(showingFormattingBar ? "Hide Formatting" : "Show Formatting", systemImage: "textformat.size")
+                Button {
+                    HapticManager.shared.selection()
+                    withAnimation {
+                        showingFormattingBar.toggle()
                     }
+                } label: {
+                    sleekPrimaryActionIcon(systemName: "textformat.size", isActive: showingFormattingBar)
+                }
 
+                Menu {
                     Button {
                         HapticManager.shared.buttonTap()
                         insertTodoAtCursor()
@@ -2967,8 +3502,12 @@ struct NoteEditView: View {
                 .fill(
                     LinearGradient(
                         gradient: Gradient(colors: [
-                            colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.62),
-                            colorScheme == .dark ? Color.white.opacity(0.02) : Color.white.opacity(0.34)
+                            isJournalStyledNote
+                                ? (colorScheme == .dark ? journalAccentColor.opacity(0.18) : Color.white.opacity(0.72))
+                                : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.62)),
+                            isJournalStyledNote
+                                ? (colorScheme == .dark ? Color.white.opacity(0.04) : journalAccentColor.opacity(0.12))
+                                : (colorScheme == .dark ? Color.white.opacity(0.02) : Color.white.opacity(0.34))
                         ]),
                         startPoint: .top,
                         endPoint: .bottom
@@ -2977,10 +3516,33 @@ struct NoteEditView: View {
 
             RoundedRectangle(cornerRadius: 26)
                 .stroke(
-                    colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08),
+                    isJournalStyledNote
+                        ? journalAccentColor.opacity(colorScheme == .dark ? 0.26 : 0.16)
+                        : (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)),
                     lineWidth: 1
                 )
         }
+    }
+
+    private func sleekPrimaryActionFillColor(isActive: Bool) -> Color {
+        if isActive {
+            if isJournalStyledNote {
+                return journalAccentColor.opacity(colorScheme == .dark ? 0.26 : 0.18)
+            }
+            return colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.13)
+        }
+
+        if isJournalStyledNote {
+            return colorScheme == .dark ? Color.white.opacity(0.08) : journalAccentColor.opacity(0.1)
+        }
+        return colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)
+    }
+
+    private var sleekPrimaryActionStrokeColor: Color {
+        if isJournalStyledNote {
+            return journalAccentColor.opacity(colorScheme == .dark ? 0.2 : 0.12)
+        }
+        return colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04)
     }
 
     private func sleekPrimaryActionIcon(systemName: String, isActive: Bool = false) -> some View {
@@ -2990,15 +3552,11 @@ struct NoteEditView: View {
             .frame(width: 40, height: 36)
             .background(
                 Capsule()
-                    .fill(
-                        isActive
-                            ? (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.13))
-                            : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-                    )
+                    .fill(sleekPrimaryActionFillColor(isActive: isActive))
             )
             .overlay(
                 Capsule()
-                    .stroke(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04), lineWidth: 0.5)
+                    .stroke(sleekPrimaryActionStrokeColor, lineWidth: 0.5)
             )
     }
 
@@ -3081,8 +3639,7 @@ struct NoteEditView: View {
                 let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(att.fileName)
                 try? data.write(to: tmp)
                 await MainActor.run {
-                    filePreviewURL = tmp
-                    showingFilePreview = true
+                    filePreviewItem = FilePreviewItem(url: tmp)
                 }
             }
         }
@@ -3290,7 +3847,7 @@ struct NoteEditView: View {
                                 if let data = try? await AttachmentService.shared.downloadFile(from: att.storagePath) {
                                     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(att.fileName)
                                     try? data.write(to: tmp)
-                                    await MainActor.run { filePreviewURL = tmp; showingFilePreview = true }
+                                    await MainActor.run { filePreviewItem = FilePreviewItem(url: tmp) }
                                 }
                             }
                         }
@@ -3410,6 +3967,9 @@ struct NoteEditView: View {
             currentNoteId = note.id  // Track note ID for attachment uploads
             title = note.title
             content = note.content
+            noteKind = note.kind
+            journalDate = note.journalDate
+            journalWeekStartDate = note.journalWeekStartDate
 
             // Parse content and load images - defer to avoid layout glitches
             DispatchQueue.main.async {
@@ -3457,32 +4017,142 @@ struct NoteEditView: View {
             // Set initial folder for new note
             selectedFolderId = folderId
         }
+
+        if note == nil {
+            title = initialTitle ?? title
+            content = initialContent
+            noteKind = initialNoteKind
+            journalDate = initialJournalDate
+            journalWeekStartDate = initialJournalWeekStartDate
+            attributedContent = parseContentWithImages(initialContent)
+        }
         
         // Auto-focus title when creating new note (like Apple Notes)
         // Use multiple attempts to ensure keyboard appears reliably
         if note == nil {
-            // First attempt after short delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                isTitleFocused = true
-            }
-            // Second attempt to ensure keyboard appears
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                if !isTitleFocused {
-                    isTitleFocused = true
-                }
-            }
+            scheduleInitialTitleFocus()
         }
 
         // Initialize undo history
         saveToUndoHistory()
+
+        refreshJournalHeaderSummary()
     }
 
     private func onDisappearAction() {
+        journalHeaderSummaryTask?.cancel()
+        journalHeaderSummaryTask = nil
         // Clear the flag when note view disappears
         notesManager.isViewingNoteInNavigation = false
+        cancelPendingTitleFocusRequests()
 
         // Notes are only saved explicitly via save button or swipe down
         // No auto-save on disappear
+    }
+
+    private func refreshJournalHeaderSummary() {
+        journalHeaderSummaryTask?.cancel()
+        journalHeaderSummaryTask = nil
+
+        guard isJournalEntryEditor else {
+            journalHeaderAISummary = nil
+            return
+        }
+
+        let sourceText = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard sourceText.count >= 80 else {
+            journalHeaderAISummary = nil
+            return
+        }
+
+        let noteId = currentNoteId ?? editingNote?.id ?? note?.id
+        if let noteId,
+           let cachedSummary = JournalHeaderSummaryCache.summary(for: noteId, text: sourceText) {
+            journalHeaderAISummary = cachedSummary
+            return
+        }
+
+        journalHeaderSummaryTask = Task {
+            do {
+                let summary = try await openAIService.summarizeJournalHeaderText(sourceText)
+                guard !Task.isCancelled else { return }
+                let cleanedSummary = sanitizeJournalHeaderSummary(summary)
+
+                if let noteId, !cleanedSummary.isEmpty {
+                    JournalHeaderSummaryCache.store(cleanedSummary, for: noteId, text: sourceText)
+                }
+
+                await MainActor.run {
+                    if !cleanedSummary.isEmpty {
+                        journalHeaderAISummary = cleanedSummary
+                    } else {
+                        journalHeaderAISummary = nil
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    journalHeaderAISummary = nil
+                }
+            }
+        }
+    }
+
+    private func sanitizeJournalHeaderSummary(_ summary: String) -> String {
+        let cleaned = summary
+            .replacingOccurrences(of: #"(?i)^summary\s*[:#-]*\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?m)^\s*[-*•]\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?m)^\s*\d+\.\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"[*_`]"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleaned.isEmpty else { return "" }
+        return cleaned.count > 130 ? String(cleaned.prefix(130)).trimmingCharacters(in: .whitespacesAndNewlines) + "..." : cleaned
+    }
+
+    private func scheduleInitialTitleFocus() {
+        cancelPendingTitleFocusRequests()
+
+        let firstAttempt = DispatchWorkItem {
+            isTitleFocused = true
+        }
+
+        let secondAttempt = DispatchWorkItem {
+            if !isTitleFocused {
+                isTitleFocused = true
+            }
+        }
+
+        pendingTitleFocusWorkItems = [firstAttempt, secondAttempt]
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: firstAttempt)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: secondAttempt)
+    }
+
+    private func cancelPendingTitleFocusRequests() {
+        pendingTitleFocusWorkItems.forEach { $0.cancel() }
+        pendingTitleFocusWorkItems.removeAll()
+    }
+
+    private func moveFocusFromTitleToBody() {
+        cancelPendingTitleFocusRequests()
+        isTitleFocused = false
+
+        // Multiple focus attempts handle UIKit/SwiftUI responder timing races.
+        DispatchQueue.main.async {
+            isContentFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            if !isContentFocused {
+                isContentFocused = true
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if !isContentFocused {
+                isContentFocused = true
+            }
+        }
     }
 
     // MARK: - Actions
@@ -3495,12 +4165,14 @@ struct NoteEditView: View {
 
         // Don't save completely empty notes
         guard !trimmedContent.isEmpty || !trimmedTitle.isEmpty || !imageAttachments.isEmpty else {
+            notesManager.isViewingNoteInNavigation = false
             dismiss()
             return
         }
 
         // PERFORMANCE FIX: Dismiss IMMEDIATELY - save in background
         // This eliminates any lag the user feels
+        notesManager.isViewingNoteInNavigation = false
         dismiss()
         
         // Simple save - no AI title generation (like Apple Notes)
@@ -3528,6 +4200,9 @@ struct NoteEditView: View {
             updatedNote.content = content
             updatedNote.isLocked = noteIsLocked
             updatedNote.folderId = selectedFolderId
+            updatedNote.kind = noteKind
+            updatedNote.journalDate = journalDate
+            updatedNote.journalWeekStartDate = journalWeekStartDate
             updatedNote.dateModified = Date()
 
             // Check if there are new images to upload (compare count)
@@ -3543,10 +4218,20 @@ struct NoteEditView: View {
             // The duplicate call was causing race conditions and save failures
             notesManager.updateNote(updatedNote)
             editingNote = updatedNote
+            if updatedNote.isJournalEntry {
+                await JournalService.shared.ensureWeeklyRecapIfNeeded(referenceDate: updatedNote.journalDate ?? Date())
+            }
             return updatedNote.id
         } else {
             // Create new note - Use addNoteAndWaitForSync which handles both UI update and sync
-            var newNote = Note(title: title, content: content, folderId: selectedFolderId)
+            var newNote = Note(
+                title: title,
+                content: content,
+                folderId: selectedFolderId,
+                kind: noteKind,
+                journalDate: journalDate,
+                journalWeekStartDate: journalWeekStartDate
+            )
             newNote.isLocked = noteIsLocked
             
             // CRITICAL FIX: Use ONLY addNoteAndWaitForSync (it adds to UI AND syncs)
@@ -3565,6 +4250,10 @@ struct NoteEditView: View {
             } else if !syncSuccess {
                 print("⚠️ Failed to sync note to Supabase, will retry on next save")
             }
+
+            if newNote.isJournalEntry {
+                await JournalService.shared.ensureWeeklyRecapIfNeeded(referenceDate: newNote.journalDate ?? Date())
+            }
             
             return newNote.id
         }
@@ -3578,6 +4267,9 @@ struct NoteEditView: View {
         var updatedNote = existingNote
         updatedNote.title = title
         updatedNote.content = content
+        updatedNote.kind = noteKind
+        updatedNote.journalDate = journalDate
+        updatedNote.journalWeekStartDate = journalWeekStartDate
         updatedNote.dateModified = Date()
         
         // CRITICAL FIX: Call updateNote ONLY ONCE (it handles both UI update and background sync)
@@ -3596,6 +4288,9 @@ struct NoteEditView: View {
             updatedNote.content = content // Use content directly
             updatedNote.isLocked = noteIsLocked
             updatedNote.folderId = selectedFolderId
+            updatedNote.kind = noteKind
+            updatedNote.journalDate = journalDate
+            updatedNote.journalWeekStartDate = journalWeekStartDate
             updatedNote.imageUrls = existingNote.imageUrls // Keep existing image URLs
 
             // CRITICAL: Wait for sync to complete to ensure changes are persisted
@@ -3617,6 +4312,7 @@ struct NoteEditView: View {
     private func deleteNote() {
         guard let note = note else { return }
         notesManager.deleteNote(note)
+        notesManager.isViewingNoteInNavigation = false
         dismiss()
     }
 
@@ -4422,8 +5118,14 @@ struct NoteEditView: View {
                 }
                 // Priority 3: Create a new note
                 else {
-                    var newNote = Note(title: self.title.isEmpty ? "Untitled" : self.title, content: self.content)
-                    newNote.folderId = self.selectedFolderId
+                    var newNote = Note(
+                        title: self.title.isEmpty ? "Untitled" : self.title,
+                        content: self.content,
+                        folderId: self.selectedFolderId,
+                        kind: self.noteKind,
+                        journalDate: self.journalDate,
+                        journalWeekStartDate: self.journalWeekStartDate
+                    )
 
                     // Save to Supabase synchronously to ensure RLS passes for file attachment
                     let saved = await self.notesManager.addNoteAndWaitForSync(newNote)
@@ -5026,7 +5728,9 @@ struct NoteTitleField: UIViewRepresentable {
             if text == "\n" {
                 parent.isFocused.wrappedValue = false
                 textView.resignFirstResponder()
-                parent.onEnterPressed()
+                DispatchQueue.main.async {
+                    self.parent.onEnterPressed()
+                }
                 return false
             }
             return true
@@ -5090,6 +5794,222 @@ struct ScaleButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
             .opacity(configuration.isPressed ? 0.85 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+struct NotesArchiveView: View {
+    let onOpenNote: (Note) -> Void
+    let onSetReminder: (Note) -> Void
+
+    @StateObject private var notesManager = NotesManager.shared
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var expandedMonths: Set<String> = []
+
+    private var archiveMonthGroups: [(month: String, notes: [Note])] {
+        let standardNotes = notesManager.notes
+            .filter { note in
+                !isReceiptNote(note) && !note.isJournalEntry && !note.isJournalWeeklyRecap
+            }
+
+        let grouped = Dictionary(grouping: standardNotes) { note -> String in
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMMM yyyy"
+            return formatter.string(from: note.dateModified)
+        }
+
+        return grouped
+            .map { (month: $0.key, notes: $0.value.sorted { $0.dateModified > $1.dateModified }) }
+            .sorted { lhs, rhs in
+                guard let lhsDate = lhs.notes.first?.dateModified,
+                      let rhsDate = rhs.notes.first?.dateModified else {
+                    return false
+                }
+                return lhsDate > rhsDate
+            }
+    }
+
+    private var totalVisibleNotes: Int {
+        archiveMonthGroups.reduce(0) { $0 + $1.notes.count }
+    }
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 14) {
+                archiveHeroCard
+
+                if archiveMonthGroups.isEmpty {
+                    emptyState
+                } else {
+                    ForEach(archiveMonthGroups, id: \.month) { monthGroup in
+                        monthSectionCard(monthGroup)
+                    }
+                }
+
+                Spacer()
+                    .frame(height: 40)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+        }
+        .background(Color.appBackground(colorScheme).ignoresSafeArea())
+        .navigationTitle("All Notes")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if expandedMonths.isEmpty {
+                expandedMonths = Set(archiveMonthGroups.map { $0.month })
+            }
+        }
+    }
+
+    private var archiveHeroCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("All Notes")
+                .font(FontManager.geist(size: 28, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            Text("Browse every standard note by month.")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+
+            HStack(spacing: 10) {
+                archiveMetricTile(title: "Months", value: "\(archiveMonthGroups.count)")
+                archiveMetricTile(title: "Notes", value: "\(totalVisibleNotes)")
+            }
+        }
+        .padding(16)
+        .background(archiveHeroCardBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+        )
+        .shadow(
+            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+            radius: 16,
+            x: 0,
+            y: 6
+        )
+    }
+
+    private var archiveHeroCardBackground: some View {
+        RoundedRectangle(cornerRadius: 24)
+            .fill(Color.appSurface(colorScheme))
+            .overlay(alignment: .topTrailing) {
+                Circle()
+                    .fill(Color(red: 0.98, green: 0.64, blue: 0.41).opacity(colorScheme == .dark ? 0.14 : 0.22))
+                    .frame(width: 220, height: 220)
+                    .blur(radius: 8)
+                    .offset(x: 60, y: -48)
+            }
+            .overlay(alignment: .bottomLeading) {
+                Circle()
+                    .fill(Color.white.opacity(colorScheme == .dark ? 0.06 : 0.5))
+                    .frame(width: 220, height: 220)
+                    .blur(radius: 12)
+                    .offset(x: -24, y: 90)
+            }
+    }
+
+    private func archiveMetricTile(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+
+            Text(value)
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.appInnerSurface(colorScheme))
+        )
+    }
+
+    private func monthSectionCard(_ monthGroup: (month: String, notes: [Note])) -> some View {
+        VStack(spacing: 0) {
+            NoteSectionHeader(
+                title: monthGroup.month.uppercased(),
+                count: monthGroup.notes.count,
+                isExpanded: Binding(
+                    get: { expandedMonths.contains(monthGroup.month) },
+                    set: { isExpanded in
+                        if isExpanded {
+                            expandedMonths.insert(monthGroup.month)
+                        } else {
+                            expandedMonths.remove(monthGroup.month)
+                        }
+                    }
+                )
+            )
+
+            if expandedMonths.contains(monthGroup.month) {
+                ForEach(monthGroup.notes) { note in
+                    NoteRow(
+                        note: note,
+                        onPinToggle: { note in
+                            notesManager.togglePinStatus(note)
+                        },
+                        onTap: { note in
+                            onOpenNote(note)
+                        },
+                        onDelete: { note in
+                            notesManager.deleteNote(note)
+                        },
+                        onSetReminder: { note in
+                            onSetReminder(note)
+                        }
+                    )
+                }
+            }
+        }
+        .background(sectionCardBackground)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "note.text")
+                .font(.system(size: 24, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+
+            Text("No notes yet")
+                .font(FontManager.geist(size: 16, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+        .background(sectionCardBackground)
+    }
+
+    private var sectionCardBackground: some View {
+        RoundedRectangle(cornerRadius: 16)
+            .fill(Color.appSectionCard(colorScheme))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+            )
+            .shadow(
+                color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
+                radius: 8,
+                x: 0,
+                y: 2
+            )
+    }
+
+    private func isReceiptNote(_ note: Note) -> Bool {
+        guard let receiptsFolderId = notesManager.folders.first(where: { $0.name == "Receipts" })?.id,
+              let folderId = note.folderId else { return false }
+
+        var currentFolderId: UUID? = folderId
+        while let currentId = currentFolderId {
+            if currentId == receiptsFolderId {
+                return true
+            }
+            currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+        }
+        return false
     }
 }
 

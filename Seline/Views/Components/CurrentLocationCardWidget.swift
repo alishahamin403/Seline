@@ -12,26 +12,15 @@ struct CurrentLocationCardWidget: View {
     let distanceToNearest: Double?
     let elapsedTimeString: String
     let todaysVisits: [VisitSummary]
+    let onCurrentLocationTap: (() -> Void)? = nil
 
     @Binding var selectedPlace: SavedPlace?
     @Binding var showAllLocationsSheet: Bool
 
     @StateObject private var locationsManager = LocationsManager.shared
 
-    private var primaryTextColor: Color {
+    private var activeBadgeColor: Color {
         colorScheme == .dark ? .white : .black
-    }
-
-    private var secondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6)
-    }
-
-    private var activeIndicatorColor: Color {
-        Color.green
-    }
-
-    private var cardHeadingFont: Font {
-        FontManager.geist(size: 20, weight: .semibold)
     }
 
     private var currentLocationDisplay: String {
@@ -71,12 +60,48 @@ struct CurrentLocationCardWidget: View {
         max(sortedVisits.map(\.totalDurationMinutes).max() ?? 1, 1)
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header
+    private var currentTimeLabel: String {
+        if let activeVisit {
+            return elapsedTimeString.isEmpty
+                ? durationLabel(for: activeVisit.totalDurationMinutes)
+                : elapsedTimeString
+        }
+        if !elapsedTimeString.isEmpty {
+            return elapsedTimeString
+        }
+        return "--"
+    }
 
-            if let activeVisit {
-                activeNowSection(activeVisit)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Current Location")
+                        .font(FontManager.geist(size: 24, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                }
+
+                Spacer(minLength: 0)
+
+                if activeVisit != nil {
+                    Text("Active")
+                        .font(FontManager.geist(size: 10, weight: .semibold))
+                        .foregroundColor(activeBadgeColor)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(Color.appChip(colorScheme))
+                        )
+                }
+            }
+
+            currentLocationDisplayCard
+
+            HStack(spacing: 10) {
+                locationMetricTile(title: "Visits", value: "\(sortedVisits.count)")
+                locationMetricTile(title: activeVisit != nil ? "Time here" : "Nearest", value: activeVisit != nil ? currentTimeLabel : formattedDistanceToNearest)
+                locationMetricTile(title: "Folder", value: nearbyLocationFolder ?? "Saved")
             }
 
             if !sortedVisits.isEmpty {
@@ -84,83 +109,17 @@ struct CurrentLocationCardWidget: View {
             }
         }
         .padding(16)
-        .shadcnTileStyle(colorScheme: colorScheme)
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Location")
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(secondaryTextColor)
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-
-                Spacer()
-            }
-
-            HStack(alignment: .firstTextBaseline) {
-                Text(currentLocationDisplay)
-                    .font(cardHeadingFont)
-                    .foregroundColor(primaryTextColor)
-                    .lineLimit(1)
-
-                Spacer()
-
-                Text("\(sortedVisits.count) places")
-                    .font(FontManager.geist(size: 11, weight: .semibold))
-                    .foregroundColor(secondaryTextColor)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        Capsule()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
-                    )
-            }
-        }
-    }
-
-    private func activeNowSection(_ visit: VisitSummary) -> some View {
-        Button(action: {
-            selectPlace(with: visit.id)
-        }) {
-            HStack(spacing: 8) {
-                Image(systemName: locationSymbol(for: visit.displayName))
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(activeIndicatorColor)
-
-                Text(visit.displayName)
-                    .font(FontManager.geist(size: 14, weight: .semibold))
-                    .foregroundColor(activeIndicatorColor)
-                    .lineLimit(1)
-
-                Spacer()
-
-                Text(elapsedTimeString.isEmpty ? durationLabel(for: visit.totalDurationMinutes) : elapsedTimeString)
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(activeIndicatorColor)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
+        .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 24)
     }
 
     private var todayVisitsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Today")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(secondaryTextColor)
-                .textCase(.uppercase)
-                .tracking(0.5)
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     ForEach(sortedVisits.prefix(12), id: \.id) { visit in
                         visitChip(visit)
                     }
@@ -177,55 +136,141 @@ struct CurrentLocationCardWidget: View {
         return Button(action: {
             selectPlace(with: visit.id)
         }) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(isCurrent
-                              ? activeIndicatorColor
-                              : (colorScheme == .dark ? Color.white.opacity(0.35) : Color.black.opacity(0.28)))
-                        .frame(width: 6, height: 6)
+                        .fill(isCurrent ? homeAccentColor : Color.appBorder(colorScheme))
+                        .frame(width: 7, height: 7)
 
                     Text(visit.displayName)
-                        .font(FontManager.geist(size: 12, weight: .semibold))
-                        .foregroundColor(primaryTextColor)
+                        .font(FontManager.geist(size: 13, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
                         .lineLimit(1)
                 }
 
                 Text(durationLabel(for: visit.totalDurationMinutes))
-                    .font(FontManager.geist(size: 11, weight: .medium))
-                    .foregroundColor(isCurrent ? activeIndicatorColor : secondaryTextColor)
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(isCurrent ? Color.appTextPrimary(colorScheme) : Color.appTextSecondary(colorScheme))
 
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.12))
+                            .fill(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 1 : 0.75))
                         Capsule()
-                            .fill(isCurrent
-                                  ? activeIndicatorColor
-                                  : (colorScheme == .dark ? Color.white.opacity(0.34) : Color.black.opacity(0.28)))
+                            .fill(isCurrent ? homeAccentColor : Color.appTextSecondary(colorScheme).opacity(0.4))
                             .frame(width: progressWidth(for: visit.totalDurationMinutes, in: geo.size.width))
                     }
                 }
-                .frame(height: 4)
+                .frame(height: 5)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 10)
-            .frame(width: 156, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .frame(width: 170, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(
+                        isCurrent
+                            ? homeAccentColor.opacity(colorScheme == .dark ? 0.16 : 0.2)
+                            : Color.homeGlassInnerTint(colorScheme)
+                    )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.07), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(
+                        isCurrent ? homeAccentColor.opacity(colorScheme == .dark ? 0.28 : 0.22) : Color.homeGlassInnerBorder(colorScheme),
+                        lineWidth: 1
+                    )
             )
-            .contentShape(RoundedRectangle(cornerRadius: 12))
+            .contentShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(PlainButtonStyle())
     }
 
+    @ViewBuilder
+    private var currentLocationDisplayCard: some View {
+        let content = VStack(alignment: .leading, spacing: 6) {
+            Text(currentLocationDisplay)
+                .font(FontManager.geist(size: 22, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(2)
+
+            Text(locationStatusLine)
+                .font(FontManager.geist(size: 14, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+
+        if canOpenCurrentLocationDetails {
+            Button(action: handleCurrentLocationTap) {
+                content
+            }
+            .buttonStyle(PlainButtonStyle())
+        } else {
+            content
+        }
+    }
+
+    private func locationMetricTile(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineLimit(1)
+
+            Text(value)
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+    }
+
+    private var homeAccentColor: Color {
+        Color.homeGlassAccent
+    }
+
+    private var locationHeroCardBackground: some View {
+        HomeGlassCardBackground(
+            colorScheme: colorScheme,
+            cornerRadius: 24,
+            highlightStrength: 1
+        )
+    }
+
+    private var canOpenCurrentLocationDetails: Bool {
+        onCurrentLocationTap != nil || activeVisit != nil
+    }
+
+    private var formattedDistanceToNearest: String {
+        guard let distanceToNearest else { return "--" }
+        if distanceToNearest >= 1000 {
+            return String(format: "%.1f km", distanceToNearest / 1000)
+        }
+        return "\(Int(distanceToNearest.rounded())) m"
+    }
+
+    private var locationStatusLine: String {
+        if activeVisit != nil, currentTimeLabel != "--" {
+            return "\(currentTimeLabel) here now"
+        }
+
+        if distanceToNearest != nil {
+            return "\(formattedDistanceToNearest) from nearest saved place"
+        }
+
+        return currentLocationName
+    }
+
     private func progressWidth(for minutes: Int, in totalWidth: CGFloat) -> CGFloat {
-        CGFloat(minutes) / CGFloat(maxVisitMinutes) * totalWidth
+        guard totalWidth > 0 else { return 0 }
+        let ratio = min(max(CGFloat(minutes) / CGFloat(maxVisitMinutes), 0), 1)
+        return ratio * totalWidth
     }
 
     private func isVisitActive(_ visit: VisitSummary) -> Bool {
@@ -245,24 +290,22 @@ struct CurrentLocationCardWidget: View {
         return remainingMinutes == 0 ? "\(hours)h" : "\(hours)h \(remainingMinutes)m"
     }
 
-    private func locationSymbol(for name: String) -> String {
-        let lowercased = name.lowercased()
-        if lowercased.contains("home") { return "house.fill" }
-        if lowercased.contains("work") || lowercased.contains("office") { return "briefcase.fill" }
-        if lowercased.contains("gym") || lowercased.contains("fitness") { return "dumbbell.fill" }
-        if lowercased.contains("restaurant") || lowercased.contains("grill") || lowercased.contains("pizza") || lowercased.contains("hakka") {
-            return "fork.knife"
-        }
-        if lowercased.contains("store") || lowercased.contains("shop") || lowercased.contains("mall") {
-            return "bag.fill"
-        }
-        return "mappin.circle.fill"
-    }
-
     private func selectPlace(with id: UUID) {
         if let place = locationsManager.savedPlaces.first(where: { $0.id == id }) {
             selectedPlace = place
             HapticManager.shared.light()
+        }
+    }
+
+    private func handleCurrentLocationTap() {
+        if let onCurrentLocationTap {
+            onCurrentLocationTap()
+            HapticManager.shared.light()
+            return
+        }
+
+        if let activeVisit {
+            selectPlace(with: activeVisit.id)
         }
     }
 }

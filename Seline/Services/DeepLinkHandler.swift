@@ -11,6 +11,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
     @Published var shouldShowChat = false
     @Published var shouldOpenMaps = false
     @Published var shouldOpenReceipts = false
+    @Published var shouldOpenJournal = false
     @Published var shouldOpenTimeline = false
     @Published var shouldOpenHome = false
     @Published var mapsLatitude: Double? = nil
@@ -104,6 +105,12 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 self.pendingAction = "receipts"
             }
 
+        case "journal":
+            DispatchQueue.main.async {
+                self.shouldOpenJournal = true
+                self.pendingAction = "journal"
+            }
+
         case "timeline":
             DispatchQueue.main.async {
                 self.shouldOpenTimeline = true
@@ -154,6 +161,10 @@ class DeepLinkHandler: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 self.shouldOpenReceipts = true
             }
+        case "journal":
+            DispatchQueue.main.async {
+                self.shouldOpenJournal = true
+            }
         case "timeline":
             DispatchQueue.main.async {
                 self.shouldOpenTimeline = true
@@ -176,6 +187,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
         shouldShowChat = false
         shouldOpenMaps = false
         shouldOpenReceipts = false
+        shouldOpenJournal = false
         shouldOpenTimeline = false
         shouldOpenHome = false
         mapsLatitude = nil

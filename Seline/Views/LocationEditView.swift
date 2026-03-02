@@ -101,135 +101,159 @@ struct LocationEditView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 24) {
-                // Header
-                VStack(spacing: 8) {
-                    Image(systemName: icon)
-                        .font(FontManager.geist(size: 48, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .gray : .gray.opacity(0.8))
+            ZStack {
+                AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .topLeading)
 
-                    Text("Set \(title) Location")
-                        .font(FontManager.geist(size: 24, weight: .bold))
+                VStack(spacing: 24) {
+                    VStack(spacing: 8) {
+                        Image(systemName: icon)
+                            .font(FontManager.geist(size: 48, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .gray : .gray.opacity(0.8))
 
-                    if let currentAddress = currentAddress {
-                        Text("Current: \(currentAddress)")
-                            .font(FontManager.geist(size: 13, weight: .regular))
+                        Text("Set \(title) Location")
+                            .font(FontManager.geist(size: 24, weight: .bold))
+
+                        if let currentAddress = currentAddress {
+                            Text("Current: \(currentAddress)")
+                                .font(FontManager.geist(size: 13, weight: .regular))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
+                                .lineLimit(2)
+                        }
+                    }
+                    .padding(.top, 32)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 24)
+                    .appAmbientCardStyle(
+                        colorScheme: colorScheme,
+                        variant: .topTrailing,
+                        cornerRadius: 28,
+                        highlightStrength: 0.76
+                    )
+                    .padding(.horizontal, 12)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Location Type")
+                            .font(FontManager.geist(size: 14, weight: .semibold))
                             .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                            .lineLimit(2)
-                    }
-                }
-                .padding(.top, 32)
+                            .padding(.horizontal, 20)
 
-                // Location Type Picker
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Location Type")
-                        .font(FontManager.geist(size: 14, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 20)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(LocationType.allCases) { type in
-                                LocationTypeChip(
-                                    type: type,
-                                    isSelected: selectedLocationType == type,
-                                    colorScheme: colorScheme,
-                                    onSelect: {
-                                        selectedLocationType = type
-                                    }
-                                )
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                    }
-                }
-
-                // Search Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Search for address")
-                        .font(FontManager.geist(size: 16, weight: .semibold))
-                        .padding(.horizontal, 20)
-
-                    VStack(spacing: 0) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .font(FontManager.geist(size: 14, weight: .medium))
-                                .foregroundColor(.gray)
-
-                            TextField("Enter \(title.lowercased()) address", text: $searchQuery)
-                                .font(FontManager.geist(size: 14, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .onChange(of: searchQuery) { newValue in
-                                    // Debounce search
-                                    searchTask?.cancel()
-                                    searchTask = Task {
-                                        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                                        if !Task.isCancelled {
-                                            await searchLocation(query: newValue)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(LocationType.allCases) { type in
+                                    LocationTypeChip(
+                                        type: type,
+                                        isSelected: selectedLocationType == type,
+                                        colorScheme: colorScheme,
+                                        onSelect: {
+                                            selectedLocationType = type
                                         }
-                                    }
+                                    )
                                 }
-
-                            if isSearching {
-                                ProgressView()
-                                    .scaleEffect(0.8)
                             }
+                            .padding(.horizontal, 20)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
-                        )
+                    }
+                    .padding(.vertical, 16)
+                    .appAmbientCardStyle(
+                        colorScheme: colorScheme,
+                        variant: .topLeading,
+                        cornerRadius: 24,
+                        highlightStrength: 0.54
+                    )
+                    .padding(.horizontal, 12)
 
-                        // Search Results
-                        if !searchResults.isEmpty {
-                            ScrollView {
-                                VStack(spacing: 0) {
-                                    ForEach(searchResults.prefix(5)) { result in
-                                        Button(action: {
-                                            selectedLocation = result
-                                            searchResults = []
-                                            searchQuery = result.name
-                                        }) {
-                                            HStack(alignment: .top, spacing: 12) {
-                                                Image(systemName: "mappin.circle.fill")
-                                                    .font(FontManager.geist(size: 16, weight: .regular))
-                                                    .foregroundColor(.gray)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Search for address")
+                            .font(FontManager.geist(size: 16, weight: .semibold))
+                            .padding(.horizontal, 20)
 
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    Text(result.name)
-                                                        .font(FontManager.geist(size: 13, weight: .medium))
-                                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                    Text(result.address)
-                                                        .font(FontManager.geist(size: 11, weight: .regular))
-                                                        .foregroundColor(.secondary)
-                                                        .lineLimit(2)
-                                                }
+                        VStack(spacing: 0) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(FontManager.geist(size: 14, weight: .medium))
+                                    .foregroundColor(.gray)
 
-                                                Spacer()
+                                TextField("Enter \(title.lowercased()) address", text: $searchQuery)
+                                    .font(FontManager.geist(size: 14, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .onChange(of: searchQuery) { newValue in
+                                        searchTask?.cancel()
+                                        searchTask = Task {
+                                            try? await Task.sleep(nanoseconds: 500_000_000)
+                                            if !Task.isCancelled {
+                                                await searchLocation(query: newValue)
                                             }
-                                            .padding(12)
                                         }
-                                        .buttonStyle(PlainButtonStyle())
+                                    }
 
-                                        if result.id != searchResults.prefix(5).last?.id {
-                                            Divider()
+                                if isSearching {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 20)
+
+                            if !searchResults.isEmpty {
+                                ScrollView {
+                                    VStack(spacing: 0) {
+                                        ForEach(searchResults.prefix(5)) { result in
+                                            Button(action: {
+                                                selectedLocation = result
+                                                searchResults = []
+                                                searchQuery = result.name
+                                            }) {
+                                                HStack(alignment: .top, spacing: 12) {
+                                                    Image(systemName: "mappin.circle.fill")
+                                                        .font(FontManager.geist(size: 16, weight: .regular))
+                                                        .foregroundColor(.gray)
+
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(result.name)
+                                                            .font(FontManager.geist(size: 13, weight: .medium))
+                                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                        Text(result.address)
+                                                            .font(FontManager.geist(size: 11, weight: .regular))
+                                                            .foregroundColor(.secondary)
+                                                            .lineLimit(2)
+                                                    }
+
+                                                    Spacer()
+                                                }
+                                                .padding(12)
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+
+                                            if result.id != searchResults.prefix(5).last?.id {
+                                                Divider()
+                                            }
                                         }
                                     }
                                 }
+                                .frame(maxHeight: 250)
+                                .appAmbientCardStyle(
+                                    colorScheme: colorScheme,
+                                    variant: .bottomTrailing,
+                                    cornerRadius: 16,
+                                    highlightStrength: 0.44
+                                )
+                                .padding(.top, 4)
                             }
-                            .frame(maxHeight: 250)
-                            .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-                            .cornerRadius(10)
-                            .padding(.top, 4)
                         }
                     }
                     .padding(.horizontal, 20)
+                    .padding(.vertical, 20)
+                    .appAmbientCardStyle(
+                        colorScheme: colorScheme,
+                        variant: .bottomLeading,
+                        cornerRadius: 28,
+                        highlightStrength: 0.56
+                    )
+                    .padding(.horizontal, 12)
 
-                    // Selected Location
                     if let selected = selectedLocation {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Selected Location")
@@ -258,39 +282,42 @@ struct LocationEditView: View {
                                 }
                             }
                             .padding(12)
-                            .background(colorScheme == .dark ? Color.green.opacity(0.2) : Color.green.opacity(0.1))
-                            .cornerRadius(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(colorScheme == .dark ? Color.green.opacity(0.2) : Color.green.opacity(0.1))
+                            )
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, 24)
                         .padding(.top, 8)
                     }
-                }
 
-                Spacer()
+                    Spacer()
 
-                // Buttons
-                VStack(spacing: 12) {
-                    Button(action: saveLocation) {
-                        Text("Save Location")
-                            .font(FontManager.geist(size: 16, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(selectedLocation != nil ? Color.gray : Color.gray.opacity(0.3))
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                    }
-                    .disabled(selectedLocation == nil)
+                    VStack(spacing: 12) {
+                        Button(action: saveLocation) {
+                            Text("Save Location")
+                                .font(FontManager.geist(size: 16, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 50)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(selectedLocation != nil ? Color.black.opacity(colorScheme == .dark ? 0.92 : 0.84) : Color.gray.opacity(0.3))
+                                )
+                                .foregroundColor(.white)
+                        }
+                        .disabled(selectedLocation == nil)
 
-                    if currentAddress != nil {
-                        Button(action: removeLocation) {
-                            Text("Remove Location")
-                                .font(FontManager.geist(size: 14, weight: .regular))
-                                .foregroundColor(.red)
+                        if currentAddress != nil {
+                            Button(action: removeLocation) {
+                                Text("Remove Location")
+                                    .font(FontManager.geist(size: 14, weight: .regular))
+                                    .foregroundColor(.red)
+                            }
                         }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 32)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 32)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

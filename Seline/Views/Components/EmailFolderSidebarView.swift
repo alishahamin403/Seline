@@ -6,16 +6,9 @@ struct EmailFolderSidebarView: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var showCreateFolderSheet = false
     @State private var newFolderName = ""
-    @State private var selectedColor = "#333333"
     @State private var showCreationError = false
     @State private var creationErrorMessage = ""
     @State private var searchText = ""
-
-    let colors = [
-        "#333333", // Dark gray
-        "#1a1a1a", // Darker gray
-        "#4a4a4a", // Medium gray
-    ]
 
     private var filteredFolders: [CustomEmailFolder] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -25,6 +18,14 @@ struct EmailFolderSidebarView: View {
 
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var importedFolders: [CustomEmailFolder] {
+        filteredFolders.filter { $0.isImported }
+    }
+
+    private var customFolders: [CustomEmailFolder] {
+        filteredFolders.filter { !$0.isImported }
     }
 
     private var sidebarBackgroundColor: Color {
@@ -45,60 +46,8 @@ struct EmailFolderSidebarView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
+                sidebarHeader
 
-                        TextField("Search folders", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        Capsule()
-                            .fill(topControlFillColor)
-                            .overlay(
-                                Capsule()
-                                    .stroke(topControlBorderColor, lineWidth: 0.8)
-                            )
-                    )
-
-                    Button(action: {
-                        HapticManager.shared.buttonTap()
-                        showCreateFolderSheet = true
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 14, weight: .medium))
-                            Text("Folder")
-                                .font(FontManager.geist(size: 13, weight: .medium))
-                        }
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
-                        .padding(.horizontal, 12)
-                        .frame(height: 36)
-                        .background(
-                            Capsule()
-                                .fill(topControlFillColor)
-                                .overlay(
-                                    Capsule()
-                                        .stroke(topControlBorderColor, lineWidth: 0.8)
-                                )
-                        )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(sidebarBackgroundColor)
-
-                // Folders list
                 Group {
                     if viewModel.isLoading {
                         ProgressView()
@@ -109,31 +58,17 @@ struct EmailFolderSidebarView: View {
                         noSearchResultsView
                     } else {
                         ScrollView(showsIndicators: false) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("FOLDERS")
-                                    .font(FontManager.geist(size: 11, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
-                                    .textCase(.uppercase)
-                                    .padding(.horizontal, 20)
-                                    .padding(.bottom, 6)
+                            LazyVStack(alignment: .leading, spacing: 20) {
+                                if !customFolders.isEmpty {
+                                    folderSection(title: "Custom", folders: customFolders)
+                                }
 
-                                ForEach(filteredFolders) { folder in
-                                    NavigationLink(destination: SavedEmailsListView(folder: folder)) {
-                                        EmailFolderRow(
-                                            folder: folder,
-                                            emailCount: viewModel.folderEmailCounts[folder.id],
-                                            colorScheme: colorScheme
-                                        )
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                    .contextMenu {
-                                        Button(role: .destructive) {
-                                            viewModel.deleteFolder(folder)
-                                        } label: { Label("Delete", systemImage: "trash") }
-                                    }
+                                if !importedFolders.isEmpty {
+                                    folderSection(title: "Imported", folders: importedFolders)
                                 }
                             }
                             .padding(.vertical, 16)
+                            .padding(.bottom, 24)
                         }
                     }
                 }
@@ -142,8 +77,9 @@ struct EmailFolderSidebarView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear {
-            viewModel.loadFolders()
+            viewModel.loadFoldersIfNeeded()
         }
         .sheet(isPresented: $showCreateFolderSheet) {
             NavigationStack {
@@ -189,6 +125,63 @@ struct EmailFolderSidebarView: View {
         }
     }
 
+    private var sidebarHeader: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
+
+                TextField("Search folders", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(
+                Capsule()
+                    .fill(topControlFillColor)
+                    .overlay(
+                        Capsule()
+                            .stroke(topControlBorderColor, lineWidth: 0.8)
+                    )
+            )
+
+            Button(action: {
+                HapticManager.shared.buttonTap()
+                showCreateFolderSheet = true
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .semibold))
+
+                    Text("Folder")
+                        .font(FontManager.geist(size: 13, weight: .medium))
+                }
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                .padding(.horizontal, 12)
+                .frame(height: 36)
+                .background(
+                    Capsule()
+                        .fill(topControlFillColor)
+                        .overlay(
+                            Capsule()
+                                .stroke(topControlBorderColor, lineWidth: 0.8)
+                        )
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(sidebarBackgroundColor)
+        .frame(maxWidth: .infinity)
+    }
+
     private var emptyStateView: some View {
         VStack(spacing: 12) {
             Image(systemName: "folder")
@@ -202,6 +195,7 @@ struct EmailFolderSidebarView: View {
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 16)
     }
 
     private var noSearchResultsView: some View {
@@ -215,6 +209,40 @@ struct EmailFolderSidebarView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    private func folderSection(title: String, folders: [CustomEmailFolder]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                .padding(.horizontal, 20)
+                .padding(.bottom, 6)
+
+            ForEach(Array(folders.enumerated()), id: \.element.id) { index, folder in
+                NavigationLink(destination: SavedEmailsListView(folder: folder)) {
+                    EmailFolderRow(
+                        folder: folder,
+                        emailCount: viewModel.folderEmailCounts[folder.id],
+                        colorScheme: colorScheme
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .contextMenu {
+                    Button(role: .destructive) {
+                        viewModel.deleteFolder(folder)
+                    } label: { Label("Delete", systemImage: "trash") }
+                }
+
+                if index < folders.count - 1 {
+                    Rectangle()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.06))
+                        .frame(height: 1)
+                        .padding(.leading, 32)
+                        .padding(.trailing, 20)
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Email Folder Row (ChatGPT-style minimal row)
@@ -226,10 +254,20 @@ struct EmailFolderRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(folder.name)
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .lineLimit(1)
+            Circle()
+                .fill(folder.isImported ? Color.homeGlassAccent.opacity(0.8) : (colorScheme == .dark ? Color.white.opacity(0.22) : Color.black.opacity(0.16)))
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(folder.name)
+                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
+
+                Text(folder.isImported ? "Imported label" : "Custom folder")
+                    .font(FontManager.geist(size: 12, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+            }
 
             Spacer(minLength: 0)
 
@@ -240,7 +278,7 @@ struct EmailFolderRow: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.vertical, 11)
         .contentShape(Rectangle())
     }
 }
@@ -255,6 +293,7 @@ class EmailFolderSidebarViewModel: ObservableObject {
 
     private let emailService = EmailService.shared
     private var notificationObserver: NSObjectProtocol?
+    private var hasLoadedOnce = false
 
     init() {
         // Listen for folder creation notifications from SaveFolderSelectionSheet
@@ -263,7 +302,7 @@ class EmailFolderSidebarViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.loadFolders()
+            self?.loadFolders(force: true)
         }
     }
 
@@ -273,30 +312,34 @@ class EmailFolderSidebarViewModel: ObservableObject {
         }
     }
 
-    func loadFolders() {
+    func loadFoldersIfNeeded() {
+        loadFolders(force: false)
+    }
+
+    func loadFolders(force: Bool) {
+        guard force || !hasLoadedOnce else { return }
+        guard !isLoading else { return }
+
         isLoading = true
         Task {
             do {
-                print("📂 Loading folders...")
-                folders = try await emailService.fetchSavedFolders()
-                print("✅ Loaded \(folders.count) folders")
+                let loadedFolders = try await emailService.fetchSavedFolders()
+                var counts: [UUID: Int] = [:]
 
-                // Load email counts for each folder
-                for folder in folders {
+                for folder in loadedFolders {
                     do {
                         let count = try await emailService.getSavedEmailCount(in: folder.id)
-                        folderEmailCounts[folder.id] = count
-                        print("  📧 \(folder.name): \(count) emails")
+                        counts[folder.id] = count
                     } catch {
-                        print("  ⚠️ Failed to count emails in \(folder.name): \(error)")
-                        // Continue even if count fails
+                        continue
                     }
                 }
 
+                folders = loadedFolders
+                folderEmailCounts = counts
+                hasLoadedOnce = true
                 isLoading = false
             } catch {
-                print("❌ Error loading folders: \(error)")
-                print("🐛 Error details: \(String(describing: error))")
                 isLoading = false
             }
         }
@@ -305,39 +348,28 @@ class EmailFolderSidebarViewModel: ObservableObject {
     func createFolder(name: String, completion: @escaping (String?) -> Void) {
         Task {
             do {
-                print("📁 Creating folder: \(name)")
                 let newFolder = try await emailService.createEmailFolder(name: name, color: "#333333")
-                print("✅ Folder created: \(newFolder.id)")
-
-                // Clear the folder cache so the new folder is included next time
                 emailService.clearFolderCache()
-                print("🗑️ Folder cache cleared to reflect new folder")
-
                 folders.append(newFolder)
                 folderEmailCounts[newFolder.id] = 0
+                hasLoadedOnce = true
 
                 await MainActor.run {
-                    completion(nil) // Success - no error
+                    completion(nil)
                 }
             } catch {
-                print("❌ Error creating folder: \(error)")
-
-                // Check if it's a duplicate key error (folder already exists)
                 let errorString = String(describing: error)
                 if errorString.contains("23505") || errorString.lowercased().contains("unique constraint") {
-                    print("ℹ️ Folder already exists, reloading folders list...")
-
-                    // Reload folders from Supabase to show the existing folder
                     emailService.clearFolderCache()
-                    loadFolders()
+                    loadFolders(force: true)
 
                     await MainActor.run {
-                        completion("Folder '\(name)' already exists") // User-friendly message
+                        completion("Folder '\(name)' already exists")
                     }
                 } else {
                     let errorMessage = error.localizedDescription
                     await MainActor.run {
-                        completion(errorMessage) // Pass error to completion handler
+                        completion(errorMessage)
                     }
                 }
             }

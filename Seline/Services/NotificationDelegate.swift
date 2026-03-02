@@ -87,6 +87,9 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             // The LocationSuggestionService already has the pending suggestion
             print("📍 Location suggestion notification tapped - showing home page with suggestion card")
 
+        case "journal_prompt":
+            NotificationCenter.default.post(name: .navigateToJournal, object: nil, userInfo: userInfo)
+
         default:
             print("Unknown notification type: \(notificationType ?? "nil")")
         }
@@ -120,4 +123,6 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
 extension Notification.Name {
     static let navigateToEmail = Notification.Name("navigateToEmail")
     static let navigateToTask = Notification.Name("navigateToTask")
+    static let navigateToJournal = Notification.Name("navigateToJournal")
+    static let openJournalFromMainApp = Notification.Name("openJournalFromMainApp")
 }

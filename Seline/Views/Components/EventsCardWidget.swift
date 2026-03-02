@@ -143,6 +143,16 @@ struct EventsCardWidget: View {
                             selectedTask = nil
                             showingEditTask = false
                         },
+                        onSaveRecurring: { updatedTask, scope, occurrenceDate in
+                            taskManager.editTask(
+                                updatedTask,
+                                recurringEditScope: scope,
+                                recurringOccurrenceDate: occurrenceDate
+                            )
+                            selectedTask = nil
+                            showingEditTask = false
+                        },
+                        occurrenceDate: task.targetDate,
                         onCancel: {
                             selectedTask = nil
                             showingEditTask = false

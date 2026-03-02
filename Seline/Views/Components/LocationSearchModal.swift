@@ -2,6 +2,11 @@ import SwiftUI
 import CoreLocation
 
 struct LocationSearchModal: View {
+    private struct SelectedPlaceContext: Identifiable {
+        let id: String
+        let details: PlaceDetails
+    }
+
     @Environment(\.dismiss) var dismiss
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var mapsService = GoogleMapsService.shared
@@ -11,9 +16,7 @@ struct LocationSearchModal: View {
     @State private var searchText = ""
     @State private var searchResults: [PlaceSearchResult] = []
     @State private var isSearching = false
-    @State private var selectedPlaceDetails: PlaceDetails? = nil
-    @State private var selectedGooglePlaceId: String? = nil
-    @State private var showLocationDetail = false
+    @State private var selectedPlaceContext: SelectedPlaceContext? = nil
     @State private var searchTask: Task<Void, Never>? = nil
     @FocusState private var isSearchFieldFocused: Bool
 
@@ -175,31 +178,8 @@ struct LocationSearchModal: View {
                 }
             }
         }
-        .sheet(isPresented: $showLocationDetail, onDismiss: {
-            selectedPlaceDetails = nil
-            selectedGooglePlaceId = nil
-        }) {
-            ZStack {
-                // Background color to prevent white flash
-                (colorScheme == .dark ? Color.black : Color.white)
-                    .ignoresSafeArea()
-
-                if let placeId = selectedGooglePlaceId, let details = selectedPlaceDetails {
-                    LocationDetailViewWrapper(googlePlaceId: placeId, initialPlaceDetails: details)
-                } else {
-                    // Fallback loading state if conditions aren't met yet
-                    VStack(spacing: 20) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .tint(colorScheme == .dark ? Color.white : Color.black)
-
-                        Text("Loading location details...")
-                            .font(FontManager.geist(size: 16, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
+        .sheet(item: $selectedPlaceContext) { context in
+            LocationDetailViewWrapper(googlePlaceId: context.id, initialPlaceDetails: context.details)
         }
         .presentationBg()
     }
@@ -265,14 +245,7 @@ struct LocationSearchModal: View {
                 let details = try await mapsService.getPlaceDetails(placeId: placeId)
 
                 await MainActor.run {
-                    // Set data BEFORE showing sheet to ensure no blank state
-                    selectedPlaceDetails = details
-                    selectedGooglePlaceId = placeId
-
-                    // Only show sheet after BOTH data points are confirmed set
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-                        showLocationDetail = true
-                    }
+                    selectedPlaceContext = SelectedPlaceContext(id: placeId, details: details)
                 }
             } catch {
                 // Handle error silently

@@ -318,6 +318,15 @@ struct SearchView: View {
                         selectedTask = nil
                         showingEditTask = false
                     },
+                    onSaveRecurring: { updatedTask, scope, occurrenceDate in
+                        taskManager.editTask(
+                            updatedTask,
+                            recurringEditScope: scope,
+                            recurringOccurrenceDate: occurrenceDate
+                        )
+                        selectedTask = nil
+                        showingEditTask = false
+                    },
                     onCancel: {
                         selectedTask = nil
                         showingEditTask = false

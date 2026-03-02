@@ -2,13 +2,13 @@ import SwiftUI
 import CoreLocation
 
 struct DailyOverviewWidget: View {
-    @StateObject private var taskManager = TaskManager.shared
-    @StateObject private var tagManager = TagManager.shared
+    @StateObject private var homeState = HomeDashboardState()
     @StateObject private var weatherService = WeatherService.shared
     @StateObject private var locationService = LocationService.shared
     @StateObject private var quickNoteManager = QuickNoteManager.shared
-    @StateObject private var peopleManager = PeopleManager.shared
     @Environment(\.colorScheme) var colorScheme
+    private let taskManager = TaskManager.shared
+    private let tagManager = TagManager.shared
 
     @Binding var isExpanded: Bool
 
@@ -20,8 +20,6 @@ struct DailyOverviewWidget: View {
     var onAddTaskFromPhoto: (() -> Void)?
     var onAddNote: (() -> Void)?
 
-    @State private var cachedTasks: [TaskItem] = []
-    @State private var cachedTodayTasks: [TaskItem] = []
     @State private var lastWeatherFetch: Date?
     @State private var expandedSection: ExpandedSection? = nil
     @State private var quickNoteInput: String = ""
@@ -63,9 +61,7 @@ struct DailyOverviewWidget: View {
     }
 
     private var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMMM d"
-        return formatter.string(from: Date())
+        FormatterCache.weekdayMonthDay.string(from: Date())
     }
 
     private var weatherSummary: String {
@@ -91,42 +87,25 @@ struct DailyOverviewWidget: View {
         colorScheme == .dark ? Color.claudeAccent.opacity(0.95) : Color.claudeAccent
     }
 
-    private var homeAccentTextColor: Color {
+    private var dailyOverviewCardBackground: some View {
+        HomeGlassCardBackground(
+            colorScheme: colorScheme,
+            cornerRadius: ShadcnRadius.xl,
+            highlightStrength: 1
+        )
+    }
+
+    private var activeChipFillColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var activeChipTextColor: Color {
         colorScheme == .dark ? .black : .white
     }
 
     private var upcomingBirthdaysThisMonth: [UpcomingBirthdayItem] {
-        let calendar = Calendar.current
-        let now = Date()
-        let currentMonth = calendar.component(.month, from: now)
-        let currentDay = calendar.component(.day, from: now)
-        let currentYear = calendar.component(.year, from: now)
-
-        return peopleManager.people.compactMap { person in
-            guard let birthday = person.birthday else { return nil }
-
-            let birthdayMonth = calendar.component(.month, from: birthday)
-            let birthdayDay = calendar.component(.day, from: birthday)
-
-            guard birthdayMonth == currentMonth, birthdayDay >= currentDay else {
-                return nil
-            }
-
-            let candidate = calendar.date(
-                from: DateComponents(
-                    year: currentYear,
-                    month: birthdayMonth,
-                    day: birthdayDay
-                )
-            ) ?? birthday
-
-            return UpcomingBirthdayItem(person: person, date: candidate)
-        }
-        .sorted { lhs, rhs in
-            if lhs.date == rhs.date {
-                return lhs.person.displayName.localizedCaseInsensitiveCompare(rhs.person.displayName) == .orderedAscending
-            }
-            return lhs.date < rhs.date
+        homeState.upcomingBirthdays.map { item in
+            UpcomingBirthdayItem(person: item.person, date: item.date)
         }
     }
 
@@ -135,7 +114,7 @@ struct DailyOverviewWidget: View {
     }
 
     private var todayTodos: [TaskItem] {
-        cachedTodayTasks.filter { task in
+        homeState.todayTasks.filter { task in
             !task.isDeleted
         }
     }
@@ -205,7 +184,7 @@ struct DailyOverviewWidget: View {
     }
 
     private var missedTodos: [TaskItem] {
-        cachedTasks
+        homeState.flattenedTasks
             .filter { task in
                 guard !task.isDeleted else { return false }
 
@@ -232,22 +211,19 @@ struct DailyOverviewWidget: View {
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                .fill(Color.shadcnTileBackground(colorScheme))
-        )
+        .background(dailyOverviewCardBackground)
         .overlay(
             RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 0.5)
+                .stroke(Color.homeGlassBorder(colorScheme), lineWidth: 1)
         )
         .shadow(
-            color: colorScheme == .dark ? .black.opacity(0.18) : Color.black.opacity(0.08),
-            radius: colorScheme == .dark ? 4 : 10,
+            color: colorScheme == .dark ? .black.opacity(0.24) : Color.black.opacity(0.08),
+            radius: colorScheme == .dark ? 10 : 20,
             x: 0,
-            y: colorScheme == .dark ? 2 : 4
+            y: colorScheme == .dark ? 6 : 10
         )
         .onAppear {
-            refreshCardData()
+            homeState.refreshAll()
             loadQuickNotes()
             locationService.requestLocationPermission()
             if let location = locationService.currentLocation {
@@ -257,10 +233,7 @@ struct DailyOverviewWidget: View {
                 expandedSection = .date
             }
         }
-        .onReceive(taskManager.$tasks) { _ in
-            refreshCardData()
-        }
-        .onReceive(peopleManager.$people) { _ in
+        .onReceive(homeState.$upcomingBirthdays) { _ in
             if expandedSection == .birthdays && upcomingBirthdaysThisMonth.isEmpty {
                 expandedSection = nil
                 isExpanded = false
@@ -284,13 +257,7 @@ struct DailyOverviewWidget: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Today")
-                        .font(FontManager.geist(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.62))
-                        .textCase(.uppercase)
-                        .tracking(0.5)
-
+                VStack(alignment: .leading, spacing: 0) {
                     Text(formattedDate)
                         .font(FontManager.geist(size: 20, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
@@ -346,29 +313,32 @@ struct DailyOverviewWidget: View {
     }
 
     private func summaryChip(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(FontManager.geist(size: 11, weight: .semibold))
-                .foregroundColor(
-                    isActive
-                    ? homeAccentTextColor
-                    : (colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.72))
-                )
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(
-                    Capsule()
-                        .fill(
-                            isActive
-                            ? homeAccentColor
-                            : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-                        )
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
+        Text(title)
+            .font(FontManager.geist(size: 11, weight: .semibold))
+            .foregroundColor(
+                isActive
+                ? activeChipTextColor
+                : (colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.72))
+            )
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                Capsule()
+                    .fill(
+                        isActive
+                        ? activeChipFillColor
+                        : Color.homeGlassInnerTint(colorScheme)
+                    )
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: isActive ? 0 : 0.75)
+            )
+            .contentShape(Capsule())
+            .scrollSafeTapAction(minimumDragDistance: 10, action: action)
+            .accessibilityAddTraits(.isButton)
     }
 
     private var quickAddMenuButton: some View {
@@ -394,21 +364,22 @@ struct DailyOverviewWidget: View {
                 Label("New Note", systemImage: "note.text.badge.plus")
             }
         } label: {
-            Image(systemName: "plus")
-                .font(FontManager.geist(size: 14, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .frame(width: 34, height: 34)
-                .background(
-                    Circle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.06))
-                )
-                .overlay(
-                    Circle()
-                        .stroke(colorScheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.1), lineWidth: 0.5)
-                )
+            quickAddButtonLabel
         }
         .buttonStyle(PlainButtonStyle())
+        .contentShape(Circle())
         .allowsParentScrolling()
+    }
+
+    private var quickAddButtonLabel: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.black)
+            .frame(width: 34, height: 34)
+            .background(
+                Circle()
+                    .fill(Color.homeGlassAccent)
+            )
     }
 
     @ViewBuilder
@@ -555,7 +526,7 @@ struct DailyOverviewWidget: View {
         .padding(.vertical, 6)
         .background(
             Capsule()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                .fill(Color.homeGlassInnerTint(colorScheme))
         )
     }
 
@@ -580,7 +551,7 @@ struct DailyOverviewWidget: View {
         .frame(width: 74, height: 54)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                .fill(Color.homeGlassInnerTint(colorScheme))
         )
     }
 
@@ -605,7 +576,7 @@ struct DailyOverviewWidget: View {
         .frame(width: 74, height: 54)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                .fill(Color.homeGlassInnerTint(colorScheme))
         )
     }
 
@@ -631,7 +602,7 @@ struct DailyOverviewWidget: View {
                         .padding(.vertical, 6)
                         .background(
                             Capsule()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                                .fill(Color.homeGlassInnerTint(colorScheme))
                         )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -641,7 +612,7 @@ struct DailyOverviewWidget: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+                    .fill(Color.homeGlassInnerTint(colorScheme))
             )
 
             if quickNoteManager.quickNotes.isEmpty {
@@ -756,7 +727,7 @@ struct DailyOverviewWidget: View {
                             .fill(homeAccentColor)
                         Image(systemName: "checkmark")
                             .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
                     }
                 } else {
                     Image(systemName: "circle")
@@ -825,7 +796,7 @@ struct DailyOverviewWidget: View {
                 .padding(.vertical, 2)
                 .background(
                     Capsule()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                        .fill(Color.homeGlassInnerTint(colorScheme))
                 )
         }
     }
@@ -848,13 +819,6 @@ struct DailyOverviewWidget: View {
             .font(FontManager.geist(size: 13, weight: .regular))
             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.55))
             .padding(.vertical, 2)
-    }
-
-    private func refreshCardData() {
-        let allTasks = taskManager.getAllFlattenedTasks()
-        let tasksForToday = taskManager.getTasksForDate(dayStart)
-        cachedTasks = allTasks
-        cachedTodayTasks = tasksForToday
     }
 
     private func toggleSection(_ section: ExpandedSection) {
@@ -928,9 +892,7 @@ struct DailyOverviewWidget: View {
             return "Today"
         }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE, MMM d"
-        return formatter.string(from: date)
+        return FormatterCache.weekdayShortMonthDay.string(from: date)
     }
 
     private func cleanedInterests(from person: Person) -> [String]? {

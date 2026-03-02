@@ -32,6 +32,10 @@ struct BottomTabBar: View {
     @Binding var selectedTab: TabSelection
     @Environment(\.colorScheme) var colorScheme
 
+    private var topDividerColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.12)
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             ForEach(TabSelection.allCases, id: \.self) { tab in
@@ -47,6 +51,11 @@ struct BottomTabBar: View {
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
         .background(Color.clear)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(topDividerColor)
+                .frame(height: 0.5)
+        }
     }
 }
 

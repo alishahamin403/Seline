@@ -18,18 +18,16 @@ struct SpendingAndETAWidget: View {
     @Environment(\.colorScheme) var colorScheme
 
     var isVisible: Bool = true
+    var onAddReceiptTapped: (() -> Void)? = nil
     var onAddReceipt: (() -> Void)? = nil
     var onAddReceiptFromGallery: (() -> Void)? = nil
+    var onReceiptSelected: ((ReceiptStat) -> Void)? = nil
 
     @State private var showReceiptStats = false
+    @State private var showLegacyReceiptAddOptions = false
     @State private var spendingInsights: [SpendingInsightsService.SpendingInsight] = []
     @State private var selectedInsight: SpendingInsightsService.SpendingInsight?
-    @State private var showInsightDetail = false
     @State private var selectedCategory: SelectedCategory?
-
-    private var cardHeadingFont: Font {
-        FontManager.geist(size: 20, weight: .semibold)
-    }
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
@@ -50,30 +48,31 @@ struct SpendingAndETAWidget: View {
         }.reduce(0) { $0 + $1.monthlyTotal }
     }
 
-    private var dailyTotal: Double {
-        guard let stats = currentYearStats else { return 0 }
+    private var todayReceiptStats: [ReceiptStat] {
+        guard let stats = currentYearStats else { return [] }
+
         let calendar = Calendar.current
         let now = Date()
         let today = calendar.startOfDay(for: now)
+        let currentMonth = calendar.component(.month, from: now)
+        let currentYear = calendar.component(.year, from: now)
 
-        // Get all receipts from current month
-        var todayReceipts: [ReceiptStat] = []
-        for monthlySummary in stats.monthlySummaries {
-            let month = calendar.component(.month, from: monthlySummary.monthDate)
-            let year = calendar.component(.year, from: monthlySummary.monthDate)
-            let currentMonth = calendar.component(.month, from: now)
-            let currentYear = calendar.component(.year, from: now)
-
-            if month == currentMonth && year == currentYear {
-                todayReceipts.append(contentsOf: monthlySummary.receipts)
+        return stats.monthlySummaries
+            .filter { summary in
+                let month = calendar.component(.month, from: summary.monthDate)
+                let year = calendar.component(.year, from: summary.monthDate)
+                return month == currentMonth && year == currentYear
             }
-        }
+            .flatMap { $0.receipts }
+            .filter { receipt in
+                calendar.startOfDay(for: receipt.date) == today
+            }
+            .sorted { $0.date > $1.date }
+    }
 
-        // Filter for today only
-        let todayTotal = todayReceipts.filter { receipt in
-            let receiptDay = calendar.startOfDay(for: receipt.date)
-            return receiptDay == today
-        }.reduce(0.0) { $0 + $1.amount }
+    private var dailyTotal: Double {
+        let now = Date()
+        let todayTotal = todayReceiptStats.reduce(0.0) { $0 + $1.amount }
 
         // Fallback: include receipt-like notes directly in case hierarchy/date extraction
         // excluded a same-day receipt from stats aggregation.
@@ -359,8 +358,19 @@ struct SpendingAndETAWidget: View {
             ReceiptStatsView(isPopup: true)
                 .presentationDetents([.large])
         }
-        .sheet(isPresented: $showInsightDetail) {
-            if let insight = selectedInsight, insight.hasDetails {
+        .confirmationDialog("Add Receipt", isPresented: $showLegacyReceiptAddOptions, titleVisibility: .visible) {
+            Button("Take Picture") {
+                HapticManager.shared.buttonTap()
+                onAddReceipt?()
+            }
+            Button("Upload Images") {
+                HapticManager.shared.buttonTap()
+                onAddReceiptFromGallery?()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(item: $selectedInsight) { insight in
+            if insight.hasDetails {
                 InsightDetailSheet(insight: insight)
                     .presentationDetents([.medium, .large])
             }
@@ -369,7 +379,10 @@ struct SpendingAndETAWidget: View {
             CategoryReceiptsListModal(
                 receipts: category.receipts,
                 categoryName: category.name,
-                total: category.total
+                total: category.total,
+                onReceiptTap: { receipt in
+                    onReceiptSelected?(receipt)
+                }
             )
             .presentationDetents([.medium, .large])
         }
@@ -414,7 +427,8 @@ struct SpendingAndETAWidget: View {
             let insights = insightsService.generateInsights(
                 currentMonthReceipts: currentMonthReceipts,
                 previousMonthReceipts: previousMonthReceipts,
-                allTimeReceipts: allTimeReceipts
+                allTimeReceipts: allTimeReceipts,
+                historicalReceipts: allReceipts
             )
 
             await MainActor.run {
@@ -424,59 +438,66 @@ struct SpendingAndETAWidget: View {
     }
 
     private func spendingCard() -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Spending")
-                        .font(FontManager.geist(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.62))
-                        .textCase(.uppercase)
-                        .tracking(0.5)
-
-                    Text("This Month")
-                        .font(cardHeadingFont)
+                        .font(FontManager.geist(size: 24, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
                 }
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 12)
                 addReceiptMenuButton
             }
 
-            HStack(spacing: 8) {
-                Button(action: {
-                    HapticManager.shared.selection()
-                    showReceiptStats = true
-                }) {
-                    spendingStatPill(
-                        title: "Month",
-                        value: CurrencyParser.formatAmountNoDecimals(monthlyTotal)
-                    )
-                }
-                .buttonStyle(PlainButtonStyle())
+            Button(action: openReceiptStatsPage) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
+                        .font(FontManager.geist(size: 22, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
 
-                Button(action: {
-                    HapticManager.shared.selection()
-                    showReceiptStats = true
-                }) {
-                    spendingStatPill(
+                    Text("This month")
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            HStack(spacing: 10) {
+                Button(action: openTodayReceipts) {
+                    spendingMetricTile(
                         title: "Today",
                         value: CurrencyParser.formatAmountNoDecimals(dailyTotal)
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
 
+                spendingMetricTile(
+                    title: "MoM",
+                    value: monthOverMonthMetricText,
+                    valueColor: monthOverMonthMetricColor
+                )
+
                 Button(action: {
-                    HapticManager.shared.selection()
-                    showReceiptStats = true
+                    if let category = categoryBreakdown.first?.category {
+                        openCategoryExpenses(for: category)
+                    }
                 }) {
-                    trendPill
+                    spendingMetricTile(
+                        title: "Top",
+                        value: categoryBreakdown.first?.category ?? "--"
+                    )
                 }
                 .buttonStyle(PlainButtonStyle())
+                .disabled(categoryBreakdown.isEmpty)
             }
 
-            topCategoryView
+            if !categoryBreakdown.isEmpty {
+                spendingSignalsOverview
+            }
 
             if !spendingInsights.isEmpty {
                 insightsScrollView
@@ -484,200 +505,187 @@ struct SpendingAndETAWidget: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .shadcnTileStyle(colorScheme: colorScheme)
+        .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 24)
     }
 
     private var addReceiptMenuButton: some View {
-        Menu {
-            Button(action: {
-                HapticManager.shared.selection()
-                onAddReceipt?()
-            }) {
-                Label("Camera", systemImage: "camera.fill")
-            }
+        Button(action: {
+            HapticManager.shared.buttonTap()
 
-            Button(action: {
-                HapticManager.shared.selection()
-                onAddReceiptFromGallery?()
-            }) {
-                Label("Gallery", systemImage: "photo.fill")
+            if let onAddReceiptTapped {
+                onAddReceiptTapped()
+            } else if onAddReceipt != nil || onAddReceiptFromGallery != nil {
+                showLegacyReceiptAddOptions = true
             }
-        } label: {
-            Image(systemName: "plus")
-                .font(FontManager.geist(size: 14, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .frame(width: 34, height: 34)
-                .background(
-                    Circle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
-                )
-                .overlay(
-                    Circle()
-                        .stroke(colorScheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.1), lineWidth: 0.5)
-                )
+        }) {
+            addReceiptButtonLabel
         }
         .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
+        .contentShape(Circle())
     }
 
-    private var daysLeftInMonth: Int {
-        let calendar = Calendar.current
-        let now = Date()
-        let range = calendar.range(of: .day, in: .month, for: now)!
-        let numDays = range.count
-        let currentDay = calendar.component(.day, from: now)
-        return numDays - currentDay
+    private var addReceiptButtonLabel: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.black)
+            .frame(width: 34, height: 34)
+            .background(
+                Circle()
+                    .fill(homeAccentColor)
+            )
     }
 
-    private var nextMonthName: String {
-        let calendar = Calendar.current
-        let nextMonth = calendar.date(byAdding: .month, value: 1, to: Date())!
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM"
-        return formatter.string(from: nextMonth)
-    }
+    private var spendingSignalsOverview: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Signals")
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
 
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(Array(categoryBreakdown.prefix(4)), id: \.category) { category in
+                        Button(action: {
+                            openCategoryExpenses(for: category.category)
+                        }) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                    Text(category.category)
+                                        .font(FontManager.geist(size: 12, weight: .medium))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .lineLimit(1)
 
-    private var topCategoryView: some View {
-        Group {
-            if !categoryBreakdown.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Top Categories")
-                        .font(FontManager.geist(size: 11, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
-                        .textCase(.uppercase)
-                        .tracking(0.5)
-                    
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(Array(categoryBreakdown.prefix(12).enumerated()), id: \.element.category) { _, category in
-                                Button(action: {
-                                    openCategoryExpenses(for: category.category)
-                                }) {
-                                    HStack(spacing: 0) {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(category.category)
-                                                .font(FontManager.geist(size: 11, weight: .semibold))
-                                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                .lineLimit(1)
+                                    Spacer(minLength: 8)
 
-                                            Text(CurrencyParser.formatAmountNoDecimals(category.amount))
-                                                .font(FontManager.geist(size: 11, weight: .regular))
-                                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
-                                    )
-                                    .contentShape(RoundedRectangle(cornerRadius: 10))
+                                    Text(CurrencyParser.formatAmountNoDecimals(category.amount))
+                                        .font(FontManager.geist(size: 12, weight: .medium))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
                                 }
-                                .buttonStyle(PlainButtonStyle())
+
+                                Text("\(Int(category.percentage.rounded()))% of month")
+                                    .font(FontManager.geist(size: 12, weight: .regular))
+                                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                                    .lineLimit(1)
                             }
+                            .frame(width: 178, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
                         }
-                        .padding(.horizontal, 16)
+                        .buttonStyle(PlainButtonStyle())
                     }
-                    .padding(.horizontal, -16)
                 }
+                .padding(.horizontal, 16)
             }
+            .padding(.horizontal, -16)
         }
     }
 
     // MARK: - Insights Scroll View
 
     private var insightsScrollView: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(spendingInsights) { insight in
-                    Button(action: {
-                        guard insight.hasDetails else { return }
-                        selectedInsight = insight
-                        showInsightDetail = true
-                        HapticManager.shared.selection()
-                    }) {
-                        insightChip(insight)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(!insight.hasDetails)
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Insights")
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(spendingInsights) { insight in
+                        Button(action: {
+                            guard insight.hasDetails else { return }
+                            selectedInsight = insight
+                            HapticManager.shared.selection()
+                        }) {
+                            insightChip(insight)
                         }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(!insight.hasDetails)
+                    }
+                }
+                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, -16)
         }
-        .padding(.horizontal, -16)
         .allowsParentScrolling()
-        .padding(.top, 2)
     }
 
     private func insightChip(_ insight: SpendingInsightsService.SpendingInsight) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(insight.title)
-                .font(FontManager.geist(size: 11, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .font(FontManager.geist(size: 12, weight: .medium))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
                 .lineLimit(1)
 
             Text(insight.subtitle)
-                .font(FontManager.geist(size: 11, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .font(FontManager.geist(size: 12, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(minWidth: 180)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
-        )
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(minWidth: 194)
+        .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
     }
 
-    private func spendingStatPill(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+    private func spendingMetricTile(title: String, value: String, valueColor: Color? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(FontManager.geist(size: 10, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.52) : Color.black.opacity(0.5))
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineLimit(1)
 
             Text(value)
-                .font(FontManager.geist(size: 14, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .font(FontManager.geist(size: 19, weight: .semibold))
+                .foregroundColor(valueColor ?? Color.appTextPrimary(colorScheme))
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .minimumScaleFactor(0.72)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+    }
+
+    private var spendingHeroCardBackground: some View {
+        HomeGlassCardBackground(
+            colorScheme: colorScheme,
+            cornerRadius: 24,
+            highlightStrength: 1
         )
     }
 
-    private var trendPill: some View {
-        let trendColor: Color = monthOverMonthPercentage.isIncrease ? .red : .green
+    private var homeAccentColor: Color {
+        Color.homeGlassAccent
+    }
 
-        return VStack(alignment: .leading, spacing: 2) {
-            Text("MoM")
-                .font(FontManager.geist(size: 10, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.52) : Color.black.opacity(0.5))
-
-            HStack(spacing: 4) {
-                Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
-                    .font(FontManager.geist(size: 10, weight: .semibold))
-                Text(String(format: "%.0f%%", monthOverMonthPercentage.percentage))
-                    .font(FontManager.geist(size: 14, weight: .semibold))
-            }
-            .foregroundColor(trendColor)
+    private var monthOverMonthMetricText: String {
+        guard previousMonthTotal > 0 else {
+            return monthlyTotal > 0 ? "New" : "--"
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.04))
-        )
+
+        let sign = monthOverMonthPercentage.isIncrease ? "+" : "-"
+        return "\(sign)\(Int(monthOverMonthPercentage.percentage.rounded()))%"
+    }
+
+    private var monthOverMonthMetricColor: Color {
+        guard previousMonthTotal > 0 else {
+            return Color.appTextPrimary(colorScheme)
+        }
+        return monthOverMonthPercentage.isIncrease ? .red : .green
+    }
+
+    private func openTodayReceipts() {
+        HapticManager.shared.selection()
+        selectedCategory = SelectedCategory(name: "Today", receipts: todayReceiptStats)
+    }
+
+    private func openReceiptStatsPage() {
+        HapticManager.shared.selection()
+        showReceiptStats = true
     }
 
     private func openCategoryExpenses(for categoryName: String) {
@@ -687,73 +695,6 @@ struct SpendingAndETAWidget: View {
         guard !matchingReceipts.isEmpty else { return }
         HapticManager.shared.selection()
         selectedCategory = SelectedCategory(name: categoryName, receipts: matchingReceipts)
-    }
-
-
-    private var recentTransactionsView: some View {
-        let calendar = Calendar.current
-        let now = Date()
-        let today = calendar.startOfDay(for: now)
-
-        let todaysNotes = notesManager.notes.filter { note in
-            let noteDay = calendar.startOfDay(for: note.dateCreated)
-            return noteDay == today
-        }.sorted { $0.dateCreated > $1.dateCreated }.prefix(3)
-
-        return VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(todaysNotes), id: \.id) { note in
-                HStack(spacing: 6) {
-                    Text(note.title)
-                        .font(FontManager.geist(size: 10, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .lineLimit(1)
-
-                    Spacer()
-
-                    Text(formatExpenseDate(note.dateCreated ?? Date()))
-                        .font(FontManager.geist(size: 9, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-
-                    if let amount = extractAmount(from: note.content ?? "") {
-                        Text(CurrencyParser.formatAmountNoDecimals(amount))
-                            .font(FontManager.geist(size: 10, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                    }
-                }
-            }
-        }
-        .padding(.top, 10)
-    }
-
-    private func formatExpenseDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let dateDay = calendar.startOfDay(for: date)
-        
-        if dateDay == today {
-            // For today's expenses, show time
-            formatter.timeStyle = .short
-            return formatter.string(from: date)
-        } else {
-            // For other dates, show short date format
-            formatter.dateStyle = .short
-            formatter.timeStyle = .short
-            return formatter.string(from: date)
-        }
-    }
-
-    private func extractAmount(from text: String) -> Double? {
-        let pattern = "\\$[0-9,]+(?:\\.[0-9]{2})?"
-        if let regex = try? NSRegularExpression(pattern: pattern) {
-            if let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) {
-                if let range = Range(match.range, in: text) {
-                    let amountStr = String(text[range]).replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "")
-                    return Double(amountStr)
-                }
-            }
-        }
-        return nil
     }
 }
 
@@ -829,9 +770,9 @@ struct InsightDetailSheet: View {
                     }
 
                     // Receipt List
-                    if let receipts = insight.detailReceipts, !receipts.isEmpty {
+                    if insight.type != .newMerchant, let receipts = insight.detailReceipts, !receipts.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("All Transactions")
+                            Text("Transactions")
                                 .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                                 .textCase(.uppercase)

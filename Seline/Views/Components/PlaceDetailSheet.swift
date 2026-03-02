@@ -113,6 +113,7 @@ struct PlaceDetailSheet: View {
                                     .buttonStyle(PlainButtonStyle())
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
                         if let hours = place.openingHours, !hours.isEmpty {
@@ -132,7 +133,7 @@ struct PlaceDetailSheet: View {
                         Spacer()
                             .frame(height: 40)
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                 }
                 .background(pageBackgroundColor)
             }
@@ -156,6 +157,7 @@ struct PlaceDetailSheet: View {
     @ViewBuilder
     private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 22)
@@ -294,6 +296,7 @@ struct PlaceVisitCalendarHistoryCard: View {
             selectedDaySection
         }
         .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 22)
                 .fill(cardFill)
@@ -334,7 +337,8 @@ struct PlaceVisitCalendarHistoryCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
+        .frame(minHeight: 64, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))

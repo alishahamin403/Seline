@@ -4,6 +4,8 @@ import SwiftUI
 struct EmailListByDay: View {
     let daySections: [EmailDaySection]
     let loadingState: EmailLoadingState
+    let presentationStyle: EmailMailboxPresentationStyle
+    let topContent: AnyView?
     let onRefresh: () async -> Void
     let onEmailTap: (Email) -> Void
     let onDeleteEmail: (Email) -> Void
@@ -18,6 +20,8 @@ struct EmailListByDay: View {
     init(
         daySections: [EmailDaySection],
         loadingState: EmailLoadingState,
+        presentationStyle: EmailMailboxPresentationStyle = .inbox,
+        topContent: AnyView? = nil,
         onRefresh: @escaping () async -> Void,
         onEmailTap: @escaping (Email) -> Void,
         onDeleteEmail: @escaping (Email) -> Void,
@@ -27,6 +31,8 @@ struct EmailListByDay: View {
     ) {
         self.daySections = daySections
         self.loadingState = loadingState
+        self.presentationStyle = presentationStyle
+        self.topContent = topContent
         self.onRefresh = onRefresh
         self.onEmailTap = onEmailTap
         self.onDeleteEmail = onDeleteEmail
@@ -43,6 +49,10 @@ struct EmailListByDay: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 14) {
+                if let topContent {
+                    topContent
+                }
+
                 switch loadingState {
                 case .idle:
                     EmptyView()
@@ -67,8 +77,11 @@ struct EmailListByDay: View {
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.top, 8)
+            .padding(.top, 10)
             .padding(.bottom, 80) // Extra padding for compose button
+        }
+        .refreshable {
+            await onRefresh()
         }
     }
     
@@ -96,6 +109,7 @@ struct EmailListByDay: View {
 
                 EmailDaySectionView(
                     section: section,
+                    presentationStyle: presentationStyle,
                     isExpanded: isExpanded,
                     onEmailTap: { email in
                         onEmailTap(email)
@@ -140,20 +154,30 @@ struct EmailListByDay: View {
     // MARK: - Empty State
     
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
+        VStack(alignment: .leading, spacing: 16) {
             Image(systemName: "tray")
-                .font(FontManager.geist(size: 48, weight: .light))
-                .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.7))
-            
-            Text("No Emails in the Last 7 Days")
-                .font(FontManager.geist(size: 17, weight: .semibold))
-                .foregroundColor(Color.appTextPrimary(colorScheme))
-            
-            Text("New emails appear automatically")
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .font(FontManager.geist(size: 30, weight: .light))
+                .foregroundColor(Color.emailGlassMutedText(colorScheme))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("No emails in this view")
+                    .font(FontManager.geist(size: 18, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                Text(presentationStyle == .sent ? "Try another lens or check a different day." : "Try another lens or pull to refresh.")
+                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .foregroundColor(Color.emailGlassMutedText(colorScheme))
+            }
         }
-        .padding(.top, 60)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topLeading,
+            cornerRadius: 24,
+            highlightStrength: 0.28
+        )
+        .padding(.top, 8)
     }
 }
 
@@ -161,15 +185,7 @@ struct EmailListByDay: View {
 
 struct DayLoadingPlaceholder: View {
     @Environment(\.colorScheme) var colorScheme
-    
-    private var cardBackground: Color {
-        Color.appSectionCard(colorScheme)
-    }
-    
-    private var strokeColor: Color {
-        Color.appBorder(colorScheme)
-    }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header placeholder
@@ -206,11 +222,11 @@ struct DayLoadingPlaceholder: View {
                 }
             }
         }
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(strokeColor, lineWidth: 1)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topLeading,
+            cornerRadius: 20,
+            highlightStrength: 0.2
         )
     }
 }

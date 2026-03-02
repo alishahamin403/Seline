@@ -29,6 +29,18 @@ struct SelineWidgetEntry: TimelineEntry {
 }
 
 struct SelineWidgetProvider: TimelineProvider {
+    private func formatElapsedTime(since entryTime: Date, now: Date = Date()) -> String {
+        let totalSeconds = Int(now.timeIntervalSince(entryTime))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+
+        return "\(minutes)m"
+    }
+
     func placeholder(in context: Context) -> SelineWidgetEntry {
         return SelineWidgetEntry(
             date: Date(),
@@ -69,7 +81,9 @@ struct SelineWidgetProvider: TimelineProvider {
         let isSpendingIncreasing = userDefaults?.bool(forKey: "widgetIsSpendingIncreasing") ?? false
         let dailySpending = userDefaults?.double(forKey: "widgetDailySpending") ?? 0.0
         let visitedLocation = userDefaults?.string(forKey: "widgetVisitedLocation")
-        let elapsedTime = userDefaults?.string(forKey: "widgetElapsedTime")
+        let visitEntryTime = userDefaults?.object(forKey: "widgetVisitEntryTime") as? Date
+        let elapsedTime = visitEntryTime.map { formatElapsedTime(since: $0, now: currentDate) }
+            ?? userDefaults?.string(forKey: "widgetElapsedTime")
 
         // Load today's tasks
         let todaysTasks = loadTodaysTasks()

@@ -106,15 +106,7 @@ struct PeoplePickerView: View {
             }
         }) {
             HStack(spacing: 12) {
-                // Avatar or initials
-                Circle()
-                    .fill(colorForRelationship(person.relationship))
-                    .frame(width: 40, height: 40)
-                    .overlay(
-                        Text(person.initials)
-                            .font(FontManager.geist(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
-                    )
+                personAvatar(for: person)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(person.displayName)
@@ -149,6 +141,34 @@ struct PeoplePickerView: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    private func personAvatar(for person: Person) -> some View {
+        Group {
+            if let photoURL = person.photoURL, !photoURL.isEmpty {
+                CachedAsyncImage(url: photoURL) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    initialsAvatar(for: person)
+                }
+            } else {
+                initialsAvatar(for: person)
+            }
+        }
+        .frame(width: 40, height: 40)
+        .clipShape(Circle())
+    }
+
+    private func initialsAvatar(for person: Person) -> some View {
+        Circle()
+            .fill(colorForRelationship(person.relationship))
+            .overlay(
+                Text(person.initials)
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+            )
     }
     
     private func colorForRelationship(_ relationship: RelationshipType) -> Color {

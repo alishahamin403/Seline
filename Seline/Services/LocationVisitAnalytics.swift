@@ -110,6 +110,7 @@ class LocationVisitAnalytics: ObservableObject {
     /// Shared function to process visits for display (splits midnight-spanning, merges gaps)
     /// This ensures all views show consistent, processed visit data
     func processVisitsForDisplay(_ visits: [LocationVisitRecord]) -> [LocationVisitRecord] {
+        guard !visits.isEmpty else { return [] }
         var processedVisits: [LocationVisitRecord] = []
         
         // Track which time ranges have split visits to avoid duplicates
@@ -142,7 +143,89 @@ class LocationVisitAnalytics: ObservableObject {
             }
         }
 
-        return processedVisits
+        return deduplicateLikelyDuplicateVisits(processedVisits)
+    }
+
+    private func deduplicateLikelyDuplicateVisits(_ visits: [LocationVisitRecord]) -> [LocationVisitRecord] {
+        let now = Date()
+        var deduped: [LocationVisitRecord] = []
+
+        let grouped = Dictionary(grouping: visits) { $0.savedPlaceId }
+        for (_, groupedVisits) in grouped {
+            let sortedVisits = groupedVisits.sorted { $0.entryTime < $1.entryTime }
+
+            for visit in sortedVisits {
+                if let duplicateIndex = deduped.firstIndex(where: { existingVisit in
+                    existingVisit.savedPlaceId == visit.savedPlaceId &&
+                    visitsAreLikelyDuplicate(existingVisit, visit, now: now)
+                }) {
+                    if preferVisit(visit, over: deduped[duplicateIndex]) {
+                        deduped[duplicateIndex] = visit
+                    }
+                } else {
+                    deduped.append(visit)
+                }
+            }
+        }
+
+        return deduped.sorted { $0.entryTime > $1.entryTime }
+    }
+
+    private func visitsAreLikelyDuplicate(
+        _ first: LocationVisitRecord,
+        _ second: LocationVisitRecord,
+        now: Date
+    ) -> Bool {
+        let firstEnd = first.exitTime ?? now
+        let secondEnd = second.exitTime ?? now
+
+        // Exact/near-exact time duplicates.
+        let startsNearlyEqual = abs(first.entryTime.timeIntervalSince(second.entryTime)) <= 90
+        let endsNearlyEqual = abs(firstEnd.timeIntervalSince(secondEnd)) <= 90
+        if startsNearlyEqual && endsNearlyEqual {
+            return true
+        }
+
+        // Overlap-based duplicate detection (same place and same time window).
+        let overlapStart = max(first.entryTime, second.entryTime)
+        let overlapEnd = min(firstEnd, secondEnd)
+        guard overlapEnd > overlapStart else { return false }
+
+        let overlapDuration = overlapEnd.timeIntervalSince(overlapStart)
+        let firstDuration = max(firstEnd.timeIntervalSince(first.entryTime), 1)
+        let secondDuration = max(secondEnd.timeIntervalSince(second.entryTime), 1)
+        let shorterDuration = min(firstDuration, secondDuration)
+        let overlapRatio = overlapDuration / shorterDuration
+
+        return overlapRatio >= 0.9
+    }
+
+    private func preferVisit(_ candidate: LocationVisitRecord, over current: LocationVisitRecord) -> Bool {
+        let candidateIsMidnightSplitPart = candidate.mergeReason?.contains("midnight_split_part") == true
+        let currentIsMidnightSplitPart = current.mergeReason?.contains("midnight_split_part") == true
+        if candidateIsMidnightSplitPart != currentIsMidnightSplitPart {
+            return candidateIsMidnightSplitPart
+        }
+
+        let candidateHasNotes = !(candidate.visitNotes?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let currentHasNotes = !(current.visitNotes?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        if candidateHasNotes != currentHasNotes {
+            return candidateHasNotes
+        }
+
+        let candidateIsComplete = candidate.exitTime != nil
+        let currentIsComplete = current.exitTime != nil
+        if candidateIsComplete != currentIsComplete {
+            return candidateIsComplete
+        }
+
+        if let candidateDuration = candidate.durationMinutes,
+           let currentDuration = current.durationMinutes,
+           candidateDuration != currentDuration {
+            return candidateDuration > currentDuration
+        }
+
+        return candidate.updatedAt >= current.updatedAt
     }
     
     /// CRITICAL: Handles midnight-spanning visits by splitting them and deduplicating

@@ -11,6 +11,10 @@ struct SettingsView: View {
         themeManager.effectiveColorScheme == .dark
     }
 
+    private var resolvedColorScheme: ColorScheme {
+        isDarkMode ? .dark : .light
+    }
+
     // Settings states
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
     @AppStorage("locationTrackingEnabled") private var locationTrackingEnabled = true
@@ -20,19 +24,24 @@ struct SettingsView: View {
     @State private var showingCalendarSelection = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    // User Profile Header Section
+        ZStack {
+            AppAmbientBackgroundLayer(colorScheme: resolvedColorScheme, variant: .bottomTrailing)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 14) {
                     profileHeaderSection
                         .padding(.horizontal, 20)
-                        .padding(.vertical, 24)
-                        .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
+                        .padding(.vertical, 22)
+                        .appAmbientCardStyle(
+                            colorScheme: resolvedColorScheme,
+                            variant: .topTrailing,
+                            cornerRadius: 26,
+                            highlightStrength: 0.72
+                        )
                         .task {
                             await fetchUserProfilePicture()
                         }
 
-                    // Settings Menu Items
                     VStack(spacing: 0) {
                         // Notifications Toggle
                         HStack(spacing: 16) {
@@ -195,12 +204,20 @@ struct SettingsView: View {
                         settingsMenuItemLogout
                     }
                     .padding(.vertical, 12)
+                    .appAmbientCardStyle(
+                        colorScheme: resolvedColorScheme,
+                        variant: .topLeading,
+                        cornerRadius: 28,
+                        highlightStrength: 0.58
+                    )
 
                     Spacer(minLength: 50)
                 }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 50)
             }
         }
-        .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
         .sheet(isPresented: $showingFeedback) {
             FeedbackView()
                 .presentationBg()
@@ -210,87 +227,102 @@ struct SettingsView: View {
                 .presentationBg()
         }
         .sheet(isPresented: $showingLocationInfo) {
-            VStack(spacing: 0) {
-                // Header
-                HStack {
-                    Text("Location Tracking")
-                        .font(FontManager.geist(size: 18, weight: .semibold))
-                        .foregroundColor(isDarkMode ? .white : .black)
+            ZStack {
+                AppAmbientBackgroundLayer(colorScheme: resolvedColorScheme, variant: .topLeading)
 
-                    Spacer()
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Location Tracking")
+                            .font(FontManager.geist(size: 18, weight: .semibold))
+                            .foregroundColor(isDarkMode ? .white : .black)
 
-                    Button(action: { showingLocationInfo = false }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(FontManager.geist(size: 20, weight: .regular))
-                            .foregroundColor(.gray)
-                    }
-                }
-                .padding(20)
+                        Spacer()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        // How it Works
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "location.fill")
-                                    .font(FontManager.geist(size: 16, weight: .semibold))
-                                    .foregroundColor(.blue)
-
-                                Text("How It Works")
-                                    .font(FontManager.geist(size: 16, weight: .semibold))
-                                    .foregroundColor(isDarkMode ? .white : .black)
-                            }
-
-                            Text("When enabled, Seline uses geofencing to automatically detect when you arrive and leave saved locations. This works in the background even when the app is closed.")
-                                .font(FontManager.geist(size: 14, weight: .regular))
-                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
-                                .lineSpacing(2)
-                        }
-
-                        Divider()
-
-                        // Battery Usage
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "battery.100")
-                                    .font(FontManager.geist(size: 16, weight: .semibold))
-                                    .foregroundColor(.green)
-
-                                Text("Battery Usage")
-                                    .font(FontManager.geist(size: 16, weight: .semibold))
-                                    .foregroundColor(isDarkMode ? .white : .black)
-                            }
-
-                            Text("Geofencing is battery-efficient and only triggers when you cross location boundaries. Typical battery impact is minimal (1-2% per day).")
-                                .font(FontManager.geist(size: 14, weight: .regular))
-                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
-                                .lineSpacing(2)
-                        }
-
-                        Divider()
-
-                        // Privacy
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "lock.shield.fill")
-                                    .font(FontManager.geist(size: 16, weight: .semibold))
-                                    .foregroundColor(.primary)
-
-                                Text("Privacy")
-                                    .font(FontManager.geist(size: 16, weight: .semibold))
-                                    .foregroundColor(isDarkMode ? .white : .black)
-                            }
-
-                            Text("Your location data stays private and is only stored on your device and in your secure Supabase database. We never share or sell your location data.")
-                                .font(FontManager.geist(size: 14, weight: .regular))
-                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
-                                .lineSpacing(2)
+                        Button(action: { showingLocationInfo = false }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(FontManager.geist(size: 20, weight: .regular))
+                                .foregroundColor(.gray)
                         }
                     }
                     .padding(20)
+                    .appAmbientCardStyle(
+                        colorScheme: resolvedColorScheme,
+                        variant: .topTrailing,
+                        cornerRadius: 24,
+                        highlightStrength: 0.62
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.top, 12)
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "location.fill")
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
+                                        .foregroundColor(.blue)
+
+                                    Text("How It Works")
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
+                                        .foregroundColor(isDarkMode ? .white : .black)
+                                }
+
+                                Text("When enabled, Seline uses geofencing to automatically detect when you arrive and leave saved locations. This works in the background even when the app is closed.")
+                                    .font(FontManager.geist(size: 14, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                    .lineSpacing(2)
+                            }
+
+                            Divider()
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "battery.100")
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
+                                        .foregroundColor(.green)
+
+                                    Text("Battery Usage")
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
+                                        .foregroundColor(isDarkMode ? .white : .black)
+                                }
+
+                                Text("Geofencing is battery-efficient and only triggers when you cross location boundaries. Typical battery impact is minimal (1-2% per day).")
+                                    .font(FontManager.geist(size: 14, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                    .lineSpacing(2)
+                            }
+
+                            Divider()
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "lock.shield.fill")
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
+                                        .foregroundColor(.primary)
+
+                                    Text("Privacy")
+                                        .font(FontManager.geist(size: 16, weight: .semibold))
+                                        .foregroundColor(isDarkMode ? .white : .black)
+                                }
+
+                                Text("Your location data stays private and is only stored on your device and in your secure Supabase database. We never share or sell your location data.")
+                                    .font(FontManager.geist(size: 14, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                    .lineSpacing(2)
+                            }
+                        }
+                        .padding(20)
+                        .appAmbientCardStyle(
+                            colorScheme: resolvedColorScheme,
+                            variant: .bottomLeading,
+                            cornerRadius: 26,
+                            highlightStrength: 0.54
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                    }
                 }
             }
-            .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
             .presentationBg()
         }
         .task {

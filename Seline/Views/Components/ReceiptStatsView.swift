@@ -27,6 +27,7 @@ struct ReceiptStatsView: View {
     var searchText: String? = nil
     var initialMonthDate: Date? = nil
     var onAddReceipt: (() -> Void)? = nil
+    var onActivateSearch: (() -> Void)? = nil
 
     var isPopup: Bool = false
 
@@ -162,15 +163,7 @@ struct ReceiptStatsView: View {
     }
 
     private var pageBackgroundColor: Color {
-        colorScheme == .dark ? Color.black : Color.emailLightBackground
-    }
-
-    private var cardFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface
-    }
-
-    private var cardBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+        Color.appBackground(colorScheme)
     }
 
     private var primaryTextColor: Color {
@@ -239,12 +232,20 @@ struct ReceiptStatsView: View {
         return "\(largestMonthlySummary.month) is \(String(format: "%.0f%%", percent)) above your monthly average."
     }
 
+    private var receiptHeroSummaryText: String {
+        if currentYearReceiptCount == 0 {
+            return "Track receipts, categories, and monthly spending patterns."
+        }
+
+        return "\(currentYear) · \(currentYearReceiptCount) receipts · Avg \(CurrencyParser.formatAmountNoDecimals(averageMonthlySpend))/month"
+    }
+
     var body: some View {
         ZStack {
-            pageBackgroundColor.ignoresSafeArea()
+            AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .centerRight)
 
             if showRecurringExpenses {
-                RecurringExpenseStatsContent(searchText: searchText)
+                RecurringExpenseStatsContent(searchText: searchText, onActivateSearch: onActivateSearch)
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 12) {
@@ -413,13 +414,11 @@ struct ReceiptStatsView: View {
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(cardFillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topLeading,
+            cornerRadius: 18,
+            highlightStrength: 0.48
         )
         .padding(.horizontal, 16)
     }
@@ -427,7 +426,7 @@ struct ReceiptStatsView: View {
     private var allYearlyCategoriesSheet: some View {
         NavigationStack {
             ZStack {
-                pageBackgroundColor.ignoresSafeArea()
+                AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .bottomTrailing)
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 10) {
@@ -467,7 +466,7 @@ struct ReceiptStatsView: View {
     private var monthlyCategoriesSheet: some View {
         NavigationStack {
             ZStack {
-                pageBackgroundColor.ignoresSafeArea()
+                AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .topLeading)
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 10) {
@@ -579,13 +578,11 @@ struct ReceiptStatsView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(cardFillColor)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(cardBorderColor, lineWidth: 1)
-                    )
+            .appAmbientCardStyle(
+                colorScheme: colorScheme,
+                variant: .bottomTrailing,
+                cornerRadius: 18,
+                highlightStrength: 0.44
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -674,13 +671,11 @@ struct ReceiptStatsView: View {
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(cardFillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topLeading,
+            cornerRadius: 20,
+            highlightStrength: 0.5
         )
         .padding(.horizontal, 16)
     }
@@ -719,13 +714,11 @@ struct ReceiptStatsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(cardFillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .bottomLeading,
+            cornerRadius: 18,
+            highlightStrength: 0.42
         )
     }
 
@@ -767,13 +760,11 @@ struct ReceiptStatsView: View {
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(cardFillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .bottomTrailing,
+            cornerRadius: 20,
+            highlightStrength: 0.46
         )
         .padding(.horizontal, 16)
     }
@@ -893,13 +884,11 @@ struct ReceiptStatsView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(cardFillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topTrailing,
+            cornerRadius: 20,
+            highlightStrength: 0.5
         )
         .padding(.horizontal, 16)
     }
@@ -966,21 +955,133 @@ struct ReceiptStatsView: View {
 
     // MARK: - Shared Cards
 
-    private func yearlyHeroCard() -> some View {
+    private func receiptHeroMetricTile(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            yearNavigator
+            Text(label)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineLimit(1)
 
-            Text(CurrencyParser.formatAmountNoDecimals(currentYearTotal))
-                .font(FontManager.geist(size: 40, weight: .bold))
-                .foregroundColor(primaryTextColor)
+            Text(value)
+                .font(FontManager.geist(size: 23, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color.appInnerSurface(colorScheme))
+        )
+    }
 
-            HStack(spacing: 6) {
-                Text("\(currentYearReceiptCount) receipts")
-                Text("•")
-                Text("Avg \(CurrencyParser.formatAmountNoDecimals(averageMonthlySpend))/month")
+    private func receiptHeroIconActionPill(systemImage: String, accessibilityLabel: String, isEnabled: Bool = true, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .foregroundColor(Color.appTextPrimary(colorScheme).opacity(isEnabled ? 1 : 0.35))
+                .background(
+                    Circle()
+                        .fill(Color.appChip(colorScheme))
+                )
+        }
+        .accessibilityLabel(accessibilityLabel)
+        .buttonStyle(PlainButtonStyle())
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.55)
+    }
+
+    private func receiptHeroPrimaryIconActionPill(systemImage: String, accessibilityLabel: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .foregroundColor(.black)
+                .background(
+                    Circle()
+                        .fill(Color(red: 0.98, green: 0.64, blue: 0.41))
+                )
+        }
+        .accessibilityLabel(accessibilityLabel)
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func yearlyHeroCard() -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Receipts")
+                        .font(FontManager.geist(size: 28, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                    Text(receiptHeroSummaryText)
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 8) {
+                    receiptHeroIconActionPill(
+                        systemImage: "chevron.left",
+                        accessibilityLabel: "Previous year",
+                        isEnabled: canSelectPreviousYear
+                    ) {
+                        selectPreviousYear()
+                    }
+
+                    receiptHeroIconActionPill(
+                        systemImage: "chevron.right",
+                        accessibilityLabel: "Next year",
+                        isEnabled: canSelectNextYear
+                    ) {
+                        selectNextYear()
+                    }
+
+                    if onAddReceipt != nil {
+                        receiptHeroPrimaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add receipt") {
+                            onAddReceipt?()
+                        }
+                    }
+                }
             }
-            .font(FontManager.geist(size: 13, weight: .medium))
-            .foregroundColor(secondaryTextColor)
+
+            if let onActivateSearch {
+                Button(action: onActivateSearch) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+
+                        Text("Search receipts")
+                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.appInnerSurface(colorScheme))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 1 : 0.8), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+
+            HStack(spacing: 10) {
+                receiptHeroMetricTile(label: "Total", value: CurrencyParser.formatAmountNoDecimals(currentYearTotal))
+                receiptHeroMetricTile(label: "Receipts", value: "\(currentYearReceiptCount)")
+                receiptHeroMetricTile(label: "Avg/month", value: CurrencyParser.formatAmountNoDecimals(averageMonthlySpend))
+            }
 
             if let yearlyAnomalyText {
                 anomalyCallout(text: yearlyAnomalyText)
@@ -1003,29 +1104,16 @@ struct ReceiptStatsView: View {
                         Capsule()
                             .fill(trendColor.opacity(colorScheme == .dark ? 0.22 : 0.14))
                     )
-
-                    Spacer()
-
-                    if onAddReceipt != nil {
-                        addReceiptCircleButton
-                    }
-                }
-            } else if onAddReceipt != nil {
-                HStack {
-                    Spacer()
-                    addReceiptCircleButton
                 }
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(cardFillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topTrailing,
+            cornerRadius: 24,
+            highlightStrength: 0.76
         )
         .padding(.horizontal, 16)
     }
@@ -1075,13 +1163,11 @@ struct ReceiptStatsView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 26)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(cardFillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .bottomLeading,
+            cornerRadius: 18,
+            highlightStrength: 0.4
         )
     }
 
@@ -1226,13 +1312,13 @@ struct RecurringExpenseStatsContent: View {
     @State private var recurringExpenses: [RecurringExpense] = []
     @State private var isLoading = true
     @State private var selectedExpense: RecurringExpense? = nil
-    @State private var showEditSheet = false
     @State private var hasLoadedData = false
     @State private var quickFocusBucket: RecurringBucket? = nil
     @Environment(\.colorScheme) var colorScheme
 
     var searchText: String? = nil
     var onAddRecurring: (() -> Void)? = nil
+    var onActivateSearch: (() -> Void)? = nil
 
     private var filteredRecurringExpenses: [RecurringExpense] {
         guard let searchText = searchText, !searchText.isEmpty else {
@@ -1301,24 +1387,35 @@ struct RecurringExpenseStatsContent: View {
         dueNowExpenses.count
     }
 
+    private var recurringHeroSummaryText: String {
+        if filteredRecurringExpenses.isEmpty {
+            return "Track repeating bills and subscriptions before they sneak up on you."
+        }
+
+        var parts: [String] = []
+        if activeCount > 0 {
+            parts.append("\(activeCount) active")
+        }
+        if dueNowCount > 0 {
+            parts.append("\(dueNowCount) due now")
+        }
+        if next7DayTotal > 0 {
+            parts.append("\(CurrencyParser.formatAmountNoDecimals(next7DayTotal)) in next 7d")
+        } else if next30DayTotal > 0 {
+            parts.append("\(CurrencyParser.formatAmountNoDecimals(next30DayTotal)) in next 30d")
+        }
+
+        return parts.isEmpty
+            ? "Recurring bills and subscriptions at a glance."
+            : parts.joined(separator: " · ")
+    }
+
     private var primaryTextColor: Color {
         colorScheme == .dark ? .white : Color.emailLightTextPrimary
     }
 
     private var secondaryTextColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.64) : Color.emailLightTextSecondary
-    }
-
-    private var cardFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.emailLightSurface
-    }
-
-    private var cardBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
-    }
-
-    private var rowFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightSectionCard
     }
 
     private var controlButtonFillColor: Color {
@@ -1334,55 +1431,48 @@ struct RecurringExpenseStatsContent: View {
     }
 
     var body: some View {
-        Group {
-            if isLoading {
-                ProgressView()
-                    .padding(.vertical, 24)
-            } else if filteredRecurringExpenses.isEmpty {
-                recurringEmptyState
-            } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 12) {
-                        recurringControlCard
+        ZStack {
+            AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .bottomLeading)
 
-                        if quickFocusBucket == nil || quickFocusBucket == .dueNow {
-                            recurringBucketCard(bucket: .dueNow, expenses: dueNowExpenses)
-                        }
-                        if quickFocusBucket == nil || quickFocusBucket == .upcoming {
-                            recurringBucketCard(bucket: .upcoming, expenses: upcomingExpenses)
-                        }
-                        if quickFocusBucket == nil || quickFocusBucket == .paused {
-                            recurringBucketCard(bucket: .paused, expenses: pausedExpenses)
-                        }
+            Group {
+                if isLoading {
+                    ProgressView()
+                        .padding(.vertical, 24)
+                } else {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 12) {
+                            recurringControlCard
 
-                        Spacer(minLength: 90)
+                            if filteredRecurringExpenses.isEmpty {
+                                recurringEmptyStateCard
+                            } else {
+                                if quickFocusBucket == nil || quickFocusBucket == .dueNow {
+                                    recurringBucketCard(bucket: .dueNow, expenses: dueNowExpenses)
+                                }
+                                if quickFocusBucket == nil || quickFocusBucket == .upcoming {
+                                    recurringBucketCard(bucket: .upcoming, expenses: upcomingExpenses)
+                                }
+                                if quickFocusBucket == nil || quickFocusBucket == .paused {
+                                    recurringBucketCard(bucket: .paused, expenses: pausedExpenses)
+                                }
+                            }
+
+                            Spacer(minLength: 90)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
+                        .padding(.bottom, 8)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                    .padding(.bottom, 8)
                 }
             }
         }
-        .sheet(isPresented: $showEditSheet, onDismiss: {
-            selectedExpense = nil
+        .sheet(item: $selectedExpense, onDismiss: {
             refreshRecurringExpenses()
         }) {
-            if let expense = selectedExpense {
-                RecurringExpenseEditView(expense: expense, isPresented: $showEditSheet)
-                    .presentationBg()
-            } else {
-                VStack(spacing: 20) {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                        .tint(colorScheme == .dark ? Color.white : Color.black)
-
-                    Text("Loading expense details...")
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-            }
+            RecurringExpenseEditView(expense: $0, onClose: {
+                selectedExpense = nil
+            })
+            .presentationBg()
         }
         .onAppear {
             if !hasLoadedData {
@@ -1392,24 +1482,26 @@ struct RecurringExpenseStatsContent: View {
     }
 
     private var recurringControlCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                recurringCardTitle("Recurring Expenses")
-                Spacer()
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Recurring")
+                        .font(FontManager.geist(size: 28, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                    Text(recurringHeroSummaryText)
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 12)
+
                 if let onAddRecurring {
-                    Button(action: onAddRecurring) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(primaryTextColor)
-                            .frame(width: 30, height: 30)
-                            .background(
-                                Circle()
-                                    .fill(controlButtonFillColor)
-                            )
+                    recurringHeroPrimaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add recurring expense") {
+                        onAddRecurring()
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    .accessibilityLabel("Add recurring expense")
-                } else {
+                } else if dueNowCount > 0 {
                     Text("\(dueNowCount) due")
                         .font(FontManager.geist(size: 11, weight: .semibold))
                         .foregroundColor(primaryTextColor)
@@ -1422,15 +1514,37 @@ struct RecurringExpenseStatsContent: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                recurringSummaryTile(label: "Monthly", value: CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                recurringSummaryTile(label: "Yearly", value: CurrencyParser.formatAmountNoDecimals(yearlyProjection))
-                recurringSummaryTile(label: "Active", value: "\(activeCount)")
+            if let onActivateSearch {
+                Button(action: onActivateSearch) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+
+                        Text("Search recurring expenses")
+                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.appInnerSurface(colorScheme))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 1 : 0.8), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
             }
 
-            HStack(spacing: 8) {
-                recurringSummaryTile(label: "7d impact", value: CurrencyParser.formatAmountNoDecimals(next7DayTotal))
-                recurringSummaryTile(label: "30d impact", value: CurrencyParser.formatAmountNoDecimals(next30DayTotal))
+            HStack(spacing: 10) {
+                recurringHeroMetricTile(label: "Monthly", value: CurrencyParser.formatAmountNoDecimals(monthlyTotal))
+                recurringHeroMetricTile(label: "Yearly", value: CurrencyParser.formatAmountNoDecimals(yearlyProjection))
+                recurringHeroMetricTile(label: "30d impact", value: CurrencyParser.formatAmountNoDecimals(next30DayTotal))
             }
 
             HStack(spacing: 8) {
@@ -1465,35 +1579,12 @@ struct RecurringExpenseStatsContent: View {
                 )
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(cardFillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
-        )
-    }
-
-    private func recurringSummaryTile(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(label)
-                .font(FontManager.geist(size: 11, weight: .medium))
-                .foregroundColor(secondaryTextColor)
-            Text(value)
-                .font(FontManager.geist(size: 17, weight: .semibold))
-                .foregroundColor(primaryTextColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(rowFillColor)
+        .padding(16)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topTrailing,
+            cornerRadius: 24,
+            highlightStrength: 0.74
         )
     }
 
@@ -1518,6 +1609,53 @@ struct RecurringExpenseStatsContent: View {
                 )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    private func recurringHeroMetricTile(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineLimit(1)
+
+            Text(value)
+                .font(FontManager.geist(size: 23, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color.appInnerSurface(colorScheme))
+        )
+    }
+
+    private func recurringHeroPrimaryIconActionPill(systemImage: String, accessibilityLabel: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .foregroundColor(.black)
+                .background(
+                    Circle()
+                        .fill(Color(red: 0.98, green: 0.64, blue: 0.41))
+                )
+        }
+        .accessibilityLabel(accessibilityLabel)
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private var recurringEmptyStateCard: some View {
+        recurringEmptyState
+            .appAmbientCardStyle(
+                colorScheme: colorScheme,
+                variant: .bottomLeading,
+                cornerRadius: 20,
+                highlightStrength: 0.4
+            )
     }
 
     private func recurringBucketCard(bucket: RecurringBucket, expenses: [RecurringExpense]) -> some View {
@@ -1551,115 +1689,114 @@ struct RecurringExpenseStatsContent: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(cardFillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topLeading,
+            cornerRadius: 20,
+            highlightStrength: 0.46
         )
     }
 
     private func recurringBucketRow(_ expense: RecurringExpense) -> some View {
         let due = dueBadge(for: expense)
-        return HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(expense.title)
-                    .font(FontManager.geist(size: 15, weight: .semibold))
-                    .foregroundColor(primaryTextColor)
-                    .lineLimit(1)
+        return Button(action: {
+            presentEditSheet(for: expense)
+        }) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(expense.title)
+                        .font(FontManager.geist(size: 15, weight: .semibold))
+                        .foregroundColor(primaryTextColor)
+                        .lineLimit(1)
 
-                HStack(spacing: 6) {
-                    Text(expense.frequency.displayName)
-                    if let category = expense.category, !category.isEmpty {
-                        Text("• \(category)")
+                    HStack(spacing: 6) {
+                        Text(expense.frequency.displayName)
+                        if let category = expense.category, !category.isEmpty {
+                            Text("• \(category)")
+                        }
                     }
-                }
-                .font(FontManager.geist(size: 12, weight: .medium))
-                .foregroundColor(secondaryTextColor)
-
-                Text("Next \(formatInstanceDate(expense.nextOccurrence))")
                     .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(secondaryTextColor)
-            }
 
-            Spacer(minLength: 8)
-
-            VStack(alignment: .trailing, spacing: 6) {
-                Text(expense.formattedAmount)
-                    .font(FontManager.geist(size: 15, weight: .semibold))
-                    .foregroundColor(primaryTextColor)
-                    .lineLimit(1)
-
-                Text("\(expense.formattedYearlyAmount)/yr")
-                    .font(FontManager.geist(size: 11, weight: .medium))
-                    .foregroundColor(secondaryTextColor)
-                    .lineLimit(1)
-
-                Text(due.text)
-                    .font(FontManager.geist(size: 10, weight: .semibold))
-                    .foregroundColor(due.foreground)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(due.background)
-                    )
-            }
-
-            Menu {
-                Button(action: { presentEditSheet(for: expense) }) {
-                    Label("Edit Recurring", systemImage: "pencil")
+                    Text("Next \(formatInstanceDate(expense.nextOccurrence))")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(secondaryTextColor)
                 }
 
-                Button(action: {
-                    Task {
-                        try? await RecurringExpenseService.shared.toggleRecurringExpenseActive(id: expense.id, isActive: !expense.isActive)
-                        await MainActor.run {
-                            refreshRecurringExpenses()
-                        }
-                    }
-                }) {
-                    Label(expense.isActive ? "Pause" : "Resume", systemImage: expense.isActive ? "pause.circle" : "play.circle")
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(expense.formattedAmount)
+                        .font(FontManager.geist(size: 15, weight: .semibold))
+                        .foregroundColor(primaryTextColor)
+                        .lineLimit(1)
+
+                    Text("\(expense.formattedYearlyAmount)/yr")
+                        .font(FontManager.geist(size: 11, weight: .medium))
+                        .foregroundColor(secondaryTextColor)
+                        .lineLimit(1)
+
+                    Text(due.text)
+                        .font(FontManager.geist(size: 10, weight: .semibold))
+                        .foregroundColor(due.foreground)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule()
+                                .fill(due.background)
+                        )
                 }
 
-                Button(role: .destructive, action: {
-                    Task {
-                        try? await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
-                        await MainActor.run {
-                            refreshRecurringExpenses()
-                        }
-                    }
-                }) {
-                    Label("Delete Recurring", systemImage: "trash")
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(secondaryTextColor)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        Circle()
-                            .fill(controlButtonFillColor)
-                    )
             }
-            .buttonStyle(PlainButtonStyle())
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .appAmbientInnerSurfaceStyle(
+                colorScheme: colorScheme,
+                cornerRadius: 14
+            )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(rowFillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(cardBorderColor.opacity(0.7), lineWidth: 1)
-                )
-        )
+        .buttonStyle(PlainButtonStyle())
         .contentShape(RoundedRectangle(cornerRadius: 14))
-        .onTapGesture {
-            presentEditSheet(for: expense)
+        .contextMenu {
+            Button(action: { presentEditSheet(for: expense) }) {
+                Label("Edit Recurring", systemImage: "pencil")
+            }
+
+            Button(action: {
+                toggleRecurringExpenseState(expense)
+            }) {
+                Label(expense.isActive ? "Pause" : "Resume", systemImage: expense.isActive ? "pause.circle" : "play.circle")
+            }
+
+            Button(role: .destructive, action: {
+                deleteRecurringExpense(expense)
+            }) {
+                Label("Delete Recurring", systemImage: "trash")
+            }
         }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                deleteRecurringExpense(expense)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+
+            Button {
+                toggleRecurringExpenseState(expense)
+            } label: {
+                Label(expense.isActive ? "Pause" : "Resume", systemImage: expense.isActive ? "pause.circle" : "play.circle")
+            }
+            .tint(expense.isActive ? .orange : .green)
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                presentEditSheet(for: expense)
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            .tint(colorScheme == .dark ? .white : .black)
+        }
+        .accessibilityHint("Tap to edit. Swipe for quick actions.")
     }
 
     private var recurringEmptyState: some View {
@@ -1684,9 +1821,6 @@ struct RecurringExpenseStatsContent: View {
 
     private func presentEditSheet(for expense: RecurringExpense) {
         selectedExpense = expense
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-            showEditSheet = true
-        }
     }
 
     private func loadRecurringExpenses() {
@@ -1711,6 +1845,27 @@ struct RecurringExpenseStatsContent: View {
     private func refreshRecurringExpenses() {
         hasLoadedData = false
         loadRecurringExpenses()
+    }
+
+    private func toggleRecurringExpenseState(_ expense: RecurringExpense) {
+        Task {
+            try? await RecurringExpenseService.shared.toggleRecurringExpenseActive(
+                id: expense.id,
+                isActive: !expense.isActive
+            )
+            await MainActor.run {
+                refreshRecurringExpenses()
+            }
+        }
+    }
+
+    private func deleteRecurringExpense(_ expense: RecurringExpense) {
+        Task {
+            try? await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
+            await MainActor.run {
+                refreshRecurringExpenses()
+            }
+        }
     }
 
     private func daysUntil(_ date: Date) -> Int {

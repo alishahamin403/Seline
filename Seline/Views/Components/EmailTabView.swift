@@ -54,25 +54,22 @@ struct EmailTabView: View {
                         .foregroundColor(tabForegroundColor(isSelected: isSelected))
                         .frame(maxWidth: .infinity)
                         .frame(height: 34)
-                    .background {
-                        if isSelected {
-                            Capsule()
-                                .fill(tabBackgroundColor())
-                                .matchedGeometryEffect(id: "emailTab", in: tabAnimation)
+                        .background {
+                            if isSelected {
+                                Capsule()
+                                    .fill(tabBackgroundColor())
+                                    .matchedGeometryEffect(id: "emailTab", in: tabAnimation)
+                            }
                         }
-                    }
                 }
                 .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(4)
-        .background(
+        .background(Capsule().fill(tabContainerColor()))
+        .overlay(
             Capsule()
-                .fill(tabContainerColor())
-                .overlay(
-                    Capsule()
-                        .stroke(tabContainerStrokeColor(), lineWidth: 1)
-                )
+                .stroke(tabContainerStrokeColor(), lineWidth: 1)
         )
     }
 
@@ -82,20 +79,20 @@ struct EmailTabView: View {
         if isSelected {
             return colorScheme == .dark ? .black : .white
         } else {
-            return colorScheme == .dark ? Color.white.opacity(0.7) : Color.emailLightTextSecondary
+            return Color.emailGlassMutedText(colorScheme)
         }
     }
 
     private func tabBackgroundColor() -> Color {
-        colorScheme == .dark ? Color.claudeAccent.opacity(0.95) : Color.claudeAccent
+        colorScheme == .dark ? Color.white.opacity(0.92) : Color.appTextPrimary(colorScheme)
     }
 
     private func tabContainerColor() -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle
+        colorScheme == .dark ? Color.white.opacity(0.055) : Color.white.opacity(0.32)
     }
 
     private func tabContainerStrokeColor() -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+        Color.emailGlassBorder(colorScheme)
     }
 }
 

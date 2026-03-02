@@ -6,20 +6,19 @@ import UIKit
 struct MainAppView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @EnvironmentObject var deepLinkHandler: DeepLinkHandler
-    @StateObject private var emailService = EmailService.shared
-    @StateObject private var taskManager = TaskManager.shared
-    @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var homeState = HomeDashboardState()
     @StateObject private var locationsManager = LocationsManager.shared
     @StateObject private var locationService = LocationService.shared
     @StateObject private var geofenceManager = GeofenceManager.shared
     @StateObject private var searchService = SearchService.shared
-    @StateObject private var weatherService = WeatherService.shared
-    @StateObject private var navigationService = NavigationService.shared
-    @StateObject private var tagManager = TagManager.shared
-    @StateObject private var peopleManager = PeopleManager.shared
     @StateObject private var widgetManager = WidgetManager.shared
-    @StateObject private var locationSuggestionService = LocationSuggestionService.shared
-    @StateObject private var visitState = VisitStateManager.shared
+    private let emailService = EmailService.shared
+    private let taskManager = TaskManager.shared
+    private let notesManager = NotesManager.shared
+    private let tagManager = TagManager.shared
+    private let peopleManager = PeopleManager.shared
+    private let locationSuggestionService = LocationSuggestionService.shared
+    private let visitState = VisitStateManager.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
     @State private var selectedTab: TabSelection = .home
@@ -54,13 +53,14 @@ struct MainAppView: View {
     @State private var nearbyLocationPlace: SavedPlace? = nil
     @State private var distanceToNearest: Double? = nil
     @State private var elapsedTimeString: String = ""
-    @State private var updateTimer: Timer?
+    @State private var locationTickTask: Task<Void, Never>?
     @State private var lastLocationCheckCoordinate: CLLocationCoordinate2D?
     @State private var hasLoadedIncompleteVisits = false
     @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
     @State private var showAllLocationsSheet = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast
     @State private var selectedLocationPlace: SavedPlace? = nil
+    @State private var showingReceiptAddOptions = false
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
@@ -73,18 +73,7 @@ struct MainAppView: View {
     @State private var dismissedVisitReasonIds: Set<UUID> = [] // Track visits where user dismissed the reason popup
     @State private var isSidebarOverlayVisible = false
     @State private var isEmailDetailOpen = false
-
-    private var unreadEmailCount: Int {
-        emailService.inboxEmails.filter { !$0.isRead }.count
-    }
-
-    private var todayTaskCount: Int {
-        return taskManager.getTasksForToday().count
-    }
-
-    private var pinnedNotesCount: Int {
-        return notesManager.pinnedNotes.count
-    }
+    @State private var syncedWidgetVisitId: UUID? = nil
 
     /// Returns the current active visit and place if user is at a saved location and should see the visit reason popup
     private var currentActiveVisitForReasonPopup: (visit: LocationVisitRecord, place: SavedPlace)? {
@@ -107,24 +96,17 @@ struct MainAppView: View {
     }
 
     private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        FormatterCache.shortTime.string(from: date)
     }
 
     private func formatDateAndTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        FormatterCache.shortDateTime.string(from: date)
     }
 
     private func formatEventDateAndTime(targetDate: Date?, scheduledTime: Date?) -> String {
         guard let targetDate = targetDate else { return "No date set" }
         guard let scheduledTime = scheduledTime else {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .short
-            return formatter.string(from: targetDate)
+            return FormatterCache.shortDate.string(from: targetDate)
         }
 
         // Combine targetDate (the actual date) with scheduledTime (the time component)
@@ -386,6 +368,8 @@ struct MainAppView: View {
             isSearchFocused = true
         case "chat":
             selectedTab = .email // Navigate to email tab which now has chat
+        case "journal":
+            openJournalInNotes(openToday: false)
         default:
             break
         }
@@ -407,9 +391,22 @@ struct MainAppView: View {
                 deepLinkHandler.shouldShowChat = false
             case "maps":
                 deepLinkHandler.shouldOpenMaps = false
+            case "journal":
+                deepLinkHandler.shouldOpenJournal = false
             default:
                 break
             }
+        }
+    }
+
+    private func openJournalInNotes(openToday: Bool) {
+        selectedTab = .notes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            NotificationCenter.default.post(
+                name: .openJournalFromMainApp,
+                object: nil,
+                userInfo: ["openToday": openToday]
+            )
         }
     }
 
@@ -517,6 +514,7 @@ struct MainAppView: View {
                 // Clear elapsed time when not in any geofence
                 elapsedTimeString = ""
                 stopLocationTimer()
+                clearCurrentLocationWidgetIfNeeded()
 
                 // Auto-complete any active visits if user has moved outside geofences
                 Task {
@@ -538,6 +536,7 @@ struct MainAppView: View {
             distanceToNearest = nil
             elapsedTimeString = ""
             stopLocationTimer()
+            clearCurrentLocationWidgetIfNeeded()
         }
     }
 
@@ -545,6 +544,9 @@ struct MainAppView: View {
         Task {
             // Use centralized state manager to load today's visits
             await visitState.fetchTodaysVisits()
+            await MainActor.run {
+                homeState.refreshAll()
+            }
 
             // Also load all locations with visit counts for "See All" feature
             var placesWithCounts: [(id: UUID, displayName: String, visitCount: Int)] = []
@@ -606,58 +608,56 @@ struct MainAppView: View {
         
         if let place = activePlace, let visit = activeVisit {
             let elapsed = Date().timeIntervalSince(visit.entryTime)
-            elapsedTimeString = formatElapsedTime(elapsed)
-
-            // Save to UserDefaults for widget
-            if let userDefaults = UserDefaults(suiteName: "group.seline") {
-                userDefaults.set(place.displayName, forKey: "widgetVisitedLocation")
-                userDefaults.set(elapsedTimeString, forKey: "widgetElapsedTime")
-            }
-
-            // Reload widget
-            WidgetCenter.shared.reloadAllTimelines()
+            elapsedTimeString = FormatterCache.formatElapsedTime(elapsed)
+            syncCurrentLocationWidgetIfNeeded(place: place, visit: visit)
         } else {
             // No active visit - clear elapsed time
             elapsedTimeString = ""
-
-            // Clear widget data
-            if let userDefaults = UserDefaults(suiteName: "group.seline") {
-                userDefaults.removeObject(forKey: "widgetVisitedLocation")
-                userDefaults.removeObject(forKey: "widgetElapsedTime")
-            }
-
-            // Reload widget
-            WidgetCenter.shared.reloadAllTimelines()
+            clearCurrentLocationWidgetIfNeeded()
         }
     }
 
     private func startLocationTimer() {
         stopLocationTimer()
-        // Timer only runs when app is in foreground (scenePhase .active)
-        // This shows real-time elapsed seconds only when user is looking at the screen
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+        locationTickTask = Task { @MainActor in
             updateElapsedTime()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                updateElapsedTime()
+            }
         }
     }
 
     private func stopLocationTimer() {
-        updateTimer?.invalidate()
-        updateTimer = nil
+        locationTickTask?.cancel()
+        locationTickTask = nil
     }
 
-    private func formatElapsedTime(_ seconds: TimeInterval) -> String {
-        let totalSeconds = Int(seconds)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let secs = totalSeconds % 60
+    private func syncCurrentLocationWidgetIfNeeded(place: SavedPlace, visit: LocationVisitRecord) {
+        guard syncedWidgetVisitId != visit.id else { return }
 
-        if hours > 0 {
-            return String(format: "%dh %dm", hours, minutes)
-        } else if minutes > 0 {
-            return String(format: "%dm %ds", minutes, secs)
-        } else {
-            return String(format: "%ds", secs)
+        if let userDefaults = UserDefaults(suiteName: "group.seline") {
+            userDefaults.set(place.displayName, forKey: "widgetVisitedLocation")
+            userDefaults.set(visit.entryTime, forKey: "widgetVisitEntryTime")
+            userDefaults.removeObject(forKey: "widgetElapsedTime")
         }
+
+        syncedWidgetVisitId = visit.id
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    private func clearCurrentLocationWidgetIfNeeded() {
+        guard syncedWidgetVisitId != nil else { return }
+
+        if let userDefaults = UserDefaults(suiteName: "group.seline") {
+            userDefaults.removeObject(forKey: "widgetVisitedLocation")
+            userDefaults.removeObject(forKey: "widgetVisitEntryTime")
+            userDefaults.removeObject(forKey: "widgetElapsedTime")
+        }
+
+        syncedWidgetVisitId = nil
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func handleSearchResultTap(_ result: OverlaySearchResult) {
@@ -698,6 +698,16 @@ struct MainAppView: View {
         // Dismiss search after setting the state
         isSearchFocused = false
         searchText = ""
+    }
+
+    private func handleSpendingReceiptSelection(_ receipt: ReceiptStat) {
+        guard let note = notesManager.notes.first(where: { $0.id == receipt.noteId }) else {
+            print("⚠️ Could not find note for receipt noteId: \(receipt.noteId)")
+            return
+        }
+
+        HapticManager.shared.cardTap()
+        selectedNoteToOpen = note
     }
 
     // MARK: - Tab Navigation Helpers
@@ -788,6 +798,9 @@ struct MainAppView: View {
                     resetDeepLinkFlags("maps")
                 }
             }
+            .onChange(of: deepLinkHandler.shouldOpenJournal) { newValue in
+                if newValue { handleDeepLinkAction(type: "journal") }
+            }
             .onChange(of: colorScheme) { _ in
                 // FIX: Force view refresh when system theme changes
                 // This ensures the app immediately updates from light to dark mode
@@ -797,396 +810,377 @@ struct MainAppView: View {
     }
 
     private var mainContent: some View {
-        mainContentBase
-            .onAppear {
-                guard !hasAppeared else { return }
-                hasAppeared = true
-                
-                taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
-                // Check if there's a pending deep link action (e.g., from widget)
-                deepLinkHandler.processPendingAction()
+        mainContentPresented
+    }
 
-                // CLEANUP: Auto-close any incomplete visits older than 3 hours in Supabase
-                // This fixes visits that got stuck before the auto-cleanup code was added
-                Task {
-                    await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
-                }
+    private var mainContentObserved: AnyView {
+        AnyView(
+            mainContentBase
+                .onAppear {
+                    guard !hasAppeared else { return }
+                    hasAppeared = true
 
-                // CLEANUP: Merge consecutive visits and delete short visits
-                Task {
-                    let (mergedCount, deletedCount) = await LocationVisitAnalytics.shared.mergeAndCleanupVisits()
-                    if mergedCount > 0 || deletedCount > 0 {
-                        print("🧹 On app startup - Merged \(mergedCount) visit(s), deleted \(deletedCount) short visit(s)")
+                    taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
+                    deepLinkHandler.processPendingAction()
+
+                    Task {
+                        await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
                     }
+
+                    Task {
+                        let (mergedCount, deletedCount) = await LocationVisitAnalytics.shared.mergeAndCleanupVisits()
+                        if mergedCount > 0 || deletedCount > 0 {
+                            print("🧹 On app startup - Merged \(mergedCount) visit(s), deleted \(deletedCount) short visit(s)")
+                        }
+                    }
+
+                    do {
+                        locationService.requestLocationPermission()
+                        geofenceManager.requestLocationPermission()
+                    } catch {
+                        print("⚠️ Error requesting location permissions: \(error)")
+                    }
+
+                    Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        await geofenceManager.loadIncompleteVisitsFromSupabase()
+                        await MainActor.run {
+                            hasLoadedIncompleteVisits = true
+                            updateCurrentLocation()
+                        }
+                    }
+
+                    loadTodaysVisits()
                 }
-
-                // Request location permissions immediately
-                do {
-                    locationService.requestLocationPermission()
-
-                    // Request background location permission for visit tracking
-                    // setupGeofences will be called after authorization is granted in GeofenceManager.locationManagerDidChangeAuthorization
-                    geofenceManager.requestLocationPermission()
-                } catch {
-                    print("⚠️ Error requesting location permissions: \(error)")
-                }
-
-                // Load incomplete visits from Supabase to resume tracking BEFORE checking location
-                // This prevents race condition where updateCurrentLocation() creates a new visit
-                // before the async load completes
-                Task {
-                    // Give location service a moment to resolve the location name
-                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-
-                    await geofenceManager.loadIncompleteVisitsFromSupabase()
-                    // Now that previous sessions are restored, signal we're ready for location updates
-                    await MainActor.run {
-                        // Signal that we've loaded incomplete visits and can now respond to location changes
-                        hasLoadedIncompleteVisits = true
-                        // Try updating location after location service has had time to resolve
+                .onReceive(locationService.$currentLocation) { _ in
+                    let timeSinceLastUpdate = Date().timeIntervalSince(lastLocationUpdateTime)
+                    if timeSinceLastUpdate >= 2.0 {
+                        lastLocationUpdateTime = Date()
                         updateCurrentLocation()
                     }
                 }
+                .onChange(of: scenePhase) { newPhase in
+                    if newPhase == .active {
+                        updateCurrentLocation()
 
-                // Load top 3 locations by visit count
-                loadTodaysVisits()
-                // Calendar sync is handled in SelineApp.swift via didBecomeActiveNotification
-            }
-            .onReceive(locationService.$currentLocation) { _ in
-                // TIME DEBOUNCE: Skip updates that occur within 2 seconds of last update
-                // This prevents excessive location processing and improves performance
-                let timeSinceLastUpdate = Date().timeIntervalSince(lastLocationUpdateTime)
-                if timeSinceLastUpdate >= 2.0 {
-                    lastLocationUpdateTime = Date()
-                    updateCurrentLocation()
-                }
-            }
-            // OPTIMIZATION: Stop timer when app goes to background, restart when it comes to foreground
-            // The timer only runs when user is actively looking at the screen
-            .onChange(of: scenePhase) { newPhase in
-                if newPhase == .active {
-                    // FIX: Immediately check current location to update nearby location state
-                    // This ensures UI updates right away when app comes to foreground
-                    updateCurrentLocation()
-
-                    // App came to foreground - restart timer if tracking a location
-                    if nearbyLocation != nil {
-                        startLocationTimer()
-                    }
-                    
-                    // Start location suggestion monitoring (detects unsaved locations)
-                    locationSuggestionService.startMonitoring()
-
-                    // FALLBACK: Check if any visits have gone stale while app was backgrounded
-                    // This handles case where geofence exit events didn't fire
-                    if let currentLoc = locationService.currentLocation {
-                        Task {
-                            await geofenceManager.autoCompleteVisitsIfOutOfRange(
-                                currentLocation: currentLoc,
-                                savedPlaces: locationsManager.savedPlaces
-                            )
+                        if nearbyLocation != nil {
+                            startLocationTimer()
                         }
+
+                        locationSuggestionService.startMonitoring()
+
+                        if let currentLoc = locationService.currentLocation {
+                            Task {
+                                await geofenceManager.autoCompleteVisitsIfOutOfRange(
+                                    currentLocation: currentLoc,
+                                    savedPlaces: locationsManager.savedPlaces
+                                )
+                            }
+                        }
+                    } else {
+                        stopLocationTimer()
+                        locationSuggestionService.stopMonitoring()
                     }
-                } else {
-                    // App went to background/inactive - pause timer
-                    stopLocationTimer()
-                    
-                    // Stop location suggestion monitoring
-                    locationSuggestionService.stopMonitoring()
                 }
-            }
-            .onChange(of: locationsManager.savedPlaces) { _ in
-                // Reload top 3 locations when places are added/removed/updated
-                loadTodaysVisits()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
-                // Reload visits when a new visit is created (e.g., when app detects user is already inside)
-                loadTodaysVisits()
-                
-                // CRITICAL: Immediately update location widget data to match calendar view accuracy
-                // This ensures home screen widget and widget extension update in real-time
-                updateCurrentLocation()
-                updateElapsedTime()
-                
-                // Reload widget timelines immediately to match calendar view speed
-                WidgetCenter.shared.reloadAllTimelines()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
-                // CRITICAL: Reload visits when history is updated (e.g., midnight split, manual fix)
-                // This ensures home page stays in sync with calendar view and location history
-                loadTodaysVisits()
-                
-                // Update current location display
-                updateCurrentLocation()
-                updateElapsedTime()
-                
-                // Reload widget timelines
-                WidgetCenter.shared.reloadAllTimelines()
-            }
-            .onChange(of: locationService.locationName) { _ in
-                // Update location card when location service resolves the location name
-                if locationService.locationName != "Unknown Location" {
+                .onChange(of: locationsManager.savedPlaces) { _ in
+                    loadTodaysVisits()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
+                    loadTodaysVisits()
                     updateCurrentLocation()
+                    updateElapsedTime()
+                    WidgetCenter.shared.reloadAllTimelines()
                 }
-            }
-            .onChange(of: nearbyLocationPlace) { newPlace in
-                // Clear dismissed visit reason IDs when user leaves a location
-                // This prevents the Set from growing unbounded and ensures popup shows for new visits
-                if newPlace == nil && !dismissedVisitReasonIds.isEmpty {
-                    dismissedVisitReasonIds.removeAll()
+                .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
+                    loadTodaysVisits()
+                    updateCurrentLocation()
+                    updateElapsedTime()
+                    WidgetCenter.shared.reloadAllTimelines()
                 }
-            }
-            .onDisappear {
-                stopLocationTimer()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-                if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
-                    keyboardHeight = keyboardFrame.cgRectValue.height
+                .onChange(of: locationService.locationName) { _ in
+                    if locationService.locationName != "Unknown Location" {
+                        updateCurrentLocation()
+                    }
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                keyboardHeight = 0
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .navigateToEmail)) { notification in
-                handleEmailNotification(notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .navigateToTask)) { notification in
-                handleTaskNotification(notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .interactiveSidebarVisibilityChanged)) { notification in
-                let isVisible = (notification.userInfo?["isVisible"] as? Bool) ?? false
-                isSidebarOverlayVisible = isVisible
-            }
-            .fullScreenCover(item: $selectedNoteToOpen) { note in
-                NoteEditView(note: note, isPresented: Binding<Bool>(
-                    get: { selectedNoteToOpen != nil },
-                    set: { if !$0 { 
-                        selectedNoteToOpen = nil
-                    } }
-                ))
-            }
-            .sheet(isPresented: $showingNewNoteSheet) {
-                NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+                .onChange(of: nearbyLocationPlace) { newPlace in
+                    if newPlace == nil && !dismissedVisitReasonIds.isEmpty {
+                        dismissedVisitReasonIds.removeAll()
+                    }
+                }
+                .onDisappear {
+                    stopLocationTimer()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+                    if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
+                        keyboardHeight = keyboardFrame.cgRectValue.height
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    keyboardHeight = 0
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .navigateToEmail)) { notification in
+                    handleEmailNotification(notification)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .navigateToTask)) { notification in
+                    handleTaskNotification(notification)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .navigateToJournal)) { _ in
+                    openJournalInNotes(openToday: true)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .interactiveSidebarVisibilityChanged)) { notification in
+                    let isVisible = (notification.userInfo?["isVisible"] as? Bool) ?? false
+                    isSidebarOverlayVisible = isVisible
+                }
+        )
+    }
+
+    private var mainContentPresented: AnyView {
+        AnyView(
+            mainContentObserved
+                .fullScreenCover(item: $selectedNoteToOpen) { note in
+                    NoteEditView(note: note, isPresented: Binding<Bool>(
+                        get: { selectedNoteToOpen != nil },
+                        set: { if !$0 {
+                            selectedNoteToOpen = nil
+                        } }
+                    ))
+                }
+                .sheet(isPresented: $showingNewNoteSheet) {
+                    NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+                        .presentationDetents([.medium, .large])
+                        .presentationDragIndicator(.visible)
+                        .modifier(PresentationModifiers())
+                        .presentationBg()
+                }
+                .sheet(item: $searchSelectedNote) { note in
+                    NoteEditView(note: note, isPresented: Binding<Bool>(
+                        get: { searchSelectedNote != nil },
+                        set: { if !$0 { searchSelectedNote = nil } }
+                    ))
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
                     .modifier(PresentationModifiers())
                     .presentationBg()
-            }
-            // Removed sheet animation for faster presentation
-            .sheet(item: $searchSelectedNote) { note in
-                NoteEditView(note: note, isPresented: Binding<Bool>(
-                    get: { searchSelectedNote != nil },
-                    set: { if !$0 { searchSelectedNote = nil } }
-                ))
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .modifier(PresentationModifiers())
-                .presentationBg()
-            }
-            .sheet(isPresented: $authManager.showLocationSetup) {
-                LocationSetupView()
-                    .presentationDetents([.medium, .large])
-                    .presentationDragIndicator(.visible)
+                }
+                .sheet(isPresented: $authManager.showLocationSetup) {
+                    LocationSetupView()
+                        .presentationDetents([.medium, .large])
+                        .presentationDragIndicator(.visible)
+                        .presentationBg()
+                }
+                .sheet(isPresented: $showingSettings) {
+                    SettingsView()
+                        .presentationDetents([.large])
+                        .presentationDragIndicator(.visible)
+                        .presentationBg()
+                }
+                .fullScreenCover(item: $searchSelectedEmail) { email in
+                    NavigationView {
+                        EmailDetailView(email: email)
+                    }
                     .presentationBg()
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView()
-                    .presentationDetents([.large])
-                    .presentationDragIndicator(.visible)
-                    .presentationBg()
-            }
-            .fullScreenCover(item: $searchSelectedEmail) { email in
-                NavigationView {
-                    EmailDetailView(email: email)
                 }
-                .presentationBg()
-            }
-            .sheet(item: $searchSelectedTask) { task in
-                if showingEditTask {
-                    NavigationStack {
-                        EditTaskView(
-                            task: task,
-                            onSave: { updatedTask in
-                                taskManager.editTask(updatedTask)
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            },
-                            onCancel: {
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            },
-                            onDelete: { taskToDelete in
-                                taskManager.deleteTask(taskToDelete)
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            },
-                            onDeleteRecurringSeries: { taskToDelete in
-                                taskManager.deleteRecurringTask(taskToDelete)
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            }
-                        )
-                    }
-                } else {
-                    NavigationStack {
-                        ViewEventView(
-                            task: task,
-                            onEdit: {
-                                showingEditTask = true
-                            },
-                            onDelete: { taskToDelete in
-                                taskManager.deleteTask(taskToDelete)
-                                searchSelectedTask = nil
-                            },
-                            onDeleteRecurringSeries: { taskToDelete in
-                                taskManager.deleteRecurringTask(taskToDelete)
-                                searchSelectedTask = nil
-                            }
-                        )
-                    }
-                }
-            }
-            .sheet(item: $selectedPersonForDetail) { person in
-                PersonDetailSheet(
-                    person: person,
-                    peopleManager: peopleManager,
-                    locationsManager: locationsManager,
-                    colorScheme: colorScheme,
-                    onDismiss: {
-                        selectedPersonForDetail = nil
-                    }
-                )
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .presentationBg()
-            }
-            .onChange(of: searchSelectedTask) { newValue in
-                if newValue != nil {
-                    showingEditTask = false
-                } else {
-                    showingEditTask = false
-                }
-            }
-            .sheet(isPresented: $showingAddEventPopup) {
-                AddEventPopupView(
-                    isPresented: $showingAddEventPopup,
-                    onSave: { (title: String, description: String?, date: Date, time: Date?, endTime: Date?, reminder: ReminderTime?, recurring: Bool, frequency: RecurrenceFrequency?, customDays: [WeekDay]?, tagId: String?, location: String?) in
-                        let calendar = Calendar.current
-                        let weekdayIndex = calendar.component(.weekday, from: date)
-
-                        let weekday: WeekDay
-                        switch weekdayIndex {
-                        case 1: weekday = .sunday
-                        case 2: weekday = .monday
-                        case 3: weekday = .tuesday
-                        case 4: weekday = .wednesday
-                        case 5: weekday = .thursday
-                        case 6: weekday = .friday
-                        case 7: weekday = .saturday
-                        default: weekday = .monday
+                .sheet(item: $searchSelectedTask) { task in
+                    if showingEditTask {
+                        NavigationStack {
+                            EditTaskView(
+                                task: task,
+                                onSave: { updatedTask in
+                                    taskManager.editTask(updatedTask)
+                                    searchSelectedTask = nil
+                                    showingEditTask = false
+                                },
+                                onSaveRecurring: { updatedTask, scope, occurrenceDate in
+                                    taskManager.editTask(
+                                        updatedTask,
+                                        recurringEditScope: scope,
+                                        recurringOccurrenceDate: occurrenceDate
+                                    )
+                                    searchSelectedTask = nil
+                                    showingEditTask = false
+                                },
+                                onCancel: {
+                                    searchSelectedTask = nil
+                                    showingEditTask = false
+                                },
+                                onDelete: { taskToDelete in
+                                    taskManager.deleteTask(taskToDelete)
+                                    searchSelectedTask = nil
+                                    showingEditTask = false
+                                },
+                                onDeleteRecurringSeries: { taskToDelete in
+                                    taskManager.deleteRecurringTask(taskToDelete)
+                                    searchSelectedTask = nil
+                                    showingEditTask = false
+                                }
+                            )
                         }
-
-                        taskManager.addTask(
-                            title: title,
-                            to: weekday,
-                            description: description,
-                            scheduledTime: time,
-                            endTime: endTime,
-                            targetDate: date,
-                            reminderTime: reminder,
-                            location: location,
-                            isRecurring: recurring,
-                            recurrenceFrequency: frequency,
-                            customRecurrenceDays: customDays,
-                            tagId: tagId
-                        )
+                    } else {
+                        NavigationStack {
+                            ViewEventView(
+                                task: task,
+                                onEdit: {
+                                    showingEditTask = true
+                                },
+                                onDelete: { taskToDelete in
+                                    taskManager.deleteTask(taskToDelete)
+                                    searchSelectedTask = nil
+                                },
+                                onDeleteRecurringSeries: { taskToDelete in
+                                    taskManager.deleteRecurringTask(taskToDelete)
+                                    searchSelectedTask = nil
+                                }
+                            )
+                        }
                     }
-                )
-                .presentationBg()
-            }
-            .sheet(isPresented: $showingTodoPhotoImportSheet) {
-                PhotoCalendarImportView(initialSourceType: todoImportSourceType)
+                }
+                .sheet(item: $selectedPersonForDetail) { person in
+                    PersonDetailSheet(
+                        person: person,
+                        peopleManager: peopleManager,
+                        locationsManager: locationsManager,
+                        colorScheme: colorScheme,
+                        onDismiss: {
+                            selectedPersonForDetail = nil
+                        }
+                    )
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
                     .presentationBg()
-            }
-            // Removed sheet animation for faster presentation
-            .sheet(isPresented: $showReceiptStats) {
-                ReceiptStatsView(isPopup: true)
+                }
+                .onChange(of: searchSelectedTask) { _ in
+                    showingEditTask = false
+                }
+                .sheet(isPresented: $showingAddEventPopup) {
+                    AddEventPopupView(
+                        isPresented: $showingAddEventPopup,
+                        onSave: { (title: String, description: String?, date: Date, time: Date?, endTime: Date?, reminder: ReminderTime?, recurring: Bool, frequency: RecurrenceFrequency?, customDays: [WeekDay]?, tagId: String?, location: String?) in
+                            let calendar = Calendar.current
+                            let weekdayIndex = calendar.component(.weekday, from: date)
+
+                            let weekday: WeekDay
+                            switch weekdayIndex {
+                            case 1: weekday = .sunday
+                            case 2: weekday = .monday
+                            case 3: weekday = .tuesday
+                            case 4: weekday = .wednesday
+                            case 5: weekday = .thursday
+                            case 6: weekday = .friday
+                            case 7: weekday = .saturday
+                            default: weekday = .monday
+                            }
+
+                            taskManager.addTask(
+                                title: title,
+                                to: weekday,
+                                description: description,
+                                scheduledTime: time,
+                                endTime: endTime,
+                                targetDate: date,
+                                reminderTime: reminder,
+                                location: location,
+                                isRecurring: recurring,
+                                recurrenceFrequency: frequency,
+                                customRecurrenceDays: customDays,
+                                tagId: tagId
+                            )
+                        }
+                    )
+                    .presentationBg()
+                }
+                .sheet(isPresented: $showingTodoPhotoImportSheet) {
+                    PhotoCalendarImportView(initialSourceType: todoImportSourceType)
+                        .presentationDetents([.large])
+                        .presentationDragIndicator(.visible)
+                        .presentationBg()
+                }
+                .sheet(isPresented: $showReceiptStats) {
+                    ReceiptStatsView(
+                        onAddReceipt: {
+                            HapticManager.shared.buttonTap()
+                            showingReceiptAddOptions = true
+                        },
+                        isPopup: true
+                    )
                     .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
                     .interactiveDismissDisabled(false)
                     .presentationBg()
-            }
-            // Removed sheet animation for faster presentation
-            .sheet(isPresented: $showAllLocationsSheet) {
-                AllVisitsSheet(
-                    allLocations: $allLocations,
-                    isPresented: $showAllLocationsSheet,
-                    onLocationTap: { locationId in
-                        // Find the SavedPlace with this UUID
-                        if let place = locationsManager.savedPlaces.first(where: { $0.id == locationId }) {
-                            selectedLocationPlace = place
-                        }
-                    },
-                    savedPlaces: locationsManager.savedPlaces
-                )
-                .presentationDetents([.fraction(0.6), .large])
-                .presentationDragIndicator(.visible)
-                .interactiveDismissDisabled(false)
-                .presentationBg()
-            }
-            // Removed sheet animation for faster presentation
-            .sheet(item: $selectedLocationPlace) { place in
-                PlaceDetailSheet(place: place, onDismiss: { 
-                    selectedLocationPlace = nil
-                }, isFromRanking: false)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .modifier(PresentationModifiers())
-                .presentationBg()
-            }
-            .sheet(isPresented: $showingReceiptImagePicker) {
-                ImagePicker(selectedImages: $selectedReceiptImages)
-            }
-            .onChange(of: selectedReceiptImages) { newImages in
-                if !newImages.isEmpty {
-                    // Start processing multiple images sequentially
-                    processingQueue = newImages
-                    currentProcessingIndex = 0
-                    selectedReceiptImages = []
-                    processNextReceiptInQueue()
                 }
-            }
-            .sheet(isPresented: $showingReceiptCameraPicker) {
-                CameraPicker(selectedImage: Binding(
-                    get: { nil },
-                    set: { newImage in
-                        if let image = newImage {
-                            processReceiptImage(image)
-                        }
-                    }
-                ))
-            }
-            .overlay(alignment: .top) {
-                // Receipt processing toast indicator
-                if receiptProcessingState != .idle {
-                    VStack {
-                        ReceiptProcessingToast(state: receiptProcessingState)
-                            .padding(.top, 8)
-                        Spacer()
-                    }
-                    .zIndex(1000)
+                .sheet(isPresented: $showAllLocationsSheet) {
+                    AllVisitsSheet(
+                        allLocations: $allLocations,
+                        isPresented: $showAllLocationsSheet,
+                        onLocationTap: { locationId in
+                            if let place = locationsManager.savedPlaces.first(where: { $0.id == locationId }) {
+                                selectedLocationPlace = place
+                            }
+                        },
+                        savedPlaces: locationsManager.savedPlaces
+                    )
+                    .presentationDetents([.fraction(0.6), .large])
+                    .presentationDragIndicator(.visible)
+                    .interactiveDismissDisabled(false)
+                    .presentationBg()
                 }
-            }
+                .sheet(item: $selectedLocationPlace) { place in
+                    PlaceDetailSheet(place: place, onDismiss: {
+                        selectedLocationPlace = nil
+                    }, isFromRanking: false)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    .modifier(PresentationModifiers())
+                    .presentationBg()
+                }
+                .sheet(isPresented: $showingReceiptImagePicker) {
+                    ImagePicker(selectedImages: $selectedReceiptImages)
+                }
+                .onChange(of: selectedReceiptImages) { newImages in
+                    if !newImages.isEmpty {
+                        processingQueue = newImages
+                        currentProcessingIndex = 0
+                        selectedReceiptImages = []
+                        processNextReceiptInQueue()
+                    }
+                }
+                .sheet(isPresented: $showingReceiptCameraPicker) {
+                    CameraPicker(selectedImage: Binding(
+                        get: { nil },
+                        set: { newImage in
+                            if let image = newImage {
+                                processReceiptImage(image)
+                            }
+                        }
+                    ))
+                }
+                .confirmationDialog("Add Receipt", isPresented: $showingReceiptAddOptions, titleVisibility: .visible) {
+                    Button("Take Picture") {
+                        HapticManager.shared.buttonTap()
+                        showingReceiptCameraPicker = true
+                    }
+                    Button("Upload Images") {
+                        HapticManager.shared.buttonTap()
+                        showingReceiptImagePicker = true
+                    }
+                    Button("Cancel", role: .cancel) {}
+                }
+                .overlay(alignment: .top) {
+                    if receiptProcessingState != .idle {
+                        VStack {
+                            ReceiptProcessingToast(state: receiptProcessingState)
+                                .padding(.top, 8)
+                            Spacer()
+                        }
+                        .zIndex(1000)
+                    }
+                }
+        )
     }
 
     private var mainContentBase: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
                 mainContentVStack(geometry: geometry)
-
-                // The fixed header is removed from here and replaced with a floating bar at the bottom
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(Color.appBackground(colorScheme))
@@ -1210,7 +1204,6 @@ struct MainAppView: View {
 
     private func mainContentVStack(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            // Content based on selected tab - instant switch, no transition animation
             ZStack {
                 if selectedTab == .home {
                     homeContentWithoutHeader
@@ -1265,7 +1258,6 @@ struct MainAppView: View {
             }
             .frame(maxHeight: .infinity)
 
-            // Footer tab bar in the layout flow (pre-overlay behavior)
             if shouldShowFloatingTabBar {
                 BottomTabBar(selectedTab: $selectedTab)
             }
@@ -1803,10 +1795,7 @@ struct MainAppView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
-        )
+        .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 20)
     }
 
     // Search results dropdown (used when not in overlay mode - kept for compatibility)
@@ -1833,13 +1822,8 @@ struct MainAppView: View {
             .padding(.horizontal, 4)
         }
         .frame(height: max(400, availableHeight))
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(colorScheme == .dark ?
-                      Color(red: 0.11, green: 0.11, blue: 0.12) :
-                      Color(red: 0.98, green: 0.98, blue: 0.99))
-                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.4 : 0.1), radius: 20, x: 0, y: 8)
-        )
+        .padding(8)
+        .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 22, highlightStrength: 0.85)
     }
 
     private func searchResultRow(for result: OverlaySearchResult) -> some View {
@@ -1916,23 +1900,7 @@ struct MainAppView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(
-                        colorScheme == .dark ?
-                            Color.white.opacity(0.05) :
-                            Color.black.opacity(0.02)
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(
-                        colorScheme == .dark ?
-                            Color.white.opacity(0.08) :
-                            Color.black.opacity(0.05),
-                        lineWidth: 0.5
-                    )
-            )
+            .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 14)
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -1947,6 +1915,9 @@ struct MainAppView: View {
                 // Search bar
                 appSearchBar
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 24, highlightStrength: 1.05)
             .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
 
             if !searchText.isEmpty {
@@ -1960,7 +1931,7 @@ struct MainAppView: View {
     private var mainContentWidgets: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 8) {
-                if locationSuggestionService.hasPendingSuggestion {
+                if homeState.hasPendingLocationSuggestion {
                     NewLocationSuggestionCard()
                         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                         .transition(.asymmetric(
@@ -1999,14 +1970,16 @@ struct MainAppView: View {
 
                 SpendingAndETAWidget(
                     isVisible: selectedTab == .home,
-                    onAddReceipt: {
-                        showingReceiptCameraPicker = true
+                    onAddReceiptTapped: {
+                        showingReceiptAddOptions = true
                     },
-                    onAddReceiptFromGallery: {
-                        showingReceiptImagePicker = true
+                    onReceiptSelected: { receipt in
+                        handleSpendingReceiptSelection(receipt)
                     }
                 )
                 .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.top, 4)
+                .padding(.bottom, 6)
 
                 CurrentLocationCardWidget(
                     currentLocationName: currentLocationName,
@@ -2015,7 +1988,7 @@ struct MainAppView: View {
                     nearbyLocationPlace: nearbyLocationPlace,
                     distanceToNearest: distanceToNearest,
                     elapsedTimeString: elapsedTimeString,
-                    todaysVisits: visitState.todaysVisits,
+                    todaysVisits: homeState.todaysVisits,
                     selectedPlace: $selectedLocationPlace,
                     showAllLocationsSheet: $showAllLocationsSheet
                 )
@@ -2095,15 +2068,17 @@ struct MainAppView: View {
             ReorderableWidgetContainer(widgetManager: widgetManager, type: .spending) {
                 SpendingAndETAWidget(
                     isVisible: selectedTab == .home,
-                    onAddReceipt: {
-                        showingReceiptCameraPicker = true
+                    onAddReceiptTapped: {
+                        showingReceiptAddOptions = true
                     },
-                    onAddReceiptFromGallery: {
-                        showingReceiptImagePicker = true
+                    onReceiptSelected: { receipt in
+                        handleSpendingReceiptSelection(receipt)
                     }
                 )
             }
             .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+            .padding(.top, 4)
+            .padding(.bottom, 6)
             
         case .currentLocation:
             ReorderableWidgetContainer(widgetManager: widgetManager, type: .currentLocation) {
@@ -2114,7 +2089,7 @@ struct MainAppView: View {
                     nearbyLocationPlace: nearbyLocationPlace,
                     distanceToNearest: distanceToNearest,
                     elapsedTimeString: elapsedTimeString,
-                    todaysVisits: visitState.todaysVisits,
+                    todaysVisits: homeState.todaysVisits,
                     selectedPlace: $selectedLocationPlace,
                     showAllLocationsSheet: $showAllLocationsSheet
                 )
@@ -2198,6 +2173,8 @@ struct MainAppView: View {
     // MARK: - Home Content
     private var homeContentWithoutHeader: some View {
         ZStack(alignment: .top) {
+            HomeGlassBackgroundLayer(colorScheme: colorScheme)
+
             // Blurred background when in search mode (overlay)
             if isSearchFocused || !searchText.isEmpty {
                 ZStack {
@@ -2217,13 +2194,13 @@ struct MainAppView: View {
             VStack(spacing: 0) {
                 // Search bar fixed at top
                 searchBarContainer
-                    .padding(.top, 8)
+                    .padding(.top, -2)
                 
                 // Main content widgets below search bar
                 visitReasonPopupSection
                 mainContentWidgets
             }
-            .background((colorScheme == .dark ? Color.black : Color.white))
+            .background(Color.clear)
             .zIndex(100)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

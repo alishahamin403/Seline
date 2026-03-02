@@ -468,66 +468,8 @@ class LocationBackgroundValidationService {
     // MARK: - Supabase Sync
 
     private func saveVisitToSupabase(_ visit: LocationVisitRecord) async {
-        guard let user = SupabaseManager.shared.getCurrentUser() else {
-            print("⚠️ No user, cannot save visit")
-            return
-        }
-
-        // CRITICAL: Check if visit spans midnight BEFORE saving
-        if let exitTime = visit.exitTime, visit.spansMidnight() {
-            print("🌙 MIDNIGHT SPLIT in BGValidation saveVisitToSupabase: Visit spans midnight, splitting before save")
-            let visitsToSave = visit.splitAtMidnightIfNeeded()
-            
-            if visitsToSave.count > 1 {
-                let geofenceManager = await GeofenceManager.shared
-                for (index, splitVisit) in visitsToSave.enumerated() {
-                    print("  - Saving split visit \(index + 1): \(splitVisit.entryTime) to \(splitVisit.exitTime?.description ?? "nil")")
-                    await geofenceManager.saveVisitToSupabase(splitVisit)
-                }
-                return
-            }
-        }
-
-        // AUTO-DELETE: Skip saving visits under 2 minutes (likely false positives)
-        // Only check if visit is complete (has exit_time and duration)
-        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
-            print("🗑️ Skipping save for short visit in BGValidation: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
-            return
-        }
-
-        // No split needed - save directly
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        let visitData: [String: PostgREST.AnyJSON] = [
-            "id": .string(visit.id.uuidString),
-            "user_id": .string(visit.userId.uuidString),
-            "saved_place_id": .string(visit.savedPlaceId.uuidString),
-            "session_id": visit.sessionId != nil ? .string(visit.sessionId!.uuidString) : .null,
-            "entry_time": .string(formatter.string(from: visit.entryTime)),
-            "exit_time": visit.exitTime != nil ? .string(formatter.string(from: visit.exitTime!)) : .null,
-            "duration_minutes": visit.durationMinutes != nil ? .double(Double(visit.durationMinutes!)) : .null,
-            "day_of_week": .string(visit.dayOfWeek),
-            "time_of_day": .string(visit.timeOfDay),
-            "month": .double(Double(visit.month)),
-            "year": .double(Double(visit.year)),
-            "confidence_score": visit.confidenceScore != nil ? .double(visit.confidenceScore!) : .null,
-            "merge_reason": visit.mergeReason != nil ? .string(visit.mergeReason!) : .null,
-            "created_at": .string(formatter.string(from: visit.createdAt)),
-            "updated_at": .string(formatter.string(from: visit.updatedAt))
-        ]
-
-        do {
-            let client = await SupabaseManager.shared.getPostgrestClient()
-            try await client
-                .from("location_visits")
-                .insert(visitData)
-                .execute()
-
-            print("💾 Visit saved to Supabase: \(visit.id.uuidString)")
-        } catch {
-            print("❌ Error saving visit: \(error)")
-        }
+        let geofenceManager = await GeofenceManager.shared
+        await geofenceManager.saveVisitToSupabase(visit)
     }
 
     private func updateVisitInSupabase(_ visit: LocationVisitRecord) async {

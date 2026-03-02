@@ -172,14 +172,8 @@ struct EmailDetailView: View {
                     closeView()
                 }
                 topActionButton(icon: "trash", tint: .red) {
-                    Task {
-                        do {
-                            try await emailService.deleteEmail(email)
-                            closeView()
-                        } catch {
-                            print("Failed to delete: \(error)")
-                        }
-                    }
+                    emailService.deleteEmailImmediately(email)
+                    closeView()
                 }
             }
             .padding(.horizontal, 16)
@@ -1383,12 +1377,17 @@ struct EmailDetailView: View {
 // MARK: - Modern Attachment Chip
 
 struct ModernAttachmentChip: View {
+    private struct PreviewItem: Identifiable {
+        let url: URL
+        var id: String { url.absoluteString }
+    }
+
     let attachment: EmailAttachment
     let emailMessageId: String?
     @Environment(\.colorScheme) var colorScheme
     @State private var isDownloading = false
-    @State private var showPreview = false
     @State private var downloadedURL: URL?
+    @State private var previewItem: PreviewItem?
 
     private var fileIcon: String {
         switch attachment.fileExtension {
@@ -1430,10 +1429,8 @@ struct ModernAttachmentChip: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .sheet(isPresented: $showPreview) {
-            if let url = downloadedURL {
-                QuickLookPreview(url: url)
-            }
+        .sheet(item: $previewItem) { item in
+            QuickLookPreview(url: item.url)
         }
     }
 
@@ -1484,7 +1481,7 @@ struct ModernAttachmentChip: View {
                     await MainActor.run {
                         downloadedURL = fileURL
                         isDownloading = false
-                        showPreview = true
+                        previewItem = PreviewItem(url: fileURL)
                         HapticManager.shared.success()
                     }
                 }
@@ -1613,7 +1610,7 @@ struct ZoomableHTMLView: UIViewRepresentable {
          <html>
          <head>
              <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=yes">
              <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * data: blob: https: http:;">
              <style>
                 * {
@@ -1631,7 +1628,7 @@ struct ZoomableHTMLView: UIViewRepresentable {
                 }
                 body {
                     margin: 0 !important;
-                    padding: 0 !important;
+                    padding: 0 14px 14px 14px !important;
                     width: 100% !important;
                     max-width: 100% !important;
                     overflow-x: hidden !important;
@@ -1777,22 +1774,59 @@ struct ZoomableHTMLView: UIViewRepresentable {
                      tables.forEach(function(table) {
                          table.removeAttribute('width');
                          table.style.maxWidth = '100%';
+                         table.style.width = '100%';
+                         table.style.minWidth = '0';
                      });
                  }
 
+                 function fitContentToViewportWidth() {
+                     var viewportWidth = Math.max(
+                         document.documentElement.clientWidth || 0,
+                         window.innerWidth || 0
+                     );
+                     if (!viewportWidth) { return 0; }
+
+                     // Reset any prior transform before measuring.
+                     document.body.style.transform = '';
+                     document.body.style.transformOrigin = '';
+                     document.body.style.width = '100%';
+
+                     var contentWidth = Math.max(
+                         document.body.scrollWidth || 0,
+                         document.documentElement.scrollWidth || 0
+                     );
+
+                     if (contentWidth > viewportWidth + 1) {
+                         var scale = viewportWidth / contentWidth;
+                         document.body.style.transformOrigin = 'top left';
+                         document.body.style.transform = 'scale(' + scale + ')';
+                         document.body.style.width = contentWidth + 'px';
+                     }
+
+                     return Math.ceil(
+                         Math.max(
+                             document.body.getBoundingClientRect().height,
+                             document.documentElement.getBoundingClientRect().height
+                         )
+                     );
+                 }
+
+                 window.__selineFitEmailContent = function() {
+                     formatEmailContent();
+                     return fitContentToViewportWidth();
+                 };
+
                 // Initial formatting on DOMContentLoaded
-                document.addEventListener('DOMContentLoaded', formatEmailContent);
+                document.addEventListener('DOMContentLoaded', window.__selineFitEmailContent);
                 
                 // Apply formatting on window load as well
                 window.addEventListener('load', function() {
-                    formatEmailContent();
-                    // Return total height for SwiftUI
-                    return document.body.scrollHeight;
+                    return window.__selineFitEmailContent();
                 });
                 
                 // Monitor for dynamic content changes
                 setTimeout(function() {
-                    formatEmailContent();
+                    window.__selineFitEmailContent();
                 }, 500);
              </script>
          </head>
@@ -1884,9 +1918,12 @@ struct ZoomableHTMLView: UIViewRepresentable {
                      }
                  });
 
-                 // Return the document height (add padding for safety)
-                 var height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
-                 return height;
+                 // Scale wide email content down to viewport and return rendered height.
+                 if (window.__selineFitEmailContent) {
+                     return window.__selineFitEmailContent();
+                 }
+                 var fallbackHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+                 return fallbackHeight;
              })();
              """
 
@@ -1900,7 +1937,7 @@ struct ZoomableHTMLView: UIViewRepresentable {
 
              // Additional measurement for images that load asynchronously
              DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                 webView.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] height, _ in
+                 webView.evaluateJavaScript("window.__selineFitEmailContent ? window.__selineFitEmailContent() : Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] height, _ in
                      if let contentHeight = height as? CGFloat, contentHeight > 300 {
                          DispatchQueue.main.async {
                              self?.parent?.contentHeight = contentHeight
@@ -1911,7 +1948,7 @@ struct ZoomableHTMLView: UIViewRepresentable {
              
              // Final measurement after images load
              DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                 webView.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] height, _ in
+                 webView.evaluateJavaScript("window.__selineFitEmailContent ? window.__selineFitEmailContent() : Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] height, _ in
                      if let contentHeight = height as? CGFloat, contentHeight > 0 {
                          DispatchQueue.main.async {
                              self?.parent?.contentHeight = max(300, contentHeight)

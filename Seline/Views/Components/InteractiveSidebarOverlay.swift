@@ -6,40 +6,39 @@ struct InteractiveSidebarOverlay<SidebarContent: View>: View {
     let canOpen: Bool
     let sidebarWidth: CGFloat
     let colorScheme: ColorScheme
+    let showsTrailingDivider: Bool
     let sidebarContent: () -> SidebarContent
-    @State private var openingOffset: CGFloat = 0
-    @State private var closingOffset: CGFloat = 0
+    @State private var dragOffset: CGFloat = 0
 
     init(
         isPresented: Binding<Bool>,
         canOpen: Bool = true,
         sidebarWidth: CGFloat,
         colorScheme: ColorScheme,
+        showsTrailingDivider: Bool = true,
         @ViewBuilder sidebarContent: @escaping () -> SidebarContent
     ) {
         self._isPresented = isPresented
         self.canOpen = canOpen
         self.sidebarWidth = sidebarWidth
         self.colorScheme = colorScheme
+        self.showsTrailingDivider = showsTrailingDivider
         self.sidebarContent = sidebarContent
     }
 
     private var spring: Animation {
-        .spring(response: 0.32, dampingFraction: 0.86)
+        .interactiveSpring(response: 0.28, dampingFraction: 0.86, blendDuration: 0.18)
     }
 
     private var shouldRenderOverlay: Bool {
-        isPresented || openingOffset > 0 || closingOffset < 0
+        isPresented || dragOffset != 0
     }
 
     private var currentSidebarOffset: CGFloat {
-        if openingOffset > 0 {
-            return -sidebarWidth + openingOffset
+        if isPresented {
+            return min(0, dragOffset)
         }
-        if closingOffset < 0 {
-            return closingOffset
-        }
-        return isPresented ? 0 : -sidebarWidth
+        return -sidebarWidth + max(0, dragOffset)
     }
 
     private var openProgress: CGFloat {
@@ -56,11 +55,11 @@ struct InteractiveSidebarOverlay<SidebarContent: View>: View {
                 let vertical = abs(value.translation.height)
                 guard horizontal < 0, abs(horizontal) > vertical else { return }
 
-                closingOffset = max(horizontal, -sidebarWidth)
+                dragOffset = max(horizontal, -sidebarWidth)
             }
             .onEnded { value in
                 guard isPresented else {
-                    closingOffset = 0
+                    dragOffset = 0
                     return
                 }
 
@@ -69,8 +68,8 @@ struct InteractiveSidebarOverlay<SidebarContent: View>: View {
 
                 withAnimation(spring) {
                     isPresented = !shouldClose
+                    dragOffset = 0
                 }
-                closingOffset = 0
             }
     }
 
@@ -86,7 +85,7 @@ struct InteractiveSidebarOverlay<SidebarContent: View>: View {
         ZStack(alignment: .leading) {
             if shouldRenderOverlay {
                 Color.black
-                    .opacity(0.42 * openProgress)
+                    .opacity(0.3 * openProgress)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -100,14 +99,16 @@ struct InteractiveSidebarOverlay<SidebarContent: View>: View {
                         .frame(width: sidebarWidth)
                         .background(colorScheme == .dark ? Color.black : .white)
                         .overlay(alignment: .trailing) {
-                            Rectangle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.1))
-                                .frame(width: 1)
+                            if showsTrailingDivider {
+                                Rectangle()
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.1))
+                                    .frame(width: 1)
+                            }
                         }
                         .shadow(
-                            color: .black.opacity(colorScheme == .dark ? 0.5 : 0.16),
-                            radius: 24,
-                            x: 6,
+                            color: .black.opacity(colorScheme == .dark ? 0.28 : 0.1),
+                            radius: 14,
+                            x: 2,
                             y: 0
                         )
                         .offset(x: currentSidebarOffset)
@@ -126,7 +127,7 @@ struct InteractiveSidebarOverlay<SidebarContent: View>: View {
                             sidebarWidth: sidebarWidth,
                             onChanged: { translationX in
                                 let horizontal = min(translationX, 0)
-                                closingOffset = max(horizontal, -sidebarWidth)
+                                dragOffset = max(horizontal, -sidebarWidth)
                             },
                             onEnded: { translationX, velocityX in
                                 let projected = min(translationX + (velocityX * 0.18), translationX)
@@ -134,8 +135,8 @@ struct InteractiveSidebarOverlay<SidebarContent: View>: View {
 
                                 withAnimation(spring) {
                                     isPresented = !shouldClose
+                                    dragOffset = 0
                                 }
-                                closingOffset = 0
                             }
                         )
                     }
@@ -150,11 +151,11 @@ struct InteractiveSidebarOverlay<SidebarContent: View>: View {
                     onChanged: { translationX, _ in
                         guard canOpen, !isPresented else { return }
                         let horizontal = max(0, translationX)
-                        openingOffset = min(horizontal, sidebarWidth)
+                        dragOffset = min(horizontal, sidebarWidth)
                     },
                     onEnded: { translationX, velocityX in
                         guard canOpen, !isPresented else {
-                            openingOffset = 0
+                            dragOffset = 0
                             return
                         }
 
@@ -164,8 +165,8 @@ struct InteractiveSidebarOverlay<SidebarContent: View>: View {
 
                         withAnimation(spring) {
                             isPresented = shouldOpen
+                            dragOffset = 0
                         }
-                        openingOffset = 0
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -173,9 +174,9 @@ struct InteractiveSidebarOverlay<SidebarContent: View>: View {
             }
         }
         .onAppear {
-            postSidebarVisibility(shouldRenderOverlay)
+            postSidebarVisibility(isPresented)
         }
-        .onChange(of: shouldRenderOverlay) { isVisible in
+        .onChange(of: isPresented) { isVisible in
             postSidebarVisibility(isVisible)
         }
         .onDisappear {

@@ -360,6 +360,41 @@ class NotificationService: ObservableObject {
         }
     }
 
+    func scheduleDailyJournalPromptAt(hour: Int, minute: Int = 0) async {
+        guard isAuthorized else { return }
+
+        var dateComponents = DateComponents()
+        dateComponents.hour = hour
+        dateComponents.minute = minute
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
+
+        let content = UNMutableNotificationContent()
+        content.title = "Journal"
+        content.body = "Write a few lines about your day"
+        content.sound = .default
+        content.categoryIdentifier = "journal_prompt"
+        content.userInfo = ["type": "journal_prompt"]
+
+        let request = UNNotificationRequest(
+            identifier: "journal-daily-prompt",
+            content: content,
+            trigger: trigger
+        )
+
+        do {
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["journal-daily-prompt"])
+            try await UNUserNotificationCenter.current().add(request)
+            print("📓 Scheduled daily journal prompt at \(hour):\(String(format: "%02d", minute))")
+        } catch {
+            print("Failed to schedule daily journal prompt: \(error)")
+        }
+    }
+
+    func cancelDailyJournalPrompt() {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["journal-daily-prompt"])
+    }
+
     // MARK: - Smart Event Reminders
 
     /// Schedule smart reminder with travel time consideration

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct EmailSearchResultsView: View {
+    let scopeTitle: String
     let searchText: String
     let searchResults: [Email]
     let isLoading: Bool
@@ -9,77 +10,97 @@ struct EmailSearchResultsView: View {
     let onMarkAsUnread: (Email) -> Void
     @Environment(\.colorScheme) var colorScheme
 
+    private var presentationStyle: EmailMailboxPresentationStyle {
+        scopeTitle == "Sent" ? .sent : .inbox
+    }
+
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
+            VStack(spacing: 14) {
                 if isLoading {
                     VStack(spacing: 16) {
-                        Spacer()
                         ProgressView()
                             .scaleEffect(1.2)
                         Text("Searching...")
                             .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
-                        Spacer()
+                            .foregroundColor(Color.emailGlassMutedText(colorScheme))
                     }
-                    .frame(maxWidth: .infinity, minHeight: 200)
+                    .frame(maxWidth: .infinity, minHeight: 220)
+                    .appAmbientCardStyle(
+                        colorScheme: colorScheme,
+                        variant: .topLeading,
+                        cornerRadius: 24,
+                        highlightStrength: 0.28
+                    )
                 } else if searchResults.isEmpty {
                     VStack(spacing: 16) {
-                        Spacer()
                         Image(systemName: "magnifyingglass")
-                            .font(FontManager.geist(size: 50, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.emailLightTextSecondary.opacity(0.8))
-                        Text("No results found")
+                            .font(FontManager.geist(size: 42, weight: .regular))
+                            .foregroundColor(Color.emailGlassMutedText(colorScheme))
+                        Text("No matching emails")
                             .font(FontManager.geist(size: 18, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
-                        Text("Try different keywords or check your spelling")
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                        Text("Try different keywords in \(scopeTitle.lowercased()) or check your spelling.")
                             .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
+                            .foregroundColor(Color.emailGlassMutedText(colorScheme))
                             .multilineTextAlignment(.center)
-                        Spacer()
                     }
-                    .frame(maxWidth: .infinity, minHeight: 200)
+                    .frame(maxWidth: .infinity, minHeight: 220)
                     .padding(.horizontal, 20)
+                    .appAmbientCardStyle(
+                        colorScheme: colorScheme,
+                        variant: .topLeading,
+                        cornerRadius: 24,
+                        highlightStrength: 0.28
+                    )
                 } else {
-                    VStack(spacing: 0) {
-                        // Results header
-                        HStack {
-                            Text("\(searchResults.count) result\(searchResults.count == 1 ? "" : "s")")
-                                .font(FontManager.geist(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.emailLightTextSecondary)
-                            Spacer()
+                    VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Search Results")
+                                .font(FontManager.geist(size: 18, weight: .semibold))
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
+                            Text("\(searchResults.count) result\(searchResults.count == 1 ? "" : "s") in \(scopeTitle.lowercased())")
+                                .font(FontManager.geist(size: 14, weight: .regular))
+                                .foregroundColor(Color.emailGlassMutedText(colorScheme))
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
-                        .padding(.bottom, 8)
 
-                        // Search results list
-                        ForEach(searchResults) { email in
-                            Button(action: {
-                                onEmailTap(email)
-                            }) {
-                                EmailRow(
-                                    email: email,
-                                    onDelete: onDeleteEmail,
-                                    onMarkAsUnread: onMarkAsUnread
-                                )
+                        VStack(spacing: 8) {
+                            ForEach(searchResults) { email in
+                                Button(action: {
+                                    onEmailTap(email)
+                                }) {
+                                    EmailRow(
+                                        email: email,
+                                        onDelete: onDeleteEmail,
+                                        onMarkAsUnread: onMarkAsUnread,
+                                        presentationStyle: presentationStyle
+                                    )
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
-                            .buttonStyle(PlainButtonStyle())
                         }
                     }
+                    .padding(18)
+                    .appAmbientCardStyle(
+                        colorScheme: colorScheme,
+                        variant: .topLeading,
+                        cornerRadius: 24,
+                        highlightStrength: 0.34
+                    )
                 }
 
-                // Bottom padding
                 Spacer()
                     .frame(height: 100)
             }
             .padding(.horizontal, 8)
+            .padding(.top, 10)
         }
     }
 }
 
 #Preview {
     EmailSearchResultsView(
+        scopeTitle: "Inbox",
         searchText: "test",
         searchResults: Email.sampleEmails,
         isLoading: false,

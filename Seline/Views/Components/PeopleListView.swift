@@ -5,35 +5,29 @@ struct PeopleListView: View {
     @ObservedObject var locationsManager: LocationsManager
     let colorScheme: ColorScheme
     let searchText: String
-    @Binding var isSearchActive: Bool  // Now controlled by parent view
+    @Binding var isSearchActive: Bool
     let showsHeader: Bool
 
     @State private var selectedPerson: Person? = nil
     @State private var showingAddPerson = false
     @State private var showingContactsImport = false
-    @State private var selectedRelationshipFilter: String? = nil // Changed to String to support custom relationships
-    @State private var expandedSections: Set<RelationshipType> = Set(RelationshipType.allCases)
+    @State private var selectedRelationshipFilter: String? = nil
 
-    // Edit mode for bulk delete
     @State private var isEditMode = false
     @State private var selectedPeopleForDeletion: Set<UUID> = []
     @State private var showingDeleteConfirmation = false
     @State private var showingBulkDeleteConfirmation = false
     @State private var personToDelete: Person? = nil
 
-    // Category ordering
-    @State private var categoryOrder: [String] = [] // Custom order for categories
-
-    // Cache for filtered and grouped results
+    @State private var categoryOrder: [String] = []
     @State private var filteredPeopleCache: [Person] = []
     @State private var groupedPeopleCache: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] = []
 
-    // Debounce timer for search
-    @State private var searchDebounceTimer: Timer?
-
-    // Internal search text for unified search experience
+    @State private var searchDebouncer = DebouncedTaskRunner()
     @State private var internalSearchText = ""
     @FocusState private var isSearchFocused: Bool
+
+    private static let categoryOrderKey = "people_category_order"
 
     init(
         peopleManager: PeopleManager,
@@ -51,101 +45,50 @@ struct PeopleListView: View {
         self.showsHeader = showsHeader
     }
 
-    // MARK: - Cache Update Method
-
-    private func updateFilteredResults() {
-        var result = peopleManager.people
-
-        // Use internal search text if search is active, otherwise use passed-in searchText
-        let activeSearchText = isSearchActive ? internalSearchText : searchText
-
-        // Apply search filter
-        if !activeSearchText.isEmpty {
-            let lowercasedSearch = activeSearchText.lowercased()
-            result = result.filter { person in
-                person.name.lowercased().contains(lowercasedSearch) ||
-                (person.nickname?.lowercased().contains(lowercasedSearch) ?? false) ||
-                person.relationshipDisplayText.lowercased().contains(lowercasedSearch) ||
-                (person.notes?.lowercased().contains(lowercasedSearch) ?? false) ||
-                (person.favouriteFood?.lowercased().contains(lowercasedSearch) ?? false) ||
-                (person.favouriteGift?.lowercased().contains(lowercasedSearch) ?? false)
-            }
-        }
-
-        // Apply relationship filter
-        if let filter = selectedRelationshipFilter {
-            result = result.filter { person in
-                if filter.hasPrefix("custom_") {
-                    // Custom relationship filter
-                    let customName = String(filter.dropFirst("custom_".count))
-                    return person.relationship == .other && person.customRelationship == customName
-                } else if filter.hasPrefix("type_") {
-                    // Standard relationship type filter
-                    let typeRawValue = String(filter.dropFirst("type_".count))
-                    return person.relationship.rawValue == typeRawValue
-                } else {
-                    return false
-                }
-            }
-        }
-
-        filteredPeopleCache = result
-
-        // Update grouped cache - group by custom relationship if type is "other"
-        let groupedDict = Dictionary(grouping: result) { person -> String in
-            if person.relationship == .other, let custom = person.customRelationship, !custom.isEmpty {
-                return "custom_\(custom)" // Use custom relationship as key
-            } else {
-                return "type_\(person.relationship.rawValue)" // Use standard relationship type
-            }
-        }
-
-        // Build sorted groups
-        var groups: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] = []
-
-        // First add standard relationship types (in order)
-        for relType in RelationshipType.allCases where relType != .other {
-            let key = "type_\(relType.rawValue)"
-            if let people = groupedDict[key], !people.isEmpty {
-                groups.append((
-                    groupKey: key,
-                    displayName: relType.displayName,
-                    relationshipType: relType,
-                    people: people.sorted { $0.name < $1.name }
-                ))
-            }
-        }
-
-        // Then add custom relationships (alphabetically)
-        let customGroups = groupedDict
-            .filter { $0.key.hasPrefix("custom_") }
-            .sorted { $0.key < $1.key }
-            .map { key, people -> (groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person]) in
-                let customName = String(key.dropFirst("custom_".count))
-                return (
-                    groupKey: key,
-                    displayName: customName,
-                    relationshipType: nil,
-                    people: people.sorted { $0.name < $1.name }
-                )
-            }
-        groups.append(contentsOf: customGroups)
-
-        // Finally add "Other" if there are people with relationship = .other but no custom relationship
-        let otherKey = "type_\(RelationshipType.other.rawValue)"
-        if let otherPeople = groupedDict[otherKey], !otherPeople.isEmpty {
-            groups.append((
-                groupKey: otherKey,
-                displayName: RelationshipType.other.displayName,
-                relationshipType: .other,
-                people: otherPeople.sorted { $0.name < $1.name }
-            ))
-        }
-
-        groupedPeopleCache = groups
+    private var favouritePeople: [Person] {
+        peopleManager.getFavourites()
     }
 
-    private static let categoryOrderKey = "people_category_order"
+    private var upcomingBirthdayPeople: [(person: Person, daysUntil: Int)] {
+        peopleManager.people
+            .compactMap { person -> (person: Person, daysUntil: Int)? in
+                guard let daysUntil = peopleDaysUntilBirthday(person), daysUntil <= 30 else { return nil }
+                return (person, daysUntil)
+            }
+            .sorted {
+                if $0.daysUntil == $1.daysUntil {
+                    return $0.person.displayName < $1.person.displayName
+                }
+                return $0.daysUntil < $1.daysUntil
+            }
+    }
+
+    private var peopleSummaryText: String {
+        guard !peopleManager.people.isEmpty else {
+            return "Keep people connected to places, timeline visits, gifts, and notes."
+        }
+
+        var parts = ["\(peopleManager.people.count) saved"]
+        let favouriteCount = favouritePeople.count
+        if favouriteCount > 0 {
+            parts.append("\(favouriteCount) favorites")
+        }
+        let birthdayCount = upcomingBirthdayPeople.count
+        if birthdayCount > 0 {
+            parts.append("\(birthdayCount) birthdays soon")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var sortedGroupedPeople: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] {
+        guard !categoryOrder.isEmpty else { return groupedPeopleCache }
+
+        return groupedPeopleCache.sorted { group1, group2 in
+            let index1 = categoryOrder.firstIndex(of: group1.groupKey) ?? Int.max
+            let index2 = categoryOrder.firstIndex(of: group2.groupKey) ?? Int.max
+            return index1 < index2
+        }
+    }
 
     var body: some View {
         lifecycle(alerts(sheets(bodyContent)))
@@ -235,14 +178,12 @@ struct PeopleListView: View {
     private func lifecycle<Content: View>(_ content: Content) -> some View {
         content
             .onChange(of: searchText) { _ in
-                searchDebounceTimer?.invalidate()
-                searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                searchDebouncer.schedule(delay: 0.3) {
                     updateFilteredResults()
                 }
             }
             .onChange(of: internalSearchText) { _ in
-                searchDebounceTimer?.invalidate()
-                searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                searchDebouncer.schedule(delay: 0.3) {
                     updateFilteredResults()
                 }
             }
@@ -254,7 +195,6 @@ struct PeopleListView: View {
                 syncCategoryOrder()
             }
             .onChange(of: isSearchActive) { newValue in
-                // When search is activated from parent, focus the search field
                 if newValue {
                     isSearchFocused = true
                 }
@@ -264,35 +204,26 @@ struct PeopleListView: View {
                 updateFilteredResults()
                 syncCategoryOrder()
             }
-            .swipeDownToRevealSearch(enabled: !isSearchActive) {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isSearchActive = true
-                    isSearchFocused = true
-                }
+            .onDisappear {
+                searchDebouncer.cancel()
             }
     }
 
-    // MARK: - Main Content & Search Overlay
-
     private var mainContentView: some View {
-        VStack(spacing: 0) {
-            // SCROLLABLE CONTENT — everything between header and footer scrolls
-            ScrollView {
-                VStack(spacing: 0) {
-                    peopleStreamHeader
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-                        .padding(.bottom, peopleManager.people.isEmpty ? 8 : 12)
+        ZStack {
+            AppAmbientBackgroundLayer(
+                colorScheme: colorScheme,
+                variant: peoplePageVariant
+            )
 
-                    // Favorites rail
-                    if !peopleManager.people.isEmpty && !isEditMode {
-                        favoritesSection
-                    }
-
-                    // People stream
-                    mainContentBox
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 12) {
+                    peopleHeroCard
+                    peopleDirectorySection
                 }
-                .padding(.bottom, isEditMode ? 20 : 0)
+                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.top, 12)
+                .padding(.bottom, isEditMode ? 22 : 30)
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -309,7 +240,7 @@ struct PeopleListView: View {
             UnifiedSearchBar(
                 searchText: $internalSearchText,
                 isFocused: $isSearchFocused,
-                placeholder: "Search people",
+                placeholder: "Search people, gifts, notes",
                 onCancel: {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isSearchActive = false
@@ -320,9 +251,9 @@ struct PeopleListView: View {
                 },
                 colorScheme: colorScheme
             )
-            .padding(.horizontal, 20)
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .padding(.top, 8)
-            .background(colorScheme == .dark ? Color.black : Color.white)
+            .background(Color.clear)
 
             if !internalSearchText.isEmpty {
                 SearchResultsListView(
@@ -352,343 +283,206 @@ struct PeopleListView: View {
                 )
             }
         }
-        .background(colorScheme == .dark ? Color.black : Color.white)
+        .background(
+            AppAmbientBackgroundLayer(
+                colorScheme: colorScheme,
+                variant: peoplePageVariant
+            )
+        )
         .transition(.move(edge: .top).combined(with: .opacity))
         .zIndex(100)
     }
 
-    // MARK: - Sticky Header
-
-    private var stickyHeader: some View {
-        HStack(spacing: 12) {
-            Text("People")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                .textCase(.uppercase)
-                .tracking(0.5)
-            Spacer()
-
-            if isEditMode {
-                // Done button in edit mode
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isEditMode = false
-                        selectedPeopleForDeletion.removeAll()
+    private var peopleHeroCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if showsHeader {
+                        Text("People")
+                            .font(FontManager.geist(size: 28, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
                     }
-                }) {
-                    Text("Done")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white : Color.black)
-                        )
+
+                    Text(isEditMode ? "Select people to delete or reorder groups." : peopleSummaryText)
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .lineLimit(2)
                 }
-                .buttonStyle(PlainButtonStyle())
-            } else {
-                // Show Edit button if there are people
-                if !peopleManager.people.isEmpty {
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isEditMode = true
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 8) {
+                    if isEditMode {
+                        secondaryActionButton(title: "Done", systemImage: "checkmark") {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isEditMode = false
+                                selectedPeopleForDeletion.removeAll()
+                            }
                         }
-                    }) {
-                        Text("Edit")
-                            .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-    }
-
-    // MARK: - Sorted Grouped People
-
-    private var sortedGroupedPeople: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] {
-        // If no custom order, return as is
-        if categoryOrder.isEmpty {
-            return groupedPeopleCache
-        }
-
-        // Sort according to custom order
-        return groupedPeopleCache.sorted { group1, group2 in
-            let index1 = categoryOrder.firstIndex(of: group1.groupKey) ?? Int.max
-            let index2 = categoryOrder.firstIndex(of: group2.groupKey) ?? Int.max
-            return index1 < index2
-        }
-    }
-
-    // MARK: - Favorites Section
-
-    @ViewBuilder
-    private var favoritesSection: some View {
-        let favourites = peopleManager.getFavourites()
-            .filter { person in
-                if !searchText.isEmpty {
-                    let lowercasedSearch = searchText.lowercased()
-                    return person.name.lowercased().contains(lowercasedSearch) ||
-                           (person.nickname?.lowercased().contains(lowercasedSearch) ?? false)
-                }
-                return true
-            }
-        
-        if !favourites.isEmpty {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    Text("Favorites")
-                        .font(FontManager.geist(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        .textCase(.uppercase)
-                        .tracking(0.5)
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 10) {
-                        ForEach(favourites, id: \.id) { person in
-                            Button(action: {
-                                selectedPerson = person
-                            }) {
-                                VStack(spacing: 6) {
-                                    // Avatar
-                                    ZStack {
-                                        if let photoURL = person.photoURL, !photoURL.isEmpty {
-                                            CachedAsyncImage(url: photoURL) { image in
-                                                image
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: .fill)
-                                            } placeholder: {
-                                                RoundedRectangle(cornerRadius: 12)
-                                                    .fill(colorForRelationship(person.relationship))
-                                                    .frame(width: 54, height: 54)
-                                                    .overlay(
-                                                        Text(person.initials)
-                                                            .font(FontManager.geist(size: 20, weight: .semibold))
-                                                            .foregroundColor(.white)
-                                                    )
-                                            }
-                                            .frame(width: 54, height: 54)
-                                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                                        } else {
-                                            RoundedRectangle(cornerRadius: 12)
-                                                .fill(colorForRelationship(person.relationship))
-                                                .frame(width: 54, height: 54)
-                                                .overlay(
-                                                    Text(person.initials)
-                                                        .font(FontManager.geist(size: 20, weight: .semibold))
-                                                        .foregroundColor(.white)
-                                                )
-                                        }
-                                    }
-                                    
-                                    Text(person.displayName)
-                                        .font(FontManager.geist(size: 11, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.center)
-                                        .frame(width: 54, height: 28)
-                                        .minimumScaleFactor(0.8)
+                    } else {
+                        if !peopleManager.people.isEmpty {
+                            iconActionPill(systemImage: "slider.horizontal.3", accessibilityLabel: "Edit people") {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isEditMode = true
                                 }
                             }
-                            .buttonStyle(PlainButtonStyle())
+                        }
+
+                        iconActionPill(systemImage: "person.crop.rectangle.stack", accessibilityLabel: "Import contacts") {
+                            showingContactsImport = true
+                        }
+
+                        primaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add person") {
+                            showingAddPerson = true
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22)
-                    .stroke(
-                        colorScheme == .dark 
-                            ? Color.white.opacity(0.08)
-                            : Color.black.opacity(0.06),
-                        lineWidth: 1
-                    )
-            )
-            .shadow(
-                color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
-                radius: 20,
-                x: 0,
-                y: 4
-            )
-            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-            .padding(.top, 12)
-        }
-    }
-    
-    // MARK: - Main Content Box
-    
-    @ViewBuilder
-    private var mainContentBox: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Relationship filter chips (hidden in edit mode – edit mode is for selecting/reordering)
-            if !isEditMode && !peopleManager.people.isEmpty {
-                relationshipFilterChips
-                    .padding(.horizontal, 0)
-                    .padding(.top, 16)
-                    .padding(.bottom, 8)
-            }
 
-            // People list content
-            if filteredPeopleCache.isEmpty {
-                VStack(spacing: 14) {
-                    Image(systemName: "person.2.fill")
-                        .font(FontManager.geist(size: 48, weight: .light))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+            Button(action: activateSearch) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
 
-                    Text(peopleManager.people.isEmpty ? "No people saved yet" : "No people match your filters")
+                    Text("Search people, gifts, notes")
                         .font(FontManager.geist(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
 
-                    if peopleManager.people.isEmpty {
-                        Text("Use + to add people and link them to places and timeline")
-                            .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.45) : .black.opacity(0.45))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                    }
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
-            } else {
-                // No nested ScrollView – the outer ScrollView handles scrolling
-                peopleListContent
-                    .padding(.horizontal, 4)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            HStack(spacing: 10) {
+                metricTile(label: "Total", value: "\(peopleManager.people.count)")
+                metricTile(label: "Favorites", value: "\(favouritePeople.count)")
+                metricTile(label: "Birthdays soon", value: "\(upcomingBirthdayPeople.count)")
+            }
+
+            if peopleManager.people.isEmpty {
+                emptyHeroState
+            } else if !favouritePeople.isEmpty && !isEditMode {
+                favoritesOverview
             }
         }
-        .padding(.bottom, 20)
-        .background(
-            RoundedRectangle(cornerRadius: 22)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+        .padding(16)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: peoplePageVariant,
+            cornerRadius: 24,
+            highlightStrength: 0.95
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .stroke(
-                    colorScheme == .dark 
-                        ? Color.white.opacity(0.08)
-                        : Color.black.opacity(0.06),
-                    lineWidth: 1
-                )
-        )
-        .shadow(
-            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
-            radius: 20,
-            x: 0,
-            y: 4
-        )
-        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.top, 12)
     }
 
-    private var peopleStreamHeader: some View {
-        HStack(spacing: 10) {
-            if isEditMode {
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isEditMode = false
-                        selectedPeopleForDeletion.removeAll()
-                    }
-                }) {
-                    Text("Done")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white : Color.black)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-            } else {
-                if !peopleManager.people.isEmpty {
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isEditMode = true
-                        }
-                    }) {
-                        Text("Edit")
-                            .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
+    private var emptyHeroState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Start a tighter relationship hub")
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
 
-                Button(action: {
-                    showingContactsImport = true
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "person.crop.rectangle.stack")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("Import")
-                            .font(FontManager.geist(size: 12, weight: .medium))
-                    }
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(PlainButtonStyle())
+            Text("Save the people you care about, then connect them to visits, places, and receipts so the app becomes more useful over time.")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .fixedSize(horizontal: false, vertical: true)
 
-                Spacer()
-
-                Button(action: {
+            HStack(spacing: 10) {
+                primaryActionButton(title: "Add Person", systemImage: "plus") {
                     showingAddPerson = true
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 30, height: 30)
-                        .background(
-                            Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.06))
-                        )
                 }
-                .buttonStyle(PlainButtonStyle())
+
+                secondaryActionButton(title: "Import Contacts", systemImage: "arrow.down.doc") {
+                    showingContactsImport = true
+                }
             }
         }
+        .padding(16)
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 20)
     }
-    
-    // MARK: - Relationship Filter Chips
+
+    private var favoritesOverview: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Favourites")
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 10) {
+                    ForEach(favouritePeople) { person in
+                        Button(action: {
+                            selectedPerson = person
+                        }) {
+                            HStack(spacing: 10) {
+                                personMiniAvatar(person)
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(person.displayName)
+                                        .font(FontManager.geist(size: 13, weight: .semibold))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .lineLimit(1)
+
+                                    Text(person.relationshipDisplayText)
+                                        .font(FontManager.geist(size: 11, weight: .regular))
+                                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                                        .lineLimit(1)
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(.horizontal, -16)
+        }
+    }
+
+    private var peopleDirectorySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Relationship")
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            if !peopleManager.people.isEmpty && !isEditMode {
+                relationshipFilterChips
+            }
+
+            if filteredPeopleCache.isEmpty {
+                emptyDirectoryState
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(sortedGroupedPeople, id: \.groupKey) { group in
+                        groupCard(group)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: peopleSectionVariant,
+            cornerRadius: 24,
+            highlightStrength: 0.5
+        )
+    }
 
     private var relationshipFilterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                // "All" chip
                 filterChip(title: "All", isSelected: selectedRelationshipFilter == nil) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         selectedRelationshipFilter = nil
                     }
                 }
 
-                // Show chips for all groups (standard + custom)
                 ForEach(groupedPeopleCache, id: \.groupKey) { group in
                     filterChip(
                         title: group.displayName,
@@ -700,58 +494,93 @@ struct PeopleListView: View {
                     }
                 }
             }
+            .padding(.vertical, 2)
         }
     }
-    
+
     private func filterChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(FontManager.geist(size: 12, weight: .medium))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(isSelected ?
-                          (colorScheme == .dark ? Color.white : Color.black) :
-                          (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)))
-            )
-            .foregroundColor(isSelected ?
-                             (colorScheme == .dark ? Color.black : Color.white) :
-                             (colorScheme == .dark ? Color.white : Color.black))
+                .foregroundColor(isSelected ? (colorScheme == .dark ? .black : .white) : Color.appTextSecondary(colorScheme))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(
+                    Capsule()
+                        .fill(isSelected
+                              ? (colorScheme == .dark ? Color.white : Color.black)
+                              : Color.appChip(colorScheme))
+                )
         }
         .buttonStyle(PlainButtonStyle())
     }
-    
-    // MARK: - Empty State
-    
-    private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "person.2.fill")
-                .font(FontManager.geist(size: 48, weight: .light))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-            
-            Text(searchText.isEmpty ? "No people saved yet" : "No people found")
-                .font(FontManager.geist(size: 18, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-            
-            Text(searchText.isEmpty ? "Tap + to add friends, family, and contacts" : "Try a different search term")
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                .multilineTextAlignment(.center)
-        }
-        .padding(.top, 60)
-        .frame(maxWidth: .infinity)
-    }
-    
-    // MARK: - People List Content
-    
-    private var peopleListContent: some View {
-        VStack(spacing: 0) {
-            ForEach(sortedGroupedPeople, id: \.groupKey) { group in
-                // Section header
-                sectionHeader(groupKey: group.groupKey, displayName: group.displayName, count: group.people.count)
 
-                // People rows
+    private var emptyDirectoryState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: peopleManager.people.isEmpty ? "person.2.fill" : "line.3.horizontal.decrease.circle")
+                .font(FontManager.geist(size: 40, weight: .light))
+                .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.7))
+
+            Text(peopleManager.people.isEmpty ? "No people saved yet" : "No people match your filter")
+                .font(FontManager.geist(size: 16, weight: .medium))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            Text(peopleManager.people.isEmpty
+                 ? "Use Add or Import above to create a relationship hub tied to places and visits."
+                 : "Try a different relationship chip or clear the current filter.")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+
+            if selectedRelationshipFilter != nil {
+                secondaryActionButton(title: "Clear Filter", systemImage: "xmark") {
+                    selectedRelationshipFilter = nil
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 34)
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 24)
+    }
+
+    private func groupCard(_ group: (groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(group.displayName)
+                            .font(FontManager.geist(size: 17, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                        Text("\(group.people.count)")
+                            .font(FontManager.geist(size: 11, weight: .semibold))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(Color.appChip(colorScheme))
+                            )
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                if isEditMode {
+                    HStack(spacing: 6) {
+                        groupReorderButton(systemImage: "chevron.up", isEnabled: canMoveCategoryUp(group.groupKey)) {
+                            moveCategoryUp(group.groupKey)
+                        }
+
+                        groupReorderButton(systemImage: "chevron.down", isEnabled: canMoveCategoryDown(group.groupKey)) {
+                            moveCategoryDown(group.groupKey)
+                        }
+                    }
+                }
+            }
+
+            VStack(spacing: 10) {
                 ForEach(group.people) { person in
                     PersonRowView(
                         person: person,
@@ -773,81 +602,28 @@ struct PeopleListView: View {
                             showingDeleteConfirmation = true
                         }
                     )
-
-                    if person.id != group.people.last?.id {
-                        Divider()
-                            .padding(.leading, 84)
-                            .opacity(0.2)
-                    }
                 }
             }
         }
+        .padding(16)
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 24)
     }
-    
-    private func colorForRelationship(_ relationship: RelationshipType) -> Color {
-        switch relationship {
-        case .family: return Color(red: 0.8, green: 0.3, blue: 0.3)
-        case .partner: return Color(red: 0.9, green: 0.3, blue: 0.5)
-        case .closeFriend: return Color(red: 0.3, green: 0.6, blue: 0.9)
-        case .friend: return Color(red: 0.3, green: 0.7, blue: 0.5)
-        case .coworker: return Color(red: 0.5, green: 0.5, blue: 0.7)
-        case .classmate: return Color(red: 0.6, green: 0.4, blue: 0.7)
-        case .neighbor: return Color(red: 0.5, green: 0.6, blue: 0.5)
-        case .mentor: return Color(red: 0.8, green: 0.6, blue: 0.2)
-        case .acquaintance: return Color(red: 0.5, green: 0.5, blue: 0.5)
-        case .other: return Color(red: 0.4, green: 0.4, blue: 0.4)
+
+    private func groupReorderButton(systemImage: String, isEnabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme).opacity(isEnabled ? 1 : 0.35))
+                .frame(width: 28, height: 28)
+                .background(
+                    Circle()
+                        .fill(Color.appChip(colorScheme))
+                )
         }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.55)
     }
-
-    // MARK: - Section Header
-
-    private func sectionHeader(groupKey: String, displayName: String, count: Int) -> some View {
-        HStack(spacing: 8) {
-            Text(displayName.uppercased())
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-
-            Text("(\(count))")
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-
-            Spacer()
-
-            // Up / Down arrows in edit mode (same pattern as home page widgets)
-            if isEditMode {
-                HStack(spacing: 6) {
-                    Button {
-                        moveCategoryUp(groupKey)
-                    } label: {
-                        Image(systemName: "chevron.up.circle.fill")
-                            .font(.system(size: 22))
-                            .foregroundColor(colorScheme == .dark ? Color(white: 0.7) : Color(white: 0.3))
-                            .background(Circle().fill(colorScheme == .dark ? Color.black : Color.white).frame(width: 18, height: 18))
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .opacity(canMoveCategoryUp(groupKey) ? 1.0 : 0.3)
-                    .disabled(!canMoveCategoryUp(groupKey))
-
-                    Button {
-                        moveCategoryDown(groupKey)
-                    } label: {
-                        Image(systemName: "chevron.down.circle.fill")
-                            .font(.system(size: 22))
-                            .foregroundColor(colorScheme == .dark ? Color(white: 0.7) : Color(white: 0.3))
-                            .background(Circle().fill(colorScheme == .dark ? Color.black : Color.white).frame(width: 18, height: 18))
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .opacity(canMoveCategoryDown(groupKey) ? 1.0 : 0.3)
-                    .disabled(!canMoveCategoryDown(groupKey))
-                }
-            }
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 20)
-        .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
-    }
-
-    // MARK: - Sticky Delete Footer
 
     private var stickyDeleteFooter: some View {
         VStack(spacing: 0) {
@@ -868,9 +644,9 @@ struct PeopleListView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
                 .background(
-                    RoundedRectangle(cornerRadius: 14)
+                    RoundedRectangle(cornerRadius: 16)
                         .fill(selectedPeopleForDeletion.isEmpty
-                            ? (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.3))
+                            ? (colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.28))
                             : Color.red)
                 )
                 .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
@@ -882,23 +658,229 @@ struct PeopleListView: View {
         }
         .background(
             Rectangle()
-                .fill(colorScheme == .dark ? Color.black : Color(UIColor.systemBackground))
+                .fill(Color.appBackground(colorScheme))
                 .ignoresSafeArea(edges: .bottom)
         )
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.1), radius: 10, x: 0, y: -5)
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.08), radius: 10, x: 0, y: -5)
     }
 
-    // MARK: - Category Reordering
+    private func metricTile(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineLimit(1)
 
-    /// Sync categoryOrder with current groups (add new, remove stale)
+            Text(value)
+                .font(FontManager.geist(size: 23, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+    }
+
+    private func personMiniAvatar(_ person: Person) -> some View {
+        Group {
+            if let photoURL = person.photoURL, !photoURL.isEmpty {
+                CachedAsyncImage(url: photoURL) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    miniInitialsAvatar(for: person)
+                }
+            } else {
+                miniInitialsAvatar(for: person)
+            }
+        }
+        .frame(width: 38, height: 38)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func miniInitialsAvatar(for person: Person) -> some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(peopleRelationshipColor(person.relationship))
+            .overlay(
+                Text(person.initials)
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+            )
+    }
+
+    private func iconActionPill(systemImage: String, accessibilityLabel: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .background(
+                    Circle()
+                        .fill(Color.appChip(colorScheme))
+                )
+        }
+        .accessibilityLabel(accessibilityLabel)
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func primaryIconActionPill(systemImage: String, accessibilityLabel: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .foregroundColor(.black)
+                .background(
+                    Circle()
+                        .fill(Color(red: 0.98, green: 0.64, blue: 0.41))
+                )
+        }
+        .accessibilityLabel(accessibilityLabel)
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func primaryActionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(title)
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+            }
+            .foregroundColor(.black)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                Capsule()
+                    .fill(Color(red: 0.98, green: 0.64, blue: 0.41))
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func secondaryActionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(FontManager.geist(size: 12, weight: .medium))
+            }
+            .foregroundColor(Color.appTextPrimary(colorScheme))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .fill(Color.appChip(colorScheme))
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func activateSearch() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isSearchActive = true
+            isSearchFocused = true
+        }
+    }
+
+    private var peoplePageVariant: AppAmbientBackgroundVariant {
+        .bottomTrailing
+    }
+
+    private var peopleSectionVariant: AppAmbientBackgroundVariant {
+        .topLeading
+    }
+
+    private func updateFilteredResults() {
+        var result = peopleManager.people
+        let activeSearchText = isSearchActive ? internalSearchText : searchText
+
+        if !activeSearchText.isEmpty {
+            let lowercasedSearch = activeSearchText.lowercased()
+            result = result.filter { person in
+                person.name.lowercased().contains(lowercasedSearch) ||
+                (person.nickname?.lowercased().contains(lowercasedSearch) ?? false) ||
+                person.relationshipDisplayText.lowercased().contains(lowercasedSearch) ||
+                (person.notes?.lowercased().contains(lowercasedSearch) ?? false) ||
+                (person.favouriteFood?.lowercased().contains(lowercasedSearch) ?? false) ||
+                (person.favouriteGift?.lowercased().contains(lowercasedSearch) ?? false)
+            }
+        }
+
+        if let filter = selectedRelationshipFilter {
+            result = result.filter { person in
+                if filter.hasPrefix("custom_") {
+                    let customName = String(filter.dropFirst("custom_".count))
+                    return person.relationship == .other && person.customRelationship == customName
+                } else if filter.hasPrefix("type_") {
+                    let typeRawValue = String(filter.dropFirst("type_".count))
+                    return person.relationship.rawValue == typeRawValue
+                } else {
+                    return false
+                }
+            }
+        }
+
+        filteredPeopleCache = result
+
+        let groupedDict = Dictionary(grouping: result) { person -> String in
+            if person.relationship == .other, let custom = person.customRelationship, !custom.isEmpty {
+                return "custom_\(custom)"
+            } else {
+                return "type_\(person.relationship.rawValue)"
+            }
+        }
+
+        var groups: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] = []
+
+        for relType in RelationshipType.allCases where relType != .other {
+            let key = "type_\(relType.rawValue)"
+            if let people = groupedDict[key], !people.isEmpty {
+                groups.append((
+                    groupKey: key,
+                    displayName: relType.displayName,
+                    relationshipType: relType,
+                    people: people.sorted { $0.name < $1.name }
+                ))
+            }
+        }
+
+        let customGroups = groupedDict
+            .filter { $0.key.hasPrefix("custom_") }
+            .sorted { $0.key < $1.key }
+            .map { key, people -> (groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person]) in
+                let customName = String(key.dropFirst("custom_".count))
+                return (
+                    groupKey: key,
+                    displayName: customName,
+                    relationshipType: nil,
+                    people: people.sorted { $0.name < $1.name }
+                )
+            }
+        groups.append(contentsOf: customGroups)
+
+        let otherKey = "type_\(RelationshipType.other.rawValue)"
+        if let otherPeople = groupedDict[otherKey], !otherPeople.isEmpty {
+            groups.append((
+                groupKey: otherKey,
+                displayName: RelationshipType.other.displayName,
+                relationshipType: .other,
+                people: otherPeople.sorted { $0.name < $1.name }
+            ))
+        }
+
+        groupedPeopleCache = groups
+    }
+
     private func syncCategoryOrder() {
         let currentKeys = groupedPeopleCache.map { $0.groupKey }
         var merged: [String] = []
-        // Keep existing ordered keys that still exist
         for key in categoryOrder where currentKeys.contains(key) {
             merged.append(key)
         }
-        // Append any new keys at the end
         for key in currentKeys where !merged.contains(key) {
             merged.append(key)
         }
@@ -943,8 +925,6 @@ struct PeopleListView: View {
         }
     }
 
-    // MARK: - Actions
-
     private func toggleSelection(_ personId: UUID) {
         if selectedPeopleForDeletion.contains(personId) {
             selectedPeopleForDeletion.remove(personId)
@@ -966,10 +946,7 @@ struct PeopleListView: View {
         selectedPeopleForDeletion.removeAll()
         isEditMode = false
     }
-
 }
-
-// MARK: - Person Row View
 
 struct PersonRowView: View {
     let person: Person
@@ -988,90 +965,139 @@ struct PersonRowView: View {
         person.linkedPeople?.count ?? 0
     }
 
+    private var birthdayBadgeText: String? {
+        guard let daysUntil = peopleDaysUntilBirthday(person) else {
+            return nil
+        }
+
+        if daysUntil == 0 {
+            return "Birthday today"
+        }
+        if daysUntil == 1 {
+            return "Birthday tomorrow"
+        }
+        if daysUntil <= 30 {
+            return "Birthday in \(daysUntil)d"
+        }
+        return nil
+    }
+
+    private var rowContextText: String {
+        if let notePreview = sanitizedPreview(person.notes) {
+            return notePreview
+        }
+
+        if let gift = trimmedValue(person.favouriteGift) {
+            return "Gift idea: \(gift)"
+        }
+
+        if let food = trimmedValue(person.favouriteFood) {
+            return "Likes \(food)"
+        }
+
+        if let interest = person.interests?.compactMap(trimmedValue).first {
+            return "Interest: \(interest)"
+        }
+
+        if linkedPlacesCount > 0 || linkedPeopleCount > 0 {
+            var parts: [String] = []
+            if linkedPlacesCount > 0 {
+                parts.append("\(linkedPlacesCount) place\(linkedPlacesCount == 1 ? "" : "s") linked")
+            }
+            if linkedPeopleCount > 0 {
+                parts.append("\(linkedPeopleCount) relationship\(linkedPeopleCount == 1 ? "" : "s") mapped")
+            }
+            return parts.joined(separator: " · ")
+        }
+
+        return "Updated \(relativeDate(person.dateModified))"
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
-            // Selection circle in edit mode
+        HStack(spacing: 14) {
             if isEditMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 22))
                     .foregroundColor(isSelected
                         ? (colorScheme == .dark ? .white : .black)
-                        : (colorScheme == .dark ? .white.opacity(0.25) : .black.opacity(0.25)))
+                        : Color.appTextSecondary(colorScheme).opacity(0.4))
                     .animation(.easeInOut(duration: 0.2), value: isSelected)
             }
 
-            // Avatar (box-like similar to locations)
             personAvatar
 
-            // Info
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(person.displayName)
-                    .font(FontManager.geist(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .font(FontManager.geist(size: 15, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
                     .lineLimit(1)
 
-                HStack(spacing: 8) {
-                    // Relationship badge
-                    Text(person.relationshipDisplayText)
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
-
-                    // Birthday if available
-                    if let birthday = person.formattedBirthday {
-                        HStack(spacing: 3) {
-                            Image(systemName: "gift.fill")
-                                .font(FontManager.geist(size: 10, weight: .medium))
-                            Text(birthday)
-                                .font(FontManager.geist(size: 11, weight: .regular))
-                        }
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                    }
+                if let birthdayBadgeText {
+                    rowBadge(
+                        icon: "gift.fill",
+                        text: birthdayBadgeText,
+                        fill: Color(red: 0.98, green: 0.64, blue: 0.41).opacity(colorScheme == .dark ? 0.18 : 0.14),
+                        foreground: Color(red: 0.98, green: 0.64, blue: 0.41)
+                    )
                 }
 
-                HStack(spacing: 8) {
-                    Text("Updated \(relativeDate(person.dateModified))")
-
-                    if linkedPlacesCount > 0 {
-                        Text("• \(linkedPlacesCount) place\(linkedPlacesCount == 1 ? "" : "s")")
-                    }
-
-                    if linkedPeopleCount > 0 {
-                        Text("• \(linkedPeopleCount) link\(linkedPeopleCount == 1 ? "" : "s")")
-                    }
-                }
-                .font(FontManager.geist(size: 11, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.48) : Color.black.opacity(0.5))
+                Text(rowContextText)
+                    .font(FontManager.geist(size: 12, weight: .regular))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .lineLimit(2)
             }
 
-            Spacer()
+            Spacer(minLength: 6)
 
-            // Favourite button (hidden in edit mode)
             if !isEditMode {
-                Button(action: onFavouriteTap) {
-                    Image(systemName: person.isFavourite ? "star.fill" : "star")
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(person.isFavourite ? .yellow : (colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3)))
+                VStack(alignment: .trailing, spacing: 10) {
+                    Button(action: onFavouriteTap) {
+                        Image(systemName: person.isFavourite ? "star.fill" : "star")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(person.isFavourite ? .yellow : Color.appTextSecondary(colorScheme))
+                            .frame(width: 30, height: 30)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.appChip(colorScheme))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.7))
                 }
-                .buttonStyle(PlainButtonStyle())
             }
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 20)
-        .contentShape(Rectangle())
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(isSelected ? Color.appChipStrong(colorScheme) : Color.appInnerSurface(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(
+                    isSelected
+                        ? (colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.18))
+                        : Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.85 : 0.7),
+                    lineWidth: 1
+                )
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 20))
         .onTapGesture {
             onTap()
         }
         .onLongPressGesture(minimumDuration: 0.5) {
-            if !isEditMode, let onLongPress = onLongPress {
+            if !isEditMode, let onLongPress {
                 let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
                 impactFeedback.impactOccurred()
                 onLongPress()
             }
         }
     }
-    
+
     private var personAvatar: some View {
-        ZStack {
+        Group {
             if let photoURL = person.photoURL, !photoURL.isEmpty {
                 CachedAsyncImage(url: photoURL) { image in
                     image
@@ -1080,48 +1106,43 @@ struct PersonRowView: View {
                 } placeholder: {
                     initialsAvatar
                 }
-                .frame(width: 52, height: 52)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
                 initialsAvatar
             }
         }
+        .frame(width: 56, height: 56)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.white.opacity(colorScheme == .dark ? 0.06 : 0), lineWidth: 1)
+        )
     }
-    
+
     private var initialsAvatar: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .fill(colorForRelationship(person.relationship))
-            .frame(width: 52, height: 52)
+        RoundedRectangle(cornerRadius: 16)
+            .fill(peopleRelationshipColor(person.relationship))
             .overlay(
                 Text(person.initials)
-                    .font(FontManager.geist(size: 18, weight: .semibold))
+                    .font(FontManager.geist(size: 17, weight: .semibold))
                     .foregroundColor(.white)
             )
     }
-    
-    private func colorForRelationship(_ relationship: RelationshipType) -> Color {
-        switch relationship {
-        case .family:
-            return Color(red: 0.8, green: 0.3, blue: 0.3)
-        case .partner:
-            return Color(red: 0.9, green: 0.3, blue: 0.5)
-        case .closeFriend:
-            return Color(red: 0.3, green: 0.6, blue: 0.9)
-        case .friend:
-            return Color(red: 0.3, green: 0.7, blue: 0.5)
-        case .coworker:
-            return Color(red: 0.5, green: 0.5, blue: 0.7)
-        case .classmate:
-            return Color(red: 0.6, green: 0.4, blue: 0.7)
-        case .neighbor:
-            return Color(red: 0.5, green: 0.6, blue: 0.5)
-        case .mentor:
-            return Color(red: 0.8, green: 0.6, blue: 0.2)
-        case .acquaintance:
-            return Color(red: 0.5, green: 0.5, blue: 0.5)
-        case .other:
-            return Color(red: 0.4, green: 0.4, blue: 0.4)
+
+    private func rowBadge(icon: String, text: String, fill: Color, foreground: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .semibold))
+            Text(text)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .lineLimit(1)
         }
+        .foregroundColor(foreground)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(fill)
+        )
     }
 
     private func relativeDate(_ date: Date) -> String {
@@ -1129,6 +1150,66 @@ struct PersonRowView: View {
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
     }
+}
+
+private func peopleRelationshipColor(_ relationship: RelationshipType) -> Color {
+    switch relationship {
+    case .family:
+        return Color(red: 0.80, green: 0.34, blue: 0.34)
+    case .partner:
+        return Color(red: 0.88, green: 0.39, blue: 0.54)
+    case .closeFriend:
+        return Color(red: 0.40, green: 0.60, blue: 0.95)
+    case .friend:
+        return Color(red: 0.34, green: 0.74, blue: 0.60)
+    case .coworker:
+        return Color(red: 0.52, green: 0.54, blue: 0.76)
+    case .classmate:
+        return Color(red: 0.61, green: 0.45, blue: 0.79)
+    case .neighbor:
+        return Color(red: 0.51, green: 0.66, blue: 0.54)
+    case .mentor:
+        return Color(red: 0.84, green: 0.65, blue: 0.29)
+    case .acquaintance:
+        return Color(red: 0.53, green: 0.56, blue: 0.61)
+    case .other:
+        return Color(red: 0.44, green: 0.46, blue: 0.50)
+    }
+}
+
+private func peopleDaysUntilBirthday(_ person: Person, from referenceDate: Date = Date()) -> Int? {
+    guard let birthday = person.birthday else { return nil }
+
+    let calendar = Calendar.current
+    let monthDay = calendar.dateComponents([.month, .day], from: birthday)
+    guard let nextBirthday = calendar.nextDate(
+        after: calendar.startOfDay(for: referenceDate).addingTimeInterval(-1),
+        matching: monthDay,
+        matchingPolicy: .nextTime,
+        direction: .forward
+    ) else {
+        return nil
+    }
+
+    let startOfToday = calendar.startOfDay(for: referenceDate)
+    let startOfBirthday = calendar.startOfDay(for: nextBirthday)
+    return calendar.dateComponents([.day], from: startOfToday, to: startOfBirthday).day
+}
+
+private func trimmedValue(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+}
+
+private func sanitizedPreview(_ value: String?) -> String? {
+    guard let trimmed = trimmedValue(value) else { return nil }
+    let singleLine = trimmed.replacingOccurrences(of: "\n", with: " ")
+    if singleLine.count <= 68 {
+        return singleLine
+    }
+    let endIndex = singleLine.index(singleLine.startIndex, offsetBy: 68)
+    return String(singleLine[..<endIndex]) + "..."
 }
 
 #Preview {

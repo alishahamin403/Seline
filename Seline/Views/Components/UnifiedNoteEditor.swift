@@ -1,6 +1,19 @@
 import SwiftUI
 import UIKit
 
+private struct TodoLineMatch {
+    let lineRange: NSRange
+    let markerRange: NSRange
+    let hiddenMarkerRange: NSRange
+    let contentRange: NSRange
+    let isChecked: Bool
+}
+
+private final class TodoCheckboxButton: UIButton {
+    var lineStartLocation: Int = 0
+    var isCheckedState: Bool = false
+}
+
 // MARK: - Unified Note Editor
 // A single-instance text editor that applies Markdown styling dynamically (hiding syntax).
 
@@ -45,6 +58,15 @@ struct UnifiedNoteEditor: UIViewRepresentable {
 
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        textView.onBoundsSizeChange = { [weak textView] _ in
+            guard let textView else { return }
+            context.coordinator.addAllOverlays(to: textView, text: textView.text ?? "")
+        }
+
+        DispatchQueue.main.async { [weak textView] in
+            guard let textView else { return }
+            context.coordinator.addAllOverlays(to: textView, text: textView.text ?? "")
+        }
 
         return textView
     }
@@ -65,7 +87,8 @@ struct UnifiedNoteEditor: UIViewRepresentable {
         
         // Update if there's an actual difference
         let currentText = uiView.text ?? ""
-        if currentText != text {
+        let textDidChange = currentText != text
+        if textDidChange {
             // Save cursor position before update
             let savedSelection = uiView.selectedRange
             let wasFirstResponder = uiView.isFirstResponder
@@ -90,6 +113,13 @@ struct UnifiedNoteEditor: UIViewRepresentable {
                 }
             } else if savedSelection.location <= text.count {
                 uiView.selectedRange = savedSelection
+            }
+        }
+
+        if !textDidChange {
+            DispatchQueue.main.async { [weak uiView] in
+                guard let uiView else { return }
+                context.coordinator.addAllOverlays(to: uiView, text: uiView.text ?? text)
             }
         }
 
@@ -121,7 +151,26 @@ struct UnifiedNoteEditor: UIViewRepresentable {
         var dismissedContexts: Set<String> = [] // Track dismissed chips by their line context
         var pendingCursorPosition: Int? = nil // Track cursor position after todo insertion
         private var focusDebounceTask: DispatchWorkItem? // Debounce focus changes
+        private var overlayRefreshTask: DispatchWorkItem? // Debounce heavy overlay/date rendering while typing
+        private let todoLineRegex = try! NSRegularExpression(
+            pattern: #"^(\s*)([-*])\s\[( |x|X)\]"#,
+            options: .anchorsMatchLines
+        )
         var isInsertingTodo = false // Flag to prevent duplicate overlay updates during todo insertion
+        private lazy var todoParagraphStyle: NSParagraphStyle = {
+            let paragraphStyle = NSMutableParagraphStyle()
+            let minimumLineHeight = max(parent.bodyFont.lineHeight + 8, 28)
+            let markerWidth = ("- [ ] " as NSString).size(withAttributes: [.font: parent.bodyFont]).width
+
+            paragraphStyle.minimumLineHeight = minimumLineHeight
+            paragraphStyle.maximumLineHeight = minimumLineHeight
+            paragraphStyle.lineBreakMode = .byWordWrapping
+            paragraphStyle.headIndent = markerWidth
+            paragraphStyle.firstLineHeadIndent = 0
+            paragraphStyle.paragraphSpacing = 4
+
+            return paragraphStyle
+        }()
 
         init(_ parent: UnifiedNoteEditor) {
             self.parent = parent
@@ -145,9 +194,9 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             // Save cursor position before styling
             let cursorPosition = textView.selectedRange
 
-            // Apply styling (this sets attributedText which can affect cursor)
-            // Optimized for smooth typing - styling happens synchronously but efficiently
-            applyStyling(to: textView)
+            // Keep keystroke path lightweight for smoother typing.
+            // Heavy overlays/date chips are applied on a short debounce.
+            applyTextStylingOnly(to: textView)
 
             // CRITICAL: Restore cursor position after styling
             if cursorPosition.location <= (textView.text?.count ?? 0) {
@@ -157,6 +206,7 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             updatePlaceholder(textView: textView)
             parent.onEditingChanged?()
             textView.invalidateIntrinsicContentSize()
+            scheduleOverlayRefresh(for: textView, expectedText: currentText)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
@@ -172,6 +222,7 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             // Debounce unfocus to allow rapid focus transitions without keyboard flicker
             // This gives time for another field to grab focus before we set isFocused=false
             focusDebounceTask?.cancel()
+            overlayRefreshTask?.cancel()
 
             let task = DispatchWorkItem { [weak self] in
                 self?.parent.isFocused?.wrappedValue = false
@@ -191,8 +242,8 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             // Smart backspace: remove empty list/todo markers as a unit.
             if text.isEmpty && range.length == 1 {
                 let emptyPatterns = [
-                    "^- \\[ \\]\\s*$",
-                    "^- \\[x\\]\\s*$",
+                    "^\\s*[-*] \\[ \\]\\s*$",
+                    "^\\s*[-*] \\[x\\]\\s*$",
                     "^\\s*-\\s*$",
                     "^\\s*\\d+\\.\\s*$"
                 ]
@@ -229,14 +280,15 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             // Todo continuation.
             if let todoMatch = firstMatch(
                 in: currentLine,
-                pattern: #"^(\s*)- \[( |x)\]\s*(.*)$"#,
+                pattern: #"^(\s*)([-*]) \[( |x)\]\s*(.*)$"#,
                 options: .caseInsensitive
             ) {
                 let indent = capturedText(from: currentLine, match: todoMatch, at: 1)
-                let todoContent = capturedText(from: currentLine, match: todoMatch, at: 3)
+                let marker = capturedText(from: currentLine, match: todoMatch, at: 2)
+                let todoContent = capturedText(from: currentLine, match: todoMatch, at: 4)
                 let replacement = todoContent.trimmingCharacters(in: .whitespaces).isEmpty
                     ? "\n\(indent)"
-                    : "\n\(indent)- [ ] "
+                    : "\n\(indent)\(marker) [ ] "
                 let newText = nsText.replacingCharacters(in: range, with: replacement)
                 applyProgrammaticEdit(newText, in: textView, cursorPosition: range.location + replacement.count)
                 return false
@@ -283,11 +335,7 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             applyTextStylingOnly(to: textView)
             parent.onEditingChanged?()
             textView.invalidateIntrinsicContentSize()
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak textView] in
-                guard let self = self, let textView = textView else { return }
-                self.addAllOverlays(to: textView, text: newText)
-            }
+            scheduleOverlayRefresh(for: textView, expectedText: newText)
         }
 
         private func firstMatch(in text: String, pattern: String, options: NSRegularExpression.Options = []) -> NSTextCheckingResult? {
@@ -304,6 +352,212 @@ struct UnifiedNoteEditor: UIViewRepresentable {
         private func lineMatches(_ text: String, pattern: String, options: NSRegularExpression.Options = []) -> Bool {
             firstMatch(in: text, pattern: pattern, options: options) != nil
         }
+
+        private func parseTodoLineMatches(in text: String) -> [TodoLineMatch] {
+            let nsText = text as NSString
+            let fullRange = NSRange(location: 0, length: nsText.length)
+            let matches = todoLineRegex.matches(in: text, options: [], range: fullRange)
+
+            return matches.compactMap { match in
+                guard match.numberOfRanges >= 4 else { return nil }
+
+                let fullMatchRange = match.range(at: 0)
+                let markerStartRange = match.range(at: 2)
+                let stateRange = match.range(at: 3)
+
+                guard fullMatchRange.location != NSNotFound,
+                      markerStartRange.location != NSNotFound,
+                      stateRange.location != NSNotFound else {
+                    return nil
+                }
+
+                let markerRange = NSRange(location: markerStartRange.location, length: 5) // "- [ ]" or "* [x]"
+                guard NSMaxRange(markerRange) <= nsText.length else { return nil }
+
+                let lineRange = nsText.lineRange(for: fullMatchRange)
+                var hiddenMarkerRange = markerRange
+                let trailingSpaceLocation = NSMaxRange(markerRange)
+                if trailingSpaceLocation < nsText.length, nsText.character(at: trailingSpaceLocation) == 32 {
+                    hiddenMarkerRange.length += 1
+                }
+
+                var contentEnd = NSMaxRange(lineRange)
+                if contentEnd > lineRange.location, nsText.character(at: contentEnd - 1) == 10 {
+                    contentEnd -= 1
+                }
+
+                let contentStart = min(max(NSMaxRange(hiddenMarkerRange), lineRange.location), contentEnd)
+                let contentRange = NSRange(location: contentStart, length: max(0, contentEnd - contentStart))
+
+                let stateText = nsText.substring(with: stateRange).lowercased()
+                return TodoLineMatch(
+                    lineRange: lineRange,
+                    markerRange: markerRange,
+                    hiddenMarkerRange: hiddenMarkerRange,
+                    contentRange: contentRange,
+                    isChecked: stateText == "x"
+                )
+            }
+        }
+
+        private func applyTodoMarkerStyling(to attributedString: NSMutableAttributedString, text: String) {
+            for todo in parseTodoLineMatches(in: text) {
+                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: todo.hiddenMarkerRange)
+                attributedString.addAttribute(.paragraphStyle, value: todoParagraphStyle, range: todo.lineRange)
+            }
+        }
+
+        private func checkboxFrame(for todo: TodoLineMatch, in textView: UITextView) -> CGRect? {
+            let textLength = (textView.text as NSString?)?.length ?? 0
+            guard textLength > 0 else { return nil }
+
+            let markerLocation = min(todo.markerRange.location, max(0, textLength - 1))
+            guard markerLocation >= 0, markerLocation < textLength else { return nil }
+
+            let characterRange = NSRange(location: markerLocation, length: 1)
+            let glyphRange = textView.layoutManager.glyphRange(forCharacterRange: characterRange, actualCharacterRange: nil)
+            guard glyphRange.length > 0 else { return nil }
+
+            let glyphRect = textView.layoutManager.boundingRect(forGlyphRange: glyphRange, in: textView.textContainer)
+            let lineFragmentRect = textView.layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            let contentLocation = firstVisibleTodoCharacterLocation(in: todo, textView: textView) ?? markerLocation
+            let metricsGlyphRange = textView.layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: contentLocation, length: 1),
+                actualCharacterRange: nil
+            )
+
+            let baselineOffset = metricsGlyphRange.length > 0
+                ? textView.layoutManager.location(forGlyphAt: metricsGlyphRange.location).y
+                : textView.layoutManager.location(forGlyphAt: glyphRange.location).y
+
+            let lineFont = todoLineFont(for: todo, in: textView)
+            let contentMidY = lineFragmentRect.minY + baselineOffset - ((lineFont.ascender + lineFont.descender) / 2)
+
+            let buttonSize: CGFloat = 20
+            let x = glyphRect.minX + textView.textContainerInset.left
+            let y = contentMidY - (buttonSize / 2) + textView.textContainerInset.top
+            return CGRect(x: x, y: y, width: buttonSize, height: buttonSize)
+        }
+
+        private func firstVisibleTodoCharacterLocation(in todo: TodoLineMatch, textView: UITextView) -> Int? {
+            guard todo.contentRange.length > 0,
+                  let attributedText = textView.attributedText else {
+                return nil
+            }
+
+            let nsString = attributedText.string as NSString
+            let contentEnd = NSMaxRange(todo.contentRange)
+            guard todo.contentRange.location < contentEnd, contentEnd <= nsString.length else {
+                return nil
+            }
+
+            var location = todo.contentRange.location
+            while location < contentEnd {
+                let scalar = nsString.character(at: location)
+                if let unicodeScalar = UnicodeScalar(scalar),
+                   !CharacterSet.whitespacesAndNewlines.contains(unicodeScalar) {
+                    return location
+                }
+                location += 1
+            }
+
+            return nil
+        }
+
+        private func todoLineFont(for todo: TodoLineMatch, in textView: UITextView) -> UIFont {
+            guard let attributedText = textView.attributedText else {
+                return parent.bodyFont
+            }
+
+            let contentLocation = firstVisibleTodoCharacterLocation(in: todo, textView: textView)
+                ?? min(todo.contentRange.location, max(0, attributedText.length - 1))
+
+            guard contentLocation >= 0,
+                  contentLocation < attributedText.length else {
+                return parent.bodyFont
+            }
+
+            return (attributedText.attribute(.font, at: contentLocation, effectiveRange: nil) as? UIFont)
+                ?? parent.bodyFont
+        }
+
+        private func configureCheckboxButton(_ button: TodoCheckboxButton, isChecked: Bool) {
+            guard button.isCheckedState != isChecked || button.currentImage == nil else { return }
+            button.isCheckedState = isChecked
+
+            let imageName = isChecked ? "checkmark.circle.fill" : "circle"
+            let imageColor = UIColor.label
+            let image = UIImage(systemName: imageName)?
+                .withTintColor(imageColor, renderingMode: .alwaysOriginal)
+            button.setImage(image, for: .normal)
+        }
+
+        private func toggleTodoState(in text: String, lineStart: Int, toChecked checked: Bool) -> String? {
+            let nsText = text as NSString
+            guard nsText.length > 0 else { return nil }
+
+            let safeLineStart = min(max(0, lineStart), max(0, nsText.length - 1))
+            let rawLineRange = nsText.lineRange(for: NSRange(location: safeLineStart, length: 0))
+            var lineRange = rawLineRange
+
+            let lineEnd = NSMaxRange(lineRange)
+            if lineRange.length > 0, lineEnd > 0, nsText.character(at: lineEnd - 1) == 10 {
+                lineRange.length -= 1
+            }
+
+            let lineText = nsText.substring(with: lineRange)
+            let lineNSString = lineText as NSString
+            let fullLineRange = NSRange(location: 0, length: lineNSString.length)
+
+            guard let match = todoLineRegex.firstMatch(in: lineText, options: [], range: fullLineRange),
+                  match.numberOfRanges >= 3 else {
+                return nil
+            }
+
+            let indent = lineNSString.substring(with: match.range(at: 1))
+            let marker = lineNSString.substring(with: match.range(at: 2))
+            let replacementPrefix = "\(indent)\(marker) [\(checked ? "x" : " ")]"
+            let updatedLineText = lineNSString.replacingCharacters(in: match.range(at: 0), with: replacementPrefix)
+
+            return nsText.replacingCharacters(in: lineRange, with: updatedLineText)
+        }
+
+        private func hideResidualMarkdownMarkers(in attributedString: NSMutableAttributedString, text: String) {
+            let markerConfigs: [(pattern: String, tokenGroup: Int)] = [
+                // Opening inline markers near word starts.
+                (#"(^|\s)(\*\*|\*|~~)(?=\S)"#, 2),
+                // Closing inline markers near word ends.
+                (#"(?<=\S)(\*\*|\*|~~)(?=\s|$)"#, 1)
+            ]
+
+            for config in markerConfigs {
+                guard let regex = try? NSRegularExpression(pattern: config.pattern, options: [.anchorsMatchLines]) else {
+                    continue
+                }
+
+                let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
+                for match in matches {
+                    guard match.numberOfRanges > config.tokenGroup else { continue }
+                    let tokenRange = match.range(at: config.tokenGroup)
+                    guard tokenRange.location != NSNotFound, tokenRange.length > 0 else { continue }
+                    attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: tokenRange)
+                    attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: tokenRange)
+                }
+            }
+        }
+
+        private func scheduleOverlayRefresh(for textView: UITextView, expectedText: String) {
+            overlayRefreshTask?.cancel()
+
+            let task = DispatchWorkItem { [weak self, weak textView] in
+                guard let self = self, let textView = textView else { return }
+                guard (textView.text ?? "") == expectedText else { return }
+                self.addAllOverlays(to: textView, text: expectedText)
+            }
+
+            overlayRefreshTask = task
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: task)
+        }
         
         func updatePlaceholder(textView: UITextView) {
             // Placeholder removed
@@ -312,8 +566,10 @@ struct UnifiedNoteEditor: UIViewRepresentable {
         // MARK: - Markdown Styling Engine
         func applyStyling(to textView: UITextView) {
             guard let text = textView.text else { return }
-            // Clear any stale bullet overlays from previous render cycles.
-            textView.subviews.filter { $0.tag == 999 }.forEach { $0.removeFromSuperview() }
+            // Clear all transient overlays before rebuilding styles.
+            textView.subviews
+                .filter { $0.tag == 777 || $0.tag == 888 }
+                .forEach { $0.removeFromSuperview() }
             let attributedString = NSMutableAttributedString(string: text)
             let fullRange = NSRange(location: 0, length: text.utf16.count)
             
@@ -377,7 +633,7 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             }
             
             // 4. Italic (*italic*) - Simple single asterisk pattern, skip if inside a bold range
-            let italicRegex = try? NSRegularExpression(pattern: "(\\*)([^*]+)(\\*)", options: [])
+            let italicRegex = try? NSRegularExpression(pattern: "(?<!\\*)(\\*)([^*\\n]+?)(\\*)(?!\\*)", options: [])
             italicRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
                 guard let match = match else { return }
                 let matchFullRange = match.range(at: 0)
@@ -421,48 +677,8 @@ struct UnifiedNoteEditor: UIViewRepresentable {
                 attributedString.addAttribute(.strikethroughColor, value: UIColor.label, range: contentRange)
             }
             
-            // 4. Todo Checkboxes - Unchecked: - [ ] or * [ ]
-            // Add extra line spacing for todo lines
-            // Add extra line spacing for todo lines and hanging indent
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.paragraphSpacing = 8 // Space between todo items
-            paragraphStyle.lineSpacing = 4
-            paragraphStyle.headIndent = 28 // Hanging indent for wrapped lines (align with text)
-            paragraphStyle.firstLineHeadIndent = 0 // First line starts at margin (checkbox position)
-
-            
-            let uncheckedRegex = try? NSRegularExpression(pattern: "^(- \\[ \\]|\\* \\[ \\])\\s*", options: .anchorsMatchLines)
-            uncheckedRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                // Hide the markdown syntax
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: match.range)
-                
-                // Apply paragraph spacing to the entire line
-                let lineRange = (text as NSString).lineRange(for: match.range)
-                attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
-            }
-            
-            // 5. Todo Checkboxes - Checked: - [x] or * [x]
-            let checkedRegex = try? NSRegularExpression(pattern: "^(- \\[x\\]|\\* \\[x\\])\\s*", options: [.anchorsMatchLines, .caseInsensitive])
-            checkedRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                // Hide the markdown syntax
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: match.range)
-                
-                // Apply paragraph spacing to the entire line
-                let lineRange = (text as NSString).lineRange(for: match.range)
-                attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
-            }
-            
-            // 6. Bullet Lists (- text without checkbox brackets) - Show bullet character
-            // Match "- " at start of line but NOT followed by [ (which would be a checkbox)
-            let bulletRegex = try? NSRegularExpression(pattern: "^(- )(?!\\[)", options: .anchorsMatchLines)
-            bulletRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                // Keep markdown marker visible to avoid overlay artifacts while typing.
-                let lineRange = (text as NSString).lineRange(for: match.range)
-                attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
-            }
+            // 6. Todos
+            applyTodoMarkerStyling(to: attributedString, text: text)
             
             // 7. Numbered Lists (1. text, 2. text, etc)
             let numberedRegex = try? NSRegularExpression(pattern: "^(\\d+\\.\\s)", options: .anchorsMatchLines)
@@ -470,11 +686,10 @@ struct UnifiedNoteEditor: UIViewRepresentable {
                 guard let match = match else { return }
                 // Keep the number visible but style it
                 attributedString.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: match.range)
-                
-                // Apply paragraph spacing
-                let lineRange = (text as NSString).lineRange(for: match.range)
-                attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
             }
+
+            // Defensive cleanup for malformed/legacy marker stacks.
+            hideResidualMarkdownMarkers(in: attributedString, text: text)
 
             
             // Preserve Selection - CRITICAL: Save before modifying attributedText
@@ -504,8 +719,12 @@ struct UnifiedNoteEditor: UIViewRepresentable {
         // MARK: - Text Styling Without Overlays (for deferred overlay placement)
         func applyTextStylingOnly(to textView: UITextView) {
             guard let text = textView.text else { return }
-            // Clear any stale bullet overlays from previous render cycles.
-            textView.subviews.filter { $0.tag == 999 }.forEach { $0.removeFromSuperview() }
+            // Keep checklist checkboxes stable while typing.
+            // Removing/re-adding checkbox overlays on each keystroke causes visible flicker.
+            // Date chips can still move as content shifts, so clear those eagerly.
+            textView.subviews
+                .filter { $0.tag == 888 }
+                .forEach { $0.removeFromSuperview() }
             let attributedString = NSMutableAttributedString(string: text)
             let fullRange = NSRange(location: 0, length: text.utf16.count)
 
@@ -563,7 +782,7 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             }
 
             // Italic (*italic*) - skip ranges already processed as bold
-            let italicRegex = try? NSRegularExpression(pattern: "(\\*)([^*]+?)(\\*)", options: [])
+            let italicRegex = try? NSRegularExpression(pattern: "(?<!\\*)(\\*)([^*\\n]+?)(\\*)(?!\\*)", options: [])
             italicRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
                 guard let match = match else { return }
                 let isInsideBold = boldRanges.contains { NSIntersectionRange($0, match.range).length > 0 }
@@ -593,43 +812,16 @@ struct UnifiedNoteEditor: UIViewRepresentable {
                 attributedString.addAttribute(.strikethroughColor, value: UIColor.label, range: contentRange)
             }
 
-            // Todo checkbox paragraph styling
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.paragraphSpacing = 8
-            paragraphStyle.lineSpacing = 4
-            paragraphStyle.headIndent = 28
-            paragraphStyle.firstLineHeadIndent = 0
-
-            let uncheckedRegex = try? NSRegularExpression(pattern: "^(- \\[ \\]|\\* \\[ \\])\\s*", options: .anchorsMatchLines)
-            uncheckedRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: match.range)
-                let lineRange = (text as NSString).lineRange(for: match.range)
-                attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
-            }
-
-            let checkedRegex = try? NSRegularExpression(pattern: "^(- \\[x\\]|\\* \\[x\\])\\s*", options: [.anchorsMatchLines, .caseInsensitive])
-            checkedRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: match.range)
-                let lineRange = (text as NSString).lineRange(for: match.range)
-                attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
-            }
-
-            let bulletRegex = try? NSRegularExpression(pattern: "^(- )(?!\\[)", options: .anchorsMatchLines)
-            bulletRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                let lineRange = (text as NSString).lineRange(for: match.range)
-                attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
-            }
+            applyTodoMarkerStyling(to: attributedString, text: text)
 
             let numberedRegex = try? NSRegularExpression(pattern: "^(\\d+\\.\\s)", options: .anchorsMatchLines)
             numberedRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
                 guard let match = match else { return }
                 attributedString.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: match.range)
-                let lineRange = (text as NSString).lineRange(for: match.range)
-                attributedString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
             }
+
+            // Defensive cleanup for malformed/legacy marker stacks.
+            hideResidualMarkdownMarkers(in: attributedString, text: text)
 
             // Preserve Selection
             let savedSelection = textView.selectedRange
@@ -658,109 +850,63 @@ struct UnifiedNoteEditor: UIViewRepresentable {
 
         // MARK: - Checkbox Overlays for Todos
         private func addCheckboxOverlays(in textView: UITextView, text: String) {
-            // Remove existing checkbox buttons
-            textView.subviews.filter { $0.tag == 777 }.forEach { $0.removeFromSuperview() }
-            
-            // Find unchecked todos: - [ ]
-            let uncheckedPattern = "^- \\[ \\]"
-            if let uncheckedRegex = try? NSRegularExpression(pattern: uncheckedPattern, options: .anchorsMatchLines) {
-                let matches = uncheckedRegex.matches(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
-                for match in matches {
-                    addCheckboxButton(in: textView, at: match.range, isChecked: false, text: text)
+            let todoMatches = parseTodoLineMatches(in: text)
+            let existingButtons = textView.subviews.compactMap { $0 as? TodoCheckboxButton }
+            var buttonsByLineStart: [Int: TodoCheckboxButton] = [:]
+            for button in existingButtons {
+                buttonsByLineStart[button.lineStartLocation] = button
+            }
+
+            var activeLineStarts = Set<Int>()
+
+            for todo in todoMatches {
+                let lineStart = todo.lineRange.location
+                activeLineStarts.insert(lineStart)
+
+                let checkboxButton: TodoCheckboxButton
+                if let existing = buttonsByLineStart[lineStart] {
+                    checkboxButton = existing
+                } else {
+                    checkboxButton = TodoCheckboxButton(type: .system)
+                    checkboxButton.tag = 777
+                    checkboxButton.adjustsImageWhenHighlighted = false
+                    checkboxButton.addTarget(self, action: #selector(checkboxTapped(_:)), for: .touchUpInside)
+                    textView.addSubview(checkboxButton)
+                }
+
+                checkboxButton.lineStartLocation = lineStart
+                configureCheckboxButton(checkboxButton, isChecked: todo.isChecked)
+                if let frame = checkboxFrame(for: todo, in: textView) {
+                    checkboxButton.frame = frame
+                    checkboxButton.isHidden = false
+                } else {
+                    checkboxButton.isHidden = true
                 }
             }
-            
-            // Find checked todos: - [x]
-            let checkedPattern = "^- \\[x\\]"
-            if let checkedRegex = try? NSRegularExpression(pattern: checkedPattern, options: [.anchorsMatchLines, .caseInsensitive]) {
-                let matches = checkedRegex.matches(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
-                for match in matches {
-                    addCheckboxButton(in: textView, at: match.range, isChecked: true, text: text)
-                }
+
+            for button in existingButtons where !activeLineStarts.contains(button.lineStartLocation) {
+                button.removeFromSuperview()
             }
-        }
-        
-        private func addCheckboxButton(in textView: UITextView, at range: NSRange, isChecked: Bool, text: String) {
-            let glyphRange = textView.layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            let rect = textView.layoutManager.boundingRect(forGlyphRange: glyphRange, in: textView.textContainer)
-            
-            let checkboxButton = UIButton(type: .system)
-            // Use circular checkboxes with theme-appropriate colors
-            let imageName = isChecked ? "checkmark.circle.fill" : "circle"
-            // Use label color (white in dark mode, black in light mode) instead of green
-            let imageColor = UIColor.label
-            checkboxButton.setImage(UIImage(systemName: imageName)?.withTintColor(imageColor, renderingMode: .alwaysOriginal), for: .normal)
-            
-            // Center vertically relative to the line height
-            // rect gives the glyph bounding box. We want to center 22x22 button in this height.
-            let buttonSize: CGFloat = 22
-            let centeredY = rect.midY - (buttonSize / 2) + textView.textContainerInset.top
-            
-            checkboxButton.frame = CGRect(x: rect.origin.x, y: centeredY, width: buttonSize, height: buttonSize)
-            checkboxButton.tag = 777
-            checkboxButton.accessibilityLabel = "\(range.location)|\(isChecked ? "checked" : "unchecked")"
-            checkboxButton.addTarget(self, action: #selector(checkboxTapped(_:)), for: .touchUpInside)
-            
-            textView.addSubview(checkboxButton)
         }
         
         @objc private func checkboxTapped(_ sender: UIButton) {
-            guard let info = sender.accessibilityLabel?.components(separatedBy: "|"),
-                  info.count >= 2,
-                  let location = Int(info[0]) else { return }
-            
-            let isCurrentlyChecked = info[1] == "checked"
-            
-            // Toggle the checkbox in the text
-            var text = parent.text
-            let nsText = text as NSString
-            
-            if isCurrentlyChecked {
-                // Change [x] to [ ]
-                let range = NSRange(location: location, length: 5) // "- [x]"
-                text = nsText.replacingCharacters(in: range, with: "- [ ]")
-            } else {
-                // Change [ ] to [x]
-                let range = NSRange(location: location, length: 5) // "- [ ]"
-                text = nsText.replacingCharacters(in: range, with: "- [x]")
+            guard let checkboxButton = sender as? TodoCheckboxButton,
+                  let textView = checkboxButton.superview as? UITextView else {
+                return
             }
-            
-            parent.text = text
-        }
-        
-        // MARK: - Bullet Point Overlays
-        private func addBulletOverlays(in textView: UITextView, text: String) {
-            // Remove existing bullet labels
-            textView.subviews.filter { $0.tag == 999 }.forEach { $0.removeFromSuperview() }
-            
-            // Find bullet points: "- " not followed by [ (which would be a checkbox)
-            let bulletPattern = "^- (?!\\[)"
-            if let bulletRegex = try? NSRegularExpression(pattern: bulletPattern, options: .anchorsMatchLines) {
-                let matches = bulletRegex.matches(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
-                for match in matches {
-                    addBulletLabel(in: textView, at: match.range)
-                }
+
+            let currentText = textView.text ?? parent.text
+            let targetCheckedState = !checkboxButton.isCheckedState
+            guard let updatedText = toggleTodoState(
+                in: currentText,
+                lineStart: checkboxButton.lineStartLocation,
+                toChecked: targetCheckedState
+            ) else {
+                return
             }
-        }
-        
-        private func addBulletLabel(in textView: UITextView, at range: NSRange) {
-            let glyphRange = textView.layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            let rect = textView.layoutManager.boundingRect(forGlyphRange: glyphRange, in: textView.textContainer)
-            
-            let bulletLabel = UILabel()
-            bulletLabel.text = "•"
-            bulletLabel.font = UIFont.systemFont(ofSize: 18, weight: .regular)
-            bulletLabel.textColor = UIColor.label
-            bulletLabel.textAlignment = .center
-            
-            // Position at the start of the line
-            let labelSize: CGFloat = 20
-            let centeredY = rect.midY - (labelSize / 2) + textView.textContainerInset.top
-            
-            bulletLabel.frame = CGRect(x: rect.origin.x, y: centeredY, width: labelSize, height: labelSize)
-            bulletLabel.tag = 999 // Unique tag for bullet overlays
-            
-            textView.addSubview(bulletLabel)
+
+            let cursorLocation = min(textView.selectedRange.location, updatedText.count)
+            applyProgrammaticEdit(updatedText, in: textView, cursorPosition: cursorLocation)
         }
         
         // MARK: - Date Detection with Smart Chip/Pill Overlay
@@ -1133,6 +1279,7 @@ enum NoteFormattingAction: String {
     case heading2
     case heading3
     case body
+    case checklist
     case bulletPoint
     case numberedList
 }
@@ -1145,6 +1292,8 @@ extension Notification.Name {
 class MarkdownTextView: UITextView {
     
     private var formattingObserver: NSObjectProtocol?
+    var onBoundsSizeChange: ((MarkdownTextView) -> Void)?
+    private var lastBoundsSize: CGSize = .zero
     
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
@@ -1162,6 +1311,15 @@ class MarkdownTextView: UITextView {
         if let observer = formattingObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+
+        let currentSize = bounds.size
+        guard currentSize != .zero, currentSize != lastBoundsSize else { return }
+        lastBoundsSize = currentSize
+        onBoundsSizeChange?(self)
     }
     
     private func setupMenuItems() {
@@ -1190,12 +1348,12 @@ class MarkdownTextView: UITextView {
     
     // Intercept "Bold" command
     override func toggleBoldface(_ sender: Any?) {
-        wrapSelection(with: "**")
+        toggleWrappedSelection(with: "**")
     }
     
     // Intercept "Italic" command
     override func toggleItalics(_ sender: Any?) {
-        wrapSelection(with: "*")
+        toggleWrappedSelection(with: "*")
     }
     
     @objc func makeH1() {
@@ -1213,56 +1371,241 @@ class MarkdownTextView: UITextView {
     @objc func makeBody() {
         removeHeadingFromSelection()
     }
+
+    private func expandedLineRange(for selection: NSRange, in text: NSString) -> NSRange {
+        guard text.length > 0 else { return NSRange(location: 0, length: 0) }
+
+        let safeLocation = min(selection.location, text.length - 1)
+        if selection.length == 0 {
+            return text.lineRange(for: NSRange(location: safeLocation, length: 0))
+        }
+
+        let selectionEnd = min(selection.location + selection.length, text.length)
+        let safeEndLocation = max(safeLocation, selectionEnd - 1)
+
+        let startLineRange = text.lineRange(for: NSRange(location: safeLocation, length: 0))
+        let endLineRange = text.lineRange(for: NSRange(location: safeEndLocation, length: 0))
+        let start = startLineRange.location
+        let end = endLineRange.location + endLineRange.length
+        return NSRange(location: start, length: max(0, end - start))
+    }
+
+    private func replaceCharacters(in range: NSRange, with replacement: String) {
+        guard let start = self.position(from: beginningOfDocument, offset: range.location),
+              let end = self.position(from: beginningOfDocument, offset: range.location + range.length),
+              let textRange = self.textRange(from: start, to: end) else {
+            return
+        }
+        self.replace(textRange, withText: replacement)
+    }
+
+    private func headingPrefixLength(in line: String) -> Int {
+        if line.hasPrefix("### ") { return 4 }
+        if line.hasPrefix("## ") { return 3 }
+        if line.hasPrefix("# ") { return 2 }
+        return 0
+    }
+
+    private func removeAllHeadingPrefixes(from line: String) -> (text: String, removedLength: Int) {
+        var current = line
+        var removed = 0
+
+        while true {
+            let prefixLength = headingPrefixLength(in: current)
+            guard prefixLength > 0 else { break }
+            current = String(current.dropFirst(prefixLength))
+            removed += prefixLength
+        }
+
+        return (current, removed)
+    }
+
+    private func splitOuterWhitespace(_ text: String) -> (leading: String, core: String, trailing: String) {
+        guard !text.isEmpty else { return ("", "", "") }
+
+        let chars = Array(text)
+        var start = 0
+        var end = chars.count
+
+        while start < end && chars[start].isWhitespace {
+            start += 1
+        }
+
+        while end > start && chars[end - 1].isWhitespace {
+            end -= 1
+        }
+
+        let leading = String(chars[0..<start])
+        let core = String(chars[start..<end])
+        let trailing = String(chars[end..<chars.count])
+        return (leading, core, trailing)
+    }
+
+    private func isWrapped(_ text: String, with syntax: String) -> Bool {
+        guard !text.isEmpty else { return false }
+
+        switch syntax {
+        case "**":
+            return text.count >= 4 && text.hasPrefix("**") && text.hasSuffix("**")
+        case "~~":
+            return text.count >= 4 && text.hasPrefix("~~") && text.hasSuffix("~~")
+        case "*":
+            // Avoid treating bold markers as italic wrappers.
+            return text.count >= 2 &&
+                text.hasPrefix("*") &&
+                text.hasSuffix("*") &&
+                !(text.hasPrefix("**") && text.hasSuffix("**"))
+        default:
+            return false
+        }
+    }
+
+    private func stripOuterSyntax(_ text: String, syntax: String) -> (text: String, removedCount: Int) {
+        let syntaxCount = syntax.count
+        guard syntaxCount > 0 else { return (text, 0) }
+
+        var current = text
+        var removedCount = 0
+
+        while isWrapped(current, with: syntax) && current.count >= syntaxCount * 2 {
+            current = String(current.dropFirst(syntaxCount).dropLast(syntaxCount))
+            removedCount += 1
+        }
+
+        return (current, removedCount)
+    }
+
+    private func isLineWrapped(_ line: String, with syntax: String) -> Bool {
+        let parts = splitOuterWhitespace(line)
+        guard !parts.core.isEmpty else { return false }
+        return isWrapped(parts.core, with: syntax)
+    }
+
+    private func toggleInlineStylePerLine(_ selectedText: String, syntax: String) -> String {
+        var lines = selectedText.components(separatedBy: "\n")
+        let hasTrailingNewline = selectedText.hasSuffix("\n")
+
+        let editableLineIndices = lines.indices.filter { index in
+            !(hasTrailingNewline && index == lines.count - 1 && lines[index].isEmpty)
+        }
+
+        guard !editableLineIndices.isEmpty else { return selectedText }
+
+        let nonEmptyIndices = editableLineIndices.filter {
+            !lines[$0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let targetIndices = nonEmptyIndices.isEmpty ? editableLineIndices : nonEmptyIndices
+
+        let shouldToggleOff = targetIndices.allSatisfy { isLineWrapped(lines[$0], with: syntax) }
+
+        for index in editableLineIndices {
+            if lines[index].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                continue
+            }
+
+            let parts = splitOuterWhitespace(lines[index])
+            let stripped = stripOuterSyntax(parts.core, syntax: syntax).text
+            let styledCore = shouldToggleOff ? stripped : "\(syntax)\(stripped)\(syntax)"
+            lines[index] = parts.leading + styledCore + parts.trailing
+        }
+
+        return lines.joined(separator: "\n")
+    }
     
     private func wrapLineWithHeading(_ prefix: String) {
         guard let text = self.text else { return }
         let nsString = text as NSString
-        let range = self.selectedRange
-        
-        // Get the line range at cursor/selection
-        let lineRange: NSRange
-        if range.length > 0 {
-            lineRange = range
+        if nsString.length == 0 {
+            replaceCharacters(in: NSRange(location: 0, length: 0), with: prefix)
+            self.selectedRange = NSRange(location: (prefix as NSString).length, length: 0)
+            return
+        }
+
+        let selection = self.selectedRange
+        let lineRange = expandedLineRange(for: selection, in: nsString)
+        guard lineRange.length > 0 else { return }
+
+        let selectedBlock = nsString.substring(with: lineRange)
+        let lines = selectedBlock.components(separatedBy: "\n")
+        let hasTrailingNewline = selectedBlock.hasSuffix("\n")
+
+        var transformedLines: [String] = []
+        var firstLineDelta = 0
+
+        for (index, line) in lines.enumerated() {
+            let isTrailingSentinel = hasTrailingNewline && index == lines.count - 1 && line.isEmpty
+            if isTrailingSentinel {
+                transformedLines.append(line)
+                continue
+            }
+
+            let indentation = String(line.prefix { $0 == " " || $0 == "\t" })
+            let core = String(line.dropFirst(indentation.count))
+            let normalized = removeAllHeadingPrefixes(from: core)
+            if index == 0 {
+                firstLineDelta = (prefix as NSString).length - normalized.removedLength
+            }
+
+            transformedLines.append(indentation + prefix + normalized.text)
+        }
+
+        let replacement = transformedLines.joined(separator: "\n")
+        replaceCharacters(in: lineRange, with: replacement)
+
+        let totalLength = (self.text as NSString?)?.length ?? 0
+        if selection.length > 0 {
+            let replacementLength = (replacement as NSString).length
+            let safeLength = min(replacementLength, max(0, totalLength - lineRange.location))
+            self.selectedRange = NSRange(location: min(lineRange.location, totalLength), length: safeLength)
         } else {
-            // No selection - get the current line
-            lineRange = nsString.lineRange(for: NSRange(location: range.location, length: 0))
-        }
-        
-        let lineText = nsString.substring(with: lineRange)
-        
-        // Remove existing heading prefix if any
-        var cleanText = lineText.trimmingCharacters(in: .newlines)
-        if cleanText.hasPrefix("### ") {
-            cleanText = String(cleanText.dropFirst(4))
-        } else if cleanText.hasPrefix("## ") {
-            cleanText = String(cleanText.dropFirst(3))
-        } else if cleanText.hasPrefix("# ") {
-            cleanText = String(cleanText.dropFirst(2))
-        }
-        
-        // Add trailing newline back if original had it
-        let newText = "\(prefix)\(cleanText)" + (lineText.hasSuffix("\n") ? "\n" : "")
-        
-        if let textRange = self.textRange(from: self.position(from: beginningOfDocument, offset: lineRange.location)!,
-                                          to: self.position(from: beginningOfDocument, offset: lineRange.location + lineRange.length)!) {
-            self.replace(textRange, withText: newText)
+            let originalOffset = max(0, selection.location - lineRange.location)
+            let cursorOffset = max(0, originalOffset + firstLineDelta)
+            let cursorLocation = min(lineRange.location + cursorOffset, totalLength)
+            self.selectedRange = NSRange(location: cursorLocation, length: 0)
         }
     }
     
-    private func wrapSelection(with syntax: String) {
-        let range = self.selectedRange
-        guard let text = self.text, range.length > 0 else { return }
-        
+    private func toggleWrappedSelection(with syntax: String) {
+        guard let text = self.text else { return }
         let nsString = text as NSString
-        let selectedText = nsString.substring(with: range)
-        let newText = "\(syntax)\(selectedText)\(syntax)"
-        
-        if let textRange = self.textRange(from: self.position(from: beginningOfDocument, offset: range.location)!,
-                                          to: self.position(from: beginningOfDocument, offset: range.location + range.length)!) {
-            self.replace(textRange, withText: newText)
+        let range = self.selectedRange
+        let syntaxLength = (syntax as NSString).length
+
+        if range.length == 0 {
+            let insertion = "\(syntax)\(syntax)"
+            replaceCharacters(in: range, with: insertion)
+            let totalLength = (self.text as NSString?)?.length ?? 0
+            let cursorLocation = min(range.location + syntaxLength, totalLength)
+            self.selectedRange = NSRange(location: cursorLocation, length: 0)
+            return
         }
+
+        let selectedText = nsString.substring(with: range)
+
+        // Inline markdown markers should not span multiple lines in this editor model.
+        // Apply style per line to avoid malformed marker stacks and visible syntax artifacts.
+        if selectedText.contains("\n") {
+            let replacement = toggleInlineStylePerLine(selectedText, syntax: syntax)
+            replaceCharacters(in: range, with: replacement)
+            let replacementLength = (replacement as NSString).length
+            self.selectedRange = NSRange(location: range.location, length: replacementLength)
+            return
+        }
+
+        let whitespaceParts = splitOuterWhitespace(selectedText)
+        let stripped = stripOuterSyntax(whitespaceParts.core, syntax: syntax)
+        let shouldToggleOff = stripped.removedCount > 0
+        let core = shouldToggleOff ? stripped.text : "\(syntax)\(stripped.text)\(syntax)"
+        let replacement = whitespaceParts.leading + core + whitespaceParts.trailing
+
+        replaceCharacters(in: range, with: replacement)
+
+        let leadingLength = (whitespaceParts.leading as NSString).length
+        let strippedLength = (stripped.text as NSString).length
+        let cursorStart = range.location + leadingLength + (shouldToggleOff ? 0 : syntaxLength)
+        self.selectedRange = NSRange(location: cursorStart, length: strippedLength)
     }
-    
+
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(toggleBoldface(_:)) || 
            action == #selector(toggleItalics(_:)) ||
@@ -1270,7 +1613,7 @@ class MarkdownTextView: UITextView {
            action == #selector(makeH2) ||
            action == #selector(makeH3) ||
            action == #selector(makeBody) {
-            return selectedRange.length > 0
+            return isFirstResponder
         }
         return super.canPerformAction(action, withSender: sender)
     }
@@ -1278,14 +1621,11 @@ class MarkdownTextView: UITextView {
     private func applyFormattingAction(_ action: NoteFormattingAction) {
         switch action {
         case .bold:
-            guard selectedRange.length > 0 else { return }
-            wrapSelection(with: "**")
+            toggleWrappedSelection(with: "**")
         case .italic:
-            guard selectedRange.length > 0 else { return }
-            wrapSelection(with: "*")
+            toggleWrappedSelection(with: "*")
         case .strikethrough:
-            guard selectedRange.length > 0 else { return }
-            wrapSelection(with: "~~")
+            toggleWrappedSelection(with: "~~")
         case .heading1:
             // Headings work on current line even without selection
             wrapLineWithHeading("# ")
@@ -1296,10 +1636,87 @@ class MarkdownTextView: UITextView {
         case .body:
             // Body also works on current line
             removeHeadingFromSelection()
+        case .checklist:
+            insertChecklistPrefix()
         case .bulletPoint:
             insertListPrefix("- ")
         case .numberedList:
             insertListPrefix("1. ")
+        }
+    }
+
+    private func insertChecklistPrefix() {
+        guard let text = self.text else { return }
+        let nsString = text as NSString
+        let range = self.selectedRange
+        let checklistPrefix = "- [ ] "
+        let checklistPrefixLength = (checklistPrefix as NSString).length
+
+        if range.length > 0 {
+            let blockRange = expandedLineRange(for: range, in: nsString)
+            guard blockRange.length > 0 else { return }
+
+            let selectedBlock = nsString.substring(with: blockRange)
+            let hasTrailingNewline = selectedBlock.hasSuffix("\n")
+            var lines = selectedBlock.components(separatedBy: "\n")
+            let editableLineIndices = lines.indices.filter { index in
+                !(hasTrailingNewline && index == lines.count - 1 && lines[index].isEmpty)
+            }
+            guard !editableLineIndices.isEmpty else { return }
+
+            let candidateIndices = editableLineIndices.filter {
+                !lines[$0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            let indicesForModeCheck = candidateIndices.isEmpty ? [editableLineIndices[0]] : candidateIndices
+
+            let shouldToggleOff = indicesForModeCheck.allSatisfy { index in
+                listPrefixInfo(for: lines[index]).hasChecklistPrefix
+            }
+
+            for index in editableLineIndices {
+                let info = listPrefixInfo(for: lines[index])
+                if shouldToggleOff {
+                    lines[index] = info.indentation + info.contentWithoutPrefix
+                } else {
+                    lines[index] = info.indentation + checklistPrefix + info.contentWithoutPrefix
+                }
+            }
+
+            let replacement = lines.joined(separator: "\n")
+            replaceCharacters(in: blockRange, with: replacement)
+            let totalLength = (self.text as NSString?)?.length ?? 0
+            let replacementLength = (replacement as NSString).length
+            let safeLength = min(replacementLength, max(0, totalLength - blockRange.location))
+            self.selectedRange = NSRange(location: min(blockRange.location, totalLength), length: safeLength)
+            return
+        }
+
+        let lineRange = nsString.lineRange(for: NSRange(location: range.location, length: 0))
+        let lineText = nsString.substring(with: lineRange)
+        let hasTrailingNewline = lineText.hasSuffix("\n")
+        let lineCore = hasTrailingNewline ? String(lineText.dropLast()) : lineText
+
+        let info = listPrefixInfo(for: lineCore)
+        let updatedLineCore: String
+        let newCursorOffsetInLine: Int
+        if info.hasChecklistPrefix {
+            updatedLineCore = info.indentation + info.contentWithoutPrefix
+            newCursorOffsetInLine = min(max(0, range.location - lineRange.location), updatedLineCore.count)
+        } else {
+            updatedLineCore = info.indentation + checklistPrefix + info.contentWithoutPrefix
+            newCursorOffsetInLine = min(updatedLineCore.count, info.indentation.count + checklistPrefixLength)
+        }
+
+        let replacementText = hasTrailingNewline ? updatedLineCore + "\n" : updatedLineCore
+        if let textRange = self.textRange(
+            from: self.position(from: beginningOfDocument, offset: lineRange.location)!,
+            to: self.position(from: beginningOfDocument, offset: lineRange.location + lineRange.length)!
+        ) {
+            self.replace(textRange, withText: replacementText)
+
+            let maxCursor = (self.text ?? "").utf16.count
+            let cursorLocation = min(maxCursor, lineRange.location + newCursorOffsetInLine)
+            self.selectedRange = NSRange(location: cursorLocation, length: 0)
         }
     }
     
@@ -1308,51 +1725,70 @@ class MarkdownTextView: UITextView {
         let nsString = text as NSString
         let range = self.selectedRange
 
+        if range.length > 0 {
+            let blockRange = expandedLineRange(for: range, in: nsString)
+            guard blockRange.length > 0 else { return }
+
+            let selectedBlock = nsString.substring(with: blockRange)
+            let hasTrailingNewline = selectedBlock.hasSuffix("\n")
+            var lines = selectedBlock.components(separatedBy: "\n")
+            let editableLineIndices = lines.indices.filter { index in
+                !(hasTrailingNewline && index == lines.count - 1 && lines[index].isEmpty)
+            }
+            guard !editableLineIndices.isEmpty else { return }
+
+            let candidateIndices = editableLineIndices.filter {
+                !lines[$0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            let indicesForModeCheck = candidateIndices.isEmpty ? [editableLineIndices[0]] : candidateIndices
+
+            let shouldToggleOff = indicesForModeCheck.allSatisfy { index in
+                let info = listPrefixInfo(for: lines[index])
+                return prefix == "- " ? info.hasBulletPrefix : info.hasNumberedPrefix
+            }
+
+            var numbering = 1
+            for index in editableLineIndices {
+                let info = listPrefixInfo(for: lines[index])
+                if shouldToggleOff {
+                    lines[index] = info.indentation + info.contentWithoutPrefix
+                } else if prefix == "- " {
+                    lines[index] = info.indentation + "- " + info.contentWithoutPrefix
+                } else {
+                    lines[index] = info.indentation + "\(numbering). " + info.contentWithoutPrefix
+                    numbering += 1
+                }
+            }
+
+            let replacement = lines.joined(separator: "\n")
+            replaceCharacters(in: blockRange, with: replacement)
+            let totalLength = (self.text as NSString?)?.length ?? 0
+            let replacementLength = (replacement as NSString).length
+            let safeLength = min(replacementLength, max(0, totalLength - blockRange.location))
+            self.selectedRange = NSRange(location: min(blockRange.location, totalLength), length: safeLength)
+            return
+        }
+
         // Get the current line at cursor.
         let lineRange = nsString.lineRange(for: NSRange(location: range.location, length: 0))
         let lineText = nsString.substring(with: lineRange)
         let hasTrailingNewline = lineText.hasSuffix("\n")
         let lineCore = hasTrailingNewline ? String(lineText.dropLast()) : lineText
 
-        // Preserve existing indentation.
-        let indentation = String(lineCore.prefix { $0 == " " || $0 == "\t" })
-        let lineWithoutIndent = String(lineCore.dropFirst(indentation.count))
-
-        let hasBulletPrefix = lineWithoutIndent.hasPrefix("- ")
-        let numberedPattern = "^\\d+\\.\\s"
-        let hasNumberedPrefix = (try? NSRegularExpression(pattern: numberedPattern, options: []))?
-            .firstMatch(
-                in: lineWithoutIndent,
-                options: [],
-                range: NSRange(location: 0, length: lineWithoutIndent.utf16.count)
-            ) != nil
-
-        let isSamePrefixType = (prefix == "- " && hasBulletPrefix) || (prefix == "1. " && hasNumberedPrefix)
-
-        var contentWithoutPrefix = lineWithoutIndent
-        if hasBulletPrefix {
-            contentWithoutPrefix = String(lineWithoutIndent.dropFirst(2))
-        } else if hasNumberedPrefix,
-                  let regex = try? NSRegularExpression(pattern: numberedPattern, options: []),
-                  let match = regex.firstMatch(
-                    in: lineWithoutIndent,
-                    options: [],
-                    range: NSRange(location: 0, length: lineWithoutIndent.utf16.count)
-                  ),
-                  let matchRange = Range(match.range, in: lineWithoutIndent) {
-            contentWithoutPrefix = String(lineWithoutIndent[matchRange.upperBound...])
-        }
+        let info = listPrefixInfo(for: lineCore)
+        let isSamePrefixType = (prefix == "- " && info.hasBulletPrefix && !info.hasChecklistPrefix) ||
+            (prefix == "1. " && info.hasNumberedPrefix)
 
         let updatedLineCore: String
         let newCursorOffsetInLine: Int
         if isSamePrefixType {
             // Toggle off if user taps the same list style again.
-            updatedLineCore = indentation + contentWithoutPrefix
+            updatedLineCore = info.indentation + info.contentWithoutPrefix
             newCursorOffsetInLine = min(max(0, range.location - lineRange.location), updatedLineCore.count)
         } else {
             // Add or switch list style while keeping indentation.
-            updatedLineCore = indentation + prefix + contentWithoutPrefix
-            newCursorOffsetInLine = min(updatedLineCore.count, indentation.count + prefix.count)
+            updatedLineCore = info.indentation + prefix + info.contentWithoutPrefix
+            newCursorOffsetInLine = min(updatedLineCore.count, info.indentation.count + prefix.count)
         }
 
         let replacementText = hasTrailingNewline ? updatedLineCore + "\n" : updatedLineCore
@@ -1372,38 +1808,113 @@ class MarkdownTextView: UITextView {
     private func removeHeadingFromSelection() {
         guard let text = self.text else { return }
         let nsString = text as NSString
-        let range = self.selectedRange
-        
-        // Get the line range at cursor/selection
-        let lineRange: NSRange
-        if range.length > 0 {
-            lineRange = range
-        } else {
-            // No selection - get the current line
-            lineRange = nsString.lineRange(for: NSRange(location: range.location, length: 0))
-        }
-        
-        let selectedText = nsString.substring(with: lineRange)
-        let lines = selectedText
-            .components(separatedBy: "\n")
-            .map { line -> String in
-                if line.hasPrefix("### ") {
-                    return String(line.dropFirst(4))
-                }
-                if line.hasPrefix("## ") {
-                    return String(line.dropFirst(3))
-                }
-                if line.hasPrefix("# ") {
-                    return String(line.dropFirst(2))
-                }
-                return line
+        let selection = self.selectedRange
+        let lineRange = expandedLineRange(for: selection, in: nsString)
+        guard lineRange.length > 0 else { return }
+
+        let selectedBlock = nsString.substring(with: lineRange)
+        let lines = selectedBlock.components(separatedBy: "\n")
+        let hasTrailingNewline = selectedBlock.hasSuffix("\n")
+
+        var transformedLines: [String] = []
+        var firstLineDelta = 0
+
+        for (index, line) in lines.enumerated() {
+            let isTrailingSentinel = hasTrailingNewline && index == lines.count - 1 && line.isEmpty
+            if isTrailingSentinel {
+                transformedLines.append(line)
+                continue
             }
-        
-        let newText = lines.joined(separator: "\n")
-        
-        if let textRange = self.textRange(from: self.position(from: beginningOfDocument, offset: lineRange.location)!,
-                                          to: self.position(from: beginningOfDocument, offset: lineRange.location + lineRange.length)!) {
-            self.replace(textRange, withText: newText)
+
+            let indentation = String(line.prefix { $0 == " " || $0 == "\t" })
+            let core = String(line.dropFirst(indentation.count))
+            let normalized = removeAllHeadingPrefixes(from: core)
+            if index == 0 {
+                firstLineDelta = -normalized.removedLength
+            }
+            transformedLines.append(indentation + normalized.text)
         }
+
+        let replacement = transformedLines.joined(separator: "\n")
+        replaceCharacters(in: lineRange, with: replacement)
+
+        let totalLength = (self.text as NSString?)?.length ?? 0
+        if selection.length > 0 {
+            let replacementLength = (replacement as NSString).length
+            let safeLength = min(replacementLength, max(0, totalLength - lineRange.location))
+            self.selectedRange = NSRange(location: min(lineRange.location, totalLength), length: safeLength)
+        } else {
+            let originalOffset = max(0, selection.location - lineRange.location)
+            let cursorOffset = max(0, originalOffset + firstLineDelta)
+            let cursorLocation = min(lineRange.location + cursorOffset, totalLength)
+            self.selectedRange = NSRange(location: cursorLocation, length: 0)
+        }
+    }
+
+    private func listPrefixInfo(for line: String) -> (indentation: String, contentWithoutPrefix: String, hasBulletPrefix: Bool, hasNumberedPrefix: Bool, hasChecklistPrefix: Bool) {
+        let indentation = String(line.prefix { $0 == " " || $0 == "\t" })
+        let lineWithoutIndent = String(line.dropFirst(indentation.count))
+        let hasBulletPrefix = lineWithoutIndent.hasPrefix("- ")
+        let hasNumberedPrefix = numberedPrefixLength(in: lineWithoutIndent) != nil
+        let hasChecklistPrefix = checklistPrefixLength(in: lineWithoutIndent) != nil
+
+        var core = lineWithoutIndent
+
+        // Normalize malformed stacked prefixes like "- 1. - text" before applying style changes.
+        while true {
+            if let checklistLength = checklistPrefixLength(in: core) {
+                core = String(core.dropFirst(checklistLength))
+                continue
+            }
+            if core.hasPrefix("- ") {
+                core = String(core.dropFirst(2))
+                continue
+            }
+            if let prefixLength = numberedPrefixLength(in: core) {
+                core = String(core.dropFirst(prefixLength))
+                continue
+            }
+            break
+        }
+
+        return (indentation, core, hasBulletPrefix, hasNumberedPrefix, hasChecklistPrefix)
+    }
+
+    private func numberedPrefixLength(in line: String) -> Int? {
+        guard !line.isEmpty else { return nil }
+
+        var index = line.startIndex
+        while index < line.endIndex && line[index].isNumber {
+            index = line.index(after: index)
+        }
+
+        guard index > line.startIndex, index < line.endIndex, line[index] == "." else {
+            return nil
+        }
+
+        let afterDot = line.index(after: index)
+        guard afterDot < line.endIndex, line[afterDot] == " " else {
+            return nil
+        }
+
+        let prefixEnd = line.index(after: afterDot)
+        return line.distance(from: line.startIndex, to: prefixEnd)
+    }
+
+    private func checklistPrefixLength(in line: String) -> Int? {
+        let chars = Array(line)
+        guard chars.count >= 5 else { return nil }
+        guard (chars[0] == "-" || chars[0] == "*"),
+              chars[1] == " ",
+              chars[2] == "[",
+              (chars[3] == " " || chars[3] == "x" || chars[3] == "X"),
+              chars[4] == "]" else {
+            return nil
+        }
+
+        if chars.count > 5, chars[5] == " " {
+            return 6
+        }
+        return 5
     }
 }

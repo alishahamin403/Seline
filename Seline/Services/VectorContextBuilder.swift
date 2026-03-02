@@ -70,12 +70,30 @@ class VectorContextBuilder {
     ) -> Bool {
         let lower = query.lowercased()
 
+        // Entity-grounded "when did I go X with Y" is better served by semantic retrieval than date parsing.
+        if lower.contains("when did i go") {
+            let hasExplicitRelativeDate = lower.contains("today")
+                || lower.contains("yesterday")
+                || lower.contains("tomorrow")
+                || lower.contains("weekend")
+                || lower.contains("this week")
+                || lower.contains("last week")
+                || lower.contains("month")
+                || lower.contains("year")
+            if !hasExplicitRelativeDate {
+                return false
+            }
+        }
+
         // Explicit date/time language where DB date-range retrieval helps accuracy.
         let dateKeywords = [
             "today", "yesterday", "tomorrow", "week", "weekend", "month", "year",
             "last", "next", "ago", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
         ]
         if dateKeywords.contains(where: { lower.contains($0) }) {
+            return true
+        }
+        if lower.range(of: #"\bmy day\b|\bday\b"#, options: .regularExpression) != nil {
             return true
         }
 
@@ -154,6 +172,432 @@ class VectorContextBuilder {
             weekendOnly: weekendOnly,
             reason: reason
         )
+    }
+
+    private func preferredQueryUnderstandingModel(
+        query: String,
+        conversationHistory: [(role: String, content: String)]
+    ) -> String {
+        let history = conversationHistory.suffix(6).map { $0.content }.joined(separator: " ")
+        let lower = "\(query) \(history)".lowercased()
+        let advancedSignals = [
+            "which weekend", "what weekend", "that weekend", "weekend before",
+            "last last weekend", "breakdown of that", "same weekend",
+            "when did i go", "trip", "stay", "versus", "compare"
+        ]
+        if advancedSignals.contains(where: { lower.contains($0) }) {
+            return "gemini-2.5-flash"
+        }
+        return "gemini-2.0-flash"
+    }
+
+    private func shouldFallbackFromClarifyToVectorSearch(query: String) -> Bool {
+        let lower = query.lowercased()
+        let stopWords: Set<String> = [
+            "what", "when", "where", "who", "how", "show", "me", "the", "a", "an", "is", "it", "was",
+            "i", "we", "you", "my", "our", "with", "at", "in", "on", "of", "for", "to", "and", "or",
+            "weekend", "weekends", "that", "this", "last", "next", "trip", "stay", "breakdown", "spent",
+            "which", "did", "her", "his", "their", "birthday"
+        ]
+        let tokens = uniqueTokens(in: lower, stopWords: stopWords)
+        if tokens.count >= 2 {
+            return true
+        }
+        if lower.contains("when did") || lower.contains("where did") || lower.contains("what day") {
+            return true
+        }
+        return false
+    }
+
+    private struct WeekendInferenceCandidate {
+        let date: Date
+        let title: String
+        let score: Double
+        let matchedTokens: [String]
+    }
+
+    /// Resolve weekend queries with stronger confidence checks so we do not pin the wrong weekend.
+    /// Uses semantic candidates first, then task fallback.
+    private func inferWeekendRangeFromLocalData(
+        for query: String,
+        conversationHistory: [(role: String, content: String)]
+    ) async -> DeterministicTemporalRange? {
+        let lower = query.lowercased()
+        guard lower.contains("weekend") else { return nil }
+
+        let hasReferentialLanguage = lower.contains("that weekend")
+            || lower.contains("that trip")
+            || lower.contains("that stay")
+            || lower.contains("breakdown of that")
+            || lower.contains("same weekend")
+        let asksForSpecificWeekend = lower.contains("which weekend")
+            || lower.contains("what weekend")
+            || lower.contains("when did")
+
+        // Only run this deterministic path for referential weekend follow-ups or explicit "which/what weekend" lookups.
+        guard hasReferentialLanguage || asksForSpecificWeekend else { return nil }
+
+        var anchorText = lower
+        if hasReferentialLanguage {
+            let historyText = conversationHistory.suffix(8).map { $0.content.lowercased() }.joined(separator: " ")
+            anchorText += " " + historyText
+        }
+
+        let stopWords: Set<String> = [
+            "what", "when", "where", "who", "how", "show", "me", "the", "a", "an", "is", "it", "was",
+            "i", "we", "you", "my", "our", "with", "at", "in", "on", "of", "for", "to", "and", "or",
+            "weekend", "weekends", "that", "this", "last", "next", "trip", "stay", "breakdown", "spent",
+            "which", "did", "her", "his", "their", "birthday"
+        ]
+
+        let queryTokens = uniqueTokens(in: lower, stopWords: stopWords)
+        let anchorTokens = uniqueTokens(in: anchorText, stopWords: stopWords)
+        let requiredTokens = queryTokens.isEmpty ? Array(anchorTokens.prefix(8)) : queryTokens
+        guard !requiredTokens.isEmpty else { return nil }
+
+        if let semanticCandidate = await bestWeekendCandidateFromSemanticSearch(
+            query: anchorText,
+            requiredTokens: requiredTokens,
+            strictMode: !hasReferentialLanguage
+        ) {
+            if let weekendRange = weekendRange(for: semanticCandidate.date) {
+                return DeterministicTemporalRange(
+                    start: weekendRange.start,
+                    end: weekendRange.end,
+                    weekendOnly: true,
+                    reason: "semantic weekend inference via '\(semanticCandidate.title)' (tokens: \(semanticCandidate.matchedTokens.joined(separator: ", ")))"
+                )
+            }
+        }
+
+        // Fallback: task-based anchor lookup with a rare-token gate so person-only matches don't override place anchors.
+        let tasks = TaskManager.shared.getAllTasksIncludingArchived().filter { !$0.isDeleted }
+        guard !tasks.isEmpty else { return nil }
+
+        var tokenFrequency: [String: Int] = [:]
+        for token in requiredTokens {
+            tokenFrequency[token] = tasks.reduce(into: 0) { partial, task in
+                let searchable = "\(task.title) \(task.description ?? "") \(task.location ?? "")".lowercased()
+                if searchable.contains(token) { partial += 1 }
+            }
+        }
+        let rarestRequiredToken = tokenFrequency
+            .filter { $0.value > 0 }
+            .min(by: { lhs, rhs in lhs.value < rhs.value })?
+            .key
+
+        var bestMatch: (task: TaskItem, score: Int, date: Date, matched: [String])?
+
+        for task in tasks {
+            let taskDate = task.scheduledTime ?? task.targetDate ?? task.createdAt
+            let searchable = "\(task.title) \(task.description ?? "") \(task.location ?? "")".lowercased()
+            let matchedTokens = requiredTokens.filter { searchable.contains($0) }
+            guard !matchedTokens.isEmpty else { continue }
+
+            if !hasReferentialLanguage, let rarestRequiredToken, !matchedTokens.contains(rarestRequiredToken) {
+                continue
+            }
+
+            let score = matchedTokens.count
+            if let currentBest = bestMatch {
+                if score > currentBest.score || (score == currentBest.score && taskDate > currentBest.date) {
+                    bestMatch = (task, score, taskDate, matchedTokens)
+                }
+            } else {
+                bestMatch = (task, score, taskDate, matchedTokens)
+            }
+        }
+
+        guard let best = bestMatch else { return nil }
+        guard hasReferentialLanguage || best.score >= max(1, min(2, requiredTokens.count)) else { return nil }
+
+        if let weekendRange = weekendRange(for: best.date) {
+            return DeterministicTemporalRange(
+                start: weekendRange.start,
+                end: weekendRange.end,
+                weekendOnly: true,
+                reason: "context-anchored weekend via event '\(best.task.title)' (tokens: \(best.matched.joined(separator: ", ")))"
+            )
+        }
+        return nil
+    }
+
+    private func uniqueTokens(in text: String, stopWords: Set<String>) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        let tokens = text
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .map { $0.lowercased() }
+            .filter { $0.count >= 3 && !stopWords.contains($0) }
+        for token in tokens where !seen.contains(token) {
+            seen.insert(token)
+            ordered.append(token)
+        }
+        return ordered
+    }
+
+    private func bestWeekendCandidateFromSemanticSearch(
+        query: String,
+        requiredTokens: [String],
+        strictMode: Bool
+    ) async -> WeekendInferenceCandidate? {
+        do {
+            let results = try await vectorSearch.search(query: query, limit: 25)
+            guard !results.isEmpty else { return nil }
+
+            struct RawCandidate {
+                let date: Date
+                let title: String
+                let similarity: Float
+                let type: VectorSearchService.DocumentType
+                let searchableText: String
+                let matchedTokens: [String]
+            }
+
+            var rawCandidates: [RawCandidate] = []
+            for result in results {
+                guard let date = weekendInferenceDate(from: result) else { continue }
+                let searchableText = buildSearchableText(for: result)
+                let matchedTokens = requiredTokens.filter { searchableText.contains($0) }
+                guard !matchedTokens.isEmpty else { continue }
+                rawCandidates.append(
+                    RawCandidate(
+                        date: date,
+                        title: result.title ?? result.documentType.displayName,
+                        similarity: result.similarity,
+                        type: result.documentType,
+                        searchableText: searchableText,
+                        matchedTokens: matchedTokens
+                    )
+                )
+            }
+
+            guard !rawCandidates.isEmpty else { return nil }
+
+            var tokenDocumentFrequency: [String: Int] = [:]
+            for token in requiredTokens {
+                tokenDocumentFrequency[token] = rawCandidates.reduce(into: 0) { partial, candidate in
+                    if candidate.searchableText.contains(token) { partial += 1 }
+                }
+            }
+
+            let rarestRequiredToken = tokenDocumentFrequency
+                .filter { $0.value > 0 }
+                .min(by: { lhs, rhs in lhs.value < rhs.value })?
+                .key
+
+            var bestCandidate: WeekendInferenceCandidate?
+            for candidate in rawCandidates {
+                if strictMode, let rarestRequiredToken, !candidate.matchedTokens.contains(rarestRequiredToken) {
+                    continue
+                }
+
+                let tokenScore = candidate.matchedTokens.reduce(into: 0.0) { partial, token in
+                    let frequency = max(1, tokenDocumentFrequency[token] ?? 1)
+                    partial += 1.0 / Double(frequency)
+                }
+
+                let typeBoost: Double
+                switch candidate.type {
+                case .task: typeBoost = 0.22
+                case .visit: typeBoost = 0.16
+                case .email: typeBoost = 0.14
+                case .receipt: typeBoost = 0.08
+                case .note: typeBoost = 0.06
+                case .location: typeBoost = 0.03
+                case .person: typeBoost = 0.0
+                }
+
+                let combinedScore = (Double(candidate.similarity) * 0.65) + (tokenScore * 0.30) + typeBoost
+                let inferred = WeekendInferenceCandidate(
+                    date: candidate.date,
+                    title: candidate.title,
+                    score: combinedScore,
+                    matchedTokens: candidate.matchedTokens
+                )
+
+                if let currentBest = bestCandidate {
+                    if inferred.score > currentBest.score {
+                        bestCandidate = inferred
+                    }
+                } else {
+                    bestCandidate = inferred
+                }
+            }
+
+            guard let bestCandidate else { return nil }
+            let minimumScore = strictMode ? 0.45 : 0.35
+            guard bestCandidate.score >= minimumScore else { return nil }
+            return bestCandidate
+        } catch {
+            print("⚠️ Semantic weekend inference failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func weekendInferenceDate(from result: VectorSearchService.SearchResult) -> Date? {
+        switch result.documentType {
+        case .task:
+            return parseDate(from: result.metadata, keys: ["start", "scheduled_time", "target_date", "date", "created_at"])
+        case .visit:
+            return parseDate(from: result.metadata, keys: ["entry_time", "date", "created_at"])
+        case .email:
+            return parseDate(from: result.metadata, keys: ["date", "created_at"])
+        case .receipt, .note:
+            return parseDate(from: result.metadata, keys: ["date", "created_at"])
+        case .location, .person:
+            return parseDate(from: result.metadata, keys: ["date", "created_at"])
+        }
+    }
+
+    private func parseDate(from metadata: [String: Any]?, keys: [String]) -> Date? {
+        guard let metadata else { return nil }
+        for key in keys {
+            guard let rawValue = metadata[key] as? String, !rawValue.isEmpty else { continue }
+            if let parsed = parseDate(rawValue) {
+                return parsed
+            }
+        }
+        return nil
+    }
+
+    private func parseDate(_ value: String) -> Date? {
+        let isoWithFractional = ISO8601DateFormatter()
+        isoWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = isoWithFractional.date(from: value) {
+            return date
+        }
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: value) {
+            return date
+        }
+
+        let fallback = DateFormatter()
+        fallback.dateFormat = "yyyy-MM-dd"
+        fallback.timeZone = TimeZone.current
+        return fallback.date(from: value)
+    }
+
+    private func weekendRange(for date: Date) -> (start: Date, end: Date)? {
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(for: date)
+        let weekday = calendar.component(.weekday, from: day) // 1=Sun ... 7=Sat
+        let daysBackToSaturday = weekday == 7 ? 0 : (weekday == 1 ? 1 : weekday)
+        guard
+            let weekendStart = calendar.date(byAdding: .day, value: -daysBackToSaturday, to: day),
+            let weekendEnd = calendar.date(byAdding: .day, value: 2, to: weekendStart)
+        else {
+            return nil
+        }
+        return (start: calendar.startOfDay(for: weekendStart), end: calendar.startOfDay(for: weekendEnd))
+    }
+
+    private func buildSearchableText(for result: VectorSearchService.SearchResult) -> String {
+        var fragments: [String] = []
+        if let title = result.title {
+            fragments.append(title)
+        }
+        fragments.append(result.content)
+        if let metadata = result.metadata {
+            for (key, value) in metadata {
+                fragments.append("\(key) \(String(describing: value))")
+            }
+        }
+        return fragments.joined(separator: " ").lowercased()
+    }
+
+    private func buildEntityConstrainedSemanticContext(
+        query: String,
+        conversationHistory: [(role: String, content: String)],
+        dateRange: (start: Date, end: Date)?
+    ) async -> String {
+        let stopWords: Set<String> = [
+            "what", "when", "where", "who", "how", "show", "me", "the", "a", "an", "is", "it", "was",
+            "i", "we", "you", "my", "our", "with", "at", "in", "on", "of", "for", "to", "and", "or",
+            "weekend", "weekends", "that", "this", "last", "next", "trip", "stay", "breakdown", "spent",
+            "which", "did", "her", "his", "their", "birthday"
+        ]
+
+        let queryTokens = uniqueTokens(in: query.lowercased(), stopWords: stopWords)
+        let isReferential = query.lowercased().contains("that weekend")
+            || query.lowercased().contains("that trip")
+            || query.lowercased().contains("that stay")
+            || query.lowercased().contains("same weekend")
+
+        var anchorTokens = queryTokens
+        if isReferential || queryTokens.count < 2 {
+            let historyText = conversationHistory.suffix(8).map { $0.content }.joined(separator: " ").lowercased()
+            let historyTokens = uniqueTokens(in: historyText, stopWords: stopWords)
+            for token in historyTokens where !anchorTokens.contains(token) {
+                anchorTokens.append(token)
+            }
+        }
+
+        let anchors = Array(anchorTokens.prefix(6))
+        guard anchors.count >= 2 else { return "" }
+
+        do {
+            let candidates = try await vectorSearch.search(query: query, limit: 45, dateRange: dateRange)
+            guard !candidates.isEmpty else { return "" }
+
+            var tokenFrequency: [String: Int] = [:]
+            for token in anchors {
+                tokenFrequency[token] = candidates.reduce(into: 0) { partial, candidate in
+                    if buildSearchableText(for: candidate).contains(token) {
+                        partial += 1
+                    }
+                }
+            }
+            let rarestAnchor = tokenFrequency
+                .filter { $0.value > 0 }
+                .min(by: { lhs, rhs in lhs.value < rhs.value })?
+                .key
+
+            let matched: [(result: VectorSearchService.SearchResult, matchedTokens: [String])] = candidates.compactMap { result in
+                let searchable = buildSearchableText(for: result)
+                let matchedTokens = anchors.filter { searchable.contains($0) }
+                guard matchedTokens.count >= 2 else { return nil }
+                if let rarestAnchor, !matchedTokens.contains(rarestAnchor) {
+                    return nil
+                }
+                return (result, matchedTokens)
+            }
+
+            guard !matched.isEmpty else { return "" }
+
+            let df = DateFormatter()
+            df.dateStyle = .medium
+            df.timeStyle = .short
+            let limited = Array(matched.prefix(12))
+
+            var context = "=== QUERY-FOCUSED MATCHES (ENTITY-CONSTRAINED) ===\n"
+            context += "Anchors: \(anchors.joined(separator: ", "))\n"
+            context += "Only items matching at least 2 anchors are listed.\n\n"
+            for item in limited {
+                let title = item.result.title ?? item.result.documentType.displayName
+                let similarity = Int(item.result.similarity * 100)
+                let dateLabel: String
+                if let date = weekendInferenceDate(from: item.result) {
+                    dateLabel = df.string(from: date)
+                } else {
+                    dateLabel = "Unknown date"
+                }
+                let snippet = item.result.content
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                context += "- [\(similarity)%] \(item.result.documentType.displayName): \(title) • \(dateLabel) • matched: \(item.matchedTokens.joined(separator: ", "))\n"
+                if !snippet.isEmpty {
+                    context += "  - \(snippet.prefix(180))\n"
+                }
+            }
+            context += "\n"
+            return context
+        } catch {
+            print("⚠️ Entity-constrained semantic context failed: \(error.localizedDescription)")
+            return ""
+        }
     }
 
     private func buildWeekendOnlyCompletenessContext(dateRange: (start: Date, end: Date)) async -> String {
@@ -273,9 +717,14 @@ class VectorContextBuilder {
             """
 
         do {
+            let queryUnderstandingModel = preferredQueryUnderstandingModel(
+                query: query,
+                conversationHistory: conversationHistory
+            )
             let response = try await GeminiService.shared.simpleChatCompletion(
                 systemPrompt: "You are a query understanding assistant. Output only START/END, NONE, or CLARIFY: as instructed. Use the conversation to resolve time references like 'that' or 'last last weekend'.",
                 messages: [["role": "user", "content": prompt]],
+                model: queryUnderstandingModel,
                 operationType: "query_understanding"
             )
             let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -355,6 +804,10 @@ class VectorContextBuilder {
             understanding = .dateRange(start: forcedRange.start, end: forcedRange.end)
             useWeekendOnlyCompleteness = forcedRange.weekendOnly
             print("📅 Deterministic query understanding: \(forcedRange.reason) → DATE RANGE \(forcedRange.start) to \(forcedRange.end)")
+        } else if let contextualWeekendRange = await inferWeekendRangeFromLocalData(for: query, conversationHistory: conversationHistory) {
+            understanding = .dateRange(start: contextualWeekendRange.start, end: contextualWeekendRange.end)
+            useWeekendOnlyCompleteness = contextualWeekendRange.weekendOnly
+            print("📅 Deterministic query understanding: \(contextualWeekendRange.reason) → DATE RANGE \(contextualWeekendRange.start) to \(contextualWeekendRange.end)")
         } else if shouldUseQueryUnderstandingLLM(query: query, conversationHistory: conversationHistory) {
             print("🔍 Query understanding...")
             understanding = await understandQuery(query: query, conversationHistory: conversationHistory)
@@ -369,6 +822,12 @@ class VectorContextBuilder {
             understanding = .dateRange(start: fallbackRange.start, end: fallbackRange.end)
             useWeekendOnlyCompleteness = fallbackRange.weekendOnly
             print("📅 Guardrail routing: LLM returned NONE for explicit temporal query; forcing DATE RANGE \(fallbackRange.start) to \(fallbackRange.end)")
+        }
+
+        // Guardrail: if the parser asks for clarification on a concrete entity query, continue with vector retrieval.
+        if case .clarify = understanding, shouldFallbackFromClarifyToVectorSearch(query: query) {
+            understanding = .vectorSearch
+            print("📅 Guardrail routing: CLARIFY for concrete query → vector search fallback")
         }
 
         switch understanding {
@@ -419,6 +878,17 @@ class VectorContextBuilder {
                     context += "\n" + dayContext
                     metadata.usedCompleteDayData = true
                     print("✅ Found complete day data via direct DB query")
+
+                    let constrainedSemanticContext = await buildEntityConstrainedSemanticContext(
+                        query: query,
+                        conversationHistory: conversationHistory,
+                        dateRange: dateRange
+                    )
+                    if !constrainedSemanticContext.isEmpty {
+                        context += "\n" + constrainedSemanticContext
+                        metadata.usedVectorSearch = true
+                        print("✅ Added entity-constrained semantic matches for date-range query")
+                    }
                 } else {
                     print("⚠️ Direct DB query returned nothing, falling back to vector search")
                     let limit = determineSearchLimit(forQuery: query)
@@ -458,6 +928,15 @@ class VectorContextBuilder {
                             context += "\n\n=== ADDITIONAL RELEVANT DATA (second pass) ===\n"
                             context += secondContext
                         }
+                    }
+
+                    let constrainedSemanticContext = await buildEntityConstrainedSemanticContext(
+                        query: query,
+                        conversationHistory: conversationHistory,
+                        dateRange: nil
+                    )
+                    if !constrainedSemanticContext.isEmpty {
+                        context += "\n" + constrainedSemanticContext
                     }
                 } else {
                     context += "\n[No relevant data found for this query]\n"
@@ -578,7 +1057,7 @@ class VectorContextBuilder {
         context += "- ONLY use data explicitly provided in this context below.\n"
         context += "- If the context shows \"No relevant data found\", tell the user you don't have that information.\n"
         context += "- NEVER invent, fabricate, estimate, or guess data that isn't in the context.\n"
-        context += "- NEVER reference emails, events, or data from future dates (after today).\n"
+        context += "- For future-date questions, only use future events explicitly present in the context.\n"
         context += "- When in doubt, say \"I don't have that information\" instead of guessing.\n\n"
         
         return context
@@ -722,8 +1201,13 @@ class VectorContextBuilder {
                     return (note, date, amount, category)
                 }
         }
+
+        // 4. Emails (local cache) — include communication evidence for date-specific queries
+        let emailsForRange = (EmailService.shared.inboxEmails + EmailService.shared.sentEmails)
+            .filter { $0.timestamp >= dayStart && $0.timestamp < dayEnd }
+            .sorted { $0.timestamp < $1.timestamp }
         
-        // 4. Per-day blocks (weekday + date so the model reports e.g. "Monday" not "Saturday")
+        // 5. Per-day blocks (weekday + date so the model reports e.g. "Monday" not "Saturday")
         var currentDay = dayStart
         while currentDay < dayEnd {
             context += "--- \(dayLabelFormatter.string(from: currentDay)) ---\n"
@@ -788,11 +1272,27 @@ class VectorContextBuilder {
                 }
                 context += "\n"
             }
+            let emailsOnDay = emailsForRange.filter { calendar.isDate($0.timestamp, inSameDayAs: currentDay) }
+            if !emailsOnDay.isEmpty {
+                context += "EMAILS (\(emailsOnDay.count)):\n"
+                for email in emailsOnDay.prefix(20) {
+                    let sender = email.sender.displayName
+                    let time = timeFormatter.string(from: email.timestamp)
+                    let importance = email.isImportant ? " [important]" : ""
+                    let unread = email.isRead ? "" : " [unread]"
+                    context += "- \(time) • \(email.subject) • From: \(sender)\(importance)\(unread)\n"
+                    let snippet = email.snippet.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !snippet.isEmpty {
+                        context += "  - \(snippet.prefix(160))\n"
+                    }
+                }
+                context += "\n"
+            }
             guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
             currentDay = nextDay
         }
         
-        // 5. SPENDING SUMMARY - Match receipts to visits with smart connections
+        // 6. SPENDING SUMMARY - Match receipts to visits with smart connections
         do {
             // Match receipts to visits using time + location name scoring
             let receiptMatches = matchReceiptsToVisits(receipts: receiptNotes, visits: visitsForDay)
@@ -804,7 +1304,7 @@ class VectorContextBuilder {
             }
         }
 
-        // 6. RELATED CONTEXT - Synthesize connections across data types
+        // 7. RELATED CONTEXT - Synthesize connections across data types
         context += "RELATED CONTEXT (Smart Connections):\n"
         var hasRelatedData = false
 

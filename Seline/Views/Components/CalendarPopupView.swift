@@ -12,10 +12,8 @@ struct CalendarPopupView: View {
     // Filter support - passed from parent, but we use local state to allow changes within calendar
     var selectedTagId: String?
     @State private var localSelectedTagId: String? = nil
+    @State private var selectedTaskForViewing: TaskItem?
     @State private var selectedTaskForEditing: TaskItem?
-    @State private var showingViewTaskSheet = false
-    @State private var showingEditTaskSheet = false
-    @State private var isTransitioningToEdit = false
     @State private var isAnimating = false
 
     // Computed property for filtered tasks - automatically updates when tasks, date, or filter changes
@@ -217,8 +215,7 @@ struct CalendarPopupView: View {
                                         task: task,
                                         selectedDate: selectedDate,
                                         onTap: {
-                                            selectedTaskForEditing = task
-                                            showingViewTaskSheet = true
+                                            selectedTaskForViewing = task
                                         },
                                         onToggleCompletion: {
                                             taskManager.toggleTaskCompletion(task, forDate: selectedDate)
@@ -251,73 +248,60 @@ struct CalendarPopupView: View {
                 isAnimating = true
             }
         }
-        .sheet(isPresented: $showingViewTaskSheet) {
-            if let task = selectedTaskForEditing {
-                NavigationView {
-                    ViewEventView(
-                        task: task,
-                        onEdit: {
-                            // Mark that we're transitioning to edit
-                            isTransitioningToEdit = true
-                            showingViewTaskSheet = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                showingEditTaskSheet = true
-                            }
-                        },
-                        onDelete: { taskToDelete in
-                            taskManager.deleteTask(taskToDelete)
-                            showingViewTaskSheet = false
-                        },
-                        onDeleteRecurringSeries: { taskToDelete in
-                            taskManager.deleteRecurringTask(taskToDelete)
-                            showingViewTaskSheet = false
+        .sheet(item: $selectedTaskForViewing) { task in
+            NavigationView {
+                ViewEventView(
+                    task: task,
+                    onEdit: {
+                        selectedTaskForViewing = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            selectedTaskForEditing = task
                         }
-                    )
-                }
+                    },
+                    onDelete: { taskToDelete in
+                        taskManager.deleteTask(taskToDelete)
+                        selectedTaskForViewing = nil
+                    },
+                    onDeleteRecurringSeries: { taskToDelete in
+                        taskManager.deleteRecurringTask(taskToDelete)
+                        selectedTaskForViewing = nil
+                    }
+                )
             }
         }
     .presentationBg()
-        .sheet(isPresented: $showingEditTaskSheet) {
-            if let task = selectedTaskForEditing {
-                NavigationView {
-                    EditTaskView(
-                        task: task,
-                        onSave: { updatedTask in
-                            taskManager.editTask(updatedTask)
-                            showingEditTaskSheet = false
-                        },
-                        onCancel: {
-                            showingEditTaskSheet = false
-                        },
-                        onDelete: { taskToDelete in
-                            taskManager.deleteTask(taskToDelete)
-                            showingEditTaskSheet = false
-                        },
-                        onDeleteRecurringSeries: { taskToDelete in
-                            taskManager.deleteRecurringTask(taskToDelete)
-                            showingEditTaskSheet = false
-                        }
-                    )
-                }
+        .sheet(item: $selectedTaskForEditing) { task in
+            NavigationView {
+                EditTaskView(
+                    task: task,
+                    onSave: { updatedTask in
+                        taskManager.editTask(updatedTask)
+                        selectedTaskForEditing = nil
+                    },
+                    onSaveRecurring: { updatedTask, scope, occurrenceDate in
+                        taskManager.editTask(
+                            updatedTask,
+                            recurringEditScope: scope,
+                            recurringOccurrenceDate: occurrenceDate
+                        )
+                        selectedTaskForEditing = nil
+                    },
+                    occurrenceDate: selectedDate,
+                    onCancel: {
+                        selectedTaskForEditing = nil
+                    },
+                    onDelete: { taskToDelete in
+                        taskManager.deleteTask(taskToDelete)
+                        selectedTaskForEditing = nil
+                    },
+                    onDeleteRecurringSeries: { taskToDelete in
+                        taskManager.deleteRecurringTask(taskToDelete)
+                        selectedTaskForEditing = nil
+                    }
+                )
             }
         }
     .presentationBg()
-        .onChange(of: showingViewTaskSheet) { isShowing in
-            // Clear task when view sheet is dismissed (unless transitioning to edit)
-            if !isShowing && !isTransitioningToEdit {
-                selectedTaskForEditing = nil
-            }
-        }
-        .onChange(of: showingEditTaskSheet) { isShowing in
-            // Reset transition flag and clear task when edit sheet is dismissed
-            if !isShowing {
-                isTransitioningToEdit = false
-                selectedTaskForEditing = nil
-            } else {
-                // Reset flag when edit sheet opens
-                isTransitioningToEdit = false
-            }
-        }
     }
 
     private var formattedSelectedDate: String {

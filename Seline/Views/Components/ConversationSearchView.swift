@@ -14,7 +14,7 @@ struct ConversationSearchView: View {
     @State private var measuredInputTextHeight: CGFloat = 36
     @State private var isStreamingResponse = false
     @State private var streamingStartTime: Date?
-    @State private var elapsedTimeUpdateTrigger = UUID() // Triggers elapsed time updates
+    @State private var streamingScrollTick = 0
     @State private var showingSettings = false
     @State private var showingTokenDetails = false
     @State private var showingHistorySheet = false
@@ -28,22 +28,16 @@ struct ConversationSearchView: View {
     @State private var selectedLocation: SavedPlace? = nil
     @State private var isProcessingResponse = false // Track if LLM is responding
     @State private var lastMeaningfulTranscript = ""
-    @State private var streamingElapsedTimer: Timer?
+    @State private var streamingAutoScrollTask: Task<Void, Never>?
 
     private var chatBackgroundColor: Color {
-        (colorScheme == .dark ? Color.black : Color.white)
-    }
-
-    private var chatSurfaceColor: Color {
-        (colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-    }
-
-    private var chatStrokeColor: Color {
-        (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+        Color.appBackground(colorScheme)
     }
 
     var body: some View {
         ZStack {
+            AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .centerRight)
+
             VStack(spacing: 0) {
                 headerView
                 conversationScrollView
@@ -56,10 +50,12 @@ struct ConversationSearchView: View {
                 // Started streaming
                 isStreamingResponse = true
                 streamingStartTime = Date()
+                startStreamingAutoscrollLoop()
             } else {
                 // Stopped streaming
                 isStreamingResponse = false
                 streamingStartTime = nil
+                stopStreamingAutoscrollLoop()
             }
         }
         .onAppear {
@@ -74,13 +70,6 @@ struct ConversationSearchView: View {
 
             }
 
-            // Set up timer to update elapsed time while streaming
-            streamingElapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-                if isStreamingResponse {
-                    elapsedTimeUpdateTrigger = UUID()
-                }
-            }
-            
             // Set up transcription callback
             speechService.onTranscriptionUpdate = { text in
                 messageText = text
@@ -88,10 +77,15 @@ struct ConversationSearchView: View {
 
             // Auto-send on silence disabled (speak mode removed); user sends with button
             speechService.onAutoSend = { }
+
+            if searchService.isLoadingQuestionResponse {
+                isStreamingResponse = true
+                streamingStartTime = streamingStartTime ?? Date()
+                startStreamingAutoscrollLoop()
+            }
         }
         .onDisappear {
-            streamingElapsedTimer?.invalidate()
-            streamingElapsedTimer = nil
+            stopStreamingAutoscrollLoop()
             // Persist current chat: save title and to Supabase. Do not clear conversation
             // so the same chat stays open when user switches tabs or reopens the app.
             Task {
@@ -172,6 +166,23 @@ struct ConversationSearchView: View {
         }
     }
 
+    private func startStreamingAutoscrollLoop() {
+        guard streamingAutoScrollTask == nil else { return }
+        streamingAutoScrollTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard !Task.isCancelled else { return }
+                guard searchService.isLoadingQuestionResponse || isStreamingResponse else { return }
+                streamingScrollTick += 1
+            }
+        }
+    }
+
+    private func stopStreamingAutoscrollLoop() {
+        streamingAutoScrollTask?.cancel()
+        streamingAutoScrollTask = nil
+    }
+
     // MARK: - Subviews
 
     private var emptyStateView: some View {
@@ -186,12 +197,16 @@ struct ConversationSearchView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: 40, height: 40)
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .foregroundColor(
+                        colorScheme == .dark
+                            ? Color(red: 0.98, green: 0.64, blue: 0.41).opacity(0.95)
+                            : Color(red: 0.98, green: 0.64, blue: 0.41)
+                    )
                 
                 // Single line greeting matching Claude's style
                 Text(claudeGreetingText)
                     .font(FontManager.geist(size: 26, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             }
@@ -441,7 +456,7 @@ struct ConversationSearchView: View {
                 }) {
                     Image(systemName: "line.3.horizontal")
                         .font(FontManager.geist(size: 18, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.8) : Color.claudeTextLight.opacity(0.7))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
                 }
                 .buttonStyle(PlainButtonStyle())
                 
@@ -451,7 +466,7 @@ struct ConversationSearchView: View {
             // Center: Title
             Text("Chat")
                 .font(FontManager.geist(size: 16, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+                .foregroundColor(Color.appTextPrimary(colorScheme))
             
             // Right side: Utilized pill
             HStack(spacing: 8) {
@@ -463,22 +478,25 @@ struct ConversationSearchView: View {
                 }) {
                     Text("\(Int(deepSeekService.quotaPercentage))% utilized")
                         .font(FontManager.geist(size: 11, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.7) : Color.claudeTextLight.opacity(0.6))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(
-                            Capsule()
-                                .fill((colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)))
-                        )
+                        .background(Capsule().fill(Color.appChip(colorScheme)))
                 }
                 .buttonStyle(PlainButtonStyle())
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .background(
-            chatBackgroundColor
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topLeading,
+            cornerRadius: 22,
+            highlightStrength: 0.7
         )
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
     }
     
     private var historySidebarOverlay: some View {
@@ -566,7 +584,7 @@ struct ConversationSearchView: View {
                     }
                 }
                 // Auto-scroll while assistant text is streaming (count doesn't change during streaming updates)
-                .onChange(of: elapsedTimeUpdateTrigger) { _ in
+                .onChange(of: streamingScrollTick) { _ in
                     guard searchService.isLoadingQuestionResponse || isStreamingResponse else { return }
                     withAnimation(.easeInOut(duration: 0.15)) {
                         if let lastMessage = searchService.conversationHistory.last {
@@ -656,14 +674,11 @@ struct ConversationSearchView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(height: inputHeight)
-        .background(
-            RoundedRectangle(cornerRadius: 24)
-                .fill(chatSurfaceColor)
-                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.2 : 0.08), radius: 8, x: 0, y: 4)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(chatStrokeColor, lineWidth: 1)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .bottomLeading,
+            cornerRadius: 24,
+            highlightStrength: 0.55
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -999,9 +1014,6 @@ struct ConversationMessageView: View {
     @State private var showingEventCreationResult = false
     @State private var eventCreationMessage = ""
     @State private var eventCreationIsError = false
-    @State private var revealTokens: [String] = []
-    @State private var revealedWordCount: Int = 0
-    @State private var wordRevealTimer: Timer?
 
     // Determine if message has complex formatting
     private var hasComplexFormatting: Bool {
@@ -1049,46 +1061,6 @@ struct ConversationMessageView: View {
 
     private var displayedMessageText: String {
         message.text
-    }
-
-    private func tokenizeWordsPreservingWhitespace(_ text: String) -> [String] {
-        guard !text.isEmpty else { return [] }
-        let pattern = "\\S+\\s*"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return [text]
-        }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        let matches = regex.matches(in: text, range: range)
-        let tokens = matches.compactMap { match -> String? in
-            guard let tokenRange = Range(match.range, in: text) else { return nil }
-            return String(text[tokenRange])
-        }
-        return tokens.isEmpty ? [text] : tokens
-    }
-
-    private func syncWordRevealState(initial: Bool = false) {
-        let tokens = tokenizeWordsPreservingWhitespace(message.text)
-        revealTokens = tokens
-        revealedWordCount = tokens.count
-        stopWordRevealTimer()
-    }
-
-    private func startWordRevealTimerIfNeeded() {
-        guard wordRevealTimer == nil else { return }
-        wordRevealTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-            if revealedWordCount < revealTokens.count {
-                withAnimation(.easeInOut(duration: 0.1)) {
-                    revealedWordCount += 1
-                }
-            } else if !isStreaming {
-                stopWordRevealTimer()
-            }
-        }
-    }
-
-    private func stopWordRevealTimer() {
-        wordRevealTimer?.invalidate()
-        wordRevealTimer = nil
     }
 
     var body: some View {
@@ -1146,21 +1118,6 @@ struct ConversationMessageView: View {
                 message: Text(eventCreationMessage),
                 dismissButton: .default(Text("OK"))
             )
-        }
-        .onAppear {
-            syncWordRevealState(initial: true)
-        }
-        .onChange(of: message.text) { _ in
-            syncWordRevealState()
-        }
-        .onChange(of: isLastAssistantMessage) { _ in
-            syncWordRevealState()
-        }
-        .onChange(of: isStreaming) { _ in
-            syncWordRevealState()
-        }
-        .onDisappear {
-            stopWordRevealTimer()
         }
     }
 
@@ -1663,6 +1620,24 @@ struct ConversationMessageView: View {
         }
 
         return lines
+    }
+
+    private func tokenizeWordsPreservingWhitespace(_ text: String) -> [String] {
+        guard !text.isEmpty else { return [] }
+
+        let pattern = "\\S+\\s*"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return [text]
+        }
+
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = regex.matches(in: text, range: range)
+        let tokens = matches.compactMap { match -> String? in
+            guard let tokenRange = Range(match.range, in: text) else { return nil }
+            return String(text[tokenRange])
+        }
+
+        return tokens.isEmpty ? [text] : tokens
     }
 
     private func parseBulletLine(from runs: [InlineRun]) -> (hasBullet: Bool, level: Int, runs: [InlineRun]) {
@@ -2472,54 +2447,38 @@ struct SimpleTextWithPhoneLinks: View {
 
 struct TypingIndicatorView: View {
     let colorScheme: ColorScheme
-    @State private var animationIndex = 0
-    @State private var messageIndex = 0
-    @State private var waveTimer: Timer?
-    @State private var messageCycleTimer: Timer?
 
     var thinkingMessages = ["Thinking...", "Analyzing your data...", "Getting insights..."]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 4) {
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(colorScheme == .dark ? Color.white : Color.black)
-                        .frame(width: 6, height: 6)
-                        .offset(y: getWaveOffset(for: index))
-                        .opacity(0.8 + 0.2 * Double(index == animationIndex ? 1 : 0))
-                }
-                Spacer()
-            }
-            .frame(width: 40, height: 12)
+        SwiftUI.TimelineView(.animation(minimumInterval: 0.18)) { context in
+            let elapsed = context.date.timeIntervalSinceReferenceDate
+            let animationIndex = Int(elapsed / 0.18) % 3
+            let messageIndex = Int(elapsed / 3.0) % thinkingMessages.count
 
-            Text(thinkingMessages[messageIndex % thinkingMessages.count])
-                .font(FontManager.geist(size: 15, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .onAppear {
-            waveTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { _ in
-                withAnimation(.easeInOut(duration: 0.4)) {
-                    animationIndex = (animationIndex + 1) % 3
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 4) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white : Color.black)
+                            .frame(width: 6, height: 6)
+                            .offset(y: getWaveOffset(for: index, animationIndex: animationIndex))
+                            .opacity(0.8 + 0.2 * Double(index == animationIndex ? 1 : 0))
+                    }
+                    Spacer()
                 }
+                .frame(width: 40, height: 12)
+
+                Text(thinkingMessages[messageIndex])
+                    .font(FontManager.geist(size: 15, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
             }
-            messageCycleTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
-                withAnimation {
-                    messageIndex = (messageIndex + 1) % thinkingMessages.count
-                }
-            }
-        }
-        .onDisappear {
-            waveTimer?.invalidate()
-            messageCycleTimer?.invalidate()
-            waveTimer = nil
-            messageCycleTimer = nil
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
     }
 
-    private func getWaveOffset(for index: Int) -> CGFloat {
+    private func getWaveOffset(for index: Int, animationIndex: Int) -> CGFloat {
         let distance = abs(index - animationIndex)
         if distance == 0 {
             return -4
@@ -2775,52 +2734,31 @@ struct WrappingInlineLayout: Layout {
 
 struct ModernLoadingIndicator: View {
     let colorScheme: ColorScheme
-    @State private var dotScale1: CGFloat = 1.0
-    @State private var dotScale2: CGFloat = 1.0
-    @State private var dotScale3: CGFloat = 1.0
 
     var body: some View {
-        HStack(alignment: .center, spacing: 0) {
-            // Simple animated dots
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                    .frame(width: 6, height: 6)
-                    .scaleEffect(dotScale1)
+        SwiftUI.TimelineView(.animation(minimumInterval: 0.2)) { context in
+            let elapsed = context.date.timeIntervalSinceReferenceDate
 
-                Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                    .frame(width: 6, height: 6)
-                    .scaleEffect(dotScale2)
-
-                Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                    .frame(width: 6, height: 6)
-                    .scaleEffect(dotScale3)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-
-            Spacer()
-        }
-        .onAppear {
-            // Dot pulse animation (staggered)
-            withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                dotScale1 = 1.3
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                    dotScale2 = 1.3
+            HStack(alignment: .center, spacing: 0) {
+                HStack(spacing: 4) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .frame(width: 6, height: 6)
+                            .scaleEffect(dotScale(for: index, elapsed: elapsed))
+                    }
                 }
-            }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                    dotScale3 = 1.3
-                }
+                Spacer()
             }
         }
+    }
+
+    private func dotScale(for index: Int, elapsed: TimeInterval) -> CGFloat {
+        let phase = elapsed + (Double(index) * 0.2)
+        return 1.0 + (sin(phase * .pi * 1.6) * 0.15)
     }
 }
 
@@ -3298,16 +3236,6 @@ struct ConversationHistorySheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { searchService.loadConversationHistoryLocally() }
-        .gesture(
-            DragGesture(minimumDistance: 20)
-                .onEnded { value in
-                    let horizontal = value.translation.width
-                    let vertical = abs(value.translation.height)
-                    if horizontal < -60 && vertical < 60 {
-                        if let onDismiss = onDismiss { onDismiss() } else { dismiss() }
-                    }
-                }
-        )
     }
 
     private var searchBar: some View {
@@ -3340,18 +3268,23 @@ struct ConversationHistorySheet: View {
                 searchService.startNewConversation()
                 if let onDismiss = onDismiss { onDismiss() } else { dismiss() }
             }) {
-                Image(systemName: "square.and.pencil")
-                    .font(FontManager.geist(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
-                    .frame(width: 36, height: 36)
-                    .background(
-                        Circle()
-                            .fill(topControlFillColor)
-                            .overlay(
-                                Circle()
-                                    .stroke(topControlBorderColor, lineWidth: 0.8)
-                            )
-                    )
+                HStack(spacing: 6) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("New")
+                        .font(FontManager.geist(size: 13, weight: .medium))
+                }
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                .padding(.horizontal, 12)
+                .frame(height: 36)
+                .background(
+                    Capsule()
+                        .fill(topControlFillColor)
+                        .overlay(
+                            Capsule()
+                                .stroke(topControlBorderColor, lineWidth: 0.8)
+                        )
+                )
             }
             .buttonStyle(PlainButtonStyle())
         }
@@ -3407,18 +3340,26 @@ struct ConversationHistorySheet: View {
                             .padding(.horizontal, 20)
                             .padding(.bottom, 6)
                         
-                        ForEach(conversations) { conversation in
+                        ForEach(Array(conversations.enumerated()), id: \.element.id) { index, conversation in
                             ConversationHistoryRow(conversation: conversation)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                HapticManager.shared.selection()
-                                onSelectConversation(conversation)
-                            }
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    HapticManager.shared.delete()
-                                    onDeleteConversation(conversation)
-                                } label: { Label("Delete", systemImage: "trash") }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    HapticManager.shared.selection()
+                                    onSelectConversation(conversation)
+                                }
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        HapticManager.shared.delete()
+                                        onDeleteConversation(conversation)
+                                    } label: { Label("Delete", systemImage: "trash") }
+                                }
+
+                            if index < conversations.count - 1 {
+                                Rectangle()
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.06))
+                                    .frame(height: 1)
+                                    .padding(.leading, 20)
+                                    .padding(.trailing, 20)
                             }
                         }
                     }

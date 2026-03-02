@@ -240,61 +240,72 @@ async function handleSearch(supabase: any, userId: string, request: EmbeddingReq
     const limit = request.limit || 10
     const similarityThreshold = request.similarity_threshold || 0.10 // Lowered to 0.10 for better recall
 
-    // Build the embedding vector string for pgvector
+    // Build the embedding vector string for pgvector RPC
     const embeddingStr = `[${queryEmbedding.join(',')}]`
 
-    // Fetch results ordered by cosine distance using the HNSW index
-    // Supabase client doesn't directly support vector ordering, so we use
-    // a workaround: fetch more results and sort in JS
-    // The HNSW index still speeds up the initial candidate selection
-    
-    let query = supabase
-        .from('document_embeddings')
-        .select('document_type, document_id, title, content, metadata, embedding')
-        .eq('user_id', userId)
-        .not('embedding', 'is', null)
-        .limit(limit * 4) // Get more candidates, filter in JS
+    // Primary path: indexed similarity search in Postgres (HNSW)
+    // Fallback path: fetch + JS cosine, in case RPC is unavailable
+    let results: any[] = []
+    let searchMode = 'indexed_rpc'
 
-    if (request.document_types && request.document_types.length > 0) {
-        query = query.in('document_type', request.document_types)
+    const rpcCandidateLimit = Math.max(limit * 6, 30)
+    const rpcMinSimilarity = Math.max(0.0, similarityThreshold - 0.05)
+    const { data: indexedData, error: indexedError } = await supabase.rpc('search_embeddings', {
+        p_user_id: userId,
+        p_query_embedding: embeddingStr,
+        p_document_types: request.document_types && request.document_types.length > 0 ? request.document_types : null,
+        p_limit: rpcCandidateLimit,
+        p_min_similarity: rpcMinSimilarity
+    })
+
+    if (!indexedError && Array.isArray(indexedData)) {
+        results = indexedData
+    } else {
+        searchMode = 'js_fallback'
+        console.warn('⚠️ search_embeddings RPC unavailable, falling back to JS cosine:', indexedError?.message ?? indexedError)
+
+        let query = supabase
+            .from('document_embeddings')
+            .select('document_type, document_id, title, content, metadata, embedding')
+            .eq('user_id', userId)
+            .not('embedding', 'is', null)
+            .limit(limit * 6)
+
+        if (request.document_types && request.document_types.length > 0) {
+            query = query.in('document_type', request.document_types)
+        }
+
+        const { data, error } = await query
+        if (error) {
+            console.error('Search error:', error)
+            return jsonError(`Search failed: ${error.message}`, 500)
+        }
+
+        results = (data || [])
+            .map((doc: any) => {
+                let docEmbedding: number[]
+                if (typeof doc.embedding === 'string') {
+                    const cleaned = doc.embedding.replace(/[\[\]]/g, '')
+                    docEmbedding = cleaned.split(',').map((n: string) => parseFloat(n.trim()))
+                } else if (Array.isArray(doc.embedding)) {
+                    docEmbedding = doc.embedding
+                } else {
+                    return null
+                }
+
+                const similarity = cosineSimilarity(queryEmbedding, docEmbedding)
+
+                return {
+                    document_type: doc.document_type,
+                    document_id: doc.document_id,
+                    title: doc.title,
+                    content: doc.content,
+                    metadata: doc.metadata,
+                    similarity: similarity
+                }
+            })
+            .filter((doc: any) => doc !== null)
     }
-
-    const { data, error } = await query
-
-    if (error) {
-        console.error('Search error:', error)
-        return jsonError(`Search failed: ${error.message}`, 500)
-    }
-
-    // Calculate cosine similarity in JS (post-filtering with HNSW-inspired ordering)
-    // Note: With small datasets, JS calculation is fast enough
-    // For large datasets, consider using the search_embeddings RPC function
-    const results = (data || [])
-        .map((doc: any) => {
-            // Parse the embedding
-            let docEmbedding: number[]
-            if (typeof doc.embedding === 'string') {
-                const cleaned = doc.embedding.replace(/[\[\]]/g, '')
-                docEmbedding = cleaned.split(',').map((n: string) => parseFloat(n.trim()))
-            } else if (Array.isArray(doc.embedding)) {
-                docEmbedding = doc.embedding
-            } else {
-                return null
-            }
-
-            // Calculate cosine similarity
-            const similarity = cosineSimilarity(queryEmbedding, docEmbedding)
-
-            return {
-                document_type: doc.document_type,
-                document_id: doc.document_id,
-                title: doc.title,
-                content: doc.content,
-                metadata: doc.metadata,
-                similarity: similarity
-            }
-        })
-        .filter((doc: any) => doc !== null)
 
     // Filter by date range if specified
     let filteredResults = results
@@ -309,8 +320,8 @@ async function handleSearch(supabase: any, userId: string, request: EmbeddingReq
             }
             
             if (request.date_range_end) {
-                const rangeStart = new Date(request.date_range_end)
-                if (docDate >= rangeStart) return false
+                const rangeEnd = new Date(request.date_range_end)
+                if (docDate >= rangeEnd) return false
             }
             
             return true
@@ -328,7 +339,8 @@ async function handleSearch(supabase: any, userId: string, request: EmbeddingReq
         query: request.query,
         results: finalResults,
         count: finalResults.length,
-        candidates_evaluated: results.length
+        candidates_evaluated: results.length,
+        search_mode: searchMode
     })
 }
 

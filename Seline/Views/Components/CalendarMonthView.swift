@@ -23,6 +23,16 @@ struct CalendarMonthView: View {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
+    private static let monthYearFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter
+    }()
+    private static let dayNumberFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d"
+        return formatter
+    }()
     
     init(
         selectedDate: Binding<Date>,
@@ -40,19 +50,19 @@ struct CalendarMonthView: View {
     // MARK: - Colors
     
     private var primaryTextColor: Color {
-        colorScheme == .dark ? Color.white : Color.black
+        Color.appTextPrimary(colorScheme)
     }
     
     private var secondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)
+        Color.emailGlassMutedText(colorScheme)
     }
     
     private var backgroundColor: Color {
-        colorScheme == .dark ? Color.black : Color.white
+        Color.clear
     }
     
     private var todayHighlightColor: Color {
-        colorScheme == .dark ? Color.white : Color.black
+        Color.emailGlassAccent
     }
     
     // MARK: - Date Calculations
@@ -64,6 +74,14 @@ struct CalendarMonthView: View {
 
     private var weeksInMonth: [[Date?]] {
         weeksInMonth(for: currentMonth)
+    }
+
+    private var previousMonthWeeks: [[Date?]] {
+        weeksInMonth(for: monthOffset(-1))
+    }
+
+    private var nextMonthWeeks: [[Date?]] {
+        weeksInMonth(for: monthOffset(1))
     }
 
     private func daysInMonth(for month: Date) -> [Date] {
@@ -179,10 +197,7 @@ struct CalendarMonthView: View {
                     .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(primaryTextColor)
                     .frame(width: 32, height: 32)
-                    .background(
-                        Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                    )
+                    .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
             }
             .buttonStyle(PlainButtonStyle())
             
@@ -210,10 +225,7 @@ struct CalendarMonthView: View {
                     .foregroundColor(isCurrentMonth ? primaryTextColor : primaryTextColor.opacity(0.7))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                    )
+                    .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
             }
             .buttonStyle(PlainButtonStyle())
             
@@ -228,10 +240,7 @@ struct CalendarMonthView: View {
                     .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(primaryTextColor)
                     .frame(width: 32, height: 32)
-                    .background(
-                        Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                    )
+                    .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
             }
             .buttonStyle(PlainButtonStyle())
         }
@@ -240,9 +249,7 @@ struct CalendarMonthView: View {
     }
     
     private var monthYearString: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
-        return formatter.string(from: currentMonth)
+        Self.monthYearFormatter.string(from: currentMonth)
     }
     
     // MARK: - Weekday Headers
@@ -258,23 +265,22 @@ struct CalendarMonthView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(backgroundColor)
     }
     
     // MARK: - Calendar Grid
     
     private var calendarGrid: some View {
         TabView(selection: $monthPageSelection) {
-            monthGrid(for: monthOffset(-1))
-                .frame(height: CGFloat(weeksInMonth(for: monthOffset(-1)).count) * rowHeight, alignment: .top)
+            monthGrid(weeks: previousMonthWeeks)
+                .frame(height: CGFloat(previousMonthWeeks.count) * rowHeight, alignment: .top)
                 .tag(0)
 
-            monthGrid(for: currentMonth)
+            monthGrid(weeks: weeksInMonth)
                 .frame(height: CGFloat(weeksInMonth.count) * rowHeight, alignment: .top)
                 .tag(1)
 
-            monthGrid(for: monthOffset(1))
-                .frame(height: CGFloat(weeksInMonth(for: monthOffset(1)).count) * rowHeight, alignment: .top)
+            monthGrid(weeks: nextMonthWeeks)
+                .frame(height: CGFloat(nextMonthWeeks.count) * rowHeight, alignment: .top)
                 .tag(2)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
@@ -296,9 +302,9 @@ struct CalendarMonthView: View {
         }
     }
 
-    private func monthGrid(for month: Date) -> some View {
+    private func monthGrid(weeks: [[Date?]]) -> some View {
         VStack(spacing: 0) {
-            ForEach(Array(weeksInMonth(for: month).enumerated()), id: \.offset) { weekIndex, week in
+            ForEach(Array(weeks.enumerated()), id: \.offset) { weekIndex, week in
                 weekRow(week: week, weekIndex: weekIndex)
             }
         }
@@ -334,34 +340,30 @@ struct CalendarMonthView: View {
                 HStack {
                     Spacer()
                     if isToday {
-                        // Today: white circle outline (no fill), outline color = camera icon color
                         Text(dayNumber(date))
                             .font(FontManager.geist(size: 12, weight: .semibold))
                             .foregroundColor(primaryTextColor)
-                            .frame(width: 24, height: 24)
+                            .frame(width: 28, height: 28)
                             .background(
                                 Circle()
-                                    .stroke(Color(red: 0.2, green: 0.2, blue: 0.2), lineWidth: 2)
+                                    .stroke(todayHighlightColor, lineWidth: 1.5)
                             )
                     } else if isSelected {
-                        // Selected (not today): filled circle with camera icon color
                         Text(dayNumber(date))
                             .font(FontManager.geist(size: 12, weight: .semibold))
-                            .foregroundColor(Color.white)
-                            .frame(width: 24, height: 24)
-                            .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(colorScheme == .dark ? Color.white : Color.appTextPrimary(colorScheme)))
                     } else {
-                        // Not selected, not today
                         Text(dayNumber(date))
                             .font(FontManager.geist(size: 12, weight: .regular))
                             .foregroundColor(primaryTextColor)
-                            .frame(width: 24, height: 24)
+                            .frame(width: 28, height: 28)
                     }
                     Spacer()
                 }
                 .padding(.top, 1)
                 
-                // Events - not clickable, just for display
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(events.prefix(maxEventsPerCell).enumerated()), id: \.element.id) { index, event in
                         eventChip(event: event)
@@ -386,10 +388,10 @@ struct CalendarMonthView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(
                 isSelected && !isToday ?
-                    (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08)) :
+                    (colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.05)) :
                     Color.clear
             )
-            .cornerRadius(ShadcnRadius.md)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -410,27 +412,9 @@ struct CalendarMonthView: View {
             tagColorIndex = nil
         }
         
-        let tagColor = TimelineEventColorManager.timelineEventAccentColor(
-            filterType: filterType,
-            colorScheme: colorScheme,
-            tagColorIndex: tagColorIndex
-        )
-        
-        let textColor: Color
-        if case .tag(_) = filterType, let tagColorIndex = tagColorIndex {
-            textColor = TimelineEventColorManager.tagColorTextColor(colorIndex: tagColorIndex, colorScheme: colorScheme)
-        } else {
-            textColor = TimelineEventColorManager.timelineEventTextColor(
-                filterType: filterType,
-                colorScheme: colorScheme,
-                tagColorIndex: tagColorIndex
-            )
-        }
-        
-        // Fixed size chip - no button, just display
         return Text(event.title)
             .font(FontManager.geist(size: 9, weight: .medium))
-            .foregroundColor(textColor)
+            .foregroundColor(primaryTextColor.opacity(0.82))
             .lineLimit(1)
             .padding(.vertical, 2)
             .padding(.horizontal, 6)
@@ -438,16 +422,22 @@ struct CalendarMonthView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 Capsule()
-                    .fill(tagColor) // Solid color, no line
+                    .fill(
+                        tagColorIndex != nil
+                            ? Color.emailGlassAccent.opacity(colorScheme == .dark ? 0.18 : 0.16)
+                            : Color.appChip(colorScheme)
+                    )
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.appBorder(colorScheme), lineWidth: 0.8)
             )
     }
     
     // MARK: - Helper Methods
     
     private func dayNumber(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d"
-        return formatter.string(from: date)
+        Self.dayNumberFormatter.string(from: date)
     }
     
     private func getFilteredEvents(for date: Date) -> [TaskItem] {
@@ -464,16 +454,12 @@ struct CalendarMonthView: View {
             return applyFilter(to: allTasks)
         }
         
-        // Filter matches - check cache
         if let cached = cachedEventsForMonth[dateKey] {
             return cached
         }
-        
-        // No cache for this date - compute and cache
+
         let allTasks = taskManager.getAllTasks(for: date)
-        let filtered = applyFilter(to: allTasks)
-        cachedEventsForMonth[dateKey] = filtered
-        return filtered
+        return applyFilter(to: allTasks)
     }
     
     private func rebuildCacheForCurrentMonth() {

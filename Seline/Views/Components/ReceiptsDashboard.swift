@@ -5,7 +5,6 @@ struct ReceiptsDashboard: View {
     @State private var recurringExpenses: [RecurringExpense] = []
     @State private var isLoading = true
     @State private var selectedRecurringExpense: RecurringExpense?
-    @State private var showingEditForm = false
     @State private var showingDeleteConfirmation = false
     @State private var expenseToDelete: RecurringExpense?
 
@@ -55,7 +54,6 @@ struct ReceiptsDashboard: View {
                                         expense: expense,
                                         onEdit: {
                                             selectedRecurringExpense = expense
-                                            showingEditForm = true
                                         },
                                         onDelete: {
                                             expenseToDelete = expense
@@ -100,15 +98,13 @@ struct ReceiptsDashboard: View {
             .onAppear {
                 loadRecurringExpenses()
             }
-            .sheet(isPresented: $showingEditForm) {
-                if let expense = selectedRecurringExpense {
-                    EditRecurringExpenseForm(
-                        expense: expense,
-                        onSave: { updatedExpense in
-                            updateRecurringExpense(updatedExpense)
-                        }
-                    )
-                }
+            .sheet(item: $selectedRecurringExpense) { expense in
+                EditRecurringExpenseForm(
+                    expense: expense,
+                    onSave: { updatedExpense in
+                        updateRecurringExpense(updatedExpense)
+                    }
+                )
             }
             .alert("Delete Recurring Expense?", isPresented: $showingDeleteConfirmation) {
                 Button("Cancel", role: .cancel) { }
@@ -168,7 +164,6 @@ struct ReceiptsDashboard: View {
                         recurringExpenses[index] = updated
                     }
                     selectedRecurringExpense = nil
-                    showingEditForm = false
                 }
             } catch {
                 print("❌ Error updating expense: \(error.localizedDescription)")

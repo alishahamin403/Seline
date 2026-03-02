@@ -61,10 +61,13 @@ class SelineChat: ObservableObject {
 
     /// Send a message and get a response
     func sendMessage(_ userMessage: String, streaming: Bool = true) async -> String {
-        // Add user message to history
-        let userMsg = ChatMessage(role: .user, content: userMessage, timestamp: Date())
-        conversationHistory.append(userMsg)
-        onMessageAdded?(userMsg)
+        // Avoid duplicate user turns when callers already appended this message.
+        let shouldAppendUserMessage = !(conversationHistory.last?.role == .user && conversationHistory.last?.content == userMessage)
+        if shouldAppendUserMessage {
+            let userMsg = ChatMessage(role: .user, content: userMessage, timestamp: Date())
+            conversationHistory.append(userMsg)
+            onMessageAdded?(userMsg)
+        }
 
         print("💬 User: \(userMessage)")
 
@@ -95,6 +98,12 @@ class SelineChat: ObservableObject {
         }
 
         return response
+    }
+
+    /// Returns the effective query to use for retrieval/context for the latest user turn.
+    /// If the user wrote only "try again"/"again"/"retry", reuse the previous substantive user query.
+    func contextQueryForLatestUserTurn() -> String {
+        effectiveContextQueryForCurrentTurn()
     }
     
     // MARK: - Memory Extraction
@@ -206,8 +215,8 @@ class SelineChat: ObservableObject {
     // MARK: - Private: System Prompt
 
     private func buildSystemPrompt() async -> String {
-        // Get the current user message (last in conversation)
-        let userMessage = conversationHistory.last?.content ?? ""
+        // Get the effective context query for the current turn.
+        let userMessage = effectiveContextQueryForCurrentTurn()
 
         // OPTIMIZATION: Always use vector-based context builder for better performance
         let contextPrompt: String
@@ -260,6 +269,55 @@ class SelineChat: ObservableObject {
             contextPrompt: contextPrompt,
             sourceReferencePrompt: sourceReferencePrompt
         )
+    }
+
+    private func effectiveContextQueryForCurrentTurn() -> String {
+        guard let lastUserMessage = conversationHistory.last(where: { $0.role == .user })?.content else {
+            return ""
+        }
+        let trimmed = lastUserMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isRetryFollowUpMessage(trimmed) else {
+            return trimmed
+        }
+
+        for message in conversationHistory.dropLast().reversed() where message.role == .user {
+            let candidate = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !candidate.isEmpty && !isRetryFollowUpMessage(candidate) {
+                print("🔁 Retry follow-up detected; reusing previous user query for context: '\(candidate.prefix(80))'")
+                return candidate
+            }
+        }
+        return trimmed
+    }
+
+    private func isRetryFollowUpMessage(_ text: String) -> Bool {
+        let normalized = text
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return false }
+
+        let exactRetryPhrases: Set<String> = [
+            "again",
+            "try again",
+            "retry",
+            "one more time",
+            "try that again",
+            "answer again",
+            "do it again"
+        ]
+        if exactRetryPhrases.contains(normalized) {
+            return true
+        }
+
+        let words = normalized.split(separator: " ")
+        if words.count <= 4 {
+            if normalized.contains("again") || normalized.contains("retry") {
+                return true
+            }
+        }
+        return false
     }
     
     private func buildSourceReferencePrompt() -> String {
@@ -328,7 +386,7 @@ class SelineChat: ObservableObject {
           * Note if the data seems incomplete: "Based on what I can see..." or "From the data available..."
           * Identify patterns or trends from related time periods if helpful
         - For comparisons, if one period has less data, acknowledge it: "I have more complete data for [period] than [other period]"
-        - Be accurate with specifics, but you can make reasonable inferences from patterns
+        - Be accurate with specifics; only make qualitative trend inferences when directly supported by explicit context evidence
         - Example: If context shows 3 Starbucks visits in a week, you can say "You've been to Starbucks a few times this week" even if not all visits are shown
 
         🚫 CRITICAL - DO NOT USE WEB SEARCH FOR PEOPLE DATA:
@@ -471,7 +529,7 @@ class SelineChat: ObservableObject {
           * Note if the data seems incomplete: "Based on what I can see..." or "From the data available..."
           * Identify patterns or trends from related time periods if helpful
         - For comparisons, if one period has less data, acknowledge it: "I have more complete data for [period] than [other period]"
-        - Be accurate with specifics, but you can make reasonable inferences from patterns
+        - Be accurate with specifics; only make qualitative trend inferences when directly supported by explicit context evidence
         - Example: If context shows 3 Starbucks visits in a week, you can say "You've been to Starbucks a few times this week" even if not all visits are shown
 
         🚫 CRITICAL - DO NOT USE WEB SEARCH FOR PEOPLE DATA:
@@ -488,10 +546,11 @@ class SelineChat: ObservableObject {
         - Prefer user memory over generic assumptions; apply user preferences when formatting responses
         - Connect the dots using this memory - it's knowledge YOU have learned about this user over time
 
-        📎 CITE YOUR SOURCES:
-        - When using data from the context, briefly cite where it came from so the user knows it's from their data
-        - Examples: "From your calendar…", "In your notes…", "From your receipts…", "In your emails…", "From your visits…"
-        - Keep citations natural and short (e.g. "You have a meeting at 3pm (from your calendar).")
+        📎 CITE YOUR SOURCES (STRICT FORMAT):
+        - When citing a source, use ONLY numeric inline citations in this exact format: [[n]]
+        - Never output bracketed text citations like [See ...], [from ...], [USER MEMORY ...], or [RELEVANT DATA ...]
+        - Never invent source indexes; only use indexes listed under SOURCE REFERENCES
+        - If a sentence is not directly grounded in one listed source item, do not attach a citation
 
         🌍 SELINE'S HOLISTIC VIEW (CRITICAL - READ THIS):
         Seline is NOT just a calendar app or email assistant - it's a unified life management platform that tracks MULTIPLE interconnected aspects of the user's day:
@@ -577,13 +636,16 @@ class SelineChat: ObservableObject {
         - Only use data from the context below. Never guess or make up information.
         - If you don't have the data, just say so naturally: "I don't have that info" or "I'd need more details to help with that."
         - Be honest when uncertain rather than fabricating answers.
+        - If an exact date/time/amount IS present in context for the asked item, state it directly and do not hedge.
+        - For "last/latest/most recent" queries, identify the most recent matching item by date and answer with that date + key value.
         
         💬 HOW TO RESPOND (BE HUMAN, NOT ROBOTIC):
 
-        ✅ FORMAT YOUR RESPONSES EXACTLY LIKE CHATGPT - CLEAN, STRUCTURED, SCANNABLE:
+        ✅ FORMAT YOUR RESPONSES CLEANLY - STRUCTURED AND SCANNABLE:
         - Break up long paragraphs into clear sections with line breaks
-        - CRITICAL - NESTED BULLETS: Every list item under a section MUST be a sub-bullet with exactly 2 spaces before the dash. Without the 2 spaces the app cannot show hierarchy.
-        - Format: main section = one line with "- **Section:**"; then on the NEXT line(s) use "  - " (two spaces, then dash space) for each sub-item. Example:
+        - Use bullets when helpful; nested bullets are optional
+        - Prefer this pattern for readability: main section line with "- **Section:**" and short sub-items underneath
+        - Example:
         ```
         - **Places you visited:**
           - Square One Dental from 11:33 AM to 1:03 PM
@@ -592,8 +654,7 @@ class SelineChat: ObservableObject {
           - Square One Dental: $101.60 (Healthcare)
           - Walmart: $36.09 (Shopping)
         ```
-        - Never put a sub-item on the same line as the section header. Always use a new line starting with "  - " for sub-items.
-        - Use **bold** for section headers within bullets (e.g. **Places you visited:**, **Purchases:**)
+        - Use **bold** for key section headers (e.g. **Places you visited:**, **Purchases:**)
         - Add blank lines between major date sections (e.g. between Saturday and Sunday)
         - Keep paragraphs to 2-3 sentences MAXIMUM - prefer shorter
         - Use numbers (not spelled out): "3 meetings", "$2500", "January 24th", "2:20 PM"
@@ -653,7 +714,7 @@ class SelineChat: ObservableObject {
         PERSONALITY:
         - 🌟 Warm and confident, like a close friend who genuinely cares
         - 📝 Match the user's energy - brief question = brief answer
-        - 😊 Use emojis naturally (1-2 per response) to add personality, not as decorations
+        - 😊 Emojis are optional; use sparingly when they add clarity
         - 🔗 Connect the dots - if asking about dinner, mention if they have a reservation coming up
         - ❓ Ask thoughtful follow-ups that show you understand their life
         

@@ -1,10 +1,16 @@
 import SwiftUI
 
+enum EmailMailboxPresentationStyle {
+    case inbox
+    case sent
+}
+
 struct EmailRow: View {
     let email: Email
     let onDelete: (Email) -> Void
     let onMarkAsUnread: (Email) -> Void
     let onArchive: ((Email) -> Void)?
+    let presentationStyle: EmailMailboxPresentationStyle
     @Environment(\.colorScheme) var colorScheme
     @State private var profilePictureUrl: String?
 
@@ -12,21 +18,23 @@ struct EmailRow: View {
         email: Email,
         onDelete: @escaping (Email) -> Void,
         onMarkAsUnread: @escaping (Email) -> Void,
-        onArchive: ((Email) -> Void)? = nil
+        onArchive: ((Email) -> Void)? = nil,
+        presentationStyle: EmailMailboxPresentationStyle = .inbox
     ) {
         self.email = email
         self.onDelete = onDelete
         self.onMarkAsUnread = onMarkAsUnread
         self.onArchive = onArchive
+        self.presentationStyle = presentationStyle
     }
 
     // Avatar background color - Google brand colors
     private var avatarColor: Color {
         let colors: [Color] = [
-            Color(red: 0.2588, green: 0.5216, blue: 0.9569),  // Google Blue #4285F4
-            Color(red: 0.9176, green: 0.2627, blue: 0.2078),  // Google Red #EA4335
-            Color(red: 0.9843, green: 0.7373, blue: 0.0157),  // Google Yellow #FBBC04
-            Color(red: 0.2039, green: 0.6588, blue: 0.3255),  // Google Green #34A853
+            Color(red: 0.45, green: 0.52, blue: 0.60),
+            Color(red: 0.55, green: 0.55, blue: 0.55),
+            Color(red: 0.40, green: 0.55, blue: 0.55),
+            Color(red: 0.55, green: 0.50, blue: 0.45),
         ]
 
         // Generate deterministic color based on sender email using stable hash
@@ -175,6 +183,14 @@ struct EmailRow: View {
     }
 
     private var emailStatusChip: (text: String, fill: Color, textColor: Color) {
+        if presentationStyle == .sent {
+            return (
+                text: "Sent",
+                fill: colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08),
+                textColor: Color.emailGlassMutedText(colorScheme)
+            )
+        }
+
         if isActionRequired {
             return (
                 text: "Action",
@@ -188,6 +204,18 @@ struct EmailRow: View {
             fill: colorScheme == .dark ? Color.blue.opacity(0.18) : Color.blue.opacity(0.1),
             textColor: colorScheme == .dark ? Color.blue.opacity(0.9) : Color.blue.opacity(0.8)
         )
+    }
+
+    private var primaryNameText: String {
+        switch presentationStyle {
+        case .inbox:
+            return email.sender.shortDisplayName
+        case .sent:
+            if let firstRecipient = email.recipients.first?.shortDisplayName, !firstRecipient.isEmpty {
+                return "To: \(firstRecipient)"
+            }
+            return "Sent"
+        }
     }
 
     var body: some View {
@@ -238,18 +266,16 @@ struct EmailRow: View {
                     // Top row: sender name, subject preview, time
                     HStack(alignment: .top, spacing: 6) {
                         VStack(alignment: .leading, spacing: 2) {
-                            // Sender name
-                            Text(email.sender.shortDisplayName)
+                            Text(primaryNameText)
                                 .font(FontManager.geist(size: 13, systemWeight: email.isRead ? .medium : .semibold))
                                 .foregroundColor(Color.appTextPrimary(colorScheme))
                                 .lineLimit(1)
 
-                            // Subject
                             Text(email.subject)
                                 .font(FontManager.geist(size: 12, systemWeight: email.isRead ? .regular : .medium))
                                 .foregroundColor(
                                     email.isRead ?
-                                    Color.appTextSecondary(colorScheme) :
+                                    Color.emailGlassMutedText(colorScheme) :
                                     Color.appTextPrimary(colorScheme)
                                 )
                                 .lineLimit(1)
@@ -267,7 +293,7 @@ struct EmailRow: View {
                         VStack(alignment: .trailing, spacing: 3) {
                             Text(email.formattedTime)
                                 .font(FontManager.geist(size: 10, weight: .regular))
-                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                .foregroundColor(Color.emailGlassMutedText(colorScheme))
 
                             HStack(spacing: 3) {
                                 if email.isImportant {
@@ -296,8 +322,15 @@ struct EmailRow: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color.clear)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color.emailGlassInnerTint(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.emailGlassInnerBorder(colorScheme), lineWidth: 1)
+        )
         .contentShape(Rectangle())
         .contextMenu {
             // Mark as Unread option (only show if email is read)
@@ -344,7 +377,7 @@ struct EmailRow: View {
 
     private func statusChip(text: String, fill: Color, textColor: Color) -> some View {
         Text(text)
-            .font(FontManager.geist(size: 10, weight: .semibold))
+            .font(FontManager.geist(size: 9, weight: .semibold))
             .foregroundColor(textColor)
             .lineLimit(1)
             .padding(.horizontal, 7)

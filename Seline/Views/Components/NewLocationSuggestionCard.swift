@@ -20,15 +20,6 @@ struct NewLocationSuggestionCard: View {
         "Entertainment", "Healthcare", "Education", "Other"
     ]
     
-    // MARK: - Theme Colors
-    private var backgroundColor: Color {
-        colorScheme == .dark ? Color.black : Color.white
-    }
-    
-    private var cardBackground: Color {
-        colorScheme == .dark ? Color(white: 0.12) : Color.white
-    }
-    
     private var primaryTextColor: Color {
         colorScheme == .dark ? .white : .black
     }
@@ -37,8 +28,8 @@ struct NewLocationSuggestionCard: View {
         colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5)
     }
     
-    private var borderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)
+    private var accentColor: Color {
+        Color.homeGlassAccent
     }
     
     var body: some View {
@@ -51,7 +42,7 @@ struct NewLocationSuggestionCard: View {
                         // Clean location indicator
                         ZStack {
                             Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                .fill(Color.homeGlassInnerTint(colorScheme))
                                 .frame(width: 44, height: 44)
                             
                             Image(systemName: "mappin.circle.fill")
@@ -84,7 +75,7 @@ struct NewLocationSuggestionCard: View {
                                 .frame(width: 28, height: 28)
                                 .background(
                                     Circle()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                        .fill(Color.homeGlassInnerTint(colorScheme))
                                 )
                         }
                     }
@@ -132,10 +123,7 @@ struct NewLocationSuggestionCard: View {
                             .foregroundColor(primaryTextColor)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(borderColor, lineWidth: 1)
-                            )
+                            .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 10)
                         }
                         
                         Spacer()
@@ -148,7 +136,7 @@ struct NewLocationSuggestionCard: View {
                                 if isSaving {
                                     ProgressView()
                                         .scaleEffect(0.8)
-                                        .tint(colorScheme == .dark ? .black : .white)
+                                        .tint(.black)
                                 } else {
                                     Image(systemName: "plus")
                                         .font(FontManager.geist(size: 14, weight: .semibold))
@@ -156,32 +144,19 @@ struct NewLocationSuggestionCard: View {
                                 Text("Save Location")
                                     .font(FontManager.geist(size: 14, weight: .semibold))
                             }
-                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .foregroundColor(.black)
                             .padding(.horizontal, 18)
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .fill(colorScheme == .dark ? .white : .black)
+                                    .fill(accentColor)
                             )
                         }
                         .disabled(isSaving)
                     }
                 }
                 .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(cardBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(borderColor, lineWidth: 1)
-                )
-                .shadow(
-                    color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.06),
-                    radius: 12,
-                    x: 0,
-                    y: 4
-                )
+                .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 18, highlightStrength: 0.95)
             }
             .padding(.horizontal, 16)
             .offset(y: animationOffset)

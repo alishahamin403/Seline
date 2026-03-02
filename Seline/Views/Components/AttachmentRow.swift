@@ -2,13 +2,18 @@ import SwiftUI
 import QuickLook
 
 struct AttachmentRow: View {
+    private struct SheetItem: Identifiable {
+        let url: URL
+        var id: String { url.absoluteString }
+    }
+
     let attachment: EmailAttachment
     let emailMessageId: String? // Gmail message ID for downloading attachment
     @Environment(\.colorScheme) var colorScheme
     @State private var downloadedURL: URL?
     @State private var isDownloading = false
-    @State private var showShareSheet = false
-    @State private var showQuickLook = false
+    @State private var shareItem: SheetItem?
+    @State private var quickLookItem: SheetItem?
 
     var body: some View {
         Button(action: {
@@ -80,16 +85,12 @@ struct AttachmentRow: View {
                 Label("Open", systemImage: "eye")
             }
         }
-        .sheet(isPresented: $showShareSheet) {
-            if let url = downloadedURL {
-                ShareSheet(activityItems: [url])
-            }
+        .sheet(item: $shareItem) { item in
+            ShareSheet(activityItems: [item.url])
         }
     .presentationBg()
-        .sheet(isPresented: $showQuickLook) {
-            if let url = downloadedURL {
-                QuickLookView(url: url)
-            }
+        .sheet(item: $quickLookItem) { item in
+            QuickLookView(url: item.url)
         }
     .presentationBg()
     }
@@ -105,7 +106,7 @@ struct AttachmentRow: View {
             if let url = await downloadAttachment() {
                 await MainActor.run {
                     downloadedURL = url
-                    showShareSheet = true
+                    shareItem = SheetItem(url: url)
                 }
             }
         }
@@ -115,7 +116,7 @@ struct AttachmentRow: View {
         if let url = await downloadAttachment() {
             await MainActor.run {
                 downloadedURL = url
-                showQuickLook = true
+                quickLookItem = SheetItem(url: url)
             }
         }
     }

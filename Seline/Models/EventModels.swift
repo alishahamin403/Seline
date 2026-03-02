@@ -142,6 +142,11 @@ enum RecurrenceFrequency: String, CaseIterable, Codable {
     }
 }
 
+enum RecurringEditScope {
+    case thisEventOnly
+    case allEvents
+}
+
 enum WeekDay: String, CaseIterable, Identifiable, Codable {
     case monday = "monday"
     case tuesday = "tuesday"
@@ -710,6 +715,7 @@ class TaskManager: ObservableObject {
 
         invalidateAllCaches()
         saveTasks()
+        WidgetCenter.shared.reloadAllTimelines()
 
         // Notify observers of change
         objectWillChange.send()
@@ -735,31 +741,33 @@ class TaskManager: ObservableObject {
               let index = weekdayTasks.firstIndex(where: { $0.id == task.id }) else { return }
 
         let taskId = task.id
+        let removedTask = weekdayTasks[index]
 
         // Cancel any pending reminders for this task
         NotificationService.shared.cancelTaskReminder(taskId: taskId)
 
-        // First try to delete from Supabase, then handle locally
+        // Optimistic UI update: remove immediately so the event disappears instantly.
+        tasks[task.weekday]?.remove(at: index)
+        self.invalidateAllCaches()
+        saveTasks()
+        self.objectWillChange.send()
+        WidgetCenter.shared.reloadAllTimelines()
+
+        // Persist remotely in background. Restore if remote deletion fails.
         Task {
             let success = await deleteTaskFromSupabase(taskId)
             await MainActor.run {
-                if success {
-                    // Remove completely if Supabase deletion succeeded
-                    tasks[task.weekday]?.remove(at: index)
+                if !success {
+                    var weekdayTasks = tasks[task.weekday] ?? []
+                    let restoreIndex = min(index, weekdayTasks.count)
+                    weekdayTasks.insert(removedTask, at: restoreIndex)
+                    tasks[task.weekday] = weekdayTasks
+
                     self.invalidateAllCaches()
                     saveTasks()
-                    // Notify observers of change
                     self.objectWillChange.send()
-                    // Immediately update widgets to reflect deletion
                     WidgetCenter.shared.reloadAllTimelines()
-                } else {
-                    // Mark as deleted locally if Supabase deletion failed
-                    tasks[task.weekday]?[index].isDeleted = true
-                    self.invalidateAllCaches()
-                    saveTasks()
-                    // Notify observers of change
-                    self.objectWillChange.send()
-                    print("⚠️ Marked task as deleted locally, will retry Supabase deletion later")
+                    print("⚠️ Restored task locally because Supabase deletion failed")
                 }
             }
         }
@@ -829,7 +837,9 @@ class TaskManager: ObservableObject {
             tasks[task.weekday]?[index] = updatedTask
         }
 
+        invalidateAllCaches()
         saveTasks()
+        WidgetCenter.shared.reloadAllTimelines()
 
         // Notify observers of change
         objectWillChange.send()
@@ -845,39 +855,76 @@ class TaskManager: ObservableObject {
         }
     }
 
-    func editTask(_ updatedTask: TaskItem) {
+    func editTask(
+        _ updatedTask: TaskItem,
+        recurringEditScope: RecurringEditScope = .allEvents,
+        recurringOccurrenceDate: Date? = nil
+    ) {
 
-        guard let weekdayTasks = tasks[updatedTask.weekday],
-              let index = weekdayTasks.firstIndex(where: { $0.id == updatedTask.id }) else {
+        guard let originalLocation = locationOfTask(withId: updatedTask.id),
+              let weekdayTasks = tasks[originalLocation.weekday] else {
             print("❌ Could not find task to edit with ID: \(updatedTask.id)")
             return
         }
 
+        let originalWeekday = originalLocation.weekday
+        let index = originalLocation.index
         let originalTask = weekdayTasks[index]
+        let calendar = Calendar.current
+
+        var resolvedUpdatedTask = updatedTask
+
+        // When editing from a specific recurring occurrence and applying to the full series,
+        // keep the original series anchor date unless the user explicitly changed it away from
+        // that occurrence date.
+        if originalTask.isRecurring,
+           recurringEditScope == .allEvents,
+           resolvedUpdatedTask.isRecurring,
+           let occurrenceDate = recurringOccurrenceDate,
+           let updatedTargetDate = resolvedUpdatedTask.targetDate,
+           let originalTargetDate = originalTask.targetDate,
+           calendar.isDate(updatedTargetDate, inSameDayAs: occurrenceDate) {
+            resolvedUpdatedTask.targetDate = originalTargetDate
+        }
 
         // Log email attachment updates
-        if updatedTask.emailId != nil && originalTask.emailId == nil {
+        if resolvedUpdatedTask.emailId != nil && originalTask.emailId == nil {
             print("📧 Attaching email to task during edit:")
-            print("   - Email ID: \(updatedTask.emailId ?? "none")")
-            print("   - Subject: \(updatedTask.emailSubject ?? "none")")
-            print("   - Sender: \(updatedTask.emailSenderName ?? "none")")
+            print("   - Email ID: \(resolvedUpdatedTask.emailId ?? "none")")
+            print("   - Subject: \(resolvedUpdatedTask.emailSubject ?? "none")")
+            print("   - Sender: \(resolvedUpdatedTask.emailSenderName ?? "none")")
+        }
+
+        if originalTask.isRecurring && recurringEditScope == .thisEventOnly {
+            let occurrenceDate = calendar.startOfDay(for: recurringOccurrenceDate ?? resolvedUpdatedTask.targetDate ?? Date())
+            var overrideTask = resolvedUpdatedTask
+            overrideTask.isRecurring = false
+            overrideTask.recurrenceFrequency = nil
+            overrideTask.customRecurrenceDays = nil
+            overrideTask.recurrenceEndDate = nil
+            createOrUpdateRecurringOccurrenceOverride(
+                for: originalTask,
+                with: overrideTask,
+                occurrenceDate: occurrenceDate
+            )
+            return
         }
 
         // Handle conversion from recurring to single event
-        if originalTask.isRecurring && !updatedTask.isRecurring {
+        if originalTask.isRecurring && !resolvedUpdatedTask.isRecurring {
             // Remove this specific instance from all recurring instances
             // Keep only this one instance as a single event
             removeAllRecurringInstances(originalTask)
         }
 
         // Handle conversion from single event to recurring
-        if !originalTask.isRecurring && updatedTask.isRecurring {
+        if !originalTask.isRecurring && resolvedUpdatedTask.isRecurring {
             // This will create new instances based on the recurrence frequency
         }
 
         // Handle updates to existing recurring tasks (title, time, date changes only)
-        if originalTask.isRecurring && updatedTask.isRecurring {
-            updateAllRecurringInstances(originalTask, with: updatedTask)
+        if originalTask.isRecurring && resolvedUpdatedTask.isRecurring {
+            updateAllRecurringInstances(originalTask, with: resolvedUpdatedTask)
             return // Early return since we've handled all updates
         }
 
@@ -885,51 +932,50 @@ class TaskManager: ObservableObject {
         // Users must delete and recreate recurring tasks to change frequency
 
         // Calculate new weekday from target date if provided
-        var finalTask = updatedTask
-        if let targetDate = updatedTask.targetDate {
-            let calendar = Calendar.current
-            let newWeekday = weekdayFromCalendarComponent(calendar.component(.weekday, from: targetDate)) ?? updatedTask.weekday
+        var finalTask = resolvedUpdatedTask
+        if let targetDate = resolvedUpdatedTask.targetDate {
+            let newWeekday = weekdayFromCalendarComponent(calendar.component(.weekday, from: targetDate)) ?? originalWeekday
 
-            if newWeekday != updatedTask.weekday {
+            if newWeekday != originalWeekday {
                 // Remove from old weekday
-                var oldWeekdayTasks = tasks[updatedTask.weekday] ?? []
+                var oldWeekdayTasks = tasks[originalWeekday] ?? []
                 oldWeekdayTasks.remove(at: index)
-                tasks[updatedTask.weekday] = oldWeekdayTasks
+                tasks[originalWeekday] = oldWeekdayTasks
 
                 // Create task with correct weekday
                 let newTask = TaskItem(
-                    title: updatedTask.title,
+                    title: resolvedUpdatedTask.title,
                     weekday: newWeekday,
-                    description: updatedTask.description,
-                    scheduledTime: updatedTask.scheduledTime,
-                    endTime: updatedTask.endTime,
-                    targetDate: updatedTask.targetDate,
-                    reminderTime: updatedTask.reminderTime,
-                    isRecurring: updatedTask.isRecurring,
-                    recurrenceFrequency: updatedTask.recurrenceFrequency,
-                    parentRecurringTaskId: updatedTask.parentRecurringTaskId
+                    description: resolvedUpdatedTask.description,
+                    scheduledTime: resolvedUpdatedTask.scheduledTime,
+                    endTime: resolvedUpdatedTask.endTime,
+                    targetDate: resolvedUpdatedTask.targetDate,
+                    reminderTime: resolvedUpdatedTask.reminderTime,
+                    isRecurring: resolvedUpdatedTask.isRecurring,
+                    recurrenceFrequency: resolvedUpdatedTask.recurrenceFrequency,
+                    parentRecurringTaskId: resolvedUpdatedTask.parentRecurringTaskId
                 )
                 var finalTaskCopy = newTask
-                finalTaskCopy.id = updatedTask.id
-                finalTaskCopy.isCompleted = updatedTask.isCompleted
-                finalTaskCopy.completedDate = updatedTask.completedDate
-                finalTaskCopy.createdAt = updatedTask.createdAt
-                finalTaskCopy.isDeleted = updatedTask.isDeleted
-                finalTaskCopy.tagId = updatedTask.tagId
-                finalTaskCopy.completedDates = updatedTask.completedDates
-                finalTaskCopy.recurrenceEndDate = updatedTask.recurrenceEndDate
-                finalTaskCopy.isFromCalendar = updatedTask.isFromCalendar
+                finalTaskCopy.id = resolvedUpdatedTask.id
+                finalTaskCopy.isCompleted = resolvedUpdatedTask.isCompleted
+                finalTaskCopy.completedDate = resolvedUpdatedTask.completedDate
+                finalTaskCopy.createdAt = resolvedUpdatedTask.createdAt
+                finalTaskCopy.isDeleted = resolvedUpdatedTask.isDeleted
+                finalTaskCopy.tagId = resolvedUpdatedTask.tagId
+                finalTaskCopy.completedDates = resolvedUpdatedTask.completedDates
+                finalTaskCopy.recurrenceEndDate = resolvedUpdatedTask.recurrenceEndDate
+                finalTaskCopy.isFromCalendar = resolvedUpdatedTask.isFromCalendar
 
                 // CRITICAL: Preserve email data when moving task to different weekday
-                finalTaskCopy.emailId = updatedTask.emailId
-                finalTaskCopy.emailSubject = updatedTask.emailSubject
-                finalTaskCopy.emailSenderName = updatedTask.emailSenderName
-                finalTaskCopy.emailSenderEmail = updatedTask.emailSenderEmail
-                finalTaskCopy.emailSnippet = updatedTask.emailSnippet
-                finalTaskCopy.emailTimestamp = updatedTask.emailTimestamp
-                finalTaskCopy.emailBody = updatedTask.emailBody
-                finalTaskCopy.emailIsImportant = updatedTask.emailIsImportant
-                finalTaskCopy.emailAiSummary = updatedTask.emailAiSummary
+                finalTaskCopy.emailId = resolvedUpdatedTask.emailId
+                finalTaskCopy.emailSubject = resolvedUpdatedTask.emailSubject
+                finalTaskCopy.emailSenderName = resolvedUpdatedTask.emailSenderName
+                finalTaskCopy.emailSenderEmail = resolvedUpdatedTask.emailSenderEmail
+                finalTaskCopy.emailSnippet = resolvedUpdatedTask.emailSnippet
+                finalTaskCopy.emailTimestamp = resolvedUpdatedTask.emailTimestamp
+                finalTaskCopy.emailBody = resolvedUpdatedTask.emailBody
+                finalTaskCopy.emailIsImportant = resolvedUpdatedTask.emailIsImportant
+                finalTaskCopy.emailAiSummary = resolvedUpdatedTask.emailAiSummary
 
                 // Ensure the weekday array exists and add the updated task
                 var newWeekdayTasks = tasks[newWeekday] ?? []
@@ -938,15 +984,15 @@ class TaskManager: ObservableObject {
                 finalTask = finalTaskCopy
             } else {
                 // Update in place - reassign the array to trigger @Published update
-                var weekdayTasksUpdated = tasks[updatedTask.weekday] ?? []
+                var weekdayTasksUpdated = tasks[originalWeekday] ?? []
                 weekdayTasksUpdated[index] = finalTask
-                tasks[updatedTask.weekday] = weekdayTasksUpdated
+                tasks[originalWeekday] = weekdayTasksUpdated
             }
         } else {
             // Update in place if no target date change - reassign the array to trigger @Published update
-            var weekdayTasksUpdated = tasks[updatedTask.weekday] ?? []
+            var weekdayTasksUpdated = tasks[originalWeekday] ?? []
             weekdayTasksUpdated[index] = finalTask
-            tasks[updatedTask.weekday] = weekdayTasksUpdated
+            tasks[originalWeekday] = weekdayTasksUpdated
         }
 
         invalidateAllCaches()
@@ -982,6 +1028,160 @@ class TaskManager: ObservableObject {
             // If the task is now recurring, create future instances
             if finalTask.isRecurring, let frequency = finalTask.recurrenceFrequency {
                 await createRecurringInstances(for: finalTask, frequency: frequency)
+            }
+        }
+    }
+
+    private func locationOfTask(withId id: String) -> (weekday: WeekDay, index: Int)? {
+        for weekday in WeekDay.allCases {
+            guard let weekdayTasks = tasks[weekday],
+                  let index = weekdayTasks.firstIndex(where: { $0.id == id }) else { continue }
+            return (weekday, index)
+        }
+        return nil
+    }
+
+    private func locationOfRecurringOverride(parentTaskId: String, on date: Date) -> (weekday: WeekDay, index: Int)? {
+        let calendar = Calendar.current
+        let normalizedDate = calendar.startOfDay(for: date)
+
+        for weekday in WeekDay.allCases {
+            guard let weekdayTasks = tasks[weekday] else { continue }
+            if let index = weekdayTasks.firstIndex(where: { task in
+                guard !task.isRecurring,
+                      task.parentRecurringTaskId == parentTaskId,
+                      let targetDate = task.targetDate else {
+                    return false
+                }
+                return calendar.isDate(targetDate, inSameDayAs: normalizedDate)
+            }) {
+                return (weekday, index)
+            }
+        }
+
+        return nil
+    }
+
+    private func combinedDateTime(day: Date, timeSource: Date?) -> Date? {
+        guard let timeSource else { return nil }
+        let calendar = Calendar.current
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second], from: timeSource)
+        return calendar.date(
+            bySettingHour: timeComponents.hour ?? 0,
+            minute: timeComponents.minute ?? 0,
+            second: timeComponents.second ?? 0,
+            of: day
+        )
+    }
+
+    private func overrideEndDateTime(
+        from updatedTask: TaskItem,
+        occurrenceDate: Date,
+        overrideStartTime: Date?
+    ) -> Date? {
+        guard let updatedEndTime = updatedTask.endTime else { return nil }
+        let calendar = Calendar.current
+
+        if let updatedStartTime = updatedTask.scheduledTime, let overrideStartTime {
+            let duration = updatedEndTime.timeIntervalSince(updatedStartTime)
+            if duration >= 0 {
+                return overrideStartTime.addingTimeInterval(duration)
+            }
+        }
+
+        if let originalStartDate = updatedTask.targetDate {
+            let startDay = calendar.startOfDay(for: originalStartDate)
+            let endDay = calendar.startOfDay(for: updatedEndTime)
+            let dayOffset = calendar.dateComponents([.day], from: startDay, to: endDay).day ?? 0
+            let overrideEndDay = calendar.date(byAdding: .day, value: dayOffset, to: occurrenceDate) ?? occurrenceDate
+            return combinedDateTime(day: overrideEndDay, timeSource: updatedEndTime)
+        }
+
+        return combinedDateTime(day: occurrenceDate, timeSource: updatedEndTime)
+    }
+
+    private func createOrUpdateRecurringOccurrenceOverride(
+        for parentTask: TaskItem,
+        with updatedTask: TaskItem,
+        occurrenceDate: Date
+    ) {
+        let calendar = Calendar.current
+        let normalizedOccurrenceDate = calendar.startOfDay(for: occurrenceDate)
+
+        guard let overrideWeekday = weekdayFromCalendarComponent(
+            calendar.component(.weekday, from: normalizedOccurrenceDate)
+        ) else {
+            return
+        }
+
+        let existingOverrideLocation = locationOfRecurringOverride(
+            parentTaskId: parentTask.id,
+            on: normalizedOccurrenceDate
+        )
+        let shouldUpdateExisting = existingOverrideLocation != nil
+
+        let overrideStartTime = combinedDateTime(day: normalizedOccurrenceDate, timeSource: updatedTask.scheduledTime)
+        let overrideEndTime = overrideEndDateTime(
+            from: updatedTask,
+            occurrenceDate: normalizedOccurrenceDate,
+            overrideStartTime: overrideStartTime
+        )
+
+        var overrideTask = TaskItem(
+            title: updatedTask.title,
+            weekday: overrideWeekday,
+            description: updatedTask.description,
+            scheduledTime: overrideStartTime,
+            endTime: overrideEndTime,
+            targetDate: normalizedOccurrenceDate,
+            reminderTime: updatedTask.reminderTime,
+            location: updatedTask.location,
+            isRecurring: false,
+            recurrenceFrequency: nil,
+            customRecurrenceDays: nil,
+            parentRecurringTaskId: parentTask.id
+        )
+        overrideTask.tagId = updatedTask.tagId
+        overrideTask.isFromCalendar = updatedTask.isFromCalendar
+        overrideTask.calendarEventId = updatedTask.calendarEventId
+        overrideTask.calendarIdentifier = updatedTask.calendarIdentifier
+        overrideTask.calendarTitle = updatedTask.calendarTitle
+        overrideTask.calendarSourceType = updatedTask.calendarSourceType
+        overrideTask.emailId = updatedTask.emailId
+        overrideTask.emailSubject = updatedTask.emailSubject
+        overrideTask.emailSenderName = updatedTask.emailSenderName
+        overrideTask.emailSenderEmail = updatedTask.emailSenderEmail
+        overrideTask.emailSnippet = updatedTask.emailSnippet
+        overrideTask.emailTimestamp = updatedTask.emailTimestamp
+        overrideTask.emailBody = updatedTask.emailBody
+        overrideTask.emailIsImportant = updatedTask.emailIsImportant
+        overrideTask.emailAiSummary = updatedTask.emailAiSummary
+
+        if let existingOverrideLocation,
+           let existingOverride = tasks[existingOverrideLocation.weekday]?[existingOverrideLocation.index] {
+            overrideTask.id = existingOverride.id
+            overrideTask.createdAt = existingOverride.createdAt
+            overrideTask.isCompleted = existingOverride.isCompleted
+            overrideTask.completedDate = existingOverride.completedDate
+
+            tasks[existingOverrideLocation.weekday]?.remove(at: existingOverrideLocation.index)
+        }
+
+        if tasks[overrideWeekday] == nil {
+            tasks[overrideWeekday] = []
+        }
+        tasks[overrideWeekday]?.append(overrideTask)
+
+        invalidateAllCaches()
+        saveTasks()
+        WidgetCenter.shared.reloadAllTimelines()
+        objectWillChange.send()
+
+        Task {
+            if shouldUpdateExisting {
+                await updateTaskInSupabase(overrideTask)
+            } else {
+                await saveTaskToSupabase(overrideTask)
             }
         }
     }
@@ -1042,7 +1242,9 @@ class TaskManager: ObservableObject {
         }
 
         // Save changes locally
+        invalidateAllCaches()
         saveTasks()
+        WidgetCenter.shared.reloadAllTimelines()
 
         // Notify observers of change
         objectWillChange.send()
@@ -1496,6 +1698,11 @@ class TaskManager: ObservableObject {
         // Don't show tasks before their start date
         guard targetDate >= startDate else { return false }
 
+        // If a one-day override exists for this occurrence date, hide the base recurring event.
+        if locationOfRecurringOverride(parentTaskId: task.id, on: targetDate) != nil {
+            return false
+        }
+
         // Check if the task is within its recurrence end date
         if let endDate = task.recurrenceEndDate, targetDate > endDate {
             return false
@@ -1747,7 +1954,27 @@ class TaskManager: ObservableObject {
             })
         }
 
-        // Delete from Supabase first
+        guard !tasksToDelete.isEmpty else { return }
+
+        let tasksSnapshot = tasks
+
+        // Cancel reminders for deleted tasks
+        for task in tasksToDelete {
+            NotificationService.shared.cancelTaskReminder(taskId: task.id)
+        }
+
+        // Optimistic UI update: remove all matching tasks immediately.
+        for weekday in WeekDay.allCases {
+            tasks[weekday]?.removeAll { task in
+                task.id == parentId || task.parentRecurringTaskId == parentId
+            }
+        }
+        invalidateAllCaches()
+        saveTasks()
+        self.objectWillChange.send()
+        WidgetCenter.shared.reloadAllTimelines()
+
+        // Persist remote deletions in background. Restore snapshot if any deletion fails.
         Task {
             var allDeleted = true
             for task in tasksToDelete {
@@ -1758,18 +1985,13 @@ class TaskManager: ObservableObject {
             }
 
             await MainActor.run {
-                if allDeleted {
-                    // Only remove locally if all Supabase deletions succeeded
-                    for weekday in WeekDay.allCases {
-                        tasks[weekday]?.removeAll { task in
-                            task.id == parentId || task.parentRecurringTaskId == parentId
-                        }
-                    }
+                if !allDeleted {
+                    tasks = tasksSnapshot
+                    self.invalidateAllCaches()
                     saveTasks()
-                    // Notify observers of change
                     self.objectWillChange.send()
-                } else {
-                    print("❌ Some deletions failed in Supabase, keeping tasks locally")
+                    WidgetCenter.shared.reloadAllTimelines()
+                    print("❌ Some recurring deletions failed in Supabase, restored local tasks")
                 }
             }
         }

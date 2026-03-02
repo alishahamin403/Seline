@@ -3,6 +3,7 @@ import SwiftUI
 /// A section view for displaying emails grouped by day
 struct EmailDaySectionView: View {
     let section: EmailDaySection
+    let presentationStyle: EmailMailboxPresentationStyle
     @Binding var isExpanded: Bool
     let onEmailTap: (Email) -> Void
     let onDeleteEmail: (Email) -> Void
@@ -16,23 +17,15 @@ struct EmailDaySectionView: View {
     }
     
     private var secondaryTextColor: Color {
-        Color.appTextSecondary(colorScheme)
+        Color.emailGlassMutedText(colorScheme)
     }
     
     private var tertiaryTextColor: Color {
         Color.appTextSecondary(colorScheme).opacity(0.8)
     }
 
-    private var sectionCardBackground: Color {
-        Color.appSectionCard(colorScheme)
-    }
-
-    private var sectionCardStroke: Color {
-        Color.appBorder(colorScheme)
-    }
-
     private var unreadAccentColor: Color {
-        Color.appTextPrimary(colorScheme)
+        Color.emailGlassAccent
     }
 
     private var isToday: Bool {
@@ -59,10 +52,8 @@ struct EmailDaySectionView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header row with date badge and day name
             headerRow
-            
-            // Expanded content - emails list
+
             if isExpanded {
                 if section.emailCount > 0 {
                     emailList
@@ -71,44 +62,41 @@ struct EmailDaySectionView: View {
                 }
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(sectionCardBackground)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 8)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topLeading,
+            cornerRadius: 24,
+            highlightStrength: isToday ? 0.56 : 0.3
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(sectionCardStroke, lineWidth: 0.5)
-        )
-        .shadow(
-            color: colorScheme == .dark ? Color.black.opacity(0.08) : Color.black.opacity(0.05),
-            radius: colorScheme == .dark ? 0 : 8,
-            x: 0,
-            y: colorScheme == .dark ? 0 : 2
-        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                isExpanded.toggle()
+            }
+        }
     }
     
     // MARK: - Header Row
     
     private var headerRow: some View {
         HStack(spacing: 12) {
-            // Date badge
             VStack(spacing: 2) {
                 Text(section.dayLabel.uppercased())
                     .font(FontManager.geist(size: 10, systemWeight: isToday ? .bold : .medium))
-                    .foregroundColor(isToday ? primaryTextColor : tertiaryTextColor)
+                    .foregroundColor(isToday ? Color.emailGlassAccent : tertiaryTextColor)
                 
                 Text(section.dateNumber)
                     .font(FontManager.geist(size: 18, systemWeight: isToday ? .bold : .medium))
                     .foregroundColor(primaryTextColor)
             }
-            .frame(width: 44)
+            .frame(width: 46, height: 52)
+            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
             
-            // Day name and email count
             HStack(spacing: 8) {
                 Text(dayDisplayName)
-                    .font(FontManager.geist(size: 15, systemWeight: isToday ? .semibold : .medium))
+                    .font(FontManager.geist(size: 16, systemWeight: isToday ? .semibold : .medium))
                     .foregroundColor(primaryTextColor)
                 
                 if section.emailCount > 0 {
@@ -116,11 +104,13 @@ struct EmailDaySectionView: View {
                         .fill(tertiaryTextColor)
                         .frame(width: 3, height: 3)
                     
-                    Text("\(section.emailCount) email\(section.emailCount == 1 ? "" : "s")")
+                    Text(presentationStyle == .sent
+                         ? "\(section.emailCount) sent"
+                         : "\(section.emailCount) email\(section.emailCount == 1 ? "" : "s")")
                         .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(secondaryTextColor)
                     
-                    if section.unreadCount > 0 {
+                    if presentationStyle == .inbox && section.unreadCount > 0 {
                         Text("•")
                             .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(tertiaryTextColor)
@@ -131,11 +121,14 @@ struct EmailDaySectionView: View {
                                 .frame(width: 6, height: 6)
                             Text("\(section.unreadCount) new")
                                 .font(FontManager.geist(size: 13, weight: .medium))
-                                .foregroundColor(unreadAccentColor)
+                                .foregroundColor(primaryTextColor)
                         }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 12)
                     }
                 } else {
-                    Text("No emails")
+                    Text(presentationStyle == .sent ? "No sends" : "No emails")
                         .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(tertiaryTextColor)
                 }
@@ -143,13 +136,8 @@ struct EmailDaySectionView: View {
             
             Spacer()
         }
-        .padding(.vertical, 14)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                isExpanded.toggle()
-            }
-        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
     }
     
     // MARK: - Email List
@@ -159,6 +147,7 @@ struct EmailDaySectionView: View {
             ForEach(section.emails) { email in
                 EmailRowWithSummary(
                     email: email,
+                    presentationStyle: presentationStyle,
                     onTap: {
                         HapticManager.shared.email()
                         onEmailTap(email)
@@ -168,8 +157,8 @@ struct EmailDaySectionView: View {
                 )
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.bottom, 12)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 14)
     }
     
     // MARK: - Empty State
@@ -178,12 +167,13 @@ struct EmailDaySectionView: View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle")
                 .font(FontManager.geist(size: 14, weight: .medium))
-                .foregroundColor(Color.green.opacity(0.7))
+                .foregroundColor(Color.emailGlassAccent)
             
-            Text("All caught up!")
+            Text(presentationStyle == .sent ? "No sent mail in this section." : "All caught up!")
                 .font(FontManager.geist(size: 13, weight: .medium))
                 .foregroundColor(secondaryTextColor)
         }
+        .padding(.horizontal, 12)
         .padding(.vertical, 12)
     }
 }
@@ -192,6 +182,7 @@ struct EmailDaySectionView: View {
 
 struct EmailRowWithSummary: View {
     let email: Email
+    let presentationStyle: EmailMailboxPresentationStyle
     let onTap: () -> Void
     let onDelete: (Email) -> Void
     let onMarkAsUnread: (Email) -> Void
@@ -207,11 +198,11 @@ struct EmailRowWithSummary: View {
 
     
     private var unreadBackgroundColor: Color {
-        Color.appChipStrong(colorScheme)
+        colorScheme == .dark ? Color.white.opacity(0.09) : Color.emailGlassAccent.opacity(0.1)
     }
     
     private var readBackgroundColor: Color {
-        Color.appSurface(colorScheme)
+        Color.emailGlassInnerTint(colorScheme)
     }
 
     private var summarySignalText: String {
@@ -354,6 +345,14 @@ struct EmailRowWithSummary: View {
     }
 
     private var emailStatusChip: (text: String, fill: Color, textColor: Color) {
+        if presentationStyle == .sent {
+            return (
+                text: "Sent",
+                fill: colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08),
+                textColor: Color.emailGlassMutedText(colorScheme)
+            )
+        }
+
         if isActionRequired {
             return (
                 text: "Action",
@@ -368,56 +367,68 @@ struct EmailRowWithSummary: View {
             textColor: colorScheme == .dark ? Color.blue.opacity(0.9) : Color.blue.opacity(0.8)
         )
     }
+
+    private var primaryNameText: String {
+        switch presentationStyle {
+        case .inbox:
+            return email.sender.shortDisplayName
+        case .sent:
+            if let firstRecipient = email.recipients.first?.shortDisplayName, !firstRecipient.isEmpty {
+                return "To: \(firstRecipient)"
+            }
+            return "Sent"
+        }
+    }
     
     var body: some View {
         VStack(spacing: 0) {
-            // Main email row
             HStack(spacing: 10) {
-                // Avatar
                 avatarView
-                
-                // Content
+
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
-                        Text(email.sender.shortDisplayName)
-                            .font(FontManager.geist(size: 13, systemWeight: email.isRead ? .medium : .semibold))
+                        Text(primaryNameText)
+                            .font(FontManager.geist(size: 14, systemWeight: email.isRead ? .medium : .semibold))
                             .foregroundColor(Color.appTextPrimary(colorScheme))
                             .lineLimit(1)
                         
                         Spacer()
                         
                         Text(email.formattedTime)
-                            .font(FontManager.geist(size: 10, weight: .regular))
-                            .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.8))
+                            .font(FontManager.geist(size: 10, weight: .medium))
+                            .foregroundColor(Color.emailGlassMutedText(colorScheme))
                     }
                     
                     Text(email.subject)
-                        .font(FontManager.geist(size: 12, systemWeight: email.isRead ? .regular : .medium))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .font(FontManager.geist(size: 13, systemWeight: email.isRead ? .regular : .medium))
+                        .foregroundColor(email.isRead ? Color.appTextSecondary(colorScheme) : Color.appTextPrimary(colorScheme))
                         .lineLimit(1)
 
-                    statusChip(
-                        text: emailStatusChip.text,
-                        fill: emailStatusChip.fill,
-                        textColor: emailStatusChip.textColor
-                    )
+                    Text(email.previewText)
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(Color.emailGlassMutedText(colorScheme))
+                        .lineLimit(2)
+
+                    HStack(spacing: 6) {
+                        statusChip(
+                            text: emailStatusChip.text,
+                            fill: emailStatusChip.fill,
+                            textColor: emailStatusChip.textColor
+                        )
+
+                        if email.hasAttachments {
+                            miniMetaChip(text: "Attachment", systemImage: "paperclip")
+                        }
+                    }
                 }
                 
-                // Indicators and expand button
                 HStack(spacing: 8) {
                     if email.isImportant {
                         Image(systemName: "exclamationmark")
                             .font(FontManager.geist(size: 10, weight: .bold))
-                            .foregroundColor(.primary)
+                            .foregroundColor(Color.emailGlassAccent)
                     }
-                    
-                    if email.hasAttachments {
-                        Image(systemName: "paperclip")
-                            .font(FontManager.geist(size: 10, weight: .medium))
-                            .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.8))
-                    }
-                    
-                    // AI Summary expand button
+
                     Button(action: {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isSummaryExpanded.toggle()
@@ -444,18 +455,18 @@ struct EmailRowWithSummary: View {
                         Image(systemName: isSummaryExpanded ? "chevron.up" : "chevron.down")
                             .font(FontManager.geist(size: 12, weight: .medium))
                             .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.8))
-                            .frame(width: 24, height: 24)
+                            .frame(width: 28, height: 28)
+                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 10)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
             }
-            .padding(8)
+            .padding(10)
             .contentShape(Rectangle())
             .onTapGesture {
                 onTap()
             }
             
-            // Expanded AI Summary section - matches AISummaryCard styling
             if isSummaryExpanded {
                 VStack(alignment: .leading, spacing: 12) {
                     Divider()
@@ -519,20 +530,12 @@ struct EmailRowWithSummary: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
+            RoundedRectangle(cornerRadius: 18)
                 .fill(email.isRead ? readBackgroundColor : unreadBackgroundColor)
         )
-        .shadow(
-            color: colorScheme == .dark ? .black.opacity(0.2) : .gray.opacity(0.15),
-            radius: colorScheme == .dark ? 4 : 12,
-            x: 0,
-            y: colorScheme == .dark ? 2 : 4
-        )
-        .shadow(
-            color: colorScheme == .dark ? .black.opacity(0.1) : .gray.opacity(0.08),
-            radius: colorScheme == .dark ? 2 : 6,
-            x: 0,
-            y: colorScheme == .dark ? 1 : 2
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.emailGlassInnerBorder(colorScheme), lineWidth: 1)
         )
         .contextMenu {
             if email.isRead {
@@ -863,28 +866,12 @@ struct EmailRowWithSummary: View {
 
         value = value.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
         value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-
-        if value.hasSuffix("...") {
-            value = String(value.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        value = value.replacingOccurrences(of: "[\\s,:;\\-–—/]+$", with: "", options: .regularExpression)
-        value = value.replacingOccurrences(
-            of: "(?i)(?:and|or|to|for|with|about)\\s*$",
-            with: "",
-            options: .regularExpression
-        )
-        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if !value.isEmpty && !value.hasSuffix(".") && !value.hasSuffix("!") && !value.hasSuffix("?") {
-            value += "."
-        }
-
-        return value
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func statusChip(text: String, fill: Color, textColor: Color) -> some View {
         Text(text)
-            .font(FontManager.geist(size: 10, weight: .semibold))
+            .font(FontManager.geist(size: 9, weight: .semibold))
             .foregroundColor(textColor)
             .lineLimit(1)
             .padding(.horizontal, 7)
@@ -893,6 +880,25 @@ struct EmailRowWithSummary: View {
                 Capsule()
                     .fill(fill)
             )
+    }
+
+    private func miniMetaChip(text: String, systemImage: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .font(FontManager.geist(size: 9, weight: .medium))
+        .foregroundColor(Color.emailGlassMutedText(colorScheme))
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(
+            Capsule()
+                .fill(Color.emailGlassInnerTint(colorScheme))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.emailGlassInnerBorder(colorScheme), lineWidth: 1)
+        )
     }
     
     // MARK: - Parse Markdown Links and Bold
@@ -907,6 +913,7 @@ struct EmailRowWithSummary: View {
                 textColor: UIColor(Color.appTextPrimary(colorScheme)),
                 linkColor: UIColor(Color.claudeAccent)
             )
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
         )
     }
@@ -1304,7 +1311,7 @@ struct QuickReplyChip: View {
     let today = Date()
     let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
     
-    return ScrollView {
+    ScrollView {
         VStack(spacing: 0) {
             EmailDaySectionView(
                 section: EmailDaySection(
@@ -1312,6 +1319,7 @@ struct QuickReplyChip: View {
                     emails: Array(Email.sampleEmails.prefix(3)),
                     isExpanded: true
                 ),
+                presentationStyle: .inbox,
                 isExpanded: .constant(true),
                 onEmailTap: { _ in },
                 onDeleteEmail: { _ in },
@@ -1324,6 +1332,7 @@ struct QuickReplyChip: View {
                     emails: [Email.sampleEmails[2]],
                     isExpanded: false
                 ),
+                presentationStyle: .sent,
                 isExpanded: .constant(false),
                 onEmailTap: { _ in },
                 onDeleteEmail: { _ in },

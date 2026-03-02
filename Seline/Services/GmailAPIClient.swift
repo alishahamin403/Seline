@@ -1172,47 +1172,51 @@ class GmailAPIClient {
 
     // CRITICAL FIX: Made public so EmailService can check for new emails without fetching full content
     func fetchMessagesList(query: String, maxResults: Int = 50, pageToken: String? = nil) async throws -> GmailMessagesList {
-        guard let user = GIDSignIn.sharedInstance.currentUser else {
-            throw GmailAPIError.notAuthenticated
-        }
+        try await refreshAccessTokenIfNeeded()
 
-        let accessToken = user.accessToken.tokenString
+        return try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser else {
+                throw GmailAPIError.notAuthenticated
+            }
 
-        var urlComponents = URLComponents(string: "\(baseURL)/messages")!
-        var queryItems = [
-            URLQueryItem(name: "q", value: query),
-            URLQueryItem(name: "maxResults", value: String(maxResults))
-        ]
+            let accessToken = user.accessToken.tokenString
 
-        // Add pageToken if provided for pagination
-        if let pageToken = pageToken {
-            queryItems.append(URLQueryItem(name: "pageToken", value: pageToken))
-        }
+            var urlComponents = URLComponents(string: "\(self.baseURL)/messages")!
+            var queryItems = [
+                URLQueryItem(name: "q", value: query),
+                URLQueryItem(name: "maxResults", value: String(maxResults))
+            ]
 
-        urlComponents.queryItems = queryItems
+            // Add pageToken if provided for pagination
+            if let pageToken = pageToken {
+                queryItems.append(URLQueryItem(name: "pageToken", value: pageToken))
+            }
 
-        guard let url = urlComponents.url else {
-            throw GmailAPIError.invalidURL
-        }
+            urlComponents.queryItems = queryItems
 
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+            guard let url = urlComponents.url else {
+                throw GmailAPIError.invalidURL
+            }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GmailAPIError.invalidResponse
-        }
+            let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard httpResponse.statusCode == 200 else {
-            throw GmailAPIError.apiError(httpResponse.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
-        }
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
 
-        do {
-            return try JSONDecoder().decode(GmailMessagesList.self, from: data)
-        } catch {
-            throw GmailAPIError.decodingError(error)
+            guard httpResponse.statusCode == 200 else {
+                throw GmailAPIError.apiError(httpResponse.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+            }
+
+            do {
+                return try JSONDecoder().decode(GmailMessagesList.self, from: data)
+            } catch {
+                throw GmailAPIError.decodingError(error)
+            }
         }
     }
 
@@ -1254,88 +1258,96 @@ class GmailAPIClient {
     }
 
     func fetchSingleEmail(messageId: String) async throws -> Email? {
-        guard let user = GIDSignIn.sharedInstance.currentUser else {
-            throw GmailAPIError.notAuthenticated
-        }
+        try await refreshAccessTokenIfNeeded()
 
-        let accessToken = user.accessToken.tokenString
+        return try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser else {
+                throw GmailAPIError.notAuthenticated
+            }
 
-        var urlComponents = URLComponents(string: "\(baseURL)/messages/\(messageId)")!
-        urlComponents.queryItems = [
-            // CRITICAL FIX: Use metadata instead of full to reduce egress by 85-90%
-            // Only fetch headers and labels, not full email body/attachments
-            URLQueryItem(name: "format", value: "metadata"),
-            // Specify which headers we need
-            URLQueryItem(name: "metadataHeaders", value: "From"),
-            URLQueryItem(name: "metadataHeaders", value: "To"),
-            URLQueryItem(name: "metadataHeaders", value: "Subject"),
-            URLQueryItem(name: "metadataHeaders", value: "Date"),
-            URLQueryItem(name: "metadataHeaders", value: "List-Unsubscribe"),
-            URLQueryItem(name: "metadataHeaders", value: "List-Unsubscribe-Post")
-        ]
+            let accessToken = user.accessToken.tokenString
 
-        guard let url = urlComponents.url else {
-            throw GmailAPIError.invalidURL
-        }
+            var urlComponents = URLComponents(string: "\(self.baseURL)/messages/\(messageId)")!
+            urlComponents.queryItems = [
+                // CRITICAL FIX: Use metadata instead of full to reduce egress by 85-90%
+                // Only fetch headers and labels, not full email body/attachments
+                URLQueryItem(name: "format", value: "metadata"),
+                // Specify which headers we need
+                URLQueryItem(name: "metadataHeaders", value: "From"),
+                URLQueryItem(name: "metadataHeaders", value: "To"),
+                URLQueryItem(name: "metadataHeaders", value: "Subject"),
+                URLQueryItem(name: "metadataHeaders", value: "Date"),
+                URLQueryItem(name: "metadataHeaders", value: "List-Unsubscribe"),
+                URLQueryItem(name: "metadataHeaders", value: "List-Unsubscribe-Post")
+            ]
 
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+            guard let url = urlComponents.url else {
+                throw GmailAPIError.invalidURL
+            }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GmailAPIError.invalidResponse
-        }
+            let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard httpResponse.statusCode == 200 else {
-            throw GmailAPIError.apiError(httpResponse.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
-        }
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
 
-        do {
-            let gmailMessage = try JSONDecoder().decode(GmailMessage.self, from: data)
-            return parseGmailMessage(gmailMessage)
-        } catch {
-            throw GmailAPIError.decodingError(error)
+            guard httpResponse.statusCode == 200 else {
+                throw GmailAPIError.apiError(httpResponse.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+            }
+
+            do {
+                let gmailMessage = try JSONDecoder().decode(GmailMessage.self, from: data)
+                return self.parseGmailMessage(gmailMessage)
+            } catch {
+                throw GmailAPIError.decodingError(error)
+            }
         }
     }
 
     // Fetch email with FULL body content (format=full) for AI summaries and HTML display
     private func fetchSingleEmailWithFullBody(messageId: String) async throws -> Email? {
-        guard let user = GIDSignIn.sharedInstance.currentUser else {
-            throw GmailAPIError.notAuthenticated
-        }
+        try await refreshAccessTokenIfNeeded()
 
-        let accessToken = user.accessToken.tokenString
+        return try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser else {
+                throw GmailAPIError.notAuthenticated
+            }
 
-        var urlComponents = URLComponents(string: "\(baseURL)/messages/\(messageId)")!
-        urlComponents.queryItems = [
-            URLQueryItem(name: "format", value: "full")
-        ]
+            let accessToken = user.accessToken.tokenString
 
-        guard let url = urlComponents.url else {
-            throw GmailAPIError.invalidURL
-        }
+            var urlComponents = URLComponents(string: "\(self.baseURL)/messages/\(messageId)")!
+            urlComponents.queryItems = [
+                URLQueryItem(name: "format", value: "full")
+            ]
 
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+            guard let url = urlComponents.url else {
+                throw GmailAPIError.invalidURL
+            }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GmailAPIError.invalidResponse
-        }
+            let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard httpResponse.statusCode == 200 else {
-            throw GmailAPIError.apiError(httpResponse.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
-        }
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
 
-        do {
-            let gmailMessage = try JSONDecoder().decode(GmailMessage.self, from: data)
-            return parseGmailMessage(gmailMessage)
-        } catch {
-            throw GmailAPIError.decodingError(error)
+            guard httpResponse.statusCode == 200 else {
+                throw GmailAPIError.apiError(httpResponse.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+            }
+
+            do {
+                let gmailMessage = try JSONDecoder().decode(GmailMessage.self, from: data)
+                return self.parseGmailMessage(gmailMessage)
+            } catch {
+                throw GmailAPIError.decodingError(error)
+            }
         }
     }
 

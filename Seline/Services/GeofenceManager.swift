@@ -795,6 +795,16 @@ class GeofenceManager: NSObject, ObservableObject {
                 }
             }
 
+            // Extra safety: if an open visit already exists for this place, restore it instead of creating another.
+            if let existingVisit = await self.findOpenVisitInSupabase(for: placeId, userId: userId),
+               existingVisit.exitTime == nil {
+                print("ℹ️ Found existing open visit for place \(placeId), restoring instead of creating duplicate")
+                activeVisitsLock.lock()
+                self.activeVisits[placeId] = existingVisit
+                activeVisitsLock.unlock()
+                return
+            }
+
             // NEW: Use atomic database function to handle merge-or-create in a single transaction
             // This eliminates race conditions between check and create operations
             let sessionId = UUID()
@@ -1757,6 +1767,15 @@ class GeofenceManager: NSObject, ObservableObject {
                  return
              }
          }
+
+        // Idempotency guard: avoid duplicate inserts for overlapping/open visits.
+        if let existingVisit = await findLikelyDuplicateVisitInSupabase(for: visit) {
+            print("⚠️ Duplicate visit prevented: incoming \(visit.id.uuidString) matches existing \(existingVisit.id.uuidString)")
+            if visit.exitTime == nil && existingVisit.exitTime == nil {
+                updateActiveVisit(existingVisit, for: visit.savedPlaceId)
+            }
+            return
+        }
         
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1795,6 +1814,89 @@ class GeofenceManager: NSObject, ObservableObject {
         } catch {
             print("❌ Error saving visit to Supabase: \(error)")
         }
+    }
+
+    private func findLikelyDuplicateVisitInSupabase(for visit: LocationVisitRecord) async -> LocationVisitRecord? {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return nil
+        }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            formatter.timeZone = TimeZone(identifier: "UTC")
+
+            let windowStart = visit.entryTime.addingTimeInterval(-15 * 60)
+            let windowEndBase = visit.exitTime ?? visit.entryTime
+            let windowEnd = windowEndBase.addingTimeInterval(15 * 60)
+
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .eq("saved_place_id", value: visit.savedPlaceId.uuidString)
+                .gte("entry_time", value: formatter.string(from: windowStart))
+                .lte("entry_time", value: formatter.string(from: windowEnd))
+                .order("entry_time", ascending: false)
+                .limit(20)
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            let candidates: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            for candidate in candidates where candidate.id != visit.id {
+                if isLikelyDuplicate(candidate, comparedTo: visit) {
+                    return candidate
+                }
+            }
+        } catch {
+            print("⚠️ Duplicate pre-check failed, continuing insert: \(error)")
+        }
+
+        return nil
+    }
+
+    private func isLikelyDuplicate(_ existing: LocationVisitRecord, comparedTo incoming: LocationVisitRecord) -> Bool {
+        let incomingIsSplitPart = incoming.mergeReason?.contains("midnight_split_part") == true
+        let existingIsSplitPart = existing.mergeReason?.contains("midnight_split_part") == true
+
+        let existingEnd = existing.exitTime ?? Date()
+        let incomingEnd = incoming.exitTime ?? Date()
+        let startsNearlyEqual = abs(existing.entryTime.timeIntervalSince(incoming.entryTime)) <= 90
+        let endsNearlyEqual = abs(existingEnd.timeIntervalSince(incomingEnd)) <= 90
+
+        if incomingIsSplitPart || existingIsSplitPart {
+            return existing.mergeReason == incoming.mergeReason && startsNearlyEqual && endsNearlyEqual
+        }
+
+        // Open-visit duplicates are the most common race condition.
+        if incoming.exitTime == nil && existing.exitTime == nil {
+            return abs(existing.entryTime.timeIntervalSince(incoming.entryTime)) <= 10 * 60
+        }
+
+        // Near-identical complete rows.
+        if startsNearlyEqual && endsNearlyEqual {
+            return true
+        }
+
+        // Overlap-based duplicate detection for completed visits.
+        guard let existingExit = existing.exitTime, let incomingExit = incoming.exitTime else {
+            return false
+        }
+
+        let overlapStart = max(existing.entryTime, incoming.entryTime)
+        let overlapEnd = min(existingExit, incomingExit)
+        guard overlapEnd > overlapStart else {
+            return false
+        }
+
+        let overlapDuration = overlapEnd.timeIntervalSince(overlapStart)
+        let existingDuration = max(existingExit.timeIntervalSince(existing.entryTime), 1)
+        let incomingDuration = max(incomingExit.timeIntervalSince(incoming.entryTime), 1)
+        let overlapRatio = overlapDuration / min(existingDuration, incomingDuration)
+
+        return overlapRatio >= 0.9
     }
 
     private func updateVisitInSupabase(_ visit: LocationVisitRecord) async {

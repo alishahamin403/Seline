@@ -30,6 +30,7 @@ struct SelineApp: App {
     @State private var isCalendarSyncing: Bool = false
 
     init() {
+        ScrollExperienceConfigurator.installGlobalAppearance()
         NavigationSwipeBack.installGlobalSupport()
         configureSupabase()
         configureGoogleSignIn()
@@ -95,6 +96,10 @@ struct SelineApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     // Handle app becoming active
                     Task {
+                        await MainActor.run {
+                            ScrollExperienceConfigurator.applyToVisibleScrollViews()
+                        }
+
                         // LOCATION FIX: Immediately refresh widgets when app becomes active
                         // This ensures widget shows current location state
                         WidgetCenter.shared.reloadAllTimelines()
@@ -345,17 +350,13 @@ struct SelineApp: App {
                 )
             }
 
-            // Fix historical visits that span midnight
-            // CRITICAL: Run this fix on app launch to process any visits that span midnight
-            // This runs directly (not detached) to ensure it completes before user interacts with app
-            print("🌙 [SelineApp] Starting midnight-spanning visit fix...")
-            let result = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
-            if result.fixed > 0 {
-                print("✅ [SelineApp] Fixed \(result.fixed) historical midnight-spanning visits!")
-            } else if result.errors > 0 {
-                print("❌ [SelineApp] \(result.errors) errors while fixing midnight visits")
+            // Run full visit cleanup once on launch to fix midnight splits, duplicates, and orphaned rows.
+            print("🌙 [SelineApp] Starting full visit cleanup...")
+            let cleanupResult = await LocationVisitAnalytics.shared.runFullVisitCleanup()
+            if cleanupResult.errors > 0 {
+                print("❌ [SelineApp] Visit cleanup finished with \(cleanupResult.errors) error(s)")
             } else {
-                print("✅ [SelineApp] No midnight-spanning visits to fix")
+                print("✅ [SelineApp] Visit cleanup complete: midnight=\(cleanupResult.midnightFixed), duplicates=\(cleanupResult.duplicatesRemoved), orphans=\(cleanupResult.orphansDeleted)")
             }
 
             print("✅ [SelineApp] Location services configured")

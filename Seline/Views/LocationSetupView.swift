@@ -25,89 +25,106 @@ struct LocationSetupView: View {
 
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header
-                    VStack(spacing: 8) {
-                        Image(systemName: "house.fill")
-                            .font(FontManager.geist(size: 48, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .gray : .gray.opacity(0.8))
+            ZStack {
+                AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .bottomLeading)
 
-                        Text("Set Up Your Locations")
-                            .font(FontManager.geist(size: 24, weight: .bold))
+                ScrollView {
+                    VStack(spacing: 16) {
+                        VStack(spacing: 8) {
+                            Image(systemName: "house.fill")
+                                .font(FontManager.geist(size: 46, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .gray : .gray.opacity(0.82))
 
-                        Text("We'll show you travel times to your frequent destinations")
-                            .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                    }
-                    .padding(.top, 32)
+                            Text("Set Up Your Locations")
+                                .font(FontManager.geist(size: 28, weight: .semibold))
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
 
-                    VStack(spacing: 20) {
-                        // Home Location
-                        LocationInput(
-                            title: "Home",
-                            icon: "house.fill",
-                            searchQuery: $homeSearchQuery,
-                            searchResults: $homeSearchResults,
-                            selectedLocation: $selectedHome,
-                            isSearching: $isSearchingHome,
-                            onSearch: { query in
-                                await searchLocation(query: query, isHome: true)
-                            }
-                        )
-
-                        // Work Location
-                        LocationInput(
-                            title: "Work",
-                            icon: "briefcase.fill",
-                            searchQuery: $workSearchQuery,
-                            searchResults: $workSearchResults,
-                            selectedLocation: $selectedWork,
-                            isSearching: $isSearchingWork,
-                            onSearch: { query in
-                                await searchLocation(query: query, isHome: false)
-                            }
-                        )
-                    }
-                    .padding(.horizontal, 20)
-
-                    // Error Message
-                    if let errorMessage = errorMessage {
-                        Text(errorMessage)
-                            .font(FontManager.geist(size: 13, weight: .regular))
-                            .foregroundColor(.red)
-                            .padding(.horizontal, 20)
-                    }
-
-                    // Buttons
-                    VStack(spacing: 12) {
-                        Button(action: saveLocations) {
-                            HStack {
-                                if isSaving {
-                                    ShadcnSpinner(size: .medium, color: .white)
-                                } else {
-                                    Text("Save & Continue")
-                                        .font(FontManager.geist(size: 16, weight: .semibold))
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(isSetupComplete ? Color.gray : Color.gray.opacity(0.3))
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                        }
-                        .disabled(!isSetupComplete || isSaving)
-
-                        Button(action: skipSetup) {
-                            Text("Skip for now")
+                            Text("We’ll surface travel times and visit context around the places you use most.")
                                 .font(FontManager.geist(size: 14, weight: .regular))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 16)
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 24)
+                        .appAmbientCardStyle(
+                            colorScheme: colorScheme,
+                            variant: .topTrailing,
+                            cornerRadius: 28,
+                            highlightStrength: 0.76
+                        )
+                        .padding(.top, 8)
+
+                        VStack(spacing: 20) {
+                            LocationInput(
+                                title: "Home",
+                                icon: "house.fill",
+                                searchQuery: $homeSearchQuery,
+                                searchResults: $homeSearchResults,
+                                selectedLocation: $selectedHome,
+                                isSearching: $isSearchingHome,
+                                onSearch: { query in
+                                    await searchLocation(query: query, isHome: true)
+                                }
+                            )
+
+                            LocationInput(
+                                title: "Work",
+                                icon: "briefcase.fill",
+                                searchQuery: $workSearchQuery,
+                                searchResults: $workSearchResults,
+                                selectedLocation: $selectedWork,
+                                isSearching: $isSearchingWork,
+                                onSearch: { query in
+                                    await searchLocation(query: query, isHome: false)
+                                }
+                            )
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 20)
+                        .appAmbientCardStyle(
+                            colorScheme: colorScheme,
+                            variant: .topLeading,
+                            cornerRadius: 28,
+                            highlightStrength: 0.56
+                        )
+
+                        if let errorMessage = errorMessage {
+                            Text(errorMessage)
+                                .font(FontManager.geist(size: 13, weight: .regular))
+                                .foregroundColor(.red)
+                                .padding(.horizontal, 20)
+                        }
+
+                        VStack(spacing: 12) {
+                            Button(action: saveLocations) {
+                                HStack {
+                                    if isSaving {
+                                        ShadcnSpinner(size: .medium, color: .white)
+                                    } else {
+                                        Text("Save & Continue")
+                                            .font(FontManager.geist(size: 16, weight: .semibold))
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 52)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(isSetupComplete ? Color.black.opacity(colorScheme == .dark ? 0.92 : 0.84) : Color.gray.opacity(0.35))
+                                )
+                                .foregroundColor(.white)
+                            }
+                            .disabled(!isSetupComplete || isSaving)
+
+                            Button(action: skipSetup) {
+                                Text("Skip for now")
+                                    .font(FontManager.geist(size: 14, weight: .regular))
+                                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 32)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 32)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -278,8 +295,7 @@ struct LocationInput: View {
                     }
                 }
                 .padding(12)
-                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                .cornerRadius(10)
+                .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 14)
             } else {
                 // Search field
                 VStack(spacing: 0) {
@@ -306,8 +322,7 @@ struct LocationInput: View {
                         }
                     }
                     .padding(12)
-                    .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                    .cornerRadius(10)
+                    .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 14)
 
                     // Search Results
                     if !searchResults.isEmpty {
@@ -344,8 +359,12 @@ struct LocationInput: View {
                                 }
                             }
                         }
-                        .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-                        .cornerRadius(10)
+                        .appAmbientCardStyle(
+                            colorScheme: colorScheme,
+                            variant: .bottomTrailing,
+                            cornerRadius: 16,
+                            highlightStrength: 0.45
+                        )
                         .padding(.top, 4)
                     }
                 }

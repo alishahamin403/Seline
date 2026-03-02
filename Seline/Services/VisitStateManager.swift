@@ -13,6 +13,12 @@ import SwiftUI
 class VisitStateManager: ObservableObject {
     static let shared = VisitStateManager()
 
+    private struct VisitDeletionSnapshot {
+        let todaysVisits: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)]
+        let selectedDayVisits: [LocationVisitRecord]
+        let monthVisitCounts: [Date: Int]
+    }
+
     // MARK: - Published State
 
     // Today's visits for home page widget
@@ -162,10 +168,11 @@ class VisitStateManager: ObservableObject {
 
             let decoder = JSONDecoder.supabaseDecoder()
             let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            let processedVisits = LocationVisitAnalytics.shared.processVisitsForDisplay(visits)
 
             // Group by day
             var visitsByDay: [Date: Int] = [:]
-            for visit in visits {
+            for visit in processedVisits {
                 let normalizedDate = calendar.startOfDay(for: visit.entryTime)
                 visitsByDay[normalizedDate, default: 0] += 1
             }
@@ -186,24 +193,85 @@ class VisitStateManager: ObservableObject {
     func deleteVisit(id: UUID) async -> Bool {
         print("🗑️ [VisitStateManager] Deleting visit \(id.uuidString)...")
 
-        let success = await LocationVisitAnalytics.shared.deleteVisit(id: id.uuidString)
-
-        if success {
-            print("✅ [VisitStateManager] Visit deleted successfully, refreshing all views...")
-
-            // Invalidate caches
-            LocationVisitAnalytics.shared.invalidateAllVisitCaches()
-
-            // Refresh all views
-            await refreshAllViews()
-
-            // Post notification for any external listeners
-            NotificationCenter.default.post(name: NSNotification.Name("VisitDeleted"), object: nil)
-        } else {
-            print("❌ [VisitStateManager] Failed to delete visit")
+        guard let deletedVisit = selectedDayVisits.first(where: { $0.id == id }) else {
+            // Fallback when selected-day cache does not contain the visit:
+            // still fire remote deletion in background and return immediately.
+            Task {
+                let success = await LocationVisitAnalytics.shared.deleteVisit(id: id.uuidString)
+                if success {
+                    await MainActor.run {
+                        LocationVisitAnalytics.shared.invalidateAllVisitCaches()
+                        NotificationCenter.default.post(name: NSNotification.Name("VisitDeleted"), object: nil)
+                    }
+                    await refreshAllViews()
+                }
+            }
+            return true
         }
 
-        return success
+        let snapshot = VisitDeletionSnapshot(
+            todaysVisits: todaysVisits,
+            selectedDayVisits: selectedDayVisits,
+            monthVisitCounts: monthVisitCounts
+        )
+
+        applyOptimisticVisitDeletion(deletedVisit)
+
+        Task {
+            let success = await LocationVisitAnalytics.shared.deleteVisit(id: id.uuidString)
+
+            if success {
+                await MainActor.run {
+                    print("✅ [VisitStateManager] Visit deleted remotely, syncing refreshed data...")
+                    LocationVisitAnalytics.shared.invalidateAllVisitCaches()
+                    NotificationCenter.default.post(name: NSNotification.Name("VisitDeleted"), object: nil)
+                }
+                await refreshAllViews()
+            } else {
+                await MainActor.run {
+                    print("❌ [VisitStateManager] Failed remote delete, restoring local state")
+                    todaysVisits = snapshot.todaysVisits
+                    selectedDayVisits = snapshot.selectedDayVisits
+                    monthVisitCounts = snapshot.monthVisitCounts
+                }
+            }
+        }
+
+        return true
+    }
+
+    private func applyOptimisticVisitDeletion(_ visit: LocationVisitRecord) {
+        selectedDayVisits.removeAll { $0.id == visit.id }
+
+        let calendar = Calendar.current
+        let visitDay = calendar.startOfDay(for: visit.entryTime)
+        if let count = monthVisitCounts[visitDay] {
+            let newCount = max(0, count - 1)
+            if newCount == 0 {
+                monthVisitCounts.removeValue(forKey: visitDay)
+            } else {
+                monthVisitCounts[visitDay] = newCount
+            }
+        }
+
+        if calendar.isDateInToday(visit.entryTime) {
+            let visitDuration = max(
+                visit.durationMinutes
+                    ?? Int((visit.exitTime ?? Date()).timeIntervalSince(visit.entryTime) / 60),
+                1
+            )
+
+            if let index = todaysVisits.firstIndex(where: { $0.id == visit.savedPlaceId }) {
+                var item = todaysVisits[index]
+                item.totalDurationMinutes = max(0, item.totalDurationMinutes - visitDuration)
+
+                if item.totalDurationMinutes == 0 && !item.isActive {
+                    todaysVisits.remove(at: index)
+                } else {
+                    todaysVisits[index] = item
+                }
+            }
+        }
     }
 
     // MARK: - Refresh Methods

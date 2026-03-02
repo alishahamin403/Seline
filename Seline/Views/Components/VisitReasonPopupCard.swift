@@ -23,8 +23,7 @@ struct VisitReasonPopupCard: View {
     var body: some View {
         cardContent
             .padding(16)
-            .background(cardBackground)
-            .overlay(cardBorder)
+            .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 18, highlightStrength: 0.95)
             .padding(.horizontal, 12)
     }
 
@@ -83,8 +82,7 @@ struct VisitReasonPopupCard: View {
             }
         }
         .padding(12)
-        .background(inputBackground)
-        .overlay(inputBorder)
+        .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 12)
         .animation(.easeInOut(duration: 0.2), value: reasonText.isEmpty)
     }
 
@@ -115,11 +113,16 @@ struct VisitReasonPopupCard: View {
         if isSubmitting {
             ProgressView()
                 .scaleEffect(0.8)
-                .tint(colorScheme == .dark ? .black : .white)
+                .tint(.black)
         } else {
-            Image(systemName: "arrow.up.circle.fill")
-                .font(.system(size: 24, weight: .medium))
-                .foregroundColor(primaryTextColor)
+            Image(systemName: "arrow.up")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.black)
+                .frame(width: 28, height: 28)
+                .background(
+                    Circle()
+                        .fill(Color.homeGlassAccent)
+                )
         }
     }
 
@@ -146,28 +149,7 @@ struct VisitReasonPopupCard: View {
     }
 
     private var dismissButtonBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)
-    }
-
-    private var inputBackground: some View {
-        RoundedRectangle(cornerRadius: 10)
-            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
-    }
-
-    private var inputBorder: some View {
-        RoundedRectangle(cornerRadius: 10)
-            .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08), lineWidth: 1)
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .fill(colorScheme == .dark ? Color(white: 0.12) : Color.white)
-            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.4 : 0.1), radius: 12, x: 0, y: 4)
-    }
-
-    private var cardBorder: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
+        Color.homeGlassInnerTint(colorScheme)
     }
 
     // MARK: - Actions

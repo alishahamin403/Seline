@@ -101,18 +101,41 @@ class GeminiService: ObservableObject {
         let response: Response
         do {
             response = try await makeDirectRequest(request)
-        } catch GeminiError.apiError(let message) where request.model == GeminiService.defaultModelName &&
-            isModelNotFoundError(message) {
-            print("⚠️ Gemini model '\(request.model)' unavailable. Falling back to '\(GeminiService.fallbackModelName)'.")
-            let fallbackRequest = Request(
-                model: GeminiService.fallbackModelName,
-                messages: messages,
-                temperature: temperature,
-                max_tokens: maxTokens,
-                operation_type: operationType,
-                stream: false
-            )
-            response = try await makeDirectRequest(fallbackRequest)
+        } catch GeminiError.apiError(let message) where isModelNotFoundError(message) {
+            let fallbackOrder: [String] = {
+                if request.model == GeminiService.defaultModelName {
+                    return [GeminiService.fallbackModelName]
+                }
+                return [GeminiService.defaultModelName, GeminiService.fallbackModelName]
+            }()
+
+            var fallbackResponse: Response?
+            var lastFallbackError: Error?
+            for fallbackModel in fallbackOrder where fallbackModel != request.model {
+                do {
+                    print("⚠️ Gemini model '\(request.model)' unavailable. Falling back to '\(fallbackModel)'.")
+                    let fallbackRequest = Request(
+                        model: fallbackModel,
+                        messages: messages,
+                        temperature: temperature,
+                        max_tokens: maxTokens,
+                        operation_type: operationType,
+                        stream: false
+                    )
+                    fallbackResponse = try await makeDirectRequest(fallbackRequest)
+                    break
+                } catch {
+                    lastFallbackError = error
+                }
+            }
+
+            if let fallbackResponse {
+                response = fallbackResponse
+            } else if let lastFallbackError {
+                throw lastFallbackError
+            } else {
+                throw GeminiError.apiError(message)
+            }
         }
 
         // Update quota after successful request
@@ -378,7 +401,7 @@ class GeminiService: ObservableObject {
 
     private func cleanSummaryBullet(_ text: String) -> String {
         var cleaned = normalizeSummaryTextForMerge(text)
-        cleaned = finalizeSummarySentence(cleaned, maxCharacters: 220)
+        cleaned = finalizeSummarySentence(cleaned, maxCharacters: 1200)
         return cleaned
     }
 
@@ -434,15 +457,6 @@ class GeminiService: ObservableObject {
 
         sentence = sentence.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
         sentence = sentence.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-
-        // Avoid visibly cut-off endings from model truncation.
-        sentence = sentence.replacingOccurrences(of: "\\s*\\.\\.\\.$", with: "", options: .regularExpression)
-        sentence = sentence.replacingOccurrences(of: "[\\s,:;\\-]+$", with: "", options: .regularExpression)
-        sentence = sentence.replacingOccurrences(
-            of: "(?i)(?:and|or|to|for|with|about)\\s*$",
-            with: "",
-            options: .regularExpression
-        )
         sentence = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sentence.isEmpty else { return "" }
 
@@ -1080,6 +1094,7 @@ class GeminiService: ObservableObject {
     func simpleChatCompletion(
         systemPrompt: String,
         messages: [[String: String]],
+        model: String = GeminiService.defaultModelName,
         temperature: Double = 0.6,
         maxTokens: Int = GeminiService.defaultMaxOutputTokens,
         operationType: String = "simple_chat"
@@ -1093,6 +1108,7 @@ class GeminiService: ObservableObject {
 
         let response = try await chat(
             messages: allMessages,
+            model: model,
             temperature: temperature,
             maxTokens: maxTokens,
             operationType: operationType
@@ -1272,6 +1288,43 @@ class GeminiService: ObservableObject {
         )
     }
 
+    /// Generate weekly journal summary
+    func generateJournalWeeklySummary(entries: [JournalSummaryInput]) async throws -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE, MMM d"
+
+        let entryDescriptions = entries.map { entry in
+            let preview = entry.preview.isEmpty ? "No additional details." : entry.preview
+            return "- \(formatter.string(from: entry.date)): \(entry.title)\n  \(preview)"
+        }.joined(separator: "\n")
+
+        let systemPrompt = """
+        You summarize weekly journal writing without sounding clinical or overly therapeutic.
+        - Write 2 to 4 concise sentences.
+        - Identify the dominant emotional or thematic pattern across the week.
+        - Mention 1 or 2 recurring concrete ideas if they genuinely appear.
+        - Do not diagnose, overreach, or invent hidden meaning.
+        - Do not use bullets, markdown, or labels.
+        - Return plain prose only.
+        """
+
+        let userPrompt = """
+        Weekly journal entries:
+
+        \(entryDescriptions)
+
+        Write a concise weekly journal recap.
+        """
+
+        return try await generateText(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            maxTokens: 170,
+            temperature: 0.4,
+            operationType: "journal_weekly_summary"
+        )
+    }
+
     /// Generate note title
     func generateNoteTitle(from content: String) async throws -> String {
         let maxContentLength = 2000
@@ -1411,6 +1464,47 @@ class GeminiService: ObservableObject {
             userPrompt: userPrompt,
             maxTokens: 1000,  // COST OPTIMIZATION: Reduced from 1500 for concise summaries
             temperature: 0.3
+        )
+    }
+
+    /// Generate a short plain-text recap for compact UI surfaces.
+    func summarizeJournalHeaderText(_ text: String) async throws -> String {
+        let maxContentLength = 12000
+        let processedText: String
+
+        if text.count > maxContentLength {
+            processedText = String(text.prefix(maxContentLength))
+        } else {
+            processedText = text
+        }
+
+        let systemPrompt = """
+        You create extremely concise journal recaps for small UI cards.
+
+        REQUIREMENTS:
+        ✓ Output plain text only
+        ✓ 1 short sentence, maximum 22 words
+        ✓ Capture the journal's main points and emotional tone
+        ✓ Keep important people or events if they matter
+
+        DO NOT:
+        ✗ Use headings
+        ✗ Start with words like "Summary", "Main points", or "Journal"
+        ✗ Use bullets, markdown, or labels
+        ✗ Add any text not supported by the journal
+        """
+
+        let userPrompt = """
+        Write one short recap sentence for this journal entry:
+
+        \(processedText)
+        """
+
+        return try await generateText(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            maxTokens: 120,
+            temperature: 0.2
         )
     }
 

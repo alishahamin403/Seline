@@ -33,7 +33,7 @@ class EmailService: ObservableObject {
     // Cache management
     private var cacheTimestamps: [EmailFolder: Date] = [:]
     private let cacheExpirationTime: TimeInterval = 604800 // 7 days for longer persistence
-    private let newEmailCheckInterval: TimeInterval = 60 // 1 minute for real-time notifications (uses <1% of Gmail API quota)
+    private let newEmailCheckInterval: TimeInterval = 30 // 30s checks for more responsive inbox updates
     private let newEmailBaselineCount: Int = 50
 
     // Persistent cache keys
@@ -621,51 +621,85 @@ class EmailService: ObservableObject {
         }
     }
 
-    func deleteEmail(_ email: Email) async throws {
+    /// Fire-and-forget delete for UI actions (context-menu delete, detail delete).
+    /// The row is removed from local state immediately, then remote trash call is retried in background.
+    func deleteEmailImmediately(_ email: Email) {
+        _ = removeEmailFromLocalStorage(email)
+
         guard let gmailMessageId = email.gmailMessageId else {
-            throw EmailServiceError.missingGmailId
+            print("⚠️ Missing Gmail message ID for email \(email.id). Kept local delete only.")
+            return
         }
 
-        // First, delete from Gmail using the API
-        try await gmailAPIClient.trashEmail(messageId: gmailMessageId)
-
-        // Then remove from local storage
-        await MainActor.run {
-            removeEmailFromLocalStorage(email)
+        Task {
+            await trashEmailInBackground(messageId: gmailMessageId)
         }
     }
 
-    private func removeEmailFromLocalStorage(_ email: Email) {
-        var wasRemoved = false
+    /// Async compatibility method used by existing callers.
+    /// This intentionally does not roll back UI state on network failures.
+    func deleteEmail(_ email: Email) async throws {
+        deleteEmailImmediately(email)
+    }
 
-        // Remove from inbox emails
-        if let inboxIndex = inboxEmails.firstIndex(where: { $0.id == email.id }) {
-            inboxEmails.remove(at: inboxIndex)
-            wasRemoved = true
+    private func trashEmailInBackground(messageId: String, attempt: Int = 1) async {
+        do {
+            try await gmailAPIClient.trashEmail(messageId: messageId)
+            return
+        } catch {
+            let maxAttempts = 2
+            if attempt < maxAttempts {
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                await trashEmailInBackground(messageId: messageId, attempt: attempt + 1)
+                return
+            }
+            print("❌ Failed to trash email \(messageId) after retries: \(error.localizedDescription)")
         }
+    }
 
-        // Remove from sent emails
-        if let sentIndex = sentEmails.firstIndex(where: { $0.id == email.id }) {
-            sentEmails.remove(at: sentIndex)
-            wasRemoved = true
-        }
+    private func doesEmail(_ candidate: Email, match target: Email) -> Bool {
+        if candidate.id == target.id { return true }
 
-        // Remove from search results if present
-        if let searchIndex = searchResults.firstIndex(where: { $0.id == email.id }) {
-            searchResults.remove(at: searchIndex)
-        }
-
-        // Save updated cache if email was removed
-        if wasRemoved {
-            saveCachedData(for: .inbox)
-            saveCachedData(for: .sent)
-
-            // Update app badge count
-            Task {
-                let unreadCount = inboxEmails.filter { !$0.isRead }.count
-                notificationService.updateAppBadge(count: unreadCount)
+        if let targetMessageId = target.gmailMessageId {
+            if candidate.gmailMessageId == targetMessageId || candidate.id == targetMessageId {
+                return true
             }
         }
+
+        if let candidateMessageId = candidate.gmailMessageId, candidateMessageId == target.id {
+            return true
+        }
+
+        return false
+    }
+
+    @discardableResult
+    private func removeEmailFromLocalStorage(_ email: Email) -> Bool {
+        let inboxBefore = inboxEmails.count
+        let sentBefore = sentEmails.count
+        let searchBefore = searchResults.count
+
+        inboxEmails.removeAll { doesEmail($0, match: email) }
+        sentEmails.removeAll { doesEmail($0, match: email) }
+        searchResults.removeAll { doesEmail($0, match: email) }
+
+        let removedInbox = inboxEmails.count != inboxBefore
+        let removedSent = sentEmails.count != sentBefore
+        let removedSearch = searchResults.count != searchBefore
+
+        if removedInbox || removedSent {
+            persistEmailStorageChanges()
+        }
+
+        return removedInbox || removedSent || removedSearch
+    }
+
+    private func persistEmailStorageChanges() {
+        saveCachedData(for: .inbox)
+        saveCachedData(for: .sent)
+
+        let unreadCount = inboxEmails.filter { !$0.isRead }.count
+        notificationService.updateAppBadge(count: unreadCount)
     }
 
     func markAsRead(_ email: Email) {
@@ -967,7 +1001,7 @@ class EmailService: ObservableObject {
             await loadTodaysEmails()
         }
 
-        // Start polling for new emails every 60 seconds
+        // Start polling for new emails at a short interval
         // This enables automatic UI refresh and real-time notifications
         startNewEmailPolling()
     }
@@ -992,7 +1026,7 @@ class EmailService: ObservableObject {
         
         print("📧 Starting email polling (every \(Int(newEmailCheckInterval)) seconds)")
         
-        // Create a timer that fires every 60 seconds to check for new emails
+        // Create a timer that fires periodically to check for new emails
         newEmailTimer = Timer.scheduledTimer(withTimeInterval: newEmailCheckInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 await self?.checkForNewEmails()
@@ -1050,10 +1084,10 @@ class EmailService: ObservableObject {
     private var lastEmailCheckTime: Date?
     
     /// Public method to check for new emails - can be called when navigating to email tab
-    /// Rate limited to prevent excessive API calls (minimum 10 seconds between checks)
+    /// Rate limited to prevent excessive API calls (minimum 5 seconds between checks)
     func checkForNewEmailsIfNeeded() async {
-        // Rate limit: don't check more than once every 10 seconds
-        if let lastCheck = lastEmailCheckTime, Date().timeIntervalSince(lastCheck) < 10 {
+        // Rate limit: don't check more than once every 5 seconds
+        if let lastCheck = lastEmailCheckTime, Date().timeIntervalSince(lastCheck) < 5 {
             return
         }
         lastEmailCheckTime = Date()
@@ -1069,7 +1103,7 @@ class EmailService: ObservableObject {
 
         do {
             // Fetch latest inbox IDs (lightweight list request).
-            let messageList = try await gmailAPIClient.fetchMessagesList(query: "in:inbox", maxResults: 10)
+            let messageList = try await gmailAPIClient.fetchMessagesList(query: "in:inbox", maxResults: 25)
             let messageIds = messageList.messages?.map { $0.id } ?? []
             guard !messageIds.isEmpty else { return }
 

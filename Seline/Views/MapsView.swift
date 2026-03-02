@@ -9,7 +9,6 @@ struct MapsView: View, Searchable {
 
     @State private var selectedCategory: String? = nil
     @State private var selectedPlace: SavedPlace? = nil
-    @State private var showingPlaceDetail = false
     @State private var showSearchModal = false
 
     var filteredPlaces: [SavedPlace] {
@@ -52,7 +51,6 @@ struct MapsView: View, Searchable {
                                         place: place,
                                         onTap: { place in
                                             selectedPlace = place
-                                            showingPlaceDetail = true
                                         },
                                         onDelete: { place in
                                             locationsManager.deletePlace(place)
@@ -159,13 +157,11 @@ struct MapsView: View, Searchable {
             LocationSearchModal()
                 .presentationBg()
         }
-        .sheet(isPresented: $showingPlaceDetail) {
-            if let place = selectedPlace {
-                PlaceDetailSheet(place: place) {
-                    showingPlaceDetail = false
-                }
-                .presentationBg()
+        .sheet(item: $selectedPlace) { place in
+            PlaceDetailSheet(place: place) {
+                selectedPlace = nil
             }
+            .presentationBg()
         }
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)

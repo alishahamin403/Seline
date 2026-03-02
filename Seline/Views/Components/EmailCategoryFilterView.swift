@@ -31,9 +31,15 @@ struct EmailCategoryFilterView: View {
                     }
                 }
             }
-            .padding(.horizontal, 2)
-            .padding(.vertical, 2)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
         }
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topLeading,
+            cornerRadius: 22,
+            highlightStrength: 0.35
+        )
     }
 }
 
@@ -47,18 +53,18 @@ struct EmailCategoryChip: View {
         if isSelected {
             return colorScheme == .dark ? Color.black : .white
         }
-        return colorScheme == .dark ? Color.white.opacity(0.7) : Color.emailLightTextSecondary
+        return Color.appTextPrimary(colorScheme)
     }
 
     private var chipBackgroundColor: Color {
         if isSelected {
-            return colorScheme == .dark ? Color.white : Color.emailLightTextPrimary
+            return colorScheme == .dark ? Color.white : Color.appTextPrimary(colorScheme)
         }
-        return colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle
+        return Color.appChip(colorScheme)
     }
 
     private var chipStrokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+        Color.appBorder(colorScheme)
     }
 
     var body: some View {

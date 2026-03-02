@@ -746,7 +746,7 @@ class SelineAppContext {
     }
     
     /// Populate lastRelevantContent and lastEventCreationInfo for chat UI pills. Call before sending the user message so the response message gets pill data.
-    func prepareRelevantContentForChat(userQuery: String) {
+    func prepareRelevantContentForChat(userQuery: String) async {
         lastETALocationInfo = nil
         lastEventCreationInfo = nil
         lastRelevantContent = nil
@@ -765,6 +765,11 @@ class SelineAppContext {
         guard !terms.isEmpty else { return }
         
         var found: [RelevantContentInfo] = []
+        let semanticMatches = await prepareRelevantContentViaSemanticSearch(userQuery: userQuery, limit: 12)
+        for item in semanticMatches {
+            appendRelevantContent(item, to: &found, maxPerType: 4)
+        }
+
         let allEvents = taskManager.getAllTasksIncludingArchived().filter { !$0.isDeleted }
         let allNotes = notesManager.notes
         let allEmails = emailService.inboxEmails + emailService.sentEmails
@@ -772,34 +777,66 @@ class SelineAppContext {
         
         for event in allEvents.prefix(200) {
             let text = "\(event.title) \(event.description ?? "")".lowercased()
-            if terms.contains(where: { text.contains($0) }) {
+            if terms.contains(where: { text.contains($0) }), let eventId = UUID(uuidString: event.id) {
                 let category = tagManager.getTag(by: event.tagId)?.name ?? "Personal"
-                found.append(.event(id: UUID(uuidString: event.id) ?? UUID(), title: event.title, date: event.targetDate ?? event.scheduledTime ?? Date(), category: category))
-                if found.filter({ $0.contentType == .event }).count >= 3 { break }
+                appendRelevantContent(
+                    .event(
+                        id: eventId,
+                        title: event.title,
+                        date: event.targetDate ?? event.scheduledTime ?? event.createdAt,
+                        category: category
+                    ),
+                    to: &found,
+                    maxPerType: 4
+                )
+                if countRelevantContent(of: .event, in: found) >= 4 { break }
             }
         }
         
         for note in allNotes.prefix(100) {
             let text = "\(note.title) \(note.content)".lowercased()
             if terms.contains(where: { text.contains($0) }) {
-                found.append(.note(id: note.id, title: note.title, snippet: String(note.content.prefix(80)), folder: getCachedFolderName(for: note.folderId)))
-                if found.filter({ $0.contentType == .note }).count >= 3 { break }
+                appendRelevantContent(
+                    .note(
+                        id: note.id,
+                        title: note.title,
+                        snippet: String(note.content.prefix(80)),
+                        folder: getCachedFolderName(for: note.folderId)
+                    ),
+                    to: &found,
+                    maxPerType: 4
+                )
+                if countRelevantContent(of: .note, in: found) >= 4 { break }
             }
         }
         
         for email in allEmails.prefix(100) {
             let text = "\(email.subject) \(email.sender.displayName) \(email.sender.email) \(email.snippet)".lowercased()
             if terms.contains(where: { text.contains($0) }) {
-                found.append(.email(id: email.id, subject: email.subject, sender: email.sender.displayName, snippet: String(email.snippet.prefix(100)), date: email.timestamp))
-                if found.filter({ $0.contentType == .email }).count >= 3 { break }
+                appendRelevantContent(
+                    .email(
+                        id: email.id,
+                        subject: email.subject,
+                        sender: email.sender.displayName,
+                        snippet: String(email.snippet.prefix(100)),
+                        date: email.timestamp
+                    ),
+                    to: &found,
+                    maxPerType: 4
+                )
+                if countRelevantContent(of: .email, in: found) >= 4 { break }
             }
         }
         
         for place in allPlaces.prefix(50) {
             let text = "\(place.name) \(place.address)".lowercased()
             if terms.contains(where: { text.contains($0) }) {
-                found.append(.location(id: place.id, name: place.name, address: place.address, category: place.category ?? ""))
-                if found.filter({ $0.contentType == .location }).count >= 2 { break }
+                appendRelevantContent(
+                    .location(id: place.id, name: place.name, address: place.address, category: place.category ?? ""),
+                    to: &found,
+                    maxPerType: 3
+                )
+                if countRelevantContent(of: .location, in: found) >= 3 { break }
             }
         }
         
@@ -810,21 +847,43 @@ class SelineAppContext {
         if impliesReceipts {
             let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
             let receiptNotes = allNotes.filter { isUnderReceiptsFolderHierarchy(folderId: $0.folderId, receiptsFolderId: receiptsFolderId) }
-            var receiptCount = found.filter { $0.contentType == .note }.count
+            var receiptCount = found.filter { item in
+                item.contentType == .note && (item.noteFolder ?? "").lowercased().contains("receipt")
+            }.count
             for note in receiptNotes.prefix(10) {
-                guard receiptCount < 3 else { break }
+                guard receiptCount < 4 else { break }
                 let alreadyInFound = found.contains { $0.noteId == note.id }
                 if alreadyInFound { continue }
                 let text = "\(note.title) \(note.content)".lowercased()
                 let matchesTerms = terms.contains(where: { text.contains($0) })
                 if matchesTerms || receiptNotes.count <= 3 {
-                    found.append(.note(id: note.id, title: note.title, snippet: String(note.content.prefix(80)), folder: getCachedFolderName(for: note.folderId)))
-                    receiptCount += 1
+                    appendRelevantContent(
+                        .note(
+                            id: note.id,
+                            title: note.title,
+                            snippet: String(note.content.prefix(80)),
+                            folder: getCachedFolderName(for: note.folderId)
+                        ),
+                        to: &found,
+                        maxPerType: 4
+                    )
+                    receiptCount = found.filter { item in
+                        item.contentType == .note && (item.noteFolder ?? "").lowercased().contains("receipt")
+                    }.count
                 }
             }
             // If no term-matched receipts, add most recent receipt(s) so "from your receipts" still gets a pill
             if receiptCount == 0, let first = receiptNotes.first {
-                found.append(.note(id: first.id, title: first.title, snippet: String(first.content.prefix(80)), folder: getCachedFolderName(for: first.folderId)))
+                appendRelevantContent(
+                    .note(
+                        id: first.id,
+                        title: first.title,
+                        snippet: String(first.content.prefix(80)),
+                        folder: getCachedFolderName(for: first.folderId)
+                    ),
+                    to: &found,
+                    maxPerType: 4
+                )
             }
         }
         
@@ -832,6 +891,202 @@ class SelineAppContext {
             lastRelevantContent = found
             print("🔍 Set lastRelevantContent (\(found.count) items) for chat pills")
         }
+    }
+
+    private func prepareRelevantContentViaSemanticSearch(userQuery: String, limit: Int) async -> [RelevantContentInfo] {
+        do {
+            let results = try await VectorSearchService.shared.search(query: userQuery, limit: limit)
+            guard !results.isEmpty else { return [] }
+
+            let allTasks = taskManager.getAllTasksIncludingArchived().filter { !$0.isDeleted }
+            let allNotes = notesManager.notes
+            let allPlaces = locationsManager.savedPlaces
+            let allEmails = emailService.inboxEmails + emailService.sentEmails
+            var semanticFound: [RelevantContentInfo] = []
+
+            for result in results {
+                switch result.documentType {
+                case .email:
+                    if let email = allEmails.first(where: { $0.id == result.documentId }) {
+                        appendRelevantContent(
+                            .email(
+                                id: email.id,
+                                subject: email.subject,
+                                sender: email.sender.displayName,
+                                snippet: String((email.aiSummary ?? email.snippet).prefix(100)),
+                                date: email.timestamp
+                            ),
+                            to: &semanticFound,
+                            maxPerType: 4
+                        )
+                    } else {
+                        let sender = (result.metadata?["sender"] as? String) ?? "Unknown Sender"
+                        guard
+                            let date = parseISODateString(result.metadata?["date"] as? String)
+                                ?? parseISODateString(result.metadata?["created_at"] as? String)
+                        else {
+                            continue
+                        }
+                        appendRelevantContent(
+                            .email(
+                                id: result.documentId,
+                                subject: result.title ?? "Email",
+                                sender: sender,
+                                snippet: String(result.content.prefix(100)),
+                                date: date
+                            ),
+                            to: &semanticFound,
+                            maxPerType: 4
+                        )
+                    }
+
+                case .task:
+                    let matchedTask = allTasks.first(where: { $0.id == result.documentId })
+                    guard let eventId = UUID(uuidString: result.documentId) else { continue }
+                    let title = matchedTask?.title ?? result.title ?? "Event"
+                    guard let date = matchedTask?.scheduledTime
+                        ?? matchedTask?.targetDate
+                        ?? parseISODateString(result.metadata?["start"] as? String)
+                        ?? parseISODateString(result.metadata?["target_date"] as? String)
+                        ?? parseISODateString(result.metadata?["scheduled_time"] as? String)
+                    else {
+                        continue
+                    }
+                    let category = matchedTask.flatMap { tagManager.getTag(by: $0.tagId)?.name }
+                        ?? (result.metadata?["category"] as? String)
+                        ?? "Personal"
+                    appendRelevantContent(
+                        .event(id: eventId, title: title, date: date, category: category),
+                        to: &semanticFound,
+                        maxPerType: 4
+                    )
+
+                case .note, .receipt:
+                    guard let noteId = UUID(uuidString: result.documentId) else { continue }
+                    if let note = allNotes.first(where: { $0.id == noteId }) {
+                        appendRelevantContent(
+                            .note(
+                                id: note.id,
+                                title: note.title,
+                                snippet: String(note.content.prefix(80)),
+                                folder: getCachedFolderName(for: note.folderId)
+                            ),
+                            to: &semanticFound,
+                            maxPerType: 4
+                        )
+                    } else {
+                        let folderName = result.documentType == .receipt ? "Receipts" : "Notes"
+                        appendRelevantContent(
+                            .note(
+                                id: noteId,
+                                title: result.title ?? "Note",
+                                snippet: String(result.content.prefix(80)),
+                                folder: folderName
+                            ),
+                            to: &semanticFound,
+                            maxPerType: 4
+                        )
+                    }
+
+                case .location:
+                    guard let placeId = UUID(uuidString: result.documentId) else { continue }
+                    guard let place = allPlaces.first(where: { $0.id == placeId }) else { continue }
+                    appendRelevantContent(
+                        .location(
+                            id: place.id,
+                            name: place.displayName,
+                            address: place.address,
+                            category: place.category ?? ""
+                        ),
+                        to: &semanticFound,
+                        maxPerType: 3
+                    )
+
+                case .visit:
+                    let placeFromId: SavedPlace? = {
+                        guard
+                            let placeIdString = result.metadata?["place_id"] as? String,
+                            let placeId = UUID(uuidString: placeIdString)
+                        else { return nil }
+                        return allPlaces.first(where: { $0.id == placeId })
+                    }()
+                    let placeFromName: SavedPlace? = {
+                        guard let placeName = result.metadata?["place_name"] as? String else { return nil }
+                        return allPlaces.first { $0.displayName.caseInsensitiveCompare(placeName) == .orderedSame }
+                    }()
+
+                    guard let place = placeFromId ?? placeFromName else { continue }
+                    appendRelevantContent(
+                        .location(
+                            id: place.id,
+                            name: place.displayName,
+                            address: place.address,
+                            category: place.category ?? ""
+                        ),
+                        to: &semanticFound,
+                        maxPerType: 3
+                    )
+
+                case .person:
+                    continue
+                }
+            }
+
+            if !semanticFound.isEmpty {
+                print("🔎 Added \(semanticFound.count) semantically matched source items")
+            }
+            return semanticFound
+        } catch {
+            print("⚠️ Semantic source preparation failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private func countRelevantContent(of type: RelevantContentInfo.ContentType, in items: [RelevantContentInfo]) -> Int {
+        items.filter { $0.contentType == type }.count
+    }
+
+    private func appendRelevantContent(_ item: RelevantContentInfo, to items: inout [RelevantContentInfo], maxPerType: Int) {
+        guard countRelevantContent(of: item.contentType, in: items) < maxPerType else { return }
+        guard !containsRelevantContent(item, in: items) else { return }
+        items.append(item)
+    }
+
+    private func containsRelevantContent(_ candidate: RelevantContentInfo, in items: [RelevantContentInfo]) -> Bool {
+        switch candidate.contentType {
+        case .email:
+            return items.contains { $0.contentType == .email && $0.emailId == candidate.emailId }
+        case .note:
+            return items.contains { $0.contentType == .note && $0.noteId == candidate.noteId }
+        case .event:
+            return items.contains { $0.contentType == .event && $0.eventId == candidate.eventId }
+        case .location:
+            return items.contains { $0.contentType == .location && $0.locationId == candidate.locationId }
+        }
+    }
+
+    private func parseISODateString(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+
+        let isoWithFractional = ISO8601DateFormatter()
+        isoWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = isoWithFractional.date(from: normalized) {
+            return date
+        }
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: normalized) {
+            return date
+        }
+
+        let fallback = DateFormatter()
+        fallback.locale = Locale(identifier: "en_US_POSIX")
+        fallback.dateFormat = "yyyy-MM-dd"
+        fallback.timeZone = TimeZone.current
+        return fallback.date(from: normalized)
     }
     
     /// Parse a single event from a query part
@@ -4557,12 +4812,11 @@ class SelineAppContext {
             
             if matchCount >= 1 {
                 let category = getCategoryName(for: event.tagId)
-                // Convert String id to UUID (or create new UUID if conversion fails)
-                let eventUUID = UUID(uuidString: event.id) ?? UUID()
+                guard let eventUUID = UUID(uuidString: event.id) else { continue }
                 foundContent.append(.event(
                     id: eventUUID,
                     title: event.title,
-                    date: event.targetDate ?? event.scheduledTime ?? Date(),
+                    date: event.targetDate ?? event.scheduledTime ?? event.createdAt,
                     category: category
                 ))
                 

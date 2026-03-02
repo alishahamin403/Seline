@@ -169,7 +169,8 @@ class SpendingInsightsService: ObservableObject {
     func generateInsights(
         currentMonthReceipts: [ReceiptStat],
         previousMonthReceipts: [ReceiptStat],
-        allTimeReceipts: [ReceiptStat]
+        allTimeReceipts: [ReceiptStat],
+        historicalReceipts: [ReceiptStat]? = nil
     ) -> [SpendingInsight] {
         var insights: [SpendingInsight] = []
 
@@ -209,7 +210,7 @@ class SpendingInsightsService: ObservableObject {
         // 5. New Merchants This Month
         if let newMerchantInsight = detectNewMerchants(
             current: currentMonthReceipts,
-            previous: previousMonthReceipts
+            historical: historicalReceipts ?? allTimeReceipts
         ) {
             insights.append(newMerchantInsight)
         }
@@ -501,8 +502,17 @@ class SpendingInsightsService: ObservableObject {
         return nil
     }
 
-    /// Detect new merchants this month
-    func detectNewMerchants(current: [ReceiptStat], previous: [ReceiptStat]) -> SpendingInsight? {
+    /// Detect new merchants this month (must not have appeared in any prior month)
+    func detectNewMerchants(current: [ReceiptStat], historical: [ReceiptStat]) -> SpendingInsight? {
+        guard !current.isEmpty else { return nil }
+
+        let calendar = Calendar.current
+
+        // Resolve start of the current month from the current receipts set.
+        let currentMonthStart = current
+            .map { calendar.date(from: calendar.dateComponents([.year, .month], from: $0.date)) ?? $0.date }
+            .min() ?? Date.distantPast
+
         // Group current receipts by merchant
         var currentByMerchant: [String: [ReceiptStat]] = [:]
         for receipt in current {
@@ -513,25 +523,28 @@ class SpendingInsightsService: ObservableObject {
             currentByMerchant[merchant]?.append(receipt)
         }
 
-        let previousMerchants = Set(previous.map { normalizeMerchantName(extractMerchantName(from: $0.title)) })
-        let newMerchants = Set(currentByMerchant.keys).subtracting(previousMerchants)
+        // Only merchants seen before the current month disqualify a place from being "new".
+        let historicalMerchants = Set(
+            historical.compactMap { receipt -> String? in
+                guard receipt.date < currentMonthStart else { return nil }
+                return normalizeMerchantName(extractMerchantName(from: receipt.title))
+            }
+        )
+        let newMerchants = Set(currentByMerchant.keys).subtracting(historicalMerchants)
 
         guard !newMerchants.isEmpty else { return nil }
 
-        // Collect all receipts from new merchants
-        var newPlaceReceipts: [ReceiptStat] = []
+        // Build merchant-level summary for truly new places.
         var merchantBreakdown: [(month: String, amount: Double, count: Int)] = []
 
         for merchant in newMerchants.sorted() {
             if let receipts = currentByMerchant[merchant] {
-                newPlaceReceipts.append(contentsOf: receipts)
                 let total = receipts.reduce(0) { $0 + $1.amount }
                 merchantBreakdown.append((merchant.capitalized, total, receipts.count))
             }
         }
 
-        // Sort receipts by date and breakdown by amount
-        newPlaceReceipts.sort { $0.date > $1.date }
+        // Sort merchant rows by amount.
         merchantBreakdown.sort { $0.amount > $1.amount }
 
         let displayMerchant = merchantBreakdown.first?.month ?? ""
@@ -546,7 +559,7 @@ class SpendingInsightsService: ObservableObject {
             value: "\(newMerchants.count)",
             trend: nil,
             merchantName: "New Places This Month",
-            detailReceipts: newPlaceReceipts,
+            detailReceipts: nil,
             monthlyBreakdown: merchantBreakdown
         )
     }

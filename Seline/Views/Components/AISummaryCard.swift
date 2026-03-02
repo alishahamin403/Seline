@@ -304,23 +304,7 @@ struct AISummaryCard: View {
 
         value = value.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
         value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-
-        if value.hasSuffix("...") {
-            value = String(value.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        value = value.replacingOccurrences(of: "[\\s,:;\\-–—/]+$", with: "", options: .regularExpression)
-        value = value.replacingOccurrences(
-            of: "(?i)(?:and|or|to|for|with|about)\\s*$",
-            with: "",
-            options: .regularExpression
-        )
-        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if !value.isEmpty && !value.hasSuffix(".") && !value.hasSuffix("!") && !value.hasSuffix("?") {
-            value += "."
-        }
-
-        return value
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     private func isDummySummary(_ summary: String) -> Bool {
@@ -392,6 +376,7 @@ struct AISummaryCard: View {
                         font: .systemFont(ofSize: 13),
                         textColor: colorScheme == .dark ? .white : .black
                     )
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -849,6 +834,17 @@ struct ClickableTextView: UIViewRepresentable {
         }
         
         textView.attributedText = attributedString
+    }
+
+    @available(iOS 16.0, *)
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        let targetWidth = proposal.width ?? UIScreen.main.bounds.width - 64
+        guard targetWidth > 0 else { return nil }
+
+        let fittingSize = uiView.sizeThatFits(
+            CGSize(width: targetWidth, height: .greatestFiniteMagnitude)
+        )
+        return CGSize(width: targetWidth, height: ceil(fittingSize.height))
     }
     
     func makeCoordinator() -> Coordinator {

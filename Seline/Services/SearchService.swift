@@ -563,8 +563,10 @@ class SearchService: ObservableObject {
             }
         }
 
-        // Populate relevant content (events, notes, emails, locations) so chat message gets clickable pills
-        chat.appContext.prepareRelevantContentForChat(userQuery: userMessage)
+        // Populate relevant content (events, notes, emails, locations) so chat message gets clickable pills.
+        // For retry follow-ups like "try again", reuse the previous substantive query for retrieval grounding.
+        let effectiveQuery = chat.contextQueryForLatestUserTurn()
+        await chat.appContext.prepareRelevantContentForChat(userQuery: effectiveQuery)
 
         setupSelineChatCallbacks(chat: chat, thinkStartTime: thinkStartTime)
         
@@ -842,7 +844,8 @@ class SearchService: ObservableObject {
         }
 
         guard !matches.isEmpty else {
-            return (stripCitationMarkers(from: normalizedText), nil)
+            // Preserve source pills even when the model omitted numeric citations.
+            return (stripCitationMarkers(from: normalizedText), content)
         }
 
         struct CitationReplacement {
@@ -902,7 +905,8 @@ class SearchService: ObservableObject {
 
         let cleanedText = cleanupCitationSpacing(in: mutableText as String)
         if orderedContent.isEmpty {
-            return (stripCitationMarkers(from: cleanedText), nil)
+            // If all citations were dropped by validation, keep source pills from retrieval.
+            return (stripCitationMarkers(from: cleanedText), content)
         }
         return (cleanedText, orderedContent)
     }
@@ -974,7 +978,14 @@ class SearchService: ObservableObject {
     }
 
     private func stripCitationMarkers(from text: String) -> String {
-        let stripped = text.replacingOccurrences(of: "\\[\\s*\\d+\\s*\\]", with: "", options: .regularExpression)
+        var stripped = text
+            .replacingOccurrences(of: "\\[\\s*\\d+\\s*\\]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\[(?i:see\\s+[^\\]]+)\\]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\[(?i:from\\s+[^\\]]+)\\]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\[(?i:sources?\\s*[^\\]]*)\\]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\[(?i:user\\s+memory\\s*[^\\]]*)\\]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\[(?i:relevant\\s+data\\s*[^\\]]*)\\]", with: "", options: .regularExpression)
+        stripped = stripped.trimmingCharacters(in: .whitespacesAndNewlines)
         return cleanupCitationSpacing(in: stripped)
     }
 

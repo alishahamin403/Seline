@@ -94,7 +94,8 @@ struct MonthlyInsightsWidget: View {
             let generated = insightsService.generateInsights(
                 currentMonthReceipts: currentMonthReceipts,
                 previousMonthReceipts: previousMonthReceipts,
-                allTimeReceipts: allTimeReceipts
+                allTimeReceipts: allTimeReceipts,
+                historicalReceipts: allTimeReceipts
             )
 
             await MainActor.run {
@@ -287,7 +288,8 @@ struct MonthlyInsightsWidgetAuto: View {
             let generated = insightsService.generateInsights(
                 currentMonthReceipts: currentMonthReceipts,
                 previousMonthReceipts: previousMonthReceipts,
-                allTimeReceipts: allTimeReceipts
+                allTimeReceipts: allTimeReceipts,
+                historicalReceipts: allReceipts
             )
 
             await MainActor.run {
