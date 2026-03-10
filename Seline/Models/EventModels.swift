@@ -378,8 +378,9 @@ struct TaskItem: Identifiable, Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, title, description, isCompleted, completedDate, weekday, createdAt
-        case isRecurring, recurrenceFrequency, recurrenceEndDate, parentRecurringTaskId
+        case isRecurring, recurrenceFrequency, recurrenceEndDate, customRecurrenceDays, parentRecurringTaskId
         case scheduledTime, endTime, targetDate, reminderTime, tagId, location, isDeleted, completedDates, isFromCalendar
+        case calendarEventId, calendarIdentifier, calendarTitle, calendarSourceType
         case emailId, emailSubject, emailSenderName, emailSenderEmail, emailSnippet
         case emailTimestamp, emailBody, emailIsImportant, emailAiSummary
     }
@@ -397,6 +398,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         isRecurring = try container.decode(Bool.self, forKey: .isRecurring)
         recurrenceFrequency = try container.decodeIfPresent(RecurrenceFrequency.self, forKey: .recurrenceFrequency)
         recurrenceEndDate = try container.decodeIfPresent(Date.self, forKey: .recurrenceEndDate)
+        customRecurrenceDays = try container.decodeIfPresent([WeekDay].self, forKey: .customRecurrenceDays)
         parentRecurringTaskId = try container.decodeIfPresent(String.self, forKey: .parentRecurringTaskId)
         scheduledTime = try container.decodeIfPresent(Date.self, forKey: .scheduledTime)
         endTime = try container.decodeIfPresent(Date.self, forKey: .endTime)
@@ -417,6 +419,11 @@ struct TaskItem: Identifiable, Codable, Equatable {
 
         // Handle isFromCalendar - might be missing in old data, default to false
         isFromCalendar = try container.decodeIfPresent(Bool.self, forKey: .isFromCalendar) ?? false
+
+        calendarEventId = try container.decodeIfPresent(String.self, forKey: .calendarEventId)
+        calendarIdentifier = try container.decodeIfPresent(String.self, forKey: .calendarIdentifier)
+        calendarTitle = try container.decodeIfPresent(String.self, forKey: .calendarTitle)
+        calendarSourceType = try container.decodeIfPresent(String.self, forKey: .calendarSourceType)
 
         // Email fields
         emailId = try container.decodeIfPresent(String.self, forKey: .emailId)
@@ -445,6 +452,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         try container.encode(isRecurring, forKey: .isRecurring)
         try container.encodeIfPresent(recurrenceFrequency, forKey: .recurrenceFrequency)
         try container.encodeIfPresent(recurrenceEndDate, forKey: .recurrenceEndDate)
+        try container.encodeIfPresent(customRecurrenceDays, forKey: .customRecurrenceDays)
         try container.encodeIfPresent(parentRecurringTaskId, forKey: .parentRecurringTaskId)
         try container.encodeIfPresent(scheduledTime, forKey: .scheduledTime)
         try container.encodeIfPresent(endTime, forKey: .endTime)
@@ -455,6 +463,10 @@ struct TaskItem: Identifiable, Codable, Equatable {
         try container.encode(isDeleted, forKey: .isDeleted)
         try container.encode(completedDates, forKey: .completedDates)
         try container.encode(isFromCalendar, forKey: .isFromCalendar)
+        try container.encodeIfPresent(calendarEventId, forKey: .calendarEventId)
+        try container.encodeIfPresent(calendarIdentifier, forKey: .calendarIdentifier)
+        try container.encodeIfPresent(calendarTitle, forKey: .calendarTitle)
+        try container.encodeIfPresent(calendarSourceType, forKey: .calendarSourceType)
 
         try container.encodeIfPresent(emailId, forKey: .emailId)
         try container.encodeIfPresent(emailSubject, forKey: .emailSubject)
@@ -473,6 +485,21 @@ class TaskManager: ObservableObject {
     static let shared = TaskManager()
 
     @Published var tasks: [WeekDay: [TaskItem]] = [:]
+
+    struct TaskSyncDiagnostics {
+        let fetchedAt: Date
+        let googleEmail: String
+        let supabaseUserId: String?
+        let cachedUserId: String?
+        let rawSupabaseRowCount: Int
+        let parsedSupabaseRowCount: Int
+        let parseFailureCount: Int
+        let todoCountBeforePull: Int
+        let todoCountAfterPull: Int
+        let calendarEventCountAfterPull: Int
+        let localCacheRowCountAfterPull: Int
+        let errorMessage: String?
+    }
 
     // MARK: - Sync Status (Phase 3)
     @Published var isSyncing: Bool = false
@@ -524,6 +551,15 @@ class TaskManager: ObservableObject {
         // Don't load from Supabase here - wait for authentication!
         // The app will call loadTasksFromSupabase() after user authenticates
         // This ensures EncryptionManager.setupEncryption() is called FIRST
+    }
+
+    private func cachedTaskCount() -> Int {
+        guard let data = userDefaults.data(forKey: tasksKey),
+              let savedTasks = try? JSONDecoder().decode([TaskItem].self, from: data) else {
+            return 0
+        }
+
+        return savedTasks.count
     }
 
     /// Clears corrupted calendar cache BEFORE loading tasks
@@ -812,6 +848,7 @@ class TaskManager: ObservableObject {
                 endTime: task.endTime,
                 targetDate: newDate,
                 reminderTime: task.reminderTime,
+                location: task.location,
                 isRecurring: false,
                 recurrenceFrequency: nil,
                 parentRecurringTaskId: nil
@@ -826,6 +863,19 @@ class TaskManager: ObservableObject {
             finalTask.completedDates = task.completedDates
             finalTask.recurrenceEndDate = task.recurrenceEndDate
             finalTask.isFromCalendar = task.isFromCalendar
+            finalTask.calendarEventId = task.calendarEventId
+            finalTask.calendarIdentifier = task.calendarIdentifier
+            finalTask.calendarTitle = task.calendarTitle
+            finalTask.calendarSourceType = task.calendarSourceType
+            finalTask.emailId = task.emailId
+            finalTask.emailSubject = task.emailSubject
+            finalTask.emailSenderName = task.emailSenderName
+            finalTask.emailSenderEmail = task.emailSenderEmail
+            finalTask.emailSnippet = task.emailSnippet
+            finalTask.emailTimestamp = task.emailTimestamp
+            finalTask.emailBody = task.emailBody
+            finalTask.emailIsImportant = task.emailIsImportant
+            finalTask.emailAiSummary = task.emailAiSummary
 
             // Ensure the weekday array exists
             if tasks[newWeekday] == nil {
@@ -951,8 +1001,10 @@ class TaskManager: ObservableObject {
                     endTime: resolvedUpdatedTask.endTime,
                     targetDate: resolvedUpdatedTask.targetDate,
                     reminderTime: resolvedUpdatedTask.reminderTime,
+                    location: resolvedUpdatedTask.location,
                     isRecurring: resolvedUpdatedTask.isRecurring,
                     recurrenceFrequency: resolvedUpdatedTask.recurrenceFrequency,
+                    customRecurrenceDays: resolvedUpdatedTask.customRecurrenceDays,
                     parentRecurringTaskId: resolvedUpdatedTask.parentRecurringTaskId
                 )
                 var finalTaskCopy = newTask
@@ -965,6 +1017,10 @@ class TaskManager: ObservableObject {
                 finalTaskCopy.completedDates = resolvedUpdatedTask.completedDates
                 finalTaskCopy.recurrenceEndDate = resolvedUpdatedTask.recurrenceEndDate
                 finalTaskCopy.isFromCalendar = resolvedUpdatedTask.isFromCalendar
+                finalTaskCopy.calendarEventId = resolvedUpdatedTask.calendarEventId
+                finalTaskCopy.calendarIdentifier = resolvedUpdatedTask.calendarIdentifier
+                finalTaskCopy.calendarTitle = resolvedUpdatedTask.calendarTitle
+                finalTaskCopy.calendarSourceType = resolvedUpdatedTask.calendarSourceType
 
                 // CRITICAL: Preserve email data when moving task to different weekday
                 finalTaskCopy.emailId = resolvedUpdatedTask.emailId
@@ -1196,7 +1252,6 @@ class TaskManager: ObservableObject {
     }
 
     private func updateAllRecurringInstances(_ originalTask: TaskItem, with updatedTask: TaskItem) {
-
         var updatedTasks: [TaskItem] = []
 
         // Update all instances across all weekdays
@@ -1219,21 +1274,19 @@ class TaskManager: ObservableObject {
                 else if task.parentRecurringTaskId == originalTask.id {
                     var updatedInstance = task
                     updatedInstance.title = updatedTask.title
+                    updatedInstance.description = updatedTask.description
+                    updatedInstance.location = updatedTask.location
+                    updatedInstance.reminderTime = updatedTask.reminderTime
+                    updatedInstance.tagId = updatedTask.tagId
 
-                    // Update scheduled time while keeping the target date
-                    if let newScheduledTime = updatedTask.scheduledTime,
-                       let instanceTargetDate = task.targetDate {
-                        // Combine the new time with the existing instance date
-                        let calendar = Calendar.current
-                        let timeComponents = calendar.dateComponents([.hour, .minute], from: newScheduledTime)
-                        let updatedDateTime = calendar.date(bySettingHour: timeComponents.hour ?? 0,
-                                                          minute: timeComponents.minute ?? 0,
-                                                          second: 0,
-                                                          of: instanceTargetDate)
-                        updatedInstance.scheduledTime = updatedDateTime
-                    } else {
-                        updatedInstance.scheduledTime = updatedTask.scheduledTime
-                    }
+                    let instanceTargetDate = task.targetDate ?? task.createdAt
+                    let updatedStartTime = combinedDateTime(day: instanceTargetDate, timeSource: updatedTask.scheduledTime)
+                    updatedInstance.scheduledTime = updatedStartTime
+                    updatedInstance.endTime = overrideEndDateTime(
+                        from: updatedTask,
+                        occurrenceDate: instanceTargetDate,
+                        overrideStartTime: updatedStartTime
+                    )
 
                     tasks[weekday]?[index] = updatedInstance
                     updatedTasks.append(updatedInstance)
@@ -1311,15 +1364,27 @@ class TaskManager: ObservableObject {
             }
 
             if !existingInstanceExists {
-                let newInstance = TaskItem(
+                let instanceStartTime = combinedDateTime(day: currentDate, timeSource: task.scheduledTime)
+                let instanceEndTime = overrideEndDateTime(
+                    from: task,
+                    occurrenceDate: currentDate,
+                    overrideStartTime: instanceStartTime
+                )
+
+                var newInstance = TaskItem(
                     title: task.title,
                     weekday: newWeekday,
-                    scheduledTime: task.scheduledTime,
+                    description: task.description,
+                    scheduledTime: instanceStartTime,
+                    endTime: instanceEndTime,
                     targetDate: currentDate,
+                    reminderTime: task.reminderTime,
+                    location: task.location,
                     isRecurring: false,  // Instances are not recurring themselves
                     recurrenceFrequency: nil,
                     parentRecurringTaskId: task.id
                 )
+                newInstance.tagId = task.tagId
 
                 // Add to appropriate weekday
                 await MainActor.run {
@@ -1409,7 +1474,6 @@ class TaskManager: ObservableObject {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         dateFormatter.timeZone = calendar.timeZone // CRITICAL: Match calendar timezone to ensure consistent cache keys
-        let dateKey = dateFormatter.string(from: calendar.startOfDay(for: date))
 
         // TEMPORARILY DISABLED CACHE TO FIX SORTING ISSUE
         // if let cached = dateTaskCache[dateKey] {
@@ -2003,9 +2067,7 @@ class TaskManager: ObservableObject {
         // Log all recurring tasks with their completed dates before saving
         let recurringTasks = allTasks.filter { $0.isRecurring }
         if !recurringTasks.isEmpty {
-            for task in recurringTasks {
-                // Removed excessive logging
-            }
+            // Removed excessive logging
         }
 
         if let encoded = try? JSONEncoder().encode(allTasks) {
@@ -2176,6 +2238,7 @@ class TaskManager: ObservableObject {
 
                     self.tasks = tasksByWeekday
                     initializeEmptyDays()
+                    invalidateAllCaches()
 
                     // IMPORTANT: Save loaded tasks to local cache so they persist across rebuilds
                     // This ensures email attachments and all data are available even if Supabase is unreachable
@@ -2225,13 +2288,113 @@ class TaskManager: ObservableObject {
         await loadTasksFromSupabase()
 
         // Also sync iPhone calendar events to ensure they're displayed
-        await MainActor.run {
-            Task {
-                await syncCalendarEvents()
-            }
+        Task { @MainActor in
+            await syncCalendarEvents()
         }
 
         print("✅ Tasks refreshed from Supabase")
+    }
+
+    func forcePullTasksFromSupabaseWithDiagnostics() async -> TaskSyncDiagnostics {
+        let googleEmail = authManager.currentUser?.profile?.email ?? "No Google session"
+        let supabaseUserId = authManager.supabaseUser?.id.uuidString
+        let cachedUserId = UserDefaults.standard.string(forKey: "LastCachedUserId")
+        let beforeTodos = getFlattenedTasks().filter { !$0.id.hasPrefix("cal_") && !$0.isFromCalendar && $0.calendarEventId == nil }.count
+
+        guard authManager.isAuthenticated,
+              let userId = authManager.supabaseUser?.id else {
+            return TaskSyncDiagnostics(
+                fetchedAt: Date(),
+                googleEmail: googleEmail,
+                supabaseUserId: supabaseUserId,
+                cachedUserId: cachedUserId,
+                rawSupabaseRowCount: 0,
+                parsedSupabaseRowCount: 0,
+                parseFailureCount: 0,
+                todoCountBeforePull: beforeTodos,
+                todoCountAfterPull: beforeTodos,
+                calendarEventCountAfterPull: getFlattenedTasks().filter { $0.id.hasPrefix("cal_") || $0.isFromCalendar || $0.calendarEventId != nil }.count,
+                localCacheRowCountAfterPull: cachedTaskCount(),
+                errorMessage: "No authenticated Supabase session"
+            )
+        }
+
+        // Match the production fetch path: do not attempt a pull until the encryption key is ready.
+        var attempts = 0
+        while EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            attempts += 1
+        }
+
+        if !EncryptionManager.shared.isKeyInitialized {
+            return TaskSyncDiagnostics(
+                fetchedAt: Date(),
+                googleEmail: googleEmail,
+                supabaseUserId: supabaseUserId,
+                cachedUserId: cachedUserId,
+                rawSupabaseRowCount: 0,
+                parsedSupabaseRowCount: 0,
+                parseFailureCount: 0,
+                todoCountBeforePull: beforeTodos,
+                todoCountAfterPull: beforeTodos,
+                calendarEventCountAfterPull: getFlattenedTasks().filter { $0.id.hasPrefix("cal_") || $0.isFromCalendar || $0.calendarEventId != nil }.count,
+                localCacheRowCountAfterPull: cachedTaskCount(),
+                errorMessage: "Encryption key is not initialized"
+            )
+        }
+
+        var rawRowCount = 0
+        var parsedRowCount = 0
+        var parseFailureCount = 0
+        var fetchErrorMessage: String?
+
+        do {
+            let client = await supabaseManager.getPostgrestClient()
+            let response = try await client
+                .from("tasks")
+                .select("*")
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+
+            if let tasksArray = try? JSONSerialization.jsonObject(with: response.data, options: []) as? [[String: Any]] {
+                rawRowCount = tasksArray.count
+
+                for taskDict in tasksArray {
+                    if await parseTaskFromSupabase(taskDict) != nil {
+                        parsedRowCount += 1
+                    } else {
+                        parseFailureCount += 1
+                    }
+                }
+            } else {
+                fetchErrorMessage = "Supabase returned an unreadable tasks payload"
+            }
+        } catch {
+            fetchErrorMessage = error.localizedDescription
+        }
+
+        if fetchErrorMessage == nil {
+            await loadTasksFromSupabase()
+        }
+
+        let allTasks = getFlattenedTasks()
+        let afterCalendarCount = allTasks.filter { $0.id.hasPrefix("cal_") || $0.isFromCalendar || $0.calendarEventId != nil }.count
+        let afterTodoCount = allTasks.count - afterCalendarCount
+
+        return TaskSyncDiagnostics(
+            fetchedAt: Date(),
+            googleEmail: googleEmail,
+            supabaseUserId: supabaseUserId,
+            cachedUserId: cachedUserId,
+            rawSupabaseRowCount: rawRowCount,
+            parsedSupabaseRowCount: parsedRowCount,
+            parseFailureCount: parseFailureCount,
+            todoCountBeforePull: beforeTodos,
+            todoCountAfterPull: afterTodoCount,
+            calendarEventCountAfterPull: afterCalendarCount,
+            localCacheRowCountAfterPull: cachedTaskCount(),
+            errorMessage: fetchErrorMessage
+        )
     }
 
     private func parseTaskFromSupabase(_ taskDict: [String: Any]) async -> TaskItem? {
@@ -2328,6 +2491,10 @@ class TaskManager: ObservableObject {
 
         if let tagId = taskDict["tag_id"] as? String {
             taskItem.tagId = tagId
+        }
+
+        if let location = taskDict["location"] as? String {
+            taskItem.location = location
         }
 
         // Parse email attachment fields
@@ -2433,7 +2600,7 @@ class TaskManager: ObservableObject {
             let weekday = event.weekday
 
             // Only add if not already present (shouldn't happen, but safety check)
-            if let existingIndex = tasks[weekday]?.firstIndex(where: { $0.id == event.id }) {
+            if tasks[weekday]?.contains(where: { $0.id == event.id }) == true {
                 // Event already exists, skip
                 continue
             }
@@ -2496,11 +2663,6 @@ class TaskManager: ObservableObject {
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
             print("⚠️ Cannot update task in Supabase: User not authenticated")
-            return
-        }
-
-        guard authManager.isAuthenticated,
-              let userId = authManager.supabaseUser?.id else {
             return
         }
 
@@ -2582,6 +2744,12 @@ class TaskManager: ObservableObject {
             taskData["description"] = AnyJSON.string(description)
         } else {
             taskData["description"] = AnyJSON.null
+        }
+
+        if let location = task.location {
+            taskData["location"] = AnyJSON.string(location)
+        } else {
+            taskData["location"] = AnyJSON.null
         }
 
         if let completedDate = completedDate {
@@ -2798,6 +2966,7 @@ class TaskManager: ObservableObject {
         // Update the tasks array with decrypted versions
         await MainActor.run {
             self.tasks = decryptedTasks
+            self.invalidateAllCaches()
             self.saveTasks()
         }
     }
@@ -2808,10 +2977,8 @@ class TaskManager: ObservableObject {
         await retryFailedDeletions()
 
         // Also sync iPhone calendar events in the background
-        await MainActor.run {
-            Task {
-                await syncCalendarEvents()
-            }
+        Task { @MainActor in
+            await syncCalendarEvents()
         }
     }
 
@@ -3307,7 +3474,7 @@ class TaskManager: ObservableObject {
             // Use the same unique occurrence ID format as CalendarSyncService
             // For recurring events, we need to check by occurrence (eventIdentifier + timestamp)
             let occurrenceTimestamp = Int((event.startDate ?? Date()).timeIntervalSince1970)
-            let calendarEventId = "cal_\(event.eventIdentifier)_\(occurrenceTimestamp)"
+            let calendarEventId = "cal_\(event.eventIdentifier ?? "unknown")_\(occurrenceTimestamp)"
 
             // Check if this calendar event occurrence already exists by ID
             let existingTaskIndex = findTaskByEventId(calendarEventId)

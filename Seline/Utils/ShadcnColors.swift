@@ -5,12 +5,12 @@ extension Color {
     // Keeps previous light/dark structure while removing blue tint.
 
     // Light mode
-    static let wsLightBackground = Color(red: 0.961, green: 0.961, blue: 0.965) // #F5F5F6
+    static let wsLightBackground = Color.white // #FFFFFF
     static let wsLightSurface = Color.white // #FFFFFF
-    static let wsLightSectionCard = Color(red: 0.976, green: 0.976, blue: 0.980) // #F9F9FA
-    static let wsLightInnerSurface = Color(red: 0.945, green: 0.945, blue: 0.953) // #F1F1F3
-    static let wsLightChip = Color(red: 0.925, green: 0.929, blue: 0.937) // #ECEDEE
-    static let wsLightChipStrong = Color(red: 0.898, green: 0.902, blue: 0.914) // #E5E6E9
+    static let wsLightSectionCard = Color.white // #FFFFFF
+    static let wsLightInnerSurface = Color.white // #FFFFFF
+    static let wsLightChip = Color.white // #FFFFFF
+    static let wsLightChipStrong = Color.white // #FFFFFF
     static let wsLightBorder = Color(red: 0.890, green: 0.894, blue: 0.910) // #E3E4E8
     static let wsLightTextPrimary = Color(red: 0.102, green: 0.102, blue: 0.110) // #1A1A1C
     static let wsLightTextSecondary = Color(red: 0.400, green: 0.416, blue: 0.451) // #666A73
@@ -32,15 +32,15 @@ extension Color {
     }
 
     static func appSurface(_ colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : emailLightSurface
+        colorScheme == .dark ? Color.white.opacity(0.05) : .white
     }
 
     static func appSectionCard(_ colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : emailLightSectionCard
+        colorScheme == .dark ? Color.white.opacity(0.05) : .white
     }
 
     static func appInnerSurface(_ colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : emailLightSurface
+        colorScheme == .dark ? Color.white.opacity(0.06) : .white
     }
 
     static func appChip(_ colorScheme: ColorScheme) -> Color {
@@ -63,13 +63,28 @@ extension Color {
         colorScheme == .dark ? Color.white.opacity(0.7) : emailLightTextSecondary
     }
 
+    static func appMonochromeAccentFill(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.78) : Color.black.opacity(0.08)
+    }
+
+    static func appMonochromeAccentBorder(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.12)
+    }
+
+    static func appMonochromeAmbientTint(
+        _ colorScheme: ColorScheme,
+        lightOpacity: Double,
+        darkOpacity: Double
+    ) -> Color {
+        (colorScheme == .dark ? Color.white : Color.white)
+            .opacity(colorScheme == .dark ? darkOpacity : lightOpacity)
+    }
+
     // MARK: - Home Glass Tokens
     static let homeGlassAccent = Color(red: 0.98, green: 0.64, blue: 0.41)
 
     static func homeGlassBackground(_ colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark
-            ? Color(red: 0.039, green: 0.043, blue: 0.055)
-            : Color(red: 0.953, green: 0.949, blue: 0.941)
+        colorScheme == .dark ? .black : wsLightBackground
     }
 
     static func homeGlassCardTint(_ colorScheme: ColorScheme) -> Color {
@@ -81,32 +96,30 @@ extension Color {
     }
 
     static func homeGlassBorder(_ colorScheme: ColorScheme) -> Color {
-        appBorder(colorScheme)
+        colorScheme == .dark ? appBorder(colorScheme) : Color.black.opacity(0.045)
     }
 
     static func homeGlassInnerBorder(_ colorScheme: ColorScheme) -> Color {
-        appBorder(colorScheme)
+        colorScheme == .dark ? appBorder(colorScheme) : Color.black.opacity(0.035)
     }
 
     // MARK: - Email Glass Tokens
     static let emailGlassAccent = Color(red: 0.94, green: 0.62, blue: 0.40)
 
     static func emailGlassBackground(_ colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark
-            ? Color(red: 0.043, green: 0.047, blue: 0.059)
-            : Color(red: 0.956, green: 0.952, blue: 0.946)
+        colorScheme == .dark ? .black : wsLightBackground
     }
 
     static func emailGlassCardTint(_ colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.045) : Color.white.opacity(0.56)
+        colorScheme == .dark ? Color.white.opacity(0.045) : .white
     }
 
     static func emailGlassSectionTint(_ colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.038) : Color.white.opacity(0.48)
+        colorScheme == .dark ? Color.white.opacity(0.038) : .white
     }
 
     static func emailGlassInnerTint(_ colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.34)
+        colorScheme == .dark ? Color.white.opacity(0.07) : .white
     }
 
     static func emailGlassBorder(_ colorScheme: ColorScheme) -> Color {
@@ -254,14 +267,16 @@ extension View {
     func homeGlassCardStyle(
         colorScheme: ColorScheme,
         cornerRadius: CGFloat = 24,
-        highlightStrength: Double = 1
+        highlightStrength: Double = 1,
+        usesPureLightFill: Bool = false
     ) -> some View {
         self
             .background(
                 HomeGlassCardBackground(
                     colorScheme: colorScheme,
                     cornerRadius: cornerRadius,
-                    highlightStrength: highlightStrength
+                    highlightStrength: highlightStrength,
+                    usesPureLightFill: usesPureLightFill
                 )
             )
             .overlay(
@@ -525,45 +540,32 @@ struct HomeGlassCardBackground: View {
     let colorScheme: ColorScheme
     let cornerRadius: CGFloat
     let highlightStrength: Double
+    let usesPureLightFill: Bool
+
+    init(
+        colorScheme: ColorScheme,
+        cornerRadius: CGFloat,
+        highlightStrength: Double,
+        usesPureLightFill: Bool = false
+    ) {
+        self.colorScheme = colorScheme
+        self.cornerRadius = cornerRadius
+        self.highlightStrength = highlightStrength
+        self.usesPureLightFill = usesPureLightFill
+    }
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color.homeGlassCardTint(colorScheme))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: colorScheme == .dark
-                                ? [
-                                    Color.white.opacity(0.045),
-                                    Color.homeGlassAccent.opacity(0.018 * highlightStrength),
-                                    Color.clear
-                                ]
-                                : [
-                                    Color.white.opacity(0.82),
-                                    Color.homeGlassAccent.opacity(0.03 * highlightStrength),
-                                    Color.clear
-                                ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            )
-            .overlay(alignment: .topTrailing) {
-                Circle()
-                    .fill(Color.homeGlassAccent.opacity((colorScheme == .dark ? 0.06 : 0.07) * highlightStrength))
-                    .frame(width: 150, height: 150)
-                    .blur(radius: 18)
-                    .offset(x: 54, y: -40)
-            }
-            .overlay(alignment: .bottomLeading) {
-                Circle()
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.05 : 0.34))
-                    .frame(width: 170, height: 170)
-                    .blur(radius: 20)
-                    .offset(x: -18, y: 78)
-            }
+            .fill(baseFillColor)
     }
+
+    private var baseFillColor: Color {
+        if colorScheme == .light {
+            return usesPureLightFill ? .white : .white
+        }
+        return Color.homeGlassCardTint(colorScheme)
+    }
+
 }
 
 struct HomeGlassInnerSurface: View {
@@ -572,7 +574,7 @@ struct HomeGlassInnerSurface: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color.homeGlassInnerTint(colorScheme))
+            .fill(colorScheme == .dark ? Color.homeGlassInnerTint(colorScheme) : .white)
     }
 }
 
@@ -580,44 +582,8 @@ struct EmailGlassBackgroundLayer: View {
     let colorScheme: ColorScheme
 
     var body: some View {
-        ZStack {
-            Color.emailGlassBackground(colorScheme)
-
-            LinearGradient(
-                colors: colorScheme == .dark
-                    ? [
-                        Color.white.opacity(0.016),
-                        Color.emailGlassAccent.opacity(0.009),
-                        Color.clear
-                    ]
-                    : [
-                        Color.white.opacity(0.72),
-                        Color.emailGlassAccent.opacity(0.018),
-                        Color.clear
-                    ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Circle()
-                .fill(Color.white.opacity(colorScheme == .dark ? 0.07 : 0.72))
-                .frame(width: 320, height: 320)
-                .blur(radius: 40)
-                .offset(x: -128, y: -220)
-
-            Circle()
-                .fill(Color.emailGlassAccent.opacity(colorScheme == .dark ? 0.055 : 0.05))
-                .frame(width: 240, height: 240)
-                .blur(radius: 42)
-                .offset(x: 164, y: -238)
-
-            Circle()
-                .fill(Color.white.opacity(colorScheme == .dark ? 0.045 : 0.42))
-                .frame(width: 340, height: 340)
-                .blur(radius: 48)
-                .offset(x: 98, y: 348)
-        }
-        .ignoresSafeArea()
+        Color.emailGlassBackground(colorScheme)
+            .ignoresSafeArea()
     }
 }
 
@@ -629,45 +595,11 @@ struct EmailGlassCardBackground: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.ultraThinMaterial)
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(usesHeroHighlight ? Color.emailGlassCardTint(colorScheme) : Color.emailGlassSectionTint(colorScheme))
+            .fill(
+                colorScheme == .dark
+                    ? (usesHeroHighlight ? Color.emailGlassCardTint(colorScheme) : Color.emailGlassSectionTint(colorScheme))
+                    : .white
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: colorScheme == .dark
-                                ? [
-                                    Color.white.opacity(usesHeroHighlight ? 0.055 : 0.035),
-                                    Color.emailGlassAccent.opacity((usesHeroHighlight ? 0.06 : 0.03) * highlightStrength),
-                                    Color.clear
-                                ]
-                                : [
-                                    Color.white.opacity(usesHeroHighlight ? 0.78 : 0.68),
-                                    Color.emailGlassAccent.opacity((usesHeroHighlight ? 0.08 : 0.035) * highlightStrength),
-                                    Color.clear
-                                ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            )
-            .overlay(alignment: .topTrailing) {
-                Circle()
-                    .fill(Color.emailGlassAccent.opacity(colorScheme == .dark ? 0.08 : (usesHeroHighlight ? 0.09 : 0.05)))
-                    .frame(width: usesHeroHighlight ? 180 : 140, height: usesHeroHighlight ? 180 : 140)
-                    .blur(radius: 10)
-                    .offset(x: 54, y: -48)
-            }
-            .overlay(alignment: .bottomLeading) {
-                Circle()
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.04 : 0.34))
-                    .frame(width: 210, height: 210)
-                    .blur(radius: 12)
-                    .offset(x: -20, y: 84)
-            }
     }
 }
 
@@ -677,11 +609,7 @@ struct EmailGlassInnerSurface: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.ultraThinMaterial)
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.emailGlassInnerTint(colorScheme))
-            )
+            .fill(colorScheme == .dark ? Color.emailGlassInnerTint(colorScheme) : .white)
     }
 }
 
@@ -698,45 +626,9 @@ struct AppAmbientBackgroundLayer: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.appBackground(colorScheme)
-
-            LinearGradient(
-                colors: colorScheme == .dark
-                    ? [
-                        Color.white.opacity(0.018),
-                        Color.homeGlassAccent.opacity(0.012),
-                        Color.clear
-                    ]
-                    : [
-                        Color.white.opacity(0.74),
-                        Color.homeGlassAccent.opacity(0.025),
-                        Color.clear
-                    ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Circle()
-                .fill(Color.white.opacity(colorScheme == .dark ? 0.07 : 0.7))
-                .frame(width: 320, height: 320)
-                .blur(radius: 42)
-                .offset(variant.glowOffset)
-
-            Circle()
-                .fill(Color.homeGlassAccent.opacity(colorScheme == .dark ? 0.08 : 0.085))
-                .frame(width: 260, height: 260)
-                .blur(radius: 44)
-                .offset(variant.accentOffset)
-
-            Circle()
-                .fill(Color.white.opacity(colorScheme == .dark ? 0.04 : 0.38))
-                .frame(width: 340, height: 340)
-                .blur(radius: 50)
-                .offset(variant.tertiaryOffset)
-        }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
+        Color.appBackground(colorScheme)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
     }
 }
 
@@ -749,40 +641,6 @@ struct AppAmbientCardBackground: View {
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(Color.appSurface(colorScheme))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: colorScheme == .dark
-                                ? [
-                                    Color.white.opacity(0.055),
-                                    Color.homeGlassAccent.opacity(0.03 * highlightStrength),
-                                    Color.clear
-                                ]
-                                : [
-                                    Color.white.opacity(0.82),
-                                    Color.homeGlassAccent.opacity(0.07 * highlightStrength),
-                                    Color.clear
-                                ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            )
-            .overlay(alignment: variant.cardAccentAlignment) {
-                Circle()
-                    .fill(Color.homeGlassAccent.opacity(colorScheme == .dark ? 0.09 : 0.11))
-                    .frame(width: 170, height: 170)
-                    .blur(radius: 12)
-                    .offset(variant.cardAccentOffset)
-            }
-            .overlay(alignment: variant.cardGlowAlignment) {
-                Circle()
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.04 : 0.36))
-                    .frame(width: 190, height: 190)
-                    .blur(radius: 14)
-                    .offset(variant.cardGlowOffset)
-            }
     }
 }
 

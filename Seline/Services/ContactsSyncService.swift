@@ -23,6 +23,8 @@ class ContactsSyncService {
         switch status {
         case .authorized:
             return true
+        case .limited:
+            return true
         case .denied, .restricted:
             return false
         case .notDetermined:

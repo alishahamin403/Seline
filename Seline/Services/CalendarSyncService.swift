@@ -151,9 +151,9 @@ class CalendarSyncService {
         let status = EKEventStore.authorizationStatus(for: .event)
 
         switch status {
-        case .authorized:
+        case .authorized, .fullAccess:
             return true
-        case .denied, .restricted:
+        case .denied, .restricted, .writeOnly:
             return false
         case .notDetermined:
             do {
@@ -354,7 +354,6 @@ class CalendarSyncService {
     /// - Parameter event: The EventKit event to convert (READ-ONLY)
     /// - Returns: A TaskItem representing the calendar event
     func convertEKEventToTaskItem(_ event: EKEvent) -> TaskItem {
-        let calendar = Calendar.current
         let startDate = event.startDate ?? Date()
         let endDate = event.endDate ?? startDate
 
@@ -383,7 +382,7 @@ class CalendarSyncService {
             scheduledTime: event.isAllDay ? nil : startDate,
             endTime: endDate,
             targetDate: startDate,
-            reminderTime: .none, // Let user set their own reminders
+            reminderTime: ReminderTime.none, // Let user set their own reminders
             location: event.location, // Map location directly
             isRecurring: event.hasRecurrenceRules,
             recurrenceFrequency: convertEKRecurrenceToFrequency(event.recurrenceRules)
@@ -405,7 +404,7 @@ class CalendarSyncService {
         // For recurring events, EventKit returns multiple instances with the SAME eventIdentifier
         // We need to make each occurrence unique by including the start date
         let occurrenceTimestamp = Int(startDate.timeIntervalSince1970)
-        taskItem.id = "cal_\(event.eventIdentifier)_\(occurrenceTimestamp)"
+        taskItem.id = "cal_\(event.eventIdentifier ?? "unknown")_\(occurrenceTimestamp)"
 
         return taskItem
     }

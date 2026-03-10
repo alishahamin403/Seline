@@ -249,8 +249,6 @@ class LocationsManager: ObservableObject {
     private let placesKey = "SavedPlaces"
     private let userFoldersKey = "seline_user_folders"
     private let searchHistoryKey = "MapsSearchHistory"
-    private let authManager = AuthenticationManager.shared
-
     private init() {
         loadUserFolders()
         loadSavedPlaces()
@@ -1072,8 +1070,8 @@ class LocationsManager: ObservableObject {
     }
 
     func loadPlacesFromSupabase() async {
-        let isAuthenticated = await MainActor.run { authManager.isAuthenticated }
-        let userId = await MainActor.run { authManager.supabaseUser?.id }
+        let isAuthenticated = await MainActor.run { AuthenticationManager.shared.isAuthenticated }
+        let userId = await MainActor.run { AuthenticationManager.shared.supabaseUser?.id }
 
         guard isAuthenticated, let userId = userId else {
             print("User not authenticated, loading local places only")
@@ -1121,14 +1119,15 @@ class LocationsManager: ObservableObject {
                 migratedPlaces[i].province = province
                 migratedPlaces[i].country = country
             }
+            let migratedPlacesSnapshot = migratedPlaces
 
             await MainActor.run {
-                if !migratedPlaces.isEmpty {
-                    self.savedPlaces = migratedPlaces
-                    self.categories = Array(Set(migratedPlaces.map { $0.category }).union(userFolders)).sorted()
-                    self.countries = Set(migratedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
-                    self.provinces = Set(migratedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
-                    self.cities = Set(migratedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
+                if !migratedPlacesSnapshot.isEmpty {
+                    self.savedPlaces = migratedPlacesSnapshot
+                    self.categories = Array(Set(migratedPlacesSnapshot.map { $0.category }).union(userFolders)).sorted()
+                    self.countries = Set(migratedPlacesSnapshot.compactMap { $0.country }.filter { !$0.isEmpty })
+                    self.provinces = Set(migratedPlacesSnapshot.compactMap { $0.province }.filter { !$0.isEmpty })
+                    self.cities = Set(migratedPlacesSnapshot.compactMap { $0.city }.filter { !$0.isEmpty })
                     savePlacesToStorage()
                 } else if response.isEmpty {
                     print("ℹ️ No places in Supabase, keeping \(self.savedPlaces.count) local places")

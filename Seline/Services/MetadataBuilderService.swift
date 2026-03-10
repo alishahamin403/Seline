@@ -277,7 +277,7 @@ class MetadataBuilderService {
 
             // Fetch visit stats from geofence tracking data
             var visitCount: Int? = nil
-            var totalVisitDuration: TimeInterval? = nil
+            let totalVisitDuration: TimeInterval? = nil
             var averageVisitDuration: TimeInterval? = nil
             var lastVisited: Date? = nil
             var isFrequent: Bool? = nil

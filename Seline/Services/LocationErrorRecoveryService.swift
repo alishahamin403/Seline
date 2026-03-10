@@ -141,6 +141,12 @@ class LocationErrorRecoveryService {
                 print("🔄 Deduplication: Reduced from \(incompleteVisits.count) to \(dedupedVisits.count) visits")
             }
 
+            let bestMatchPlaceId = geofenceManager.resolveBestMatchPlace(for: currentLocation, in: savedPlaces)?.id
+            if let bestMatchPlaceId,
+               let bestPlace = savedPlaces.first(where: { $0.id == bestMatchPlaceId }) {
+                print("🎯 Recovery best-match location: \(bestPlace.displayName)")
+            }
+
             var restoredCount = 0
             var closedCount = 0
 
@@ -167,10 +173,16 @@ class LocationErrorRecoveryService {
 
                 // Decision logic:
                 if distance <= radius {
-                    // User is STILL at location - restore visit
-                    print("   ✅ RESTORING: User still at location")
-                    geofenceManager.activeVisits[visit.savedPlaceId] = visit
-                    restoredCount += 1
+                    // Only restore the best matching overlapping visit to enforce single active location.
+                    if visit.savedPlaceId == bestMatchPlaceId && restoredCount == 0 {
+                        print("   ✅ RESTORING: Best-match active visit")
+                        geofenceManager.updateActiveVisit(visit, for: visit.savedPlaceId)
+                        restoredCount += 1
+                    } else {
+                        print("   🗑️ CLOSING: Inside overlapping geofence but not best match")
+                        await closeVisitInSupabase(visit)
+                        closedCount += 1
+                    }
                 } else if hoursSinceEntry >= 12 {
                     // Visit is very old - definitely close it
                     print("   🗑️ CLOSING: Visit too old (>12h)")
@@ -429,7 +441,7 @@ class LocationErrorRecoveryService {
                 }
 
                 // Remove from active visits
-                geofenceManager.activeVisits.removeValue(forKey: staleVisits[i].savedPlaceId)
+                geofenceManager.removeActiveVisit(for: staleVisits[i].savedPlaceId)
 
                 print("🧹 Closed stale visit: \(staleVisits[i].id.uuidString)")
             }
@@ -470,7 +482,7 @@ class LocationErrorRecoveryService {
         }
 
         // Step 2: Update in-memory state
-        geofenceManager.activeVisits[visit.savedPlaceId] = mergedVisit
+        geofenceManager.updateActiveVisit(mergedVisit, for: visit.savedPlaceId)
         sessionManager.addVisitToSession(sessionId, visitRecord: mergedVisit)
 
         print("✅ Atomic merge complete: \(visit.id.uuidString)")
@@ -572,7 +584,7 @@ class LocationErrorRecoveryService {
 
         // AUTO-DELETE: Delete visits under 2 minutes instead of updating them
         // Only check if visit is complete (has exit_time and duration)
-        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
+        if visit.exitTime != nil, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
             print("🗑️ Auto-deleting short visit in ErrorRecovery instead of updating: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
             await deleteVisitFromSupabase(visit)
             return
@@ -627,13 +639,13 @@ class LocationErrorRecoveryService {
     }
 
     private func saveVisitToSupabase(_ visit: LocationVisitRecord) async {
-        guard let user = SupabaseManager.shared.getCurrentUser() else {
+        guard SupabaseManager.shared.getCurrentUser() != nil else {
             print("⚠️ No user")
             return
         }
 
         // CRITICAL: Check if visit spans midnight BEFORE saving
-        if let exitTime = visit.exitTime, visit.spansMidnight() {
+        if visit.exitTime != nil, visit.spansMidnight() {
             print("🌙 MIDNIGHT SPLIT in ErrorRecovery saveVisitToSupabase: Visit spans midnight, splitting before save")
             let visitsToSave = visit.splitAtMidnightIfNeeded()
             
@@ -659,7 +671,7 @@ class LocationErrorRecoveryService {
 
         // AUTO-DELETE: Skip saving visits under 2 minutes (likely false positives)
         // Only check if visit is complete (has exit_time and duration)
-        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
+        if visit.exitTime != nil, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
             print("🗑️ Skipping save for short visit in ErrorRecovery: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
             return
         }
@@ -789,7 +801,7 @@ class LocationErrorRecoveryService {
                 
                 for visit in sortedVisits {
                     // Skip visits that don't have an exit time (still active)
-                    guard let exitTime = visit.exitTime else {
+                    guard visit.exitTime != nil else {
                         // If we have a chain, save it first
                         if currentChain.count > 1 {
                             mergeChains.append(currentChain)

@@ -428,8 +428,6 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - Private Methods
-    
     private func fetchUserProfilePicture() async {
         do {
             if let picUrl = try await GmailAPIClient.shared.fetchCurrentUserProfilePicture() {

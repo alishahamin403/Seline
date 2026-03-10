@@ -168,20 +168,24 @@ struct SelineWidgetEntryView: View {
     @ViewBuilder
     var body: some View {
         if widgetFamily == .systemSmall {
-            smallWidgetView
-                .containerBackground(for: .widget) {
-                    widgetBackgroundColor
-                }
+            widgetContainerBackground(smallWidgetView)
         } else if widgetFamily == .systemMedium {
-            mediumWidgetView
-                .containerBackground(for: .widget) {
-                    widgetBackgroundColor
-                }
+            widgetContainerBackground(mediumWidgetView)
         } else if widgetFamily == .systemLarge {
-            largeWidgetView
+            widgetContainerBackground(largeWidgetView)
+        }
+    }
+
+    @ViewBuilder
+    private func widgetContainerBackground<Content: View>(_ content: Content) -> some View {
+        if #available(iOSApplicationExtension 17.0, *) {
+            content
                 .containerBackground(for: .widget) {
                     widgetBackgroundColor
                 }
+        } else {
+            content
+                .background(widgetBackgroundColor)
         }
     }
 

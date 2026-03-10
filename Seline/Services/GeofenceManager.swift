@@ -3,6 +3,14 @@ import CoreLocation
 import PostgREST
 import WidgetKit
 
+private extension NSLock {
+    func withCriticalRegion<T>(_ body: () -> T) -> T {
+        lock()
+        defer { unlock() }
+        return body()
+    }
+}
+
 // MARK: - LocationVisitRecord Model
 
 struct LocationVisitRecord: Codable, Identifiable {
@@ -237,6 +245,10 @@ class GeofenceManager: NSObject, ObservableObject {
     // Used to re-evaluate which 20 locations to monitor as user moves around
     private var lastGeofenceUpdateLocation: CLLocation?
     private let geofenceUpdateThreshold: CLLocationDistance = 10000 // 10km - re-evaluate when user moves this far
+    private var isLaunchRecoveryInProgress = false
+    private var lastLaunchRecoveryCompletedAt: Date?
+    private let launchRecoveryCooldown: TimeInterval = 20
+    private let launchRecoveryLock = NSLock()
 
     private let notificationService = NotificationService.shared
 
@@ -250,24 +262,87 @@ class GeofenceManager: NSObject, ObservableObject {
 
     /// Thread-safe method to update an active visit
     func updateActiveVisit(_ visit: LocationVisitRecord, for placeId: UUID) {
-        activeVisitsLock.lock()
-        activeVisits[placeId] = visit
-        activeVisitsLock.unlock()
+        activeVisitsLock.withCriticalRegion {
+            activeVisits[placeId] = visit
+        }
     }
 
     /// Thread-safe method to remove an active visit
     func removeActiveVisit(for placeId: UUID) {
-        activeVisitsLock.lock()
-        activeVisits.removeValue(forKey: placeId)
-        activeVisitsLock.unlock()
+        activeVisitsLock.withCriticalRegion {
+            activeVisits.removeValue(forKey: placeId)
+        }
     }
 
     /// Thread-safe method to get an active visit
     func getActiveVisit(for placeId: UUID) -> LocationVisitRecord? {
-        activeVisitsLock.lock()
-        let visit = activeVisits[placeId]
-        activeVisitsLock.unlock()
-        return visit
+        activeVisitsLock.withCriticalRegion {
+            activeVisits[placeId]
+        }
+    }
+
+    /// Thread-safe snapshot of all active visits
+    func getActiveVisitsSnapshot() -> [UUID: LocationVisitRecord] {
+        activeVisitsLock.withCriticalRegion {
+            activeVisits
+        }
+    }
+
+    // MARK: - Shared Place Matching
+
+    private struct PlaceMatch {
+        let place: SavedPlace
+        let distance: CLLocationDistance
+        let radius: CLLocationDistance
+        let confidenceScore: Double
+        let penetrationRatio: Double
+    }
+
+    /// Returns the best matching place for a coordinate using the same scoring
+    /// as geofence entry handling (confidence first, distance as tie-breaker).
+    func resolveBestMatchPlace(for currentLocation: CLLocation, in places: [SavedPlace]) -> SavedPlace? {
+        sortedPlaceMatches(for: currentLocation, in: places).first?.place
+    }
+
+    /// Returns the nearest distance to any saved place, regardless of geofence inclusion.
+    func resolveNearestDistance(for currentLocation: CLLocation, in places: [SavedPlace]) -> CLLocationDistance? {
+        guard !places.isEmpty else { return nil }
+        return places
+            .map { place in
+                let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+                return currentLocation.distance(from: placeLocation)
+            }
+            .min()
+    }
+
+    private func sortedPlaceMatches(for currentLocation: CLLocation, in places: [SavedPlace]) -> [PlaceMatch] {
+        let matches = places.compactMap { place -> PlaceMatch? in
+            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+            let distance = currentLocation.distance(from: placeLocation)
+            let radius = GeofenceRadiusManager.shared.getRadius(for: place)
+
+            guard distance <= radius else { return nil }
+
+            // 1.0 = center, 0.0 = edge of geofence
+            let penetrationRatio = max(0, 1.0 - (distance / radius))
+            // Match score used by geofence entry logic.
+            let confidenceScore = pow(penetrationRatio, 2)
+
+            return PlaceMatch(
+                place: place,
+                distance: distance,
+                radius: radius,
+                confidenceScore: confidenceScore,
+                penetrationRatio: penetrationRatio
+            )
+        }
+
+        return matches.sorted { match1, match2 in
+            if abs(match1.confidenceScore - match2.confidenceScore) > 0.1 {
+                return match1.confidenceScore > match2.confidenceScore
+            }
+            return match1.distance < match2.distance
+        }
     }
 
     /// Handle geofence entry from SharedLocationManager
@@ -520,7 +595,7 @@ class GeofenceManager: NSObject, ObservableObject {
         _ manager: CLLocationManager,
         didEnterRegion region: CLRegion
     ) {
-        guard let circularRegion = region as? CLCircularRegion else { return }
+        guard region is CLCircularRegion else { return }
 
         Task { @MainActor in
             print("\n✅ ===== GEOFENCE ENTRY EVENT FIRED =====")
@@ -539,9 +614,9 @@ class GeofenceManager: NSObject, ObservableObject {
 
             // CRITICAL: Check if we already have an active visit for this place
             // This prevents duplicate visit creation and duplicate notifications
-            activeVisitsLock.lock()
-            let hasActiveVisit = self.activeVisits[placeId] != nil
-            activeVisitsLock.unlock()
+            let hasActiveVisit = activeVisitsLock.withCriticalRegion {
+                self.activeVisits[placeId] != nil
+            }
             
             if hasActiveVisit {
                 print("ℹ️ Active visit already exists for place: \(placeId), skipping duplicate entry")
@@ -617,64 +692,15 @@ class GeofenceManager: NSObject, ObservableObject {
             // A small store you're clearly inside (10m from center, 60m radius = 83% confidence)
             // beats a large mall where you're near edge (400m from center, 500m radius = 20% confidence)
             let allPlaces = LocationsManager.shared.savedPlaces
-            
-            struct PlaceMatch {
-                let place: SavedPlace
-                let distance: CLLocationDistance
-                let radius: CLLocationDistance
-                let confidenceScore: Double // Higher = better match (1.0 = at center, 0.0 = at edge)
-                let penetrationRatio: Double // How deep inside the geofence (0.0 = edge, 1.0 = center)
-            }
-            
-            var nearbyPlaces: [PlaceMatch] = []
 
-            for place in allPlaces {
-                let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
-                let distance = currentLocation.distance(from: placeLocation)
-                let radius = GeofenceRadiusManager.shared.getRadius(for: place)
-
-                // Check if we're within this place's geofence
-                if distance <= radius {
-                    // Calculate how deep inside the geofence we are
-                    // penetrationRatio: 1.0 = at center, 0.0 = at edge
-                    let penetrationRatio = 1.0 - (distance / radius)
-                    
-                    // Calculate confidence score
-                    // Weight formula: penetration² gives more weight to being near center
-                    // Small stores with tight placement score higher
-                    let confidenceScore = pow(penetrationRatio, 2)
-                    
-                    nearbyPlaces.append(PlaceMatch(
-                        place: place,
-                        distance: distance,
-                        radius: radius,
-                        confidenceScore: confidenceScore,
-                        penetrationRatio: penetrationRatio
-                    ))
-                }
-            }
-
-            // If no places are nearby (shouldn't happen since geofence triggered), bail out
-            guard !nearbyPlaces.isEmpty else {
+            let sortedMatches = sortedPlaceMatches(for: currentLocation, in: allPlaces)
+            guard let bestMatch = sortedMatches.first else {
                 print("⚠️ No nearby places found despite geofence entry - GPS drift?")
                 return
             }
 
-            // Sort by confidence score (highest first), then by distance (closest first) as tiebreaker
-            let sortedMatches = nearbyPlaces.sorted { match1, match2 in
-                if abs(match1.confidenceScore - match2.confidenceScore) > 0.1 {
-                    // Significant confidence difference - use confidence
-                    return match1.confidenceScore > match2.confidenceScore
-                } else {
-                    // Similar confidence - prefer closer distance
-                    return match1.distance < match2.distance
-                }
-            }
-            
-            let bestMatch = sortedMatches.first!
-
             // Log all nearby places for debugging
-            if nearbyPlaces.count > 1 {
+            if sortedMatches.count > 1 {
                 print("\n🎯 BEST-MATCH SELECTION (Multiple overlapping geofences detected)")
                 print("🎯 Using weighted confidence scoring (higher = better match)")
                 print("🎯 Nearby places within geofence:")
@@ -702,9 +728,9 @@ class GeofenceManager: NSObject, ObservableObject {
             // Check if we already have an active visit for this location
             // This prevents duplicate sessions if geofence is re-triggered while user is still in location
             // THREAD SAFETY: Use lock to prevent race conditions during simultaneous entry/exit
-            activeVisitsLock.lock()
-            let hasExistingVisit = self.activeVisits[placeId] != nil
-            activeVisitsLock.unlock()
+            let hasExistingVisit = activeVisitsLock.withCriticalRegion {
+                self.activeVisits[placeId] != nil
+            }
 
             if hasExistingVisit {
                 print("ℹ️ Active visit already exists for place: \(placeId), skipping duplicate entry")
@@ -751,18 +777,18 @@ class GeofenceManager: NSObject, ObservableObject {
 
             // SOLUTION 2: Close any existing active visits (in-memory) before starting new one
             // CRITICAL: Only ONE visit can be active at any time
-            activeVisitsLock.lock()
-            let existingActiveVisits = self.activeVisits.filter { $0.key != placeId }
-            activeVisitsLock.unlock()
+            let existingActiveVisits = activeVisitsLock.withCriticalRegion {
+                self.activeVisits.filter { $0.key != placeId }
+            }
 
             if !existingActiveVisits.isEmpty {
                 print("⚠️ CLOSING \(existingActiveVisits.count) existing in-memory visit(s) before new entry")
                 for (existingPlaceId, var existingVisit) in existingActiveVisits {
                     existingVisit.recordExit(exitTime: Date())
 
-                    activeVisitsLock.lock()
-                    self.activeVisits.removeValue(forKey: existingPlaceId)
-                    activeVisitsLock.unlock()
+                    activeVisitsLock.withCriticalRegion {
+                        self.activeVisits.removeValue(forKey: existingPlaceId)
+                    }
 
                     // Update in Supabase
                     await self.updateVisitInSupabase(existingVisit)
@@ -786,9 +812,9 @@ class GeofenceManager: NSObject, ObservableObject {
                     await LocationErrorRecoveryService.shared.autoCloseUnresolvedVisit(unresolvedVisit)
 
                     // Remove from activeVisits if it's there (with lock protection)
-                    activeVisitsLock.lock()
-                    self.activeVisits.removeValue(forKey: unresolvedVisit.savedPlaceId)
-                    activeVisitsLock.unlock()
+                    activeVisitsLock.withCriticalRegion {
+                        self.activeVisits.removeValue(forKey: unresolvedVisit.savedPlaceId)
+                    }
 
                     // Invalidate cache for the location that was auto-closed
                     LocationVisitAnalytics.shared.invalidateCache(for: unresolvedVisit.savedPlaceId)
@@ -799,9 +825,9 @@ class GeofenceManager: NSObject, ObservableObject {
             if let existingVisit = await self.findOpenVisitInSupabase(for: placeId, userId: userId),
                existingVisit.exitTime == nil {
                 print("ℹ️ Found existing open visit for place \(placeId), restoring instead of creating duplicate")
-                activeVisitsLock.lock()
-                self.activeVisits[placeId] = existingVisit
-                activeVisitsLock.unlock()
+                activeVisitsLock.withCriticalRegion {
+                    self.activeVisits[placeId] = existingVisit
+                }
                 return
             }
 
@@ -850,12 +876,12 @@ class GeofenceManager: NSObject, ObservableObject {
                 visit.id = result.visit_id
 
                 // Update active visits cache
-                activeVisitsLock.lock()
-                self.activeVisits[placeId] = visit
-                activeVisitsLock.unlock()
+                activeVisitsLock.withCriticalRegion {
+                    self.activeVisits[placeId] = visit
+                }
 
                 // Create session
-                LocationSessionManager.shared.createSession(for: placeId, userId: userId)
+                _ = LocationSessionManager.shared.createSession(for: placeId, userId: userId)
 
                 print("📝 Tracking visit for place: \(placeId)")
                 print("📝 Session: \(sessionId.uuidString)")
@@ -873,12 +899,13 @@ class GeofenceManager: NSObject, ObservableObject {
                 // Send arrival notification (only for newly created visits, not merged ones)
                 if result.action == "created" {
                     if let place = allPlaces.first(where: { $0.id == placeId }) {
-                        notificationTrackingLock.lock()
-                        let alreadyNotified = notifiedVisitSessions.contains(sessionId)
-                        if !alreadyNotified {
-                            notifiedVisitSessions.insert(sessionId)
+                        let alreadyNotified = notificationTrackingLock.withCriticalRegion {
+                            let alreadyNotified = notifiedVisitSessions.contains(sessionId)
+                            if !alreadyNotified {
+                                notifiedVisitSessions.insert(sessionId)
+                            }
+                            return alreadyNotified
                         }
-                        notificationTrackingLock.unlock()
 
                         if !alreadyNotified {
                             Task {
@@ -900,9 +927,9 @@ class GeofenceManager: NSObject, ObservableObject {
                     mergeReason: nil
                 )
 
-                activeVisitsLock.lock()
-                self.activeVisits[placeId] = visit
-                activeVisitsLock.unlock()
+                activeVisitsLock.withCriticalRegion {
+                    self.activeVisits[placeId] = visit
+                }
 
                 print("⚠️ Using local tracking only due to database error")
             }
@@ -922,7 +949,7 @@ class GeofenceManager: NSObject, ObservableObject {
         _ manager: CLLocationManager,
         didExitRegion region: CLRegion
     ) {
-        guard let circularRegion = region as? CLCircularRegion else { return }
+        guard region is CLCircularRegion else { return }
 
         Task { @MainActor in
             print("\n⛔️ ===== GEOFENCE EXIT EVENT FIRED =====")
@@ -944,18 +971,18 @@ class GeofenceManager: NSObject, ObservableObject {
 
             // First, check if we have an active visit in memory
             // THREAD SAFETY: Use lock to prevent race conditions during simultaneous entry/exit
-            activeVisitsLock.lock()
-            let visit = self.activeVisits.removeValue(forKey: placeId)
-            activeVisitsLock.unlock()
+            let visit = activeVisitsLock.withCriticalRegion {
+                self.activeVisits.removeValue(forKey: placeId)
+            }
 
             if var visit = visit {
                 visit.recordExit(exitTime: Date())
 
                 // Clean up notification tracking for this visit session
                 if let sessionId = visit.sessionId {
-                    notificationTrackingLock.lock()
-                    notifiedVisitSessions.remove(sessionId)
-                    notificationTrackingLock.unlock()
+                    notificationTrackingLock.withCriticalRegion {
+                        notifiedVisitSessions.remove(sessionId)
+                    }
                     print("🧹 Cleaned up notification tracking for session: \(sessionId)")
                 }
 
@@ -1124,9 +1151,9 @@ class GeofenceManager: NSObject, ObservableObject {
         }
 
         // Check if we already have an active visit (shouldn't happen, but safety check)
-        activeVisitsLock.lock()
-        let hasExistingVisit = self.activeVisits[placeId] != nil
-        activeVisitsLock.unlock()
+        let hasExistingVisit = activeVisitsLock.withCriticalRegion {
+            self.activeVisits[placeId] != nil
+        }
 
         if hasExistingVisit {
             print("ℹ️ Active visit already exists for place: \(placeId), skipping")
@@ -1134,18 +1161,18 @@ class GeofenceManager: NSObject, ObservableObject {
         }
 
         // Close any existing active visits before starting new one
-        activeVisitsLock.lock()
-        let existingActiveVisits = self.activeVisits.filter { $0.key != placeId }
-        activeVisitsLock.unlock()
+        let existingActiveVisits = activeVisitsLock.withCriticalRegion {
+            self.activeVisits.filter { $0.key != placeId }
+        }
 
         if !existingActiveVisits.isEmpty {
             print("⚠️ CLOSING \(existingActiveVisits.count) existing visit(s) before new entry")
             for (existingPlaceId, var existingVisit) in existingActiveVisits {
                 existingVisit.recordExit(exitTime: Date())
 
-                activeVisitsLock.lock()
-                self.activeVisits.removeValue(forKey: existingPlaceId)
-                activeVisitsLock.unlock()
+                activeVisitsLock.withCriticalRegion {
+                    self.activeVisits.removeValue(forKey: existingPlaceId)
+                }
 
                 await self.updateVisitInSupabase(existingVisit)
                 LocationVisitAnalytics.shared.invalidateCache(for: existingPlaceId)
@@ -1210,11 +1237,11 @@ class GeofenceManager: NSObject, ObservableObject {
                     mergeReason: nil
                 )
 
-                activeVisitsLock.lock()
-                self.activeVisits[placeId] = visit
-                activeVisitsLock.unlock()
+                activeVisitsLock.withCriticalRegion {
+                    self.activeVisits[placeId] = visit
+                }
 
-                LocationSessionManager.shared.createSession(for: placeId, userId: userId)
+                _ = LocationSessionManager.shared.createSession(for: placeId, userId: userId)
                 
                 // CRITICAL: Use unified cache invalidation to keep all views in sync
                 LocationVisitAnalytics.shared.invalidateAllVisitCaches()
@@ -1450,6 +1477,29 @@ class GeofenceManager: NSObject, ObservableObject {
     /// Called on app startup to resume tracking
     /// NEW: Delegates to LocationErrorRecoveryService for unified recovery handling
     func loadIncompleteVisitsFromSupabase() async {
+        let shouldProceed = launchRecoveryLock.withCriticalRegion { () -> Bool in
+            if isLaunchRecoveryInProgress {
+                return false
+            }
+            if let lastRun = lastLaunchRecoveryCompletedAt,
+               Date().timeIntervalSince(lastRun) < launchRecoveryCooldown {
+                return false
+            }
+            isLaunchRecoveryInProgress = true
+            return true
+        }
+        guard shouldProceed else {
+            print("⏭️ Skipping duplicate launch recovery")
+            return
+        }
+
+        defer {
+            launchRecoveryLock.withCriticalRegion {
+                isLaunchRecoveryInProgress = false
+                lastLaunchRecoveryCompletedAt = Date()
+            }
+        }
+
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             print("⚠️ No user ID, skipping incomplete visits load")
             return
@@ -1485,9 +1535,9 @@ class GeofenceManager: NSObject, ObservableObject {
         print("📍 Checking against \(savedPlaces.count) saved places...")
 
         // CRITICAL: First check if we already have ANY active visits from recovery
-        activeVisitsLock.lock()
-        let existingActiveVisitsCount = activeVisits.count
-        activeVisitsLock.unlock()
+        let existingActiveVisitsCount = activeVisitsLock.withCriticalRegion {
+            activeVisits.count
+        }
 
         if existingActiveVisitsCount > 0 {
             print("ℹ️ Already have \(existingActiveVisitsCount) active visit(s) from recovery - skipping duplicate check")
@@ -1495,89 +1545,86 @@ class GeofenceManager: NSObject, ObservableObject {
             return
         }
 
-        for place in savedPlaces {
-            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
-            let distance = currentLocation.distance(from: placeLocation)
-            let radius = GeofenceRadiusManager.shared.getRadius(for: place)
+        guard let place = resolveBestMatchPlace(for: currentLocation, in: savedPlaces) else {
+            print("ℹ️ User is not inside any saved geofence")
+            print("📍 ===== CHECK COMPLETE =====\n")
+            printGeofenceStatus()
+            return
+        }
 
-            if distance <= radius {
-                print("✅ User is INSIDE: \(place.displayName) (distance: \(String(format: "%.0f", distance))m, radius: \(String(format: "%.0f", radius))m)")
+        let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+        let distance = currentLocation.distance(from: placeLocation)
+        let radius = GeofenceRadiusManager.shared.getRadius(for: place)
+        print("✅ Best match INSIDE geofence: \(place.displayName) (distance: \(String(format: "%.0f", distance))m, radius: \(String(format: "%.0f", radius))m)")
 
-                // Double-check we don't have an active visit (thread safety)
-                activeVisitsLock.lock()
-                let hasActiveVisit = activeVisits[place.id] != nil
-                activeVisitsLock.unlock()
+        // Double-check we don't have an active visit (thread safety)
+        let hasActiveVisit = activeVisitsLock.withCriticalRegion {
+            activeVisits[place.id] != nil
+        }
 
-                if hasActiveVisit {
-                    print("ℹ️ Already have an active visit for \(place.displayName), skipping")
-                    continue
-                }
+        if hasActiveVisit {
+            print("ℹ️ Already have an active visit for \(place.displayName), skipping")
+            print("📍 ===== CHECK COMPLETE =====\n")
+            printGeofenceStatus()
+            return
+        }
 
-                // CRITICAL SAFETY CHECK: Before creating a new visit, explicitly check Supabase
-                // for any open visits that might exist from a previous session
-                if let existingOpenVisit = await self.findOpenVisitInSupabase(for: place.id, userId: userId) {
-                    print("\n⚠️ ===== FOUND EXISTING OPEN VISIT IN SUPABASE (APP LAUNCH) =====")
-                    print("⚠️ Existing visit ID: \(existingOpenVisit.id)")
-                    print("⚠️ Entry time: \(existingOpenVisit.entryTime)")
-                    print("⚠️ Restoring existing visit instead of creating new one")
-                    print("⚠️ ===========================================================\n")
-                    
-                    // Restore the existing open visit to memory
-                    activeVisitsLock.lock()
-                    activeVisits[place.id] = existingOpenVisit
-                    activeVisitsLock.unlock()
-                    
-                    // Add to session manager
-                    if let sessionId = existingOpenVisit.sessionId {
-                        LocationSessionManager.shared.addVisitToSession(sessionId, visitRecord: existingOpenVisit)
-                    }
-                    
-                    print("✅ Restored existing open visit for \(place.displayName)")
-                } else {
-                    // No existing open visit found - safe to create new one
-                    // Create a new visit since user is inside but no active visit exists
-                    print("📝 Creating new visit for \(place.displayName) (user was already inside)")
+        // CRITICAL SAFETY CHECK: Before creating a new visit, explicitly check Supabase
+        // for any open visits that might exist from a previous session
+        if let existingOpenVisit = await self.findOpenVisitInSupabase(for: place.id, userId: userId) {
+            print("\n⚠️ ===== FOUND EXISTING OPEN VISIT IN SUPABASE (APP LAUNCH) =====")
+            print("⚠️ Existing visit ID: \(existingOpenVisit.id)")
+            print("⚠️ Entry time: \(existingOpenVisit.entryTime)")
+            print("⚠️ Restoring existing visit instead of creating new one")
+            print("⚠️ ===========================================================\n")
 
-                    let sessionId = UUID()
-                    let visit = LocationVisitRecord.create(
-                        userId: userId,
-                        savedPlaceId: place.id,
-                        entryTime: Date(),
-                        sessionId: sessionId,
-                        confidenceScore: 0.9,  // Slightly lower confidence since detected on app launch
-                        mergeReason: "app_launch_inside"
-                    )
+            // Restore the existing open visit to memory
+            updateActiveVisit(existingOpenVisit, for: place.id)
 
-                    activeVisitsLock.lock()
-                    activeVisits[place.id] = visit
-                    activeVisitsLock.unlock()
-
-                    LocationSessionManager.shared.createSession(for: place.id, userId: userId)
-                    LocationVisitAnalytics.shared.invalidateCache(for: place.id)
-
-                    await saveVisitToSupabase(visit)
-                }
-
-                print("✅ Created visit for \(place.displayName)")
-
-                // Notify that visits have been updated so UI can refresh
-                NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
-
-                // Reload widgets so they show the new location
-                WidgetCenter.shared.reloadAllTimelines()
-
-                // Start validation timer
-                if !LocationBackgroundValidationService.shared.isValidationRunning() {
-                    LocationBackgroundValidationService.shared.startValidationTimer(
-                        geofenceManager: self,
-                        locationManager: sharedLocationManager,
-                        savedPlaces: savedPlaces
-                    )
-                }
-
-                // Only create one visit at a time
-                break
+            // Add to session manager
+            if let sessionId = existingOpenVisit.sessionId {
+                LocationSessionManager.shared.addVisitToSession(sessionId, visitRecord: existingOpenVisit)
             }
+
+            print("✅ Restored existing open visit for \(place.displayName)")
+        } else {
+            // No existing open visit found - safe to create new one
+            // Create a new visit since user is inside but no active visit exists
+            print("📝 Creating new visit for \(place.displayName) (user was already inside)")
+
+            let sessionId = UUID()
+            let visit = LocationVisitRecord.create(
+                userId: userId,
+                savedPlaceId: place.id,
+                entryTime: Date(),
+                sessionId: sessionId,
+                confidenceScore: 0.9,  // Slightly lower confidence since detected on app launch
+                mergeReason: "app_launch_inside"
+            )
+
+            updateActiveVisit(visit, for: place.id)
+
+            _ = LocationSessionManager.shared.createSession(for: place.id, userId: userId)
+            LocationVisitAnalytics.shared.invalidateCache(for: place.id)
+
+            await saveVisitToSupabase(visit)
+        }
+
+        print("✅ Created visit for \(place.displayName)")
+
+        // Notify that visits have been updated so UI can refresh
+        NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
+
+        // Reload widgets so they show the new location
+        WidgetCenter.shared.reloadAllTimelines()
+
+        // Start validation timer
+        if !LocationBackgroundValidationService.shared.isValidationRunning() {
+            LocationBackgroundValidationService.shared.startValidationTimer(
+                geofenceManager: self,
+                locationManager: sharedLocationManager,
+                savedPlaces: savedPlaces
+            )
         }
 
         print("📍 ===== CHECK COMPLETE =====\n")
@@ -1680,6 +1727,20 @@ class GeofenceManager: NSObject, ObservableObject {
                     return date
                 }
 
+                // Try ISO-like timestamp without timezone: "YYYY-MM-DDTHH:MM:SS.SSS"
+                let isoNoTimezoneFormatter = DateFormatter()
+                isoNoTimezoneFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
+                isoNoTimezoneFormatter.timeZone = TimeZone(identifier: "UTC")
+                if let date = isoNoTimezoneFormatter.date(from: dateString) {
+                    return date
+                }
+
+                // Try ISO-like timestamp without fractional seconds and without timezone
+                isoNoTimezoneFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+                if let date = isoNoTimezoneFormatter.date(from: dateString) {
+                    return date
+                }
+
                 throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date string: \(dateString)")
             }
 
@@ -1691,7 +1752,7 @@ class GeofenceManager: NSObject, ObservableObject {
             print("🗑️ Found \(staleVisits.count) incomplete visits to close")
 
             var closedCount = 0
-            var deletedCount = 0
+            let deletedCount = 0
             // Close each stale visit by setting exit_time = now and duration
             for var visit in staleVisits {
                 visit.recordExit(exitTime: Date())
@@ -1735,7 +1796,7 @@ class GeofenceManager: NSObject, ObservableObject {
 
         // CRITICAL: Check if visit spans midnight BEFORE saving
         // This ensures NO midnight-spanning visits are ever saved to the database
-        if let exitTime = visit.exitTime, visit.spansMidnight() {
+        if visit.exitTime != nil, visit.spansMidnight() {
             print("🌙 MIDNIGHT SPLIT in saveVisitToSupabase: Visit spans midnight, splitting before save")
             let visitsToSave = visit.splitAtMidnightIfNeeded()
             
@@ -1759,7 +1820,7 @@ class GeofenceManager: NSObject, ObservableObject {
          // AUTO-DELETE: Skip saving visits under 6 minutes (likely made in error)
          // UNLESS the user has added visit notes/reason - then keep regardless of duration
          // Only check if visit is complete (has exit_time and duration)
-         if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes {
+         if visit.exitTime != nil, let durationMinutes = visit.durationMinutes {
              let hasNotes = visit.visitNotes != nil && !visit.visitNotes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
              
              if durationMinutes < 6 && !hasNotes {
@@ -1959,7 +2020,7 @@ class GeofenceManager: NSObject, ObservableObject {
          // AUTO-DELETE: Delete visits under 6 minutes instead of updating them
          // UNLESS the user has added visit notes/reason - then keep regardless of duration
          // Only check if visit is complete (has exit_time and duration)
-         if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes {
+         if visit.exitTime != nil, let durationMinutes = visit.durationMinutes {
              let hasNotes = visit.visitNotes != nil && !visit.visitNotes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
              
              if durationMinutes < 6 && !hasNotes {
@@ -2195,10 +2256,9 @@ class GeofenceManager: NSObject, ObservableObject {
     /// Send arrival notification with contextual information
     private func sendArrivalNotification(for place: SavedPlace) async {
         // Get the active visit to use its sessionId for notification identifier
-        activeVisitsLock.lock()
-        let visit = self.activeVisits[place.id]
-        let sessionId = visit?.sessionId ?? UUID()
-        activeVisitsLock.unlock()
+        let sessionId = activeVisitsLock.withCriticalRegion {
+            self.activeVisits[place.id]?.sessionId ?? UUID()
+        }
         
         // Get unread email count
         let emailService = EmailService.shared
@@ -2214,7 +2274,7 @@ class GeofenceManager: NSObject, ObservableObject {
         }.count
 
         // Get weather info (optional - if weather service is available)
-        var weatherInfo: String? = nil
+        let weatherInfo: String? = nil
         // TODO: Integrate with WeatherService if needed
 
         // Send the notification with sessionId-based identifier for deduplication

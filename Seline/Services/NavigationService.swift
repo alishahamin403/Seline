@@ -3,6 +3,12 @@ import CoreLocation
 import MapKit
 
 class NavigationService: ObservableObject {
+    private struct ETARequestFingerprint: Equatable {
+        let originLatitude: Int
+        let originLongitude: Int
+        let destinations: [String]
+    }
+
     static let shared = NavigationService()
 
     // COST OPTIMIZATION: Using MapKit instead of Google Routes API
@@ -24,10 +30,12 @@ class NavigationService: ObservableObject {
     }
     @Published var isLoading = false
     @Published var lastUpdated: Date?
+    private var lastRefreshFingerprint: ETARequestFingerprint?
 
     // Movement tracking for auto-refresh
     private var lastRefreshLocation: CLLocationCoordinate2D?
     private let minimumDistanceForRefresh: CLLocationDistance = 5000 // 5 km in meters
+    private let minimumRefreshInterval: TimeInterval = 60
 
     private init() {}
 
@@ -101,9 +109,9 @@ class NavigationService: ObservableObject {
                 }
 
                 let durationSeconds = Int(route.expectedTravelTime)
-                let durationText = self.formatETA(durationSeconds)
+                let durationText = Self.formatETA(durationSeconds)
                 let distanceMeters = Int(route.distance)
-                let distanceText = self.formatDistance(distanceMeters)
+                let distanceText = Self.formatDistance(distanceMeters)
 
                 // DEBUG: Commented out to reduce console spam
                 // print("✅ MapKit ETA: \(durationText) for \(distanceText)")
@@ -120,109 +128,80 @@ class NavigationService: ObservableObject {
 
     /// Update ETAs for all 4 location slots
     func updateETAs(currentLocation: CLLocation, location1: CLLocationCoordinate2D?, location2: CLLocationCoordinate2D?, location3: CLLocationCoordinate2D?, location4: CLLocationCoordinate2D?) async {
-        await MainActor.run {
+        let fingerprint = etaFingerprint(
+            origin: currentLocation.coordinate,
+            destinations: [location1, location2, location3, location4]
+        )
+
+        let shouldSkipRefresh = await MainActor.run { () -> Bool in
+            if let lastRefreshFingerprint,
+               lastRefreshFingerprint == fingerprint,
+               let lastUpdated,
+               Date().timeIntervalSince(lastUpdated) < minimumRefreshInterval {
+                return true
+            }
+
             isLoading = true
+            self.lastRefreshFingerprint = fingerprint
+            return false
         }
 
-        // Calculate location 1 ETA
-        if let location1 = location1 {
-            do {
-                let result = try await calculateETA(from: currentLocation, to: location1)
-                await MainActor.run {
-                    self.location1ETA = formatETA(result.durationSeconds)
-                }
-            } catch {
-                print("❌ Failed to calculate location 1 ETA: \(error)")
-                await MainActor.run {
-                    self.location1ETA = nil
-                }
-            }
-        } else {
-            await MainActor.run {
-                self.location1ETA = nil
-            }
-        }
+        guard !shouldSkipRefresh else { return }
 
-        // Calculate location 2 ETA
-        if let location2 = location2 {
-            do {
-                let result = try await calculateETA(from: currentLocation, to: location2)
-                await MainActor.run {
-                    self.location2ETA = formatETA(result.durationSeconds)
-                }
-            } catch {
-                print("❌ Failed to calculate location 2 ETA: \(error)")
-                await MainActor.run {
-                    self.location2ETA = nil
-                }
-            }
-        } else {
-            await MainActor.run {
-                self.location2ETA = nil
-            }
-        }
+        async let eta1 = calculateFormattedETA(from: currentLocation, to: location1, label: "1")
+        async let eta2 = calculateFormattedETA(from: currentLocation, to: location2, label: "2")
+        async let eta3 = calculateFormattedETA(from: currentLocation, to: location3, label: "3")
+        async let eta4 = calculateFormattedETA(from: currentLocation, to: location4, label: "4")
 
-        // Calculate location 3 ETA
-        if let location3 = location3 {
-            do {
-                let result = try await calculateETA(from: currentLocation, to: location3)
-                await MainActor.run {
-                    self.location3ETA = formatETA(result.durationSeconds)
-                }
-            } catch {
-                print("❌ Failed to calculate location 3 ETA: \(error)")
-                await MainActor.run {
-                    self.location3ETA = nil
-                }
-            }
-        } else {
-            await MainActor.run {
-                self.location3ETA = nil
-            }
-        }
-
-        // Calculate location 4 ETA
-        if let location4 = location4 {
-            do {
-                let result = try await calculateETA(from: currentLocation, to: location4)
-                await MainActor.run {
-                    self.location4ETA = formatETA(result.durationSeconds)
-                }
-            } catch {
-                print("❌ Failed to calculate location 4 ETA: \(error)")
-                await MainActor.run {
-                    self.location4ETA = nil
-                }
-            }
-        } else {
-            await MainActor.run {
-                self.location4ETA = nil
-            }
-        }
+        let resolvedETAs = await (eta1, eta2, eta3, eta4)
 
         await MainActor.run {
-            isLoading = false
-            lastUpdated = Date()
-
-            // Save ETAs to shared UserDefaults for widget access
-            if let userDefaults = UserDefaults(suiteName: "group.seline") {
-                userDefaults.set(self.location1ETA, forKey: "widgetLocation1ETA")
-                userDefaults.set(self.location2ETA, forKey: "widgetLocation2ETA")
-                userDefaults.set(self.location3ETA, forKey: "widgetLocation3ETA")
-                userDefaults.set(self.location4ETA, forKey: "widgetLocation4ETA")
-                userDefaults.synchronize()
-                // DEBUG: Commented out to reduce console spam
-                // print("✅ NavigationService: Saved ETAs to shared UserDefaults - L1: \(self.location1ETA ?? "---"), L2: \(self.location2ETA ?? "---"), L3: \(self.location3ETA ?? "---"), L4: \(self.location4ETA ?? "---")")
-            } else {
-                print("❌ NavigationService: Could not access shared UserDefaults group.seline")
-            }
+            self.location1ETA = resolvedETAs.0
+            self.location2ETA = resolvedETAs.1
+            self.location3ETA = resolvedETAs.2
+            self.location4ETA = resolvedETAs.3
+            self.isLoading = false
+            self.lastUpdated = Date()
+            saveETAsToWidget()
         }
+    }
+
+    private func calculateFormattedETA(
+        from origin: CLLocation,
+        to destination: CLLocationCoordinate2D?,
+        label: String
+    ) async -> String? {
+        guard let destination else { return nil }
+
+        do {
+            let result = try await calculateETA(from: origin, to: destination)
+            return Self.formatETA(result.durationSeconds)
+        } catch {
+            print("❌ Failed to calculate location \(label) ETA: \(error)")
+            return nil
+        }
+    }
+
+    private func etaFingerprint(
+        origin: CLLocationCoordinate2D,
+        destinations: [CLLocationCoordinate2D?]
+    ) -> ETARequestFingerprint {
+        ETARequestFingerprint(
+            originLatitude: Int((origin.latitude * 1000).rounded()),
+            originLongitude: Int((origin.longitude * 1000).rounded()),
+            destinations: destinations.map { destination in
+                guard let destination else { return "nil" }
+                let latitude = Int((destination.latitude * 1000).rounded())
+                let longitude = Int((destination.longitude * 1000).rounded())
+                return "\(latitude),\(longitude)"
+            }
+        )
     }
 
     // MARK: - Formatting Helpers
 
     /// Format distance in meters to a readable string
-    private func formatDistance(_ meters: Int) -> String {
+    private static func formatDistance(_ meters: Int) -> String {
         let kilometers = Double(meters) / 1000.0
         if kilometers < 1.0 {
             return "\(meters) m"
@@ -231,7 +210,7 @@ class NavigationService: ObservableObject {
     }
 
     /// Format duration in seconds to a short string (e.g., "12 min", "1h 5m")
-    private func formatETA(_ seconds: Int) -> String {
+    private static func formatETA(_ seconds: Int) -> String {
         let minutes = seconds / 60
         let hours = minutes / 60
         let remainingMinutes = minutes % 60

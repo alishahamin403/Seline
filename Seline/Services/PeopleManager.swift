@@ -20,8 +20,6 @@ class PeopleManager: ObservableObject {
     private var groupedResultsCache: [String: [(relationship: RelationshipType, people: [Person])]] = [:]
     
     private let peopleKey = "SavedPeople"
-    private let authManager = AuthenticationManager.shared
-    
     private init() {
         loadPeopleFromStorage()
     }
@@ -244,6 +242,8 @@ class PeopleManager: ObservableObject {
                 print("❌ Error linking person to visit: \(error)")
             }
         }
+
+        await VectorSearchService.shared.refreshVisitEmbeddingsIncremental(reason: "visit-people link update")
     }
     
     /// Ensures each person exists in Supabase (upsert). Call before linking to visits to avoid FK violations.
@@ -294,6 +294,64 @@ class PeopleManager: ObservableObject {
             print("❌ Error loading people for visit: \(error)")
             return []
         }
+    }
+
+    func getPeopleForVisits(visitIds: [UUID]) async -> [UUID: [Person]] {
+        let uniqueVisitIds = Array(Set(visitIds))
+        guard !uniqueVisitIds.isEmpty else { return [:] }
+
+        var peopleByVisit: [UUID: [Person]] = [:]
+        var missingVisitIds: [UUID] = []
+
+        for visitId in uniqueVisitIds {
+            if let cachedIds = visitPeopleCache[visitId] {
+                peopleByVisit[visitId] = cachedIds.compactMap { getPerson(by: $0) }
+            } else {
+                missingVisitIds.append(visitId)
+            }
+        }
+
+        guard !missingVisitIds.isEmpty else { return peopleByVisit }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let response: [VisitPersonSupabaseData] = try await client
+                .from("location_visit_people")
+                .select()
+                .in("visit_id", values: missingVisitIds.map { $0.uuidString })
+                .execute()
+                .value
+
+            var personIdsByVisit: [UUID: [UUID]] = [:]
+            for row in response {
+                guard let visitId = UUID(uuidString: row.visit_id),
+                      let personId = UUID(uuidString: row.person_id) else {
+                    continue
+                }
+                personIdsByVisit[visitId, default: []].append(personId)
+            }
+
+            let missingVisitIdsSnapshot = missingVisitIds
+            let personIdsByVisitSnapshot = personIdsByVisit
+
+            await MainActor.run {
+                for visitId in missingVisitIdsSnapshot {
+                    visitPeopleCache[visitId] = personIdsByVisitSnapshot[visitId] ?? []
+                }
+            }
+
+            for visitId in missingVisitIds {
+                let personIds = personIdsByVisit[visitId] ?? []
+                peopleByVisit[visitId] = personIds.compactMap { getPerson(by: $0) }
+            }
+        } catch {
+            print("❌ Error loading people for visits: \(error)")
+            for visitId in missingVisitIds {
+                peopleByVisit[visitId] = []
+            }
+        }
+
+        return peopleByVisit
     }
     
     func getVisitIdsForPerson(personId: UUID) async -> [UUID] {
@@ -634,8 +692,8 @@ class PeopleManager: ObservableObject {
     }
     
     func loadPeopleFromSupabase() async {
-        let isAuthenticated = await MainActor.run { authManager.isAuthenticated }
-        let userId = await MainActor.run { authManager.supabaseUser?.id }
+        let isAuthenticated = await MainActor.run { AuthenticationManager.shared.isAuthenticated }
+        let userId = await MainActor.run { AuthenticationManager.shared.supabaseUser?.id }
         
         guard isAuthenticated, let userId = userId else {
             print("User not authenticated, loading local people only")
@@ -675,10 +733,12 @@ class PeopleManager: ObservableObject {
                 parsedPeople[i].favouritePlaceIds = favPlaces
             }
             
+            let parsedPeopleSnapshot = parsedPeople
+
             await MainActor.run {
-                if !parsedPeople.isEmpty {
-                    self.people = parsedPeople
-                    self.relationshipTypes = Set(parsedPeople.map { $0.relationship })
+                if !parsedPeopleSnapshot.isEmpty {
+                    self.people = parsedPeopleSnapshot
+                    self.relationshipTypes = Set(parsedPeopleSnapshot.map { $0.relationship })
                     savePeopleToStorage()
                 } else if response.isEmpty {
                     print("ℹ️ No people in Supabase, keeping \(self.people.count) local people")

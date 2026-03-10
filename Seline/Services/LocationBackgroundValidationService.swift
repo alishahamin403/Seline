@@ -145,40 +145,21 @@ class LocationBackgroundValidationService {
         }
         
         let savedPlaces = savedPlacesRef.isEmpty ? LocationsManager.shared.savedPlaces : savedPlacesRef
-        
-        // Check each saved place
-        for place in savedPlaces {
-            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+
+        if let bestMatchPlace = geofenceManager.resolveBestMatchPlace(for: currentLocation, in: savedPlaces),
+           geofenceManager.getActiveVisit(for: bestMatchPlace.id) == nil {
+            let placeLocation = CLLocation(latitude: bestMatchPlace.latitude, longitude: bestMatchPlace.longitude)
             let distance = currentLocation.distance(from: placeLocation)
-            let radius = GeofenceRadiusManager.shared.getRadius(for: place)
-            
-            let isInsideGeofence = distance <= radius
-            let hasActiveVisit = geofenceManager.getActiveVisit(for: place.id) != nil
-            
-            if isInsideGeofence && !hasActiveVisit {
-                // USER IS INSIDE BUT NO VISIT - iOS geofence entry was missed!
-                print("\n🚨 ===== MISSED GEOFENCE ENTRY DETECTED =====")
-                print("🚨 Location: \(place.displayName)")
-                print("🚨 Distance: \(String(format: "%.0f", distance))m (within \(String(format: "%.0f", radius))m radius)")
-                print("🚨 Creating visit now!")
-                print("🚨 ==========================================\n")
-                
-                await createMissedVisit(for: place, currentLocation: currentLocation, geofenceManager: geofenceManager)
-                
-                // Only handle one entry at a time to avoid race conditions
-                break
-                
-            } else if !isInsideGeofence && hasActiveVisit {
-                // USER IS OUTSIDE BUT HAS VISIT - iOS geofence exit was missed!
-                // Note: This is handled by validateActiveVisits, but we double-check here
-                print("\n🚨 ===== MISSED GEOFENCE EXIT DETECTED =====")
-                print("🚨 Location: \(place.displayName)")
-                print("🚨 Distance: \(String(format: "%.0f", distance))m (outside \(String(format: "%.0f", radius))m radius)")
-                print("🚨 Ending visit now!")
-                print("🚨 ==========================================\n")
-                
-                await autoCloseVisit(place.id, geofenceManager: geofenceManager)
-            }
+            let radius = GeofenceRadiusManager.shared.getRadius(for: bestMatchPlace)
+
+            // USER IS INSIDE BUT NO VISIT - iOS geofence entry was missed!
+            print("\n🚨 ===== MISSED GEOFENCE ENTRY DETECTED =====")
+            print("🚨 Location: \(bestMatchPlace.displayName)")
+            print("🚨 Distance: \(String(format: "%.0f", distance))m (within \(String(format: "%.0f", radius))m radius)")
+            print("🚨 Creating visit now!")
+            print("🚨 ==========================================\n")
+
+            await createMissedVisit(for: bestMatchPlace, currentLocation: currentLocation, geofenceManager: geofenceManager)
         }
         
         // Also run standard validation for midnight checks
@@ -200,6 +181,19 @@ class LocationBackgroundValidationService {
         if geofenceManager.getActiveVisit(for: place.id) != nil {
             print("ℹ️ Visit already exists, skipping")
             return
+        }
+
+        // Enforce single active visit semantics before creating a missed entry.
+        let otherActivePlaceIds = geofenceManager
+            .getActiveVisitsSnapshot()
+            .keys
+            .filter { $0 != place.id }
+
+        if !otherActivePlaceIds.isEmpty {
+            print("⚠️ Closing \(otherActivePlaceIds.count) other active visit(s) before missed-entry creation")
+            for otherPlaceId in otherActivePlaceIds {
+                await autoCloseVisit(otherPlaceId, geofenceManager: geofenceManager)
+            }
         }
         
         // Speed check - reject if user is moving too fast (passing by)
@@ -260,7 +254,7 @@ class LocationBackgroundValidationService {
             return
         }
 
-        let activeVisits = geofenceManager.activeVisits
+        let activeVisits = geofenceManager.getActiveVisitsSnapshot()
         guard !activeVisits.isEmpty else {
             // No active visits
             if isContinuousMode {
@@ -468,7 +462,7 @@ class LocationBackgroundValidationService {
     // MARK: - Supabase Sync
 
     private func saveVisitToSupabase(_ visit: LocationVisitRecord) async {
-        let geofenceManager = await GeofenceManager.shared
+        let geofenceManager = GeofenceManager.shared
         await geofenceManager.saveVisitToSupabase(visit)
     }
 
@@ -487,7 +481,7 @@ class LocationBackgroundValidationService {
         if visitsToSave.count > 1 {
             print("🌙 MIDNIGHT SPLIT in BGValidation updateVisit: Splitting into \(visitsToSave.count) records")
             // Delete the original visit and save the split parts
-            let geofenceManager = await GeofenceManager.shared
+            let geofenceManager = GeofenceManager.shared
             await geofenceManager.deleteVisitFromSupabase(visit)
             for part in visitsToSave {
                 await saveVisitToSupabase(part)
@@ -497,9 +491,9 @@ class LocationBackgroundValidationService {
 
         // AUTO-DELETE: Delete visits under 2 minutes instead of updating them
         // Only check if visit is complete (has exit_time and duration)
-        if let exitTime = visit.exitTime, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
+        if visit.exitTime != nil, let durationMinutes = visit.durationMinutes, durationMinutes < 2 {
             print("🗑️ Auto-deleting short visit in BGValidation instead of updating: \(visit.id.uuidString) (duration: \(durationMinutes) min < 2 min)")
-            let geofenceManager = await GeofenceManager.shared
+            let geofenceManager = GeofenceManager.shared
             await geofenceManager.deleteVisitFromSupabase(visit)
             return
         }

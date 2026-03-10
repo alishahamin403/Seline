@@ -103,9 +103,14 @@ class EmailService: ObservableObject {
     }
 
     func loadTodaysEmails() async {
-        // CRITICAL FIX: Only load inbox on app start, not sent
-        // Sent emails only load when user navigates to sent tab (on-demand)
+        // Load inbox immediately, then warm sent mail in background so LLM/history has both sides.
         await loadEmailsForFolder(.inbox)
+        let shouldPrimeSent = sentEmails.isEmpty || !isCacheValid(for: .sent)
+        if shouldPrimeSent {
+            Task { @MainActor in
+                await self.loadEmailsForFolder(.sent)
+            }
+        }
     }
 
     func loadEmailsForFolder(_ folder: EmailFolder, forceRefresh: Bool = false) async {
@@ -152,12 +157,12 @@ class EmailService: ObservableObject {
                     return
                 }
 
-                // Filter to include only today's emails
-                let filteredEmails = filterTodaysEmails(emails)
+                // Keep full fetched page; only sort by recency.
+                let sortedEmails = sortEmailsByRecency(emails)
 
                 // CRITICAL FIX: Preserve AI summaries from existing cached emails
                 let existingEmails = getEmails(for: folder)
-                let mergedEmails = mergeWithExistingAISummaries(newEmails: filteredEmails, existingEmails: existingEmails)
+                let mergedEmails = mergeWithExistingAISummaries(newEmails: sortedEmails, existingEmails: existingEmails)
 
                 // Update the appropriate email list
                 updateEmailsForFolder(folder, emails: mergedEmails)
@@ -227,12 +232,15 @@ class EmailService: ObservableObject {
                     return
                 }
 
-                // Filter to include only today's emails
-                let filteredEmails = filterTodaysEmails(emails)
+                // Keep full fetched page; only sort by recency.
+                let sortedEmails = sortEmailsByRecency(emails)
 
                 // Merge with existing emails (append new ones)
                 let existingEmails = getEmails(for: folder)
-                let mergedEmails = mergeWithExistingAISummaries(newEmails: existingEmails + filteredEmails, existingEmails: existingEmails)
+                let mergedEmails = mergeWithExistingAISummaries(
+                    newEmails: existingEmails + sortedEmails,
+                    existingEmails: existingEmails
+                )
 
                 // Update the appropriate email list
                 updateEmailsForFolder(folder, emails: mergedEmails)
@@ -243,7 +251,7 @@ class EmailService: ObservableObject {
 
                 // Generate AI summaries in background
                 Task.detached(priority: .background) {
-                    await self.preloadAISummaries(for: filteredEmails)
+                    await self.preloadAISummaries(for: sortedEmails)
                 }
 
             } catch {
@@ -448,7 +456,7 @@ class EmailService: ObservableObject {
         var emails = getEmails(for: folder)
         
         // Filter to last 7 days
-        emails = filterTodaysEmails(emails)
+        emails = filterRecentEmails(emails, daysBack: 7)
         
         // Filter to unread only if requested
         if unreadOnly {
@@ -462,7 +470,7 @@ class EmailService: ObservableObject {
         var emails = getFilteredEmails(for: folder, category: category)
         
         // Filter to last 7 days
-        emails = filterTodaysEmails(emails)
+        emails = filterRecentEmails(emails, daysBack: 7)
         
         // Filter to unread only if requested
         if unreadOnly {
@@ -1511,13 +1519,21 @@ class EmailService: ObservableObject {
         }
     }
 
-    private func filterTodaysEmails(_ emails: [Email], daysBack: Int = 30) -> [Email] {
+    private func sortEmailsByRecency(_ emails: [Email]) -> [Email] {
+        emails.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private func filterRecentEmails(_ emails: [Email], daysBack: Int) -> [Email] {
+        guard daysBack > 0 else {
+            return sortEmailsByRecency(emails)
+        }
+
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
 
-        // Get date N days ago (configurable, default 30 days)
+        // Keep only a recent window when explicitly needed by UI sections.
         guard let cutoffDate = calendar.date(byAdding: .day, value: -(daysBack - 1), to: today) else {
-            return emails.sorted { $0.timestamp > $1.timestamp }
+            return sortEmailsByRecency(emails)
         }
 
         return emails.filter { email in
@@ -1563,7 +1579,7 @@ class EmailService: ObservableObject {
 
     /// Save an email to a custom folder with attachments
     func saveEmailToFolder(_ email: Email, folderId: UUID) async throws -> SavedEmail {
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
         var emailToSave = email
 
         // First, fetch full email body if needed
@@ -1664,8 +1680,7 @@ class EmailService: ObservableObject {
         toFolderId: UUID
     ) async throws -> [SavedEmailAttachment] {
         var savedAttachments: [SavedEmailAttachment] = []
-        let supabaseManager = SupabaseManager.shared
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
 
         for attachment in email.attachments {
             do {
@@ -1687,7 +1702,7 @@ class EmailService: ObservableObject {
 
                 // Upload to Supabase Storage
                 let storagePath = "email-attachments/\(messageId)/\(attachment.id)/\(attachment.name)"
-                try await supabaseManager.uploadFile(
+                try await SupabaseManager.shared.uploadFile(
                     data: fileData,
                     bucket: "email-attachments",
                     path: storagePath
@@ -1794,7 +1809,7 @@ class EmailService: ObservableObject {
 
         // If cache is invalid or empty, fetch from Supabase
         print("🔄 Fetching folders from Supabase...")
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
         do {
             let folders = try await emailFolderService.fetchFolders()
             print("📂 Fetched \(folders.count) folders from Supabase")
@@ -1823,25 +1838,25 @@ class EmailService: ObservableObject {
 
     /// Create a new email folder
     func createEmailFolder(name: String, color: String = "#84cae9") async throws -> CustomEmailFolder {
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
         return try await emailFolderService.createFolder(name: name, color: color)
     }
 
     /// Rename an email folder
     func renameEmailFolder(id: UUID, newName: String) async throws -> CustomEmailFolder {
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
         return try await emailFolderService.renameFolder(id: id, newName: newName)
     }
 
     /// Update email folder color
     func updateEmailFolderColor(id: UUID, color: String) async throws -> CustomEmailFolder {
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
         return try await emailFolderService.updateFolderColor(id: id, color: color)
     }
 
     /// Delete an email folder
     func deleteEmailFolder(id: UUID) async throws {
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
         try await emailFolderService.deleteFolder(id: id)
     }
 
@@ -1855,7 +1870,7 @@ class EmailService: ObservableObject {
 
         // If cache is invalid or force refresh, fetch from Supabase
         print("🔄 Fetching emails from Supabase for folder...")
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
         let emails = try await emailFolderService.fetchEmailsInFolder(folderId: folderId)
 
         // Cache the results
@@ -1866,19 +1881,19 @@ class EmailService: ObservableObject {
 
     /// Search saved emails in a folder
     func searchSavedEmails(in folderId: UUID, query: String) async throws -> [SavedEmail] {
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
         return try await emailFolderService.searchEmailsInFolder(folderId: folderId, query: query)
     }
 
     /// Move saved email to a different folder
     func moveSavedEmail(id: UUID, toFolder folderId: UUID) async throws -> SavedEmail {
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
         return try await emailFolderService.moveEmail(id: id, toFolder: folderId)
     }
 
     /// Delete a saved email
     func deleteSavedEmail(id: UUID) async throws {
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
         try await emailFolderService.deleteSavedEmail(id: id)
     }
 
@@ -1978,8 +1993,6 @@ extension EmailService: Searchable {
     /// Provide saved emails from all folders as searchable content for the LLM
     /// Note: This uses cached data to avoid blocking the main thread
     func getSearchableContent() -> [SearchableItem] {
-        var searchableEmails: [SearchableItem] = []
-
         // Load saved emails asynchronously in the background
         Task {
             await self.loadSavedEmailsForSearch()
@@ -1993,7 +2006,7 @@ extension EmailService: Searchable {
     /// Load saved emails for search in the background (non-blocking)
     private func loadSavedEmailsForSearch() async {
         var searchableEmails: [SearchableItem] = []
-        let emailFolderService = await EmailFolderService.shared
+        let emailFolderService = EmailFolderService.shared
 
         do {
             // Fetch all folders

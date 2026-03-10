@@ -1508,45 +1508,53 @@ struct ReminderOptionsSheet: View {
     }
 }
 
-#Preview {
-    @State var title = ""
-    @State var location = ""
-    @State var description = ""
-    @State var selectedDate = Date()
-    @State var selectedEndDate = Date()
-    @State var isMultiDay = false
-    @State var hasTime = false
-    @State var selectedTime = Date()
-    @State var selectedEndTime = Date().addingTimeInterval(3600)
-    @State var isRecurring = false
-    @State var recurrenceFrequency: RecurrenceFrequency = .weekly
-    @State var customRecurrenceDays: Set<WeekDay> = []
-    @State var selectedReminder: ReminderTime = .none
-    @State var selectedTagId: String? = nil
-    @State var showingDatePicker = false
-    @State var showingEndDatePicker = false
+private struct EventFormContentPreviewContainer: View {
+    @State private var title = ""
+    @State private var location = ""
+    @State private var description = ""
+    @State private var selectedDate = Date()
+    @State private var selectedEndDate = Date()
+    @State private var isMultiDay = false
+    @State private var hasTime = false
+    @State private var selectedTime = Date()
+    @State private var selectedEndTime = Date().addingTimeInterval(3600)
+    @State private var isRecurring = false
+    @State private var recurrenceFrequency: RecurrenceFrequency = .weekly
+    @State private var customRecurrenceDays: Set<WeekDay> = []
+    @State private var selectedReminder: ReminderTime = .none
+    @State private var selectedTagId: String?
+    @State private var showingDatePicker = false
+    @State private var showingEndDatePicker = false
 
-    ZStack {
-        Color.white
-            .ignoresSafeArea()
+    var body: some View {
+        ZStack {
+            Color.white
+                .ignoresSafeArea()
 
-        EventFormContent(
-            title: $title,
-            location: $location,
-            description: $description,
-            selectedDate: $selectedDate,
-            selectedEndDate: $selectedEndDate,
-            isMultiDay: $isMultiDay,
-            hasTime: $hasTime,
-            selectedTime: $selectedTime,
-            selectedEndTime: $selectedEndTime,
-            isRecurring: $isRecurring,
-            recurrenceFrequency: $recurrenceFrequency,
-            customRecurrenceDays: $customRecurrenceDays,
-            selectedReminder: $selectedReminder,
-            selectedTagId: $selectedTagId,
-            showingDatePicker: $showingDatePicker,
-            showingEndDatePicker: $showingEndDatePicker
-        )
+            EventFormContent(
+                title: $title,
+                location: $location,
+                description: $description,
+                selectedDate: $selectedDate,
+                selectedEndDate: $selectedEndDate,
+                isMultiDay: $isMultiDay,
+                hasTime: $hasTime,
+                selectedTime: $selectedTime,
+                selectedEndTime: $selectedEndTime,
+                isRecurring: $isRecurring,
+                recurrenceFrequency: $recurrenceFrequency,
+                customRecurrenceDays: $customRecurrenceDays,
+                selectedReminder: $selectedReminder,
+                selectedTagId: $selectedTagId,
+                showingDatePicker: $showingDatePicker,
+                showingEndDatePicker: $showingEndDatePicker
+            )
+        }
+    }
+}
+
+struct EventFormContent_Previews: PreviewProvider {
+    static var previews: some View {
+        EventFormContentPreviewContainer()
     }
 }

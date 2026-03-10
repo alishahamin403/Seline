@@ -1,9 +1,16 @@
 import SwiftUI
 
 struct VisitNotesSheet: View {
+    enum ContentMode {
+        case full
+        case noteOnly
+        case receiptOnly
+    }
+
     let visit: LocationVisitRecord
     let place: SavedPlace?
     let colorScheme: ColorScheme
+    let contentMode: ContentMode
     let onSave: (String) async -> Void
     let onDismiss: () -> Void
 
@@ -22,12 +29,14 @@ struct VisitNotesSheet: View {
         visit: LocationVisitRecord,
         place: SavedPlace?,
         colorScheme: ColorScheme,
+        contentMode: ContentMode = .full,
         onSave: @escaping (String) async -> Void,
         onDismiss: @escaping () -> Void
     ) {
         self.visit = visit
         self.place = place
         self.colorScheme = colorScheme
+        self.contentMode = contentMode
         self.onSave = onSave
         self.onDismiss = onDismiss
         _notesText = State(initialValue: visit.visitNotes ?? "")
@@ -38,9 +47,15 @@ struct VisitNotesSheet: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     visitHeaderCard
-                    reasonSection
-                    peopleSection
-                    receiptSection
+                    if showsReasonSection {
+                        reasonSection
+                    }
+                    if showsPeopleSection {
+                        peopleSection
+                    }
+                    if showsReceiptSection {
+                        receiptSection
+                    }
 
                     Spacer(minLength: 30)
                 }
@@ -49,7 +64,7 @@ struct VisitNotesSheet: View {
                 .padding(.bottom, 40)
             }
             .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-            .navigationTitle("Visit Details")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -68,16 +83,46 @@ struct VisitNotesSheet: View {
                 }
             }
             .task {
-                let existingPeople = await peopleManager.getPeopleForVisit(visitId: visit.id)
+                let existingPeople = showsPeopleSection
+                    ? await peopleManager.getPeopleForVisit(visitId: visit.id)
+                    : []
+                let existingReceiptNoteId = showsReceiptSection
+                    ? VisitReceiptLinkStore.receiptId(for: visit.id)
+                    : nil
                 await MainActor.run {
                     selectedPeopleIds = Set(existingPeople.map { $0.id })
-                    selectedReceiptNoteId = VisitReceiptLinkStore.receiptId(for: visit.id)
+                    selectedReceiptNoteId = existingReceiptNoteId
                     isLoadingPeople = false
                 }
             }
             .onAppear {
-                isFocused = true
+                if showsReasonSection {
+                    isFocused = true
+                }
             }
+        }
+    }
+
+    private var showsReasonSection: Bool {
+        contentMode != .receiptOnly
+    }
+
+    private var showsPeopleSection: Bool {
+        contentMode == .full
+    }
+
+    private var showsReceiptSection: Bool {
+        contentMode != .noteOnly
+    }
+
+    private var navigationTitle: String {
+        switch contentMode {
+        case .full:
+            return "Visit Details"
+        case .noteOnly:
+            return "Visit Note"
+        case .receiptOnly:
+            return "Attach Receipt"
         }
     }
 
@@ -380,9 +425,16 @@ struct VisitNotesSheet: View {
         Task {
             let cleanedNotes = notesText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            await onSave(cleanedNotes)
-            await peopleManager.linkPeopleToVisit(visitId: visit.id, personIds: Array(selectedPeopleIds))
-            VisitReceiptLinkStore.setReceiptId(selectedReceiptNoteId, for: visit.id)
+            switch contentMode {
+            case .full:
+                await onSave(cleanedNotes)
+                await peopleManager.linkPeopleToVisit(visitId: visit.id, personIds: Array(selectedPeopleIds))
+                VisitReceiptLinkStore.setReceiptId(selectedReceiptNoteId, for: visit.id)
+            case .noteOnly:
+                await onSave(cleanedNotes)
+            case .receiptOnly:
+                VisitReceiptLinkStore.setReceiptId(selectedReceiptNoteId, for: visit.id)
+            }
 
             await MainActor.run {
                 isSaving = false
@@ -457,6 +509,9 @@ enum VisitReceiptLinkStore {
 
         save(links)
         NotificationCenter.default.post(name: .visitReceiptLinkUpdated, object: visitId)
+        Task { @MainActor in
+            await VectorSearchService.shared.refreshVisitEmbeddingsIncremental(reason: "visit-receipt link update")
+        }
     }
 
     private static func load() -> [String: String] {

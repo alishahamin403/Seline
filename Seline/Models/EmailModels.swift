@@ -168,6 +168,160 @@ struct Email: Identifiable, Codable, Equatable, Hashable {
     var timePeriod: EmailTimePeriod {
         return EmailTimePeriod.from(date: timestamp)
     }
+
+    var requiresAction: Bool {
+        let signature = [
+            id,
+            sender.email,
+            subject,
+            snippet,
+            aiSummary ?? "",
+            category.rawValue
+        ].joined(separator: "|")
+        let cacheKey = "cache.email.requiresAction.\(HashUtils.deterministicHash(signature))"
+
+        return CacheManager.shared.getOrCompute(
+            forKey: cacheKey,
+            ttl: CacheManager.TTL.veryLong
+        ) {
+            EmailActionAnalyzer.requiresAction(for: self)
+        }
+    }
+}
+
+private enum EmailActionAnalyzer {
+    static let noActionPhrases = [
+        "no action required",
+        "no response required",
+        "for your information",
+        "fyi",
+        "informational only"
+    ]
+
+    static let directRequestPhrases = [
+        "action required",
+        "requires your action",
+        "please reply",
+        "reply needed",
+        "reply required",
+        "respond by",
+        "response required",
+        "please confirm",
+        "verify your",
+        "review and sign",
+        "sign and return",
+        "approval required",
+        "please approve",
+        "rsvp",
+        "confirm attendance",
+        "complete your",
+        "submit",
+        "update your",
+        "upload",
+        "accept or decline"
+    ]
+
+    static let deadlineTaskPhrases = [
+        "payment due",
+        "invoice due",
+        "past due",
+        "overdue",
+        "due today",
+        "due tomorrow",
+        "due by",
+        "deadline",
+        "expires on",
+        "payment failed",
+        "card declined"
+    ]
+
+    static let criticalAlertPhrases = [
+        "security alert",
+        "fraud alert",
+        "suspicious activity",
+        "password reset",
+        "verify your account",
+        "low balance",
+        "account locked"
+    ]
+
+    static let announcementPhrases = [
+        "newsletter",
+        "announcement",
+        "new feature",
+        "new features",
+        "release notes",
+        "changelog",
+        "product update",
+        "developer news",
+        "what's new",
+        "introducing",
+        "now available",
+        "tips",
+        "learn more",
+        "read more",
+        "webinar",
+        "community update"
+    ]
+
+    static let broadcastSenderHints = [
+        "noreply",
+        "no-reply",
+        "donotreply",
+        "newsletter",
+        "updates@",
+        "news@",
+        "notifications@"
+    ]
+
+    static func requiresAction(for email: Email) -> Bool {
+        let signal = [
+            email.subject,
+            email.snippet,
+            email.aiSummary ?? "",
+            email.sender.displayName,
+            email.sender.email
+        ]
+        .joined(separator: " ")
+        .lowercased()
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+
+        if containsAny(in: signal, phrases: noActionPhrases) {
+            return false
+        }
+
+        if containsAny(in: signal, phrases: criticalAlertPhrases) {
+            return true
+        }
+
+        let hasDirectRequest = containsAny(in: signal, phrases: directRequestPhrases)
+        let hasDeadlineTask = containsAny(in: signal, phrases: deadlineTaskPhrases)
+        let senderEmail = email.sender.email.lowercased()
+        let subjectSnippet = "\(email.subject) \(email.snippet)".lowercased()
+        let isLikelyBroadcastSender = containsAny(in: senderEmail, phrases: broadcastSenderHints)
+        let isAnnouncement = containsAny(in: signal, phrases: announcementPhrases)
+            || containsAny(in: subjectSnippet, phrases: announcementPhrases)
+            || email.category == .promotions
+            || email.category == .social
+
+        if isAnnouncement && !hasDirectRequest && !hasDeadlineTask {
+            return false
+        }
+
+        if isLikelyBroadcastSender && !hasDeadlineTask {
+            return false
+        }
+
+        if hasDeadlineTask {
+            return true
+        }
+
+        return hasDirectRequest && !isAnnouncement
+    }
+
+    static func containsAny(in text: String, phrases: [String]) -> Bool {
+        phrases.contains(where: { text.contains($0) })
+    }
 }
 
 struct EmailAddress: Codable, Hashable {
@@ -443,7 +597,7 @@ struct EmailSection: Identifiable {
 
 // MARK: - Day-based Email Section for 7-day rolling view
 
-struct EmailDaySection: Identifiable {
+struct EmailDaySection: Identifiable, Equatable {
     var id: String {
         FormatterCache.emailDayIdentifier.string(from: date)
     }
@@ -489,15 +643,17 @@ struct EmailDaySection: Identifiable {
     static func categorizeByDay(_ emails: [Email]) -> [EmailDaySection] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
+        let emailsByDay = Dictionary(grouping: emails) { email in
+            calendar.startOfDay(for: email.timestamp)
+        }
         
         // Generate the last 7 days including today - ALWAYS show all 7 days
         var sections: [EmailDaySection] = []
+        sections.reserveCapacity(7)
         for dayOffset in 0..<7 {
             guard let date = calendar.date(byAdding: .day, value: -dayOffset, to: today) else { continue }
             
-            let dayEmails = emails.filter { email in
-                calendar.isDate(email.timestamp, inSameDayAs: date)
-            }.sorted { $0.timestamp > $1.timestamp }
+            let dayEmails = (emailsByDay[date] ?? []).sorted { $0.timestamp > $1.timestamp }
             
             // Always include all 7 days, even if empty
             sections.append(EmailDaySection(date: date, emails: dayEmails, isExpanded: dayOffset == 0))

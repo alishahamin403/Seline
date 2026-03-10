@@ -67,15 +67,43 @@ class WeatherService: ObservableObject {
 
     // Open-Meteo API (free, no API key required)
     private let baseURL = "https://api.open-meteo.com/v1/forecast"
+    private let cacheTTL: TimeInterval = 20 * 60
+    private let coordinatePrecision: Double = 1000
+    private var cachedWeather: [String: (data: WeatherData, fetchedAt: Date)] = [:]
+    private var inflightTasks: [String: Task<WeatherData, Error>] = [:]
 
     private init() {}
 
-    func fetchWeather(for location: CLLocation) async {
+    func fetchWeather(for location: CLLocation, forceRefresh: Bool = false) async {
+        let cacheKey = roundedCoordinateKey(for: location)
+
+        if !forceRefresh,
+           let cachedEntry = cachedWeather[cacheKey],
+           Date().timeIntervalSince(cachedEntry.fetchedAt) < cacheTTL {
+            weatherData = cachedEntry.data
+            errorMessage = nil
+            return
+        }
+
+        if let inflightTask = inflightTasks[cacheKey] {
+            do {
+                weatherData = try await inflightTask.value
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+
         isLoading = true
         errorMessage = nil
 
+        let task = Task { try await performWeatherRequest(for: location) }
+        inflightTasks[cacheKey] = task
+
         do {
-            let weatherData = try await performWeatherRequest(for: location)
+            let weatherData = try await task.value
+            cachedWeather[cacheKey] = (data: weatherData, fetchedAt: Date())
             self.weatherData = weatherData
         } catch {
             self.errorMessage = error.localizedDescription
@@ -85,7 +113,14 @@ class WeatherService: ObservableObject {
             }
         }
 
+        inflightTasks[cacheKey] = nil
         isLoading = false
+    }
+
+    private func roundedCoordinateKey(for location: CLLocation) -> String {
+        let latitude = (location.coordinate.latitude * coordinatePrecision).rounded() / coordinatePrecision
+        let longitude = (location.coordinate.longitude * coordinatePrecision).rounded() / coordinatePrecision
+        return "\(latitude),\(longitude)"
     }
 
     private func performWeatherRequest(for location: CLLocation) async throws -> WeatherData {

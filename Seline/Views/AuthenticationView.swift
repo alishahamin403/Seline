@@ -1,9 +1,43 @@
 import SwiftUI
-import GoogleSignInSwift
-
 struct AuthenticationView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.colorScheme) var colorScheme
+    private let brandMarkSize: CGFloat = 164
+
+    private var brandMarkColor: Color {
+        Color.appTextPrimary(colorScheme).opacity(colorScheme == .dark ? 0.94 : 0.9)
+    }
+
+    private var signInButtonFill: Color {
+        Color.appMonochromeAccentFill(colorScheme)
+    }
+
+    private var signInButtonBorder: Color {
+        Color.appMonochromeAccentBorder(colorScheme)
+    }
+
+    private var signInButtonTextColor: Color {
+        colorScheme == .dark ? Color.black.opacity(0.86) : Color.appTextPrimary(colorScheme)
+    }
+
+    @ViewBuilder
+    private var brandMarkMask: some View {
+        let logo = Image("SelineLogo")
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: brandMarkSize, height: brandMarkSize)
+
+        if colorScheme == .light {
+            logo
+                .compositingGroup()
+                .colorInvert()
+                .luminanceToAlpha()
+                .mask(logo)
+        } else {
+            logo
+                .luminanceToAlpha()
+        }
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -17,13 +51,11 @@ struct AuthenticationView: View {
                     Spacer()
                         .frame(height: geometry.size.height * 0.18)
 
-                    VStack(spacing: 40) {
-                        Image("SelineLogo")
-                            .resizable()
-                            .renderingMode(.original)
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 136, height: 136)
-                            .clipped()
+                    VStack(spacing: 32) {
+                        Rectangle()
+                            .fill(brandMarkColor)
+                            .frame(width: brandMarkSize, height: brandMarkSize)
+                            .mask(brandMarkMask)
 
                         VStack(spacing: 12) {
                             Text("Welcome back!")
@@ -49,49 +81,44 @@ struct AuthenticationView: View {
 
                     Spacer()
 
-                    VStack(spacing: 24) {
+                    VStack(spacing: 18) {
                         if authManager.isLoading {
-                            VStack {
+                            HStack(spacing: 12) {
                                 ShadcnSpinner(
-                                    size: .large,
+                                    size: .medium,
                                     color: colorScheme == .dark ?
                                         Color(red: 0.64, green: 0.68, blue: 0.73) :
                                         Color(red: 0.37, green: 0.42, blue: 0.48)
                                 )
+
+                                Text("Signing in")
+                                    .font(.geistButton)
+                                    .foregroundColor(signInButtonTextColor)
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 56)
-                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
-                            .padding(.horizontal, 24)
                         } else {
                             Button(action: {
                                 Task {
                                     await authManager.signInWithGoogle()
                                 }
                             }) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "globe")
-                                        .font(.geistTitle2)
-                                        .foregroundColor(colorScheme == .dark ? .black : .white)
-
-                                    Text("Continue with Google")
-                                        .font(.geistButton)
-                                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(colorScheme == .dark ? .white : .black)
-                                .clipShape(RoundedRectangle(cornerRadius: 18))
-                                .shadow(
-                                    color: colorScheme == .dark ?
-                                        Color.black.opacity(0.25) :
-                                        Color.black.opacity(0.15),
-                                    radius: 4,
-                                    x: 0,
-                                    y: 2
-                                )
+                                Text("Continue with Google")
+                                    .font(.geistButton)
+                                    .foregroundColor(signInButtonTextColor)
+                                    .tracking(0.1)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 56)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                            .fill(signInButtonFill)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                            .stroke(signInButtonBorder, lineWidth: 1)
+                                    )
                             }
-                            .padding(.horizontal, 24)
+                            .buttonStyle(PlainButtonStyle())
                         }
 
                         if let errorMessage = authManager.errorMessage {
@@ -99,16 +126,17 @@ struct AuthenticationView: View {
                                 .foregroundColor(.red)
                                 .font(.geistBody)
                                 .multilineTextAlignment(.center)
-                                .padding(.horizontal, 24)
-                                .padding(.top, 8)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 2)
                         }
                     }
-                    .padding(.vertical, 24)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 22)
                     .appAmbientCardStyle(
                         colorScheme: colorScheme,
                         variant: .bottomLeading,
                         cornerRadius: 30,
-                        highlightStrength: 0.62
+                        highlightStrength: 0.56
                     )
                     .padding(.horizontal, 20)
 

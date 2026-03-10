@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5A9E1CF92F2A4DC29A656236 /* UnifiedSearchBar.swift in Resources */ = {isa = PBXBuildFile; fileRef = 0029D02755604F65B93E41A1 /* UnifiedSearchBar.swift */; };
-		BCC1C46D585047B1949DC7E1 /* SearchResultsListView.swift in Resources */ = {isa = PBXBuildFile; fileRef = 401B087516984610BD40542C /* SearchResultsListView.swift */; };
 		C0125F382EB65FC1007B653B /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0125F372EB65FC1007B653B /* WidgetKit.framework */; };
 		C0125F3A2EB65FC1007B653B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0125F392EB65FC1007B653B /* SwiftUI.framework */; };
 		C0125F4B2EB65FC3007B653B /* SelineWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C0125F352EB65FC1007B653B /* SelineWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -21,7 +19,6 @@
 		C032D1C22E61491A003191E0 /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = C032D1C12E61491A003191E0 /* Storage */; };
 		C0A6538F2E5CF43E00B37962 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = C0A6538E2E5CF43E00B37962 /* GoogleSignIn */; };
 		C0A653912E5CF43E00B37962 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0A653902E5CF43E00B37962 /* GoogleSignInSwift */; };
-		C0C43C5F2E5A6FD90081F5D0 /* SelineWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C0C43C5D2E5A6FD90081F5D0 /* SelineWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,7 +39,6 @@
 			dstSubfolderSpec = 13;
 			files = (
 				C0125F4B2EB65FC3007B653B /* SelineWidgetExtension.appex in Embed Foundation Extensions */,
-				C0C43C5F2E5A6FD90081F5D0 /* SelineWidgetExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -231,7 +227,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2600;
-				LastUpgradeCheck = 1640;
+				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					C0125F342EB65FC1007B653B = {
 						CreatedOnToolsVersion = 26.0.1;
@@ -271,8 +267,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5A9E1CF92F2A4DC29A656236 /* UnifiedSearchBar.swift in Resources */,
-				BCC1C46D585047B1949DC7E1 /* SearchResultsListView.swift in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -324,7 +318,7 @@
 				INFOPLIST_FILE = SelineWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SelineWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -356,7 +350,7 @@
 				INFOPLIST_FILE = SelineWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SelineWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

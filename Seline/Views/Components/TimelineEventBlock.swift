@@ -80,7 +80,7 @@ struct TimelineEventBlock: View {
 
     private var textColor: Color {
         // Use the color manager to determine appropriate text color
-        if case .tag(let tagId) = filterType, let tagColorIndex = tagColorIndex {
+        if case .tag = filterType, let tagColorIndex = tagColorIndex {
             return TimelineEventColorManager.tagColorTextColor(colorIndex: tagColorIndex, colorScheme: colorScheme)
         }
         // For personal/sync events, use white in dark mode, black in light mode

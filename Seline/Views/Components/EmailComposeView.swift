@@ -678,11 +678,6 @@ struct EmailComposeView: View {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
             
-            let ccList = ccRecipients
-                .components(separatedBy: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            
             switch mode {
             case .reply, .replyAll:
                 // Use reply function to maintain thread

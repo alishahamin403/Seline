@@ -15,8 +15,8 @@ extension NotesManager {
         var encryptedNote = note
 
         // Encrypt title and content
-        encryptedNote.title = try await EncryptionManager.shared.encrypt(note.title)
-        encryptedNote.content = try await EncryptionManager.shared.encrypt(note.content)
+        encryptedNote.title = try EncryptionManager.shared.encrypt(note.title)
+        encryptedNote.content = try EncryptionManager.shared.encrypt(note.content)
 
         print("✅ Encrypted note: \(note.id.uuidString)")
 
@@ -35,8 +35,8 @@ extension NotesManager {
             // If decryption fails, it means the data wasn't encrypted (old data)
             // So we return it as-is for backward compatibility
 
-            decryptedNote.title = try await EncryptionManager.shared.decrypt(encryptedNote.title)
-            decryptedNote.content = try await EncryptionManager.shared.decrypt(encryptedNote.content)
+            decryptedNote.title = try EncryptionManager.shared.decrypt(encryptedNote.title)
+            decryptedNote.content = try EncryptionManager.shared.decrypt(encryptedNote.content)
 
             // DEBUG: Commented out to reduce console spam
             // print("✅ Decrypted note: \(encryptedNote.id.uuidString)")

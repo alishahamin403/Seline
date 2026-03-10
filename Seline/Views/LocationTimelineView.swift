@@ -19,11 +19,18 @@ struct LocationTimelineView: View {
     @State private var showMergeError = false
     @State private var mergeErrorMessage = ""
     @State private var selectedVisitForNotes: LocationVisitRecord? = nil
+    @State private var selectedVisitForReceipt: LocationVisitRecord? = nil
     @State private var selectedVisitForPeople: LocationVisitRecord? = nil
+    @State private var selectedVisitForEditing: LocationVisitRecord? = nil
+    @State private var selectedReceiptNote: Note? = nil
     @State private var visitPeopleCache: [UUID: [Person]] = [:] // Cache people for each visit
     @State private var showDeleteConfirmation = false
     @State private var visitToDelete: LocationVisitRecord? = nil
+    @State private var showVisitEditError = false
+    @State private var visitEditErrorMessage = ""
     @State private var reloadTask: Task<Void, Never>?
+    @State private var dayLoadTask: Task<Void, Never>?
+    @State private var monthLoadTask: Task<Void, Never>?
     @State private var monthPageSelection: Int = 1
     @State private var monthVisitLabels: [Date: String] = [:]
     @State private var linkedReceiptIds: [UUID: UUID] = [:]
@@ -37,6 +44,30 @@ struct LocationTimelineView: View {
         return formatter
     }()
 
+    private let selectedDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMM d"
+        return formatter
+    }()
+
+    private let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private var placesById: [UUID: SavedPlace] {
+        Dictionary(uniqueKeysWithValues: locationsManager.savedPlaces.map { ($0.id, $0) })
+    }
+
+    private var notesById: [UUID: Note] {
+        Dictionary(uniqueKeysWithValues: notesManager.notes.map { ($0.id, $0) })
+    }
+
+    private var sortedSelectedDayVisits: [LocationVisitRecord] {
+        visitState.selectedDayVisits.sorted { $0.entryTime < $1.entryTime }
+    }
+
     private struct MonthVisitLabelData: Codable {
         let savedPlaceId: UUID
         let entryTime: Date
@@ -45,6 +76,12 @@ struct LocationTimelineView: View {
             case savedPlaceId = "saved_place_id"
             case entryTime = "entry_time"
         }
+    }
+
+    private enum VisitActionStyle {
+        case secondary
+        case primary
+        case destructive
     }
 
     var body: some View {
@@ -70,42 +107,24 @@ struct LocationTimelineView: View {
         }
         .onAppear {
             refreshLinkedReceiptLinks()
-            loadVisitsForMonth()
-            loadVisitsForSelectedDay()
+            reloadVisitData(reason: "initial_load")
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
-            // Debounce: Cancel previous reload and schedule new one
-            reloadTask?.cancel()
-            reloadTask = Task {
-                try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
-                if !Task.isCancelled {
-                    loadVisitsForMonth()
-                    loadVisitsForSelectedDay()
-                }
-            }
+            scheduleVisitReload(reason: "geofence_visit_created")
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
-            reloadTask?.cancel()
-            reloadTask = Task {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                if !Task.isCancelled {
-                    // Invalidate cache
-                    let dayFormatter = DateFormatter()
-                    dayFormatter.dateFormat = "yyyy-MM-dd"
-                    let dayKey = dayFormatter.string(from: visitState.selectedDate)
-                    CacheManager.shared.invalidate(forKey: "cache.visits.day.\(dayKey)")
-
-                    loadVisitsForMonth()
-                    loadVisitsForSelectedDay()
-                }
-            }
+            scheduleVisitReload(reason: "visit_history_updated", invalidateSelectedDayCache: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: .visitReceiptLinkUpdated)) { _ in
             refreshLinkedReceiptLinks()
         }
         .onChange(of: visitState.selectedDate) { _ in
-            // Reload visits when selected date changes
-            loadVisitsForSelectedDay()
+            loadVisitsForSelectedDay(reason: "selected_date")
+        }
+        .onDisappear {
+            reloadTask?.cancel()
+            dayLoadTask?.cancel()
+            monthLoadTask?.cancel()
         }
         .sheet(item: $selectedPlace) { place in
             PlaceDetailSheet(place: place, onDismiss: { 
@@ -116,14 +135,30 @@ struct LocationTimelineView: View {
         .sheet(item: $selectedVisitForNotes) { visit in
             VisitNotesSheet(
                 visit: visit,
-                place: locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId }),
+                place: placesById[visit.savedPlaceId],
                 colorScheme: colorScheme,
+                contentMode: .noteOnly,
                 onSave: { notes in
                     await saveVisitNotes(visit: visit, notes: notes)
                     selectedVisitForNotes = nil
                 },
                 onDismiss: {
                     selectedVisitForNotes = nil
+                }
+            )
+            .presentationBg()
+        }
+        .sheet(item: $selectedVisitForReceipt) { visit in
+            VisitNotesSheet(
+                visit: visit,
+                place: placesById[visit.savedPlaceId],
+                colorScheme: colorScheme,
+                contentMode: .receiptOnly,
+                onSave: { _ in
+                    selectedVisitForReceipt = nil
+                },
+                onDismiss: {
+                    selectedVisitForReceipt = nil
                 }
             )
             .presentationBg()
@@ -147,6 +182,34 @@ struct LocationTimelineView: View {
             )
             .presentationBg()
         }
+        .sheet(item: $selectedVisitForEditing) { visit in
+            EditVisitTimeSheet(
+                visit: visit,
+                place: placesById[visit.savedPlaceId],
+                colorScheme: colorScheme,
+                onSave: { entryTime, exitTime in
+                    let success = await visitState.updateVisit(id: visit.id, entryTime: entryTime, exitTime: exitTime)
+
+                    if success {
+                        HapticManager.shared.success()
+                        return nil
+                    }
+
+                    HapticManager.shared.error()
+                    return LocationVisitAnalytics.shared.errorMessage ?? "Failed to update this visit."
+                }
+            )
+            .presentationBg()
+        }
+        .fullScreenCover(item: $selectedReceiptNote) { note in
+            NoteEditView(
+                note: note,
+                isPresented: Binding<Bool>(
+                    get: { selectedReceiptNote != nil },
+                    set: { if !$0 { selectedReceiptNote = nil } }
+                )
+            )
+        }
         .confirmationDialog("Delete Visit", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 guard let visit = visitToDelete else { return }
@@ -160,6 +223,11 @@ struct LocationTimelineView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Are you sure you want to delete this visit? This action cannot be undone.")
+        }
+        .alert("Visit Editing Unavailable", isPresented: $showVisitEditError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(visitEditErrorMessage)
         }
     }
 
@@ -218,7 +286,6 @@ struct LocationTimelineView: View {
                 }
                 HapticManager.shared.selection()
                 loadVisitsForMonth()
-                loadVisitsForSelectedDay()
             }) {
                 Text("Today")
                     .font(FontManager.geist(size: 13, weight: .medium))
@@ -334,7 +401,6 @@ struct LocationTimelineView: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 visitState.selectedDate = normalizedDate
             }
-            loadVisitsForSelectedDay()
             HapticManager.shared.selection()
         }) {
             VStack(spacing: 5) {
@@ -424,25 +490,22 @@ struct LocationTimelineView: View {
             .padding(.horizontal, 20)
             .padding(.top, 16)
 
-            // Merge mode instructions
             if isMergeMode {
                 HStack(spacing: 8) {
                     Image(systemName: "info.circle.fill")
                         .font(.system(size: 14))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                    
+
                     Text(selectedVisitsForMerge.count == 0 ? "Tap the first visit" :
                          selectedVisitsForMerge.count == 1 ? "Tap the second visit to merge with" :
                          "Ready to merge")
                         .font(FontManager.geist(size: 13, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
-                    
+
                     Spacer()
-                    
+
                     if selectedVisitsForMerge.count == 2 {
-                        Button(action: {
-                            performMerge()
-                        }) {
+                        Button(action: performMerge) {
                             HStack(spacing: 4) {
                                 if isMerging {
                                     ProgressView()
@@ -452,6 +515,7 @@ struct LocationTimelineView: View {
                                     Image(systemName: "checkmark.circle.fill")
                                         .font(.system(size: 14, weight: .medium))
                                 }
+
                                 Text("Merge")
                                     .font(FontManager.geist(size: 13, weight: .semibold))
                             }
@@ -480,9 +544,8 @@ struct LocationTimelineView: View {
                 .padding(.horizontal, 20)
             }
 
-            // Visit cards
             LazyVStack(spacing: 12) {
-                ForEach(visitState.selectedDayVisits.sorted(by: { $0.entryTime < $1.entryTime })) { visit in
+                ForEach(sortedSelectedDayVisits) { visit in
                     visitCard(for: visit)
                 }
             }
@@ -540,209 +603,285 @@ struct LocationTimelineView: View {
 
     @ViewBuilder
     private func visitCard(for visit: LocationVisitRecord) -> some View {
-        if let place = locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) {
+        if let place = placesById[visit.savedPlaceId] {
             let isSelectedForMerge = selectedVisitsForMerge.contains(visit.id)
             let linkedReceipt = linkedReceipt(for: visit)
-            
-            Button(action: {
-                if isMergeMode {
-                    handleMergeSelection(visit: visit)
-                } else {
-                    // Long press to add notes, tap to view place details
-                    selectedPlace = place
-                }
-            }) {
-                HStack(spacing: 12) {
-                    // Visit card - cleaner design without stroke overlay
+
+            VStack(spacing: 0) {
+                Button(action: {
+                    if isMergeMode {
+                        handleMergeSelection(visit: visit)
+                    } else {
+                        selectedPlace = place
+                    }
+                }) {
                     HStack(spacing: 12) {
-                        PlaceImageView(place: place, size: 40, cornerRadius: ShadcnRadius.lg)
+                        HStack(spacing: 12) {
+                            PlaceImageView(place: place, size: 40, cornerRadius: ShadcnRadius.lg)
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(place.displayName)
-                                .font(FontManager.geist(size: 14, weight: .semibold))
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
-                                .lineLimit(1)
-
-                            HStack(spacing: 8) {
-                                Text(place.category)
-                                    .font(FontManager.geist(size: 11, weight: .medium))
-                                    .foregroundColor(categoryColor(for: place.category))
-                                    .lineLimit(1)
-                            }
-
-                            HStack(spacing: 6) {
-                                Text(timeRangeString(from: visit))
-                                    .font(FontManager.geist(size: 11, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(place.displayName)
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
+                                    .foregroundColor(Color.shadcnForeground(colorScheme))
                                     .lineLimit(1)
 
-                                if let duration = visit.durationMinutes {
-                                    Text("•")
-                                        .font(FontManager.geist(size: 11, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                HStack(spacing: 8) {
+                                    Text(place.category)
+                                        .font(FontManager.geist(size: 11, weight: .medium))
+                                        .foregroundColor(categoryColor(for: place.category))
+                                        .lineLimit(1)
+                                }
 
-                                    Text(durationString(minutes: duration))
+                                HStack(spacing: 6) {
+                                    Text(timeRangeString(from: visit))
                                         .font(FontManager.geist(size: 11, weight: .regular))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                         .lineLimit(1)
-                                }
-                            }
-                            
-                            // Show visit notes if exists (limited to 2 lines, tap note icon for full text)
-                            if let notes = visit.visitNotes, !notes.isEmpty {
-                                Text(notes)
-                                    .font(FontManager.geist(size: 12, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                                    .italic()
-                                    .lineLimit(2)
-                                    .padding(.top, 4)
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: -6) {
-                                    if let people = visitPeopleCache[visit.id], !people.isEmpty {
-                                        ForEach(people.prefix(4)) { person in
-                                            Circle()
-                                                .fill(colorForRelationship(person.relationship))
-                                                .frame(width: 22, height: 22)
-                                                .overlay(
-                                                    Text(person.initials)
-                                                        .font(FontManager.geist(size: 8, weight: .semibold))
-                                                        .foregroundColor(.white)
-                                                )
-                                                .overlay(
-                                                    Circle()
-                                                        .stroke(colorScheme == .dark ? Color.black : Color.white, lineWidth: 1.5)
-                                                )
-                                        }
 
-                                        if people.count > 4 {
-                                            Circle()
-                                                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
-                                                .frame(width: 22, height: 22)
-                                                .overlay(
-                                                    Text("+\(people.count - 4)")
-                                                        .font(FontManager.geist(size: 8, weight: .semibold))
-                                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                )
-                                                .overlay(
-                                                    Circle()
-                                                        .stroke(colorScheme == .dark ? Color.black : Color.white, lineWidth: 1.5)
-                                                )
-                                        }
+                                    if let duration = visit.durationMinutes {
+                                        Text("•")
+                                            .font(FontManager.geist(size: 11, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
 
-                                        Text("with \(people.map { $0.displayName }.prefix(2).joined(separator: ", "))\(people.count > 2 ? "..." : "")")
-                                            .font(FontManager.geist(size: 10, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                                            .padding(.leading, 8)
-                                    }
-                                }
-
-                                if let linkedReceipt {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "receipt.fill")
-                                            .font(FontManager.geist(size: 9, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.75))
-
-                                        Text(linkedReceipt.title)
-                                            .font(FontManager.geist(size: 10, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.75))
+                                        Text(durationString(minutes: duration))
+                                            .font(FontManager.geist(size: 11, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                             .lineLimit(1)
                                     }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(
-                                        Capsule()
-                                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
-                                    )
                                 }
-                            }
-                            .padding(.top, 4)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if !isMergeMode, let people = visitPeopleCache[visit.id], !people.isEmpty {
-                                    selectedVisitForPeople = visit
-                                }
-                            }
-                        }
 
-                        Spacer()
-                        
-                        // Merge selection indicator or Notes button
-                        if isMergeMode {
-                            ZStack {
-                                if isSelectedForMerge {
-                                    Circle()
-                                        .fill(colorScheme == .dark ? Color.white : Color.black)
-                                        .frame(width: 24, height: 24)
-                                    
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                                } else {
-                                    Circle()
-                                        .stroke(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 2)
-                                        .frame(width: 24, height: 24)
-                                }
-                            }
-                        } else {
-                            HStack(spacing: 8) {
-                                // Show note icon if visit has notes, calendar+ icon if no notes
                                 if let notes = visit.visitNotes, !notes.isEmpty {
-                                    // Has notes - show note icon to view
-                                    Button(action: {
-                                        selectedVisitForNotes = visit
-                                    }) {
-                                        Image(systemName: "note.text")
-                                            .font(FontManager.geist(size: 16, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.75))
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                } else {
-                                    // No notes - show calendar+ icon to add notes
-                                    Button(action: {
-                                        selectedVisitForNotes = visit
-                                    }) {
-                                        Image(systemName: "calendar.badge.plus")
-                                            .font(FontManager.geist(size: 16, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
+                                    Text(notes)
+                                        .font(FontManager.geist(size: 12, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                                        .italic()
+                                        .lineLimit(2)
+                                        .padding(.top, 4)
                                 }
 
-                                // Delete button
-                                Button(action: {
-                                    visitToDelete = visit
-                                    showDeleteConfirmation = true
-                                }) {
-                                    Image(systemName: "trash.fill")
-                                        .font(FontManager.geist(size: 14, weight: .medium))
-                                        .foregroundColor(.red.opacity(0.8))
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: -6) {
+                                        if let people = visitPeopleCache[visit.id], !people.isEmpty {
+                                            ForEach(people.prefix(4)) { person in
+                                                Circle()
+                                                    .fill(colorForRelationship(person.relationship))
+                                                    .frame(width: 22, height: 22)
+                                                    .overlay(
+                                                        Text(person.initials)
+                                                            .font(FontManager.geist(size: 8, weight: .semibold))
+                                                            .foregroundColor(.white)
+                                                    )
+                                                    .overlay(
+                                                        Circle()
+                                                            .stroke(colorScheme == .dark ? Color.black : Color.white, lineWidth: 1.5)
+                                                    )
+                                            }
+
+                                            if people.count > 4 {
+                                                Circle()
+                                                    .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
+                                                    .frame(width: 22, height: 22)
+                                                    .overlay(
+                                                        Text("+\(people.count - 4)")
+                                                            .font(FontManager.geist(size: 8, weight: .semibold))
+                                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                    )
+                                                    .overlay(
+                                                        Circle()
+                                                            .stroke(colorScheme == .dark ? Color.black : Color.white, lineWidth: 1.5)
+                                                    )
+                                            }
+
+                                            Text("with \(people.map { $0.displayName }.prefix(2).joined(separator: ", "))\(people.count > 2 ? "..." : "")")
+                                                .font(FontManager.geist(size: 10, weight: .regular))
+                                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                                                .padding(.leading, 8)
+                                        }
+                                    }
+
+                                    if let linkedReceipt {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "receipt.fill")
+                                                .font(FontManager.geist(size: 9, weight: .medium))
+                                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.75))
+
+                                            Text(linkedReceipt.title)
+                                                .font(FontManager.geist(size: 10, weight: .medium))
+                                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.75))
+                                                .lineLimit(1)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(
+                                            Capsule()
+                                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                                        )
+                                    }
                                 }
-                                .buttonStyle(PlainButtonStyle())
+                                .padding(.top, 4)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if !isMergeMode, let people = visitPeopleCache[visit.id], !people.isEmpty {
+                                        selectedVisitForPeople = visit
+                                    }
+                                }
+                            }
+
+                            Spacer()
+
+                            if isMergeMode {
+                                ZStack {
+                                    if isSelectedForMerge {
+                                        Circle()
+                                            .fill(colorScheme == .dark ? Color.white : Color.black)
+                                            .frame(width: 24, height: 24)
+
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                                    } else {
+                                        Circle()
+                                            .stroke(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 2)
+                                            .frame(width: 24, height: 24)
+                                    }
+                                }
                             }
                         }
                     }
                     .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                            .fill(Color.shadcnTileBackground(colorScheme))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                            .stroke(
-                                isSelectedForMerge ? 
-                                (colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6)) : 
-                                Color.clear, 
-                                lineWidth: isSelectedForMerge ? 1.5 : 0
-                            )
-                    )
-                    .scaleEffect(isSelectedForMerge ? 1.02 : 1.0)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isSelectedForMerge)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                if !isMergeMode {
+                    HStack(spacing: 8) {
+                        visitActionButton(
+                            title: "Receipts",
+                            systemImage: linkedReceipt == nil ? "receipt" : "receipt.fill",
+                            style: .secondary
+                        ) {
+                            selectedVisitForReceipt = visit
+                        }
+
+                        visitActionButton(
+                            title: "Note",
+                            systemImage: visit.visitNotes?.isEmpty == false ? "note.text" : "square.and.pencil",
+                            style: .secondary
+                        ) {
+                            selectedVisitForNotes = visit
+                        }
+
+                        visitActionButton(
+                            title: "People",
+                            systemImage: "person.2",
+                            style: .secondary
+                        ) {
+                            selectedVisitForPeople = visit
+                        }
+
+                        visitActionButton(
+                            title: "Edit",
+                            systemImage: "pencil",
+                            style: .primary
+                        ) {
+                            handleEditTap(for: visit)
+                        }
+
+                        visitActionButton(title: "Delete", systemImage: "trash", style: .destructive) {
+                            visitToDelete = visit
+                            showDeleteConfirmation = true
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    .padding(.bottom, 12)
                 }
             }
-            .buttonStyle(PlainButtonStyle())
+            .background(
+                RoundedRectangle(cornerRadius: ShadcnRadius.xl)
+                    .fill(Color.shadcnTileBackground(colorScheme))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ShadcnRadius.xl)
+                    .stroke(
+                        isSelectedForMerge ?
+                        (colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6)) :
+                        Color.clear,
+                        lineWidth: isSelectedForMerge ? 1.5 : 0
+                    )
+            )
+            .scaleEffect(isSelectedForMerge ? 1.02 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isSelectedForMerge)
         }
+    }
+
+    private func visitActionButton(
+        title: String,
+        systemImage: String,
+        style: VisitActionStyle,
+        action: @escaping () -> Void
+    ) -> some View {
+        let foregroundColor: Color = {
+            switch style {
+            case .secondary:
+                return Color.appTextPrimary(colorScheme)
+            case .primary:
+                return colorScheme == .dark ? .black : .white
+            case .destructive:
+                return .red.opacity(0.9)
+            }
+        }()
+
+        let backgroundColor: Color = {
+            switch style {
+            case .secondary:
+                return colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04)
+            case .primary:
+                return colorScheme == .dark ? Color.white : Color.black
+            case .destructive:
+                return Color.red.opacity(colorScheme == .dark ? 0.14 : 0.08)
+            }
+        }()
+
+        let borderColor: Color = {
+            switch style {
+            case .secondary:
+                return colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08)
+            case .primary:
+                return Color.clear
+            case .destructive:
+                return Color.red.opacity(0.22)
+            }
+        }()
+
+        let borderWidth: CGFloat = style == .primary ? 0 : 1
+
+        return Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(foregroundColor)
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .background(
+                Capsule()
+                    .fill(backgroundColor)
+            )
+            .overlay(
+                Capsule()
+                    .stroke(borderColor, lineWidth: borderWidth)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .accessibilityLabel(title)
+    }
+
+    private func handleEditTap(for visit: LocationVisitRecord) {
+        guard visitState.canEditVisit(id: visit.id) else {
+            visitEditErrorMessage = "Overnight visits can't be edited from the timeline yet."
+            showVisitEditError = true
+            return
+        }
+
+        selectedVisitForEditing = visit
     }
 
     @ViewBuilder
@@ -809,14 +948,12 @@ struct LocationTimelineView: View {
     }
 
     private func selectedDayString() -> String {
-        let formatter = DateFormatter()
         if calendar.isDateInToday(visitState.selectedDate) {
             return "Today"
         } else if calendar.isDateInYesterday(visitState.selectedDate) {
             return "Yesterday"
         } else {
-            formatter.dateFormat = "EEEE, MMM d"
-            return formatter.string(from: visitState.selectedDate)
+            return selectedDayFormatter.string(from: visitState.selectedDate)
         }
     }
 
@@ -846,14 +983,10 @@ struct LocationTimelineView: View {
     }
 
     private func timeRangeString(from visit: LocationVisitRecord) -> String {
-        // Use same time formatting as VisitHistoryCard for consistency
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short  // Uses system locale format (same as VisitHistoryCard)
-
-        let entryString = formatter.string(from: visit.entryTime)
+        let entryString = timeFormatter.string(from: visit.entryTime)
 
         if let exitTime = visit.exitTime {
-            let exitString = formatter.string(from: exitTime)
+            let exitString = timeFormatter.string(from: exitTime)
             return "\(entryString) - \(exitString)"
         } else {
             return "Started at \(entryString)"  // Same format as VisitHistoryCard
@@ -892,7 +1025,7 @@ struct LocationTimelineView: View {
                 .execute()
             
             // Reload visits to show updated notes
-            await loadVisitsForSelectedDay()
+            loadVisitsForSelectedDay()
         } catch {
             print("❌ Failed to save visit notes: \(error)")
         }
@@ -903,7 +1036,7 @@ struct LocationTimelineView: View {
     private func handleMergeSelection(visit: LocationVisitRecord) {
         // If already selected, deselect
         if let index = selectedVisitsForMerge.firstIndex(of: visit.id) {
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
+            _ = withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
                 selectedVisitsForMerge.remove(at: index)
             }
             return
@@ -1014,37 +1147,79 @@ struct LocationTimelineView: View {
 
     // MARK: - Data Loading
 
-    private func loadVisitsForMonth() {
-        Task {
-            // Use centralized state manager
-            await visitState.fetchVisitsForMonth(visitState.currentMonth)
-            await loadMonthVisitLabels(for: visitState.currentMonth)
+    private func reloadVisitData(reason: String, invalidateSelectedDayCache: Bool = false) {
+        if invalidateSelectedDayCache {
+            invalidateSelectedDayVisitCache()
+        }
+
+        loadVisitsForMonth(reason: reason)
+        loadVisitsForSelectedDay(reason: reason)
+    }
+
+    private func scheduleVisitReload(reason: String, invalidateSelectedDayCache: Bool = false) {
+        reloadTask?.cancel()
+        reloadTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            reloadVisitData(reason: reason, invalidateSelectedDayCache: invalidateSelectedDayCache)
         }
     }
 
-    private func loadVisitsForSelectedDay() {
-        Task {
+    private func invalidateSelectedDayVisitCache() {
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "yyyy-MM-dd"
+        let dayKey = dayFormatter.string(from: visitState.selectedDate)
+        CacheManager.shared.invalidate(forKey: "cache.visits.day.\(dayKey)")
+    }
+
+    private func loadVisitsForMonth(reason: String = "month") {
+        monthLoadTask?.cancel()
+        let month = visitState.currentMonth
+        monthLoadTask = Task {
+            await visitState.fetchVisitsForMonth(month)
+            guard !Task.isCancelled else {
+                return
+            }
+            await loadMonthVisitLabels(for: month)
+        }
+    }
+
+    private func loadVisitsForSelectedDay(reason: String = "day") {
+        dayLoadTask?.cancel()
+        let selectedDate = visitState.selectedDate
+        dayLoadTask = Task {
             await MainActor.run {
                 isLoading = true
             }
 
             // Use centralized state manager
-            await visitState.fetchVisitsForDay(visitState.selectedDate)
+            await visitState.fetchVisitsForDay(selectedDate)
+            guard !Task.isCancelled else {
+                await MainActor.run {
+                    isLoading = false
+                }
+                return
+            }
 
-            await MainActor.run {
+            let visits = await MainActor.run { () -> [LocationVisitRecord] in
                 isLoading = false
+                return visitState.selectedDayVisits
             }
 
             // Load people for each visit
-            await loadPeopleForVisits(visitState.selectedDayVisits)
+            await loadPeopleForVisits(visits)
         }
     }
     
     // MARK: - Load People for Visits
 
     private func loadPeopleForVisits(_ visits: [LocationVisitRecord]) async {
+        let uncachedVisits = visits.filter { visitPeopleCache[$0.id] == nil }
+        guard !uncachedVisits.isEmpty else { return }
+
+        var fetchedPeople: [UUID: [Person]] = [:]
         await withTaskGroup(of: (UUID, [Person]).self) { group in
-            for visit in visits {
+            for visit in uncachedVisits {
                 group.addTask {
                     let people = await self.peopleManager.getPeopleForVisit(visitId: visit.id)
                     return (visit.id, people)
@@ -1052,10 +1227,12 @@ struct LocationTimelineView: View {
             }
 
             for await (visitId, people) in group {
-                await MainActor.run {
-                    self.visitPeopleCache[visitId] = people
-                }
+                fetchedPeople[visitId] = people
             }
+        }
+
+        await MainActor.run {
+            visitPeopleCache.merge(fetchedPeople) { _, new in new }
         }
     }
 
@@ -1083,6 +1260,7 @@ struct LocationTimelineView: View {
                 .execute()
 
             let visits = try JSONDecoder.supabaseDecoder().decode([MonthVisitLabelData].self, from: response.data)
+            let placeNamesById = Dictionary(uniqueKeysWithValues: locationsManager.savedPlaces.map { ($0.id, $0.displayName) })
 
             var visitsByDay: [Date: [UUID]] = [:]
             for visit in visits {
@@ -1092,13 +1270,14 @@ struct LocationTimelineView: View {
 
             var computedLabels: [Date: String] = [:]
             for (day, placeIds) in visitsByDay {
+                var seenPlaceIds = Set<UUID>()
                 var uniquePlaceIds: [UUID] = []
-                for placeId in placeIds where !uniquePlaceIds.contains(placeId) {
+                for placeId in placeIds where seenPlaceIds.insert(placeId).inserted {
                     uniquePlaceIds.append(placeId)
                 }
 
                 guard let firstPlaceId = uniquePlaceIds.first else { continue }
-                let firstPlaceName = locationsManager.savedPlaces.first(where: { $0.id == firstPlaceId })?.displayName ?? "Visit"
+                let firstPlaceName = placeNamesById[firstPlaceId] ?? "Visit"
 
                 if uniquePlaceIds.count > 1 {
                     computedLabels[day] = "\(firstPlaceName) +\(uniquePlaceIds.count - 1)"
@@ -1121,7 +1300,7 @@ struct LocationTimelineView: View {
 
     private func linkedReceipt(for visit: LocationVisitRecord) -> Note? {
         guard let linkedNoteId = linkedReceiptIds[visit.id] else { return nil }
-        return notesManager.notes.first(where: { $0.id == linkedNoteId })
+        return notesById[linkedNoteId]
     }
     
     private func colorForRelationship(_ relationship: RelationshipType) -> Color {

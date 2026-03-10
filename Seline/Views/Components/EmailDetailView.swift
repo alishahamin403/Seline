@@ -1274,10 +1274,6 @@ struct EmailDetailView: View {
         sendError = nil
 
         do {
-            let toEmails = toRecipients.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            let ccEmails = ccRecipients.isEmpty ? [] : ccRecipients.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            let bccEmails = bccRecipients.isEmpty ? [] : bccRecipients.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-
             _ = try await GmailAPIClient.shared.replyToEmail(
                 originalEmail: fullEmail ?? email,
                 body: replyBody,
@@ -1540,6 +1536,7 @@ struct ZoomableHTMLView: UIViewRepresentable {
         let preferences = WKWebpagePreferences()
         preferences.allowsContentJavaScript = true
         configuration.defaultWebpagePreferences = preferences
+        configuration.userContentController.add(context.coordinator, name: "selineHeight")
 
         // Enable inline media playback for images and videos
         configuration.allowsInlineMediaPlayback = true
@@ -1811,23 +1808,69 @@ struct ZoomableHTMLView: UIViewRepresentable {
                      );
                  }
 
+                 function postMeasuredHeight() {
+                     var height = window.__selineFitEmailContent
+                         ? window.__selineFitEmailContent()
+                         : Math.max(document.body.scrollHeight || 0, document.documentElement.scrollHeight || 0);
+
+                     if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.selineHeight) {
+                         window.webkit.messageHandlers.selineHeight.postMessage(height);
+                     }
+
+                     return height;
+                 }
+
                  window.__selineFitEmailContent = function() {
                      formatEmailContent();
                      return fitContentToViewportWidth();
                  };
 
+                 window.__selinePostHeight = postMeasuredHeight;
+
                 // Initial formatting on DOMContentLoaded
-                document.addEventListener('DOMContentLoaded', window.__selineFitEmailContent);
-                
+                document.addEventListener('DOMContentLoaded', function() {
+                    requestAnimationFrame(postMeasuredHeight);
+                });
+
                 // Apply formatting on window load as well
                 window.addEventListener('load', function() {
-                    return window.__selineFitEmailContent();
+                    postMeasuredHeight();
+                    setTimeout(postMeasuredHeight, 200);
+                    setTimeout(postMeasuredHeight, 800);
+                    setTimeout(postMeasuredHeight, 1800);
                 });
-                
-                // Monitor for dynamic content changes
-                setTimeout(function() {
-                    window.__selineFitEmailContent();
-                }, 500);
+
+                document.querySelectorAll('img').forEach(function(img) {
+                    if (!img.complete) {
+                        img.addEventListener('load', function() {
+                            setTimeout(postMeasuredHeight, 40);
+                            setTimeout(postMeasuredHeight, 240);
+                        });
+                        img.addEventListener('error', function() {
+                            setTimeout(postMeasuredHeight, 40);
+                        });
+                    }
+                });
+
+                if (typeof ResizeObserver !== 'undefined') {
+                    var resizeObserver = new ResizeObserver(function() {
+                        postMeasuredHeight();
+                    });
+                    resizeObserver.observe(document.documentElement);
+                    resizeObserver.observe(document.body);
+                }
+
+                if (typeof MutationObserver !== 'undefined') {
+                    var mutationObserver = new MutationObserver(function() {
+                        postMeasuredHeight();
+                    });
+                    mutationObserver.observe(document.body, {
+                        childList: true,
+                        subtree: true,
+                        characterData: true,
+                        attributes: true
+                    });
+                }
              </script>
          </head>
          <body>
@@ -1845,8 +1888,29 @@ struct ZoomableHTMLView: UIViewRepresentable {
         Coordinator()
     }
 
-    class Coordinator: NSObject, WKNavigationDelegate {
+    class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: ZoomableHTMLView?
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "selineHeight" else { return }
+
+            let resolvedHeight: CGFloat?
+            if let number = message.body as? NSNumber {
+                resolvedHeight = CGFloat(truncating: number)
+            } else if let doubleValue = message.body as? Double {
+                resolvedHeight = CGFloat(doubleValue)
+            } else if let stringValue = message.body as? String, let doubleValue = Double(stringValue) {
+                resolvedHeight = CGFloat(doubleValue)
+            } else {
+                resolvedHeight = nil
+            }
+
+            guard let height = resolvedHeight, height > 0 else { return }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.parent?.contentHeight = max(300, height)
+            }
+        }
 
         private func isAllowedMainFrameURL(_ url: URL) -> Bool {
             let scheme = url.scheme?.lowercased() ?? ""
@@ -1937,7 +2001,7 @@ struct ZoomableHTMLView: UIViewRepresentable {
 
              // Additional measurement for images that load asynchronously
              DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                 webView.evaluateJavaScript("window.__selineFitEmailContent ? window.__selineFitEmailContent() : Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] height, _ in
+                 webView.evaluateJavaScript("window.__selinePostHeight ? window.__selinePostHeight() : (window.__selineFitEmailContent ? window.__selineFitEmailContent() : Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))") { [weak self] height, _ in
                      if let contentHeight = height as? CGFloat, contentHeight > 300 {
                          DispatchQueue.main.async {
                              self?.parent?.contentHeight = contentHeight
@@ -1948,7 +2012,17 @@ struct ZoomableHTMLView: UIViewRepresentable {
              
              // Final measurement after images load
              DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                 webView.evaluateJavaScript("window.__selineFitEmailContent ? window.__selineFitEmailContent() : Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] height, _ in
+                 webView.evaluateJavaScript("window.__selinePostHeight ? window.__selinePostHeight() : (window.__selineFitEmailContent ? window.__selineFitEmailContent() : Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))") { [weak self] height, _ in
+                     if let contentHeight = height as? CGFloat, contentHeight > 0 {
+                         DispatchQueue.main.async {
+                             self?.parent?.contentHeight = max(300, contentHeight)
+                         }
+                     }
+                 }
+             }
+
+             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                 webView.evaluateJavaScript("window.__selinePostHeight ? window.__selinePostHeight() : (window.__selineFitEmailContent ? window.__selineFitEmailContent() : Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))") { [weak self] height, _ in
                      if let contentHeight = height as? CGFloat, contentHeight > 0 {
                          DispatchQueue.main.async {
                              self?.parent?.contentHeight = max(300, contentHeight)

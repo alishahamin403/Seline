@@ -31,6 +31,10 @@ struct EmailView: View, Searchable {
     @State private var selectedTaskForEditing: TaskItem?
     @State private var activeSheet: ActiveSheet?
     @State private var emailSearchDebouncer = DebouncedTaskRunner()
+    @State private var avatarPrefetchTask: Task<Void, Never>?
+    @State private var lastFolderLoadAt: [EmailFolder: Date] = [:]
+
+    private let folderRefreshInterval: TimeInterval = 30
 
     enum ActiveSheet: Identifiable {
         case viewTask
@@ -65,6 +69,14 @@ struct EmailView: View, Searchable {
         selectedTab.displayName
     }
 
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var currentSearchPlaceholder: String {
+        selectedTab == .events ? "Search events" : "Search emails"
+    }
+
     private var inboxUnreadCount: Int {
         inboxSourceEmails.filter { !$0.isRead }.count
     }
@@ -73,8 +85,62 @@ struct EmailView: View, Searchable {
         inboxSourceEmails.filter { isActionRequired($0) }.count
     }
 
-    private var inboxTodayCount: Int {
-        inboxSourceEmails.filter { Calendar.current.isDateInToday($0.timestamp) }.count
+    private var todayInboxEmails: [Email] {
+        inboxSourceEmails
+            .filter { Calendar.current.isDateInToday($0.timestamp) }
+            .sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private var todayInboxDominantCategory: EmailCategory? {
+        let grouped = Dictionary(grouping: todayInboxEmails, by: \.category)
+        return grouped.max { lhs, rhs in
+            lhs.value.count < rhs.value.count
+        }?.key
+    }
+
+    private var todayInboxTopSenders: [String] {
+        var seenSenders = Set<String>()
+        var orderedSenders: [String] = []
+
+        for email in todayInboxEmails {
+            let displayName = email.sender.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let senderName = displayName.isEmpty ? email.sender.email : displayName
+
+            guard !senderName.isEmpty else { continue }
+            guard seenSenders.insert(senderName).inserted else { continue }
+
+            orderedSenders.append(senderName)
+
+            if orderedSenders.count == 2 {
+                break
+            }
+        }
+
+        return orderedSenders
+    }
+
+    private var inboxTodaySummary: String {
+        if todayInboxEmails.isEmpty {
+            return "No new mail has landed today, so this view is mostly for quick checks and cleanup."
+        }
+
+        let categoryText = todayInboxDominantCategory?.displayName.lowercased() ?? "mixed"
+        let senderText: String
+        if todayInboxTopSenders.count == 1, let sender = todayInboxTopSenders.first {
+            senderText = "from \(sender)"
+        } else if todayInboxTopSenders.count == 2 {
+            senderText = "from \(todayInboxTopSenders[0]) and \(todayInboxTopSenders[1])"
+        } else {
+            senderText = ""
+        }
+
+        if inboxActionRequiredCount > 0 {
+            return "\(todayInboxEmails.count) emails arrived today, mostly \(categoryText) mail \(senderText). \(inboxActionRequiredCount) threads still look like they need a reply."
+                .replacingOccurrences(of: "  ", with: " ")
+        }
+
+        return "\(todayInboxEmails.count) emails arrived today, mostly \(categoryText) mail \(senderText)."
+            .replacingOccurrences(of: "  ", with: " ")
     }
 
     private var sentTodayCount: Int {
@@ -93,19 +159,23 @@ struct EmailView: View, Searchable {
         tasksForCalendarDate(Calendar.current.startOfDay(for: Date()))
     }
 
+    private var selectedDateCalendarEvents: [TaskItem] {
+        tasksForCalendarDate(selectedDate)
+    }
+
+    private var selectedDateOpenEventsCount: Int {
+        selectedDateCalendarEvents.filter { !$0.isCompletedOn(date: selectedDate) }.count
+    }
+
+    private var selectedDateCompletedEventsCount: Int {
+        selectedDateCalendarEvents.count - selectedDateOpenEventsCount
+    }
+
     private var syncedCalendarCount: Int {
         taskManager.tasks.values
             .flatMap { $0 }
             .filter { isSyncedCalendarTask($0) }
             .count
-    }
-
-    private var quickActionCount: Int {
-        [onCalendarAddEnabled, true].filter { $0 }.count
-    }
-
-    private var onCalendarAddEnabled: Bool {
-        true
     }
 
     var body: some View {
@@ -130,12 +200,7 @@ struct EmailView: View, Searchable {
             // Clear any email notifications when user opens email view
             Task {
                 emailService.notificationService.clearEmailNotifications()
-
-                // Load emails for current tab - will show cached content immediately
-                await emailService.loadEmailsForFolder(selectedTab.folder)
-                if selectedTab.folder == .inbox {
-                    await emailService.checkForNewEmailsIfNeeded()
-                }
+                await prepareCurrentFolderForDisplay(folder: selectedTab.folder, reason: "appear")
                 refreshHubState()
 
                 // Update app badge to reflect current unread count
@@ -151,29 +216,36 @@ struct EmailView: View, Searchable {
             refreshHubState()
         }
         .onChange(of: selectedTab) { newTab in
+            emailSearchDebouncer.cancel()
             if newTab == .events {
-                emailSearchDebouncer.cancel()
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isSearchActive = false
-                    searchText = ""
-                    isSearchFieldFocused = false
-                }
+                clearSearch()
                 emailService.searchResults = []
+            } else if isSearchActive {
+                let trimmed = trimmedSearchText
+                if trimmed.count >= 2 {
+                    Task {
+                        await emailService.searchEmails(query: trimmed)
+                    }
+                } else {
+                    emailService.searchResults = []
+                }
             }
 
             refreshHubState()
 
             guard newTab != .events else { return }
             Task {
-                await emailService.loadEmailsForFolder(newTab.folder)
-                if newTab.folder == .inbox {
-                    await emailService.checkForNewEmailsIfNeeded()
-                }
+                await prepareCurrentFolderForDisplay(folder: newTab.folder, reason: "tab:\(newTab.displayName)")
             }
         }
         .onChange(of: searchText) { newValue in
-            guard isSearchActive, selectedTab != .events else {
+            guard isSearchActive else {
                 emailSearchDebouncer.cancel()
+                return
+            }
+            guard selectedTab != .events else {
+                emailSearchDebouncer.cancel()
+                emailService.searchResults = []
                 return
             }
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -191,11 +263,11 @@ struct EmailView: View, Searchable {
         }
         .onDisappear {
             emailSearchDebouncer.cancel()
+            avatarPrefetchTask?.cancel()
             onDetailNavigationChanged?(false)
         }
         .swipeUpToDismissSearch(
-            enabled: selectedTab != .events
-                && isSearchActive
+            enabled: isSearchActive
                 && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             topRegion: UIScreen.main.bounds.height * 0.28,
             minimumDistance: 54
@@ -217,7 +289,6 @@ struct EmailView: View, Searchable {
             contentSection
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(Animation.smoothTabTransition, value: selectedTab)
         .background(
             AppAmbientBackgroundLayer(
                 colorScheme: colorScheme,
@@ -344,7 +415,7 @@ struct EmailView: View, Searchable {
     
     @ViewBuilder
     private func headerSection(topPadding: CGFloat) -> some View {
-        let isSearchHeaderVisible = isSearchActive && selectedTab != .events
+        let isSearchHeaderVisible = isSearchActive
 
         VStack(spacing: 10) {
             if isSearchHeaderVisible {
@@ -366,7 +437,7 @@ struct EmailView: View, Searchable {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(Color.emailGlassMutedText(colorScheme))
 
-                TextField("Search emails", text: $searchText)
+                TextField(currentSearchPlaceholder, text: $searchText)
                     .font(FontManager.geist(size: 14, weight: .regular))
                     .foregroundColor(Color.appTextPrimary(colorScheme))
                     .focused($isSearchFieldFocused)
@@ -413,69 +484,94 @@ struct EmailView: View, Searchable {
     @ViewBuilder
     private var tabSelectorSection: some View {
         HStack(spacing: 10) {
-            folderButton
-                .frame(width: 40, height: 36)
-
+            headerLeadingActionButton
+                .frame(width: 42, height: 42)
             EmailTabView(selectedTab: $selectedTab)
                 .frame(maxWidth: .infinity)
-            searchButton
-                .frame(width: 40, height: 36)
+            headerPrimaryActionButton
+                .frame(width: 42, height: 42)
+            if selectedTab != .events {
+                searchButton
+                    .frame(width: 42, height: 42)
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .appAmbientCardStyle(
-            colorScheme: colorScheme,
-            variant: pageCardVariant,
-            cornerRadius: 22,
-            highlightStrength: 0.65
-        )
         .frame(maxWidth: .infinity)
     }
-    
-    private var folderButton: some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showingEmailFolderSidebar.toggle()
-            }
-        }) {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(Color.appTextPrimary(colorScheme))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 12)
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
 
+    private var headerLeadingActionButton: some View {
+        Button(action: leadingHeaderAction) {
+            Image(systemName: selectedTab == .events ? "camera" : "line.3.horizontal")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .background(
+                    Circle()
+                        .fill(Color.appChip(colorScheme))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+    
     private var searchButton: some View {
         Button(action: {
-            guard selectedTab != .events else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
                 isSearchActive = true
                 isSearchFieldFocused = true
             }
         }) {
-            ZStack {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.black)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.homeGlassAccent)
-            )
-            .opacity(selectedTab == .events ? 0 : 1)
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .background(
+                    Circle()
+                        .fill(Color.appChip(colorScheme))
+                )
         }
         .buttonStyle(PlainButtonStyle())
-        .disabled(selectedTab == .events)
+    }
+
+    private var headerPrimaryActionButton: some View {
+        Button(action: primaryHeaderAction) {
+            Image(systemName: selectedTab == .events ? "plus" : "square.and.pencil")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.black)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.homeGlassAccent)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func primaryHeaderAction() {
+        if selectedTab == .events {
+            addEventDate = selectedDate
+            showAddEventPopup = true
+        } else {
+            showNewCompose = true
+        }
+    }
+
+    private func leadingHeaderAction() {
+        if selectedTab == .events {
+            showPhotoImportDialog = true
+        } else {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showingEmailFolderSidebar.toggle()
+            }
+        }
     }
     
     @ViewBuilder
     private var contentSection: some View {
-        if isSearchActive && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedTab != .events {
-            searchResultsView
+        if isSearchActive && !trimmedSearchText.isEmpty {
+            if selectedTab == .events {
+                eventSearchResultsView
+            } else {
+                searchResultsView
+            }
         } else if selectedTab == .events {
             eventsTabContent
         } else {
@@ -502,6 +598,97 @@ struct EmailView: View, Searchable {
                 emailService.markAsUnread(email)
             }
         )
+    }
+
+    private var filteredCalendarSearchResults: [TaskItem] {
+        let query = trimmedSearchText.lowercased()
+        guard !query.isEmpty else { return [] }
+
+        var seenTaskIds: Set<String> = []
+
+        return filterTasksForSelectedTag(taskManager.tasks.values.flatMap { $0 })
+            .filter { task in
+                guard !task.isDeleted else { return false }
+                guard seenTaskIds.insert(task.id).inserted else { return false }
+
+                let tagName = tagManager.tags.first(where: { $0.id == task.tagId })?.name ?? ""
+                let searchableText = [
+                    task.title,
+                    task.description ?? "",
+                    task.location ?? "",
+                    tagName,
+                    task.calendarTitle ?? "",
+                    task.emailSubject ?? ""
+                ]
+                .joined(separator: " ")
+                .lowercased()
+
+                return searchableText.contains(query)
+            }
+            .sorted {
+                let lhsDate = eventSearchReferenceDate(for: $0)
+                let rhsDate = eventSearchReferenceDate(for: $1)
+                if lhsDate != rhsDate {
+                    return lhsDate < rhsDate
+                }
+                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+    }
+
+    private var eventSearchResultsView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                if filteredCalendarSearchResults.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 24, weight: .regular))
+                            .foregroundColor(Color.emailGlassMutedText(colorScheme))
+
+                        Text("No events match \"\(trimmedSearchText)\"")
+                            .font(FontManager.geist(size: 14, weight: .medium))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 42)
+                } else {
+                    ForEach(filteredCalendarSearchResults) { task in
+                        Button {
+                            selectedDate = eventSearchReferenceDate(for: task)
+                            selectedTaskForViewing = task
+                            activeSheet = .viewTask
+                        } label: {
+                            HStack(alignment: .top, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(task.title)
+                                        .font(FontManager.geist(size: 15, weight: .semibold))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .multilineTextAlignment(.leading)
+
+                                    Text(eventSearchSubtitle(for: task))
+                                        .font(FontManager.geist(size: 12, weight: .regular))
+                                        .foregroundColor(Color.emailGlassMutedText(colorScheme))
+                                        .multilineTextAlignment(.leading)
+                                        .lineLimit(2)
+                                }
+
+                                Spacer(minLength: 8)
+
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 10)
+            .padding(.bottom, 90)
+        }
     }
     
     private var emailListView: some View {
@@ -549,6 +736,34 @@ struct EmailView: View, Searchable {
         emailService.searchResults = []
     }
 
+    private func scheduleAvatarPrefetch(for emails: [Email]) {
+        avatarPrefetchTask?.cancel()
+
+        let senderEmails = Array(
+            Set(
+                emails
+                    .map { $0.sender.email.lowercased() }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .prefix(18)
+
+        guard !senderEmails.isEmpty else { return }
+
+        avatarPrefetchTask = Task(priority: .utility) {
+            for senderEmail in senderEmails {
+                guard !Task.isCancelled else { return }
+
+                let cacheKey = CacheManager.CacheKey.emailProfilePicture(senderEmail)
+                if let _: String = CacheManager.shared.get(forKey: cacheKey) {
+                    continue
+                }
+
+                _ = try? await GmailAPIClient.shared.fetchProfilePicture(for: senderEmail)
+            }
+        }
+    }
+
     private func openEmailDetail(_ email: Email) {
         navigationPath.append(email)
     }
@@ -566,10 +781,42 @@ struct EmailView: View, Searchable {
     }
 
     private func refreshCurrentFolder() async {
-        await emailService.loadEmailsForFolder(selectedTab.folder, forceRefresh: true)
-        if selectedTab.folder == .inbox {
+        await prepareCurrentFolderForDisplay(
+            folder: selectedTab.folder,
+            forceRefresh: true,
+            reason: "pull_to_refresh"
+        )
+    }
+
+    private func prepareCurrentFolderForDisplay(
+        folder: EmailFolder,
+        forceRefresh: Bool = false,
+        reason: String
+    ) async {
+        let currentEmails = emailService.getEmails(for: folder)
+        let currentLoadingState = emailService.getLoadingState(for: folder)
+        let secondsSinceLastLoad = lastFolderLoadAt[folder].map { Date().timeIntervalSince($0) } ?? .infinity
+
+        let shouldLoadFolder: Bool
+        switch currentLoadingState {
+        case .idle, .error:
+            shouldLoadFolder = true
+        case .loading:
+            shouldLoadFolder = false
+        case .loaded:
+            shouldLoadFolder = forceRefresh || currentEmails.isEmpty || secondsSinceLastLoad >= folderRefreshInterval
+        }
+
+        if shouldLoadFolder {
+            await emailService.loadEmailsForFolder(folder, forceRefresh: forceRefresh)
+            lastFolderLoadAt[folder] = Date()
+        }
+
+        if folder == .inbox && (forceRefresh || secondsSinceLastLoad >= folderRefreshInterval || currentEmails.isEmpty) {
             await emailService.checkForNewEmailsIfNeeded()
         }
+
+        scheduleAvatarPrefetch(for: emailService.getEmails(for: folder))
     }
 
     // MARK: - Events Tab Content
@@ -686,7 +933,7 @@ struct EmailView: View, Searchable {
     private var monthViewContent: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 14) {
-                calendarHeroCard
+                calendarContextStrip
 
                 tagFilterButtons
 
@@ -702,7 +949,6 @@ struct EmailView: View, Searchable {
                         showAddEventPopup = true
                     }
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 22))
                 .appAmbientCardStyle(
                     colorScheme: colorScheme,
                     variant: pageCardVariant,
@@ -728,7 +974,6 @@ struct EmailView: View, Searchable {
                         showPhotoImportDialog = true
                     }
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 22))
                 .appAmbientCardStyle(
                     colorScheme: colorScheme,
                     variant: pageCardVariant,
@@ -747,9 +992,9 @@ struct EmailView: View, Searchable {
         AnyView(
             VStack(alignment: .leading, spacing: 12) {
                 if selectedTab == .inbox {
-                    inboxHeroCard
+                    inboxContextStrip
                 } else if selectedTab == .sent {
-                    sentHeroCard
+                    sentContextStrip
                 }
 
                 EmailCategoryFilterView(selectedCategory: $selectedCategory)
@@ -757,190 +1002,118 @@ struct EmailView: View, Searchable {
         )
     }
 
-    private var inboxHeroCard: some View {
-        AnyView(
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Inbox")
-                            .font(FontManager.geist(size: 31, weight: .semibold))
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                        Text(inboxUnreadCount == 0 ? "You are caught up right now." : "\(inboxUnreadCount) unread across your latest conversations.")
-                            .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(Color.emailGlassMutedText(colorScheme))
-                    }
-
-                    Spacer(minLength: 0)
-
-                    HStack(spacing: 8) {
-                        pageHeroButton(title: "Search", systemImage: "magnifyingglass") {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isSearchActive = true
-                                isSearchFieldFocused = true
-                            }
-                        }
-
-                        pageHeroIconButton(systemImage: "plus") {
-                            showNewCompose = true
-                        }
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    summaryMetricTile(title: "Unread", value: "\(inboxUnreadCount)")
-                    summaryMetricTile(title: "Action", value: "\(inboxActionRequiredCount)")
-                    summaryMetricTile(title: "Today", value: "\(inboxTodayCount)")
-                }
-            }
-            .padding(18)
-            .appAmbientCardStyle(
-                colorScheme: colorScheme,
-                variant: pageCardVariant,
-                cornerRadius: 26,
-                highlightStrength: 0.95
-            )
-        )
-    }
-
-    private var sentHeroCard: some View {
-        AnyView(
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Sent")
-                            .font(FontManager.geist(size: 31, weight: .semibold))
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                        Text(sentTodayCount == 0 ? "No sends today yet." : "\(sentTodayCount) messages sent today.")
-                            .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(Color.emailGlassMutedText(colorScheme))
-                    }
-
-                    Spacer(minLength: 0)
-
-                    pageHeroButton(title: "Search", systemImage: "magnifyingglass") {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isSearchActive = true
-                            isSearchFieldFocused = true
-                        }
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    summaryMetricTile(title: "Today", value: "\(sentTodayCount)")
-                    summaryMetricTile(title: "This Week", value: "\(sentThisWeekCount)")
-                    summaryMetricTile(title: "Waiting", value: "\(sentAwaitingReplyCount)")
-                }
-            }
-            .padding(18)
-            .appAmbientCardStyle(
-                colorScheme: colorScheme,
-                variant: pageCardVariant,
-                cornerRadius: 26,
-                highlightStrength: 0.95
-            )
-        )
-    }
-
-    private var calendarHeroCard: some View {
-        AnyView(
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Calendar")
-                            .font(FontManager.geist(size: 31, weight: .semibold))
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                        Text(formattedCalendarHeroDate(selectedDate))
-                            .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(Color.emailGlassMutedText(colorScheme))
-                    }
-
-                    Spacer(minLength: 0)
-
-                    HStack(spacing: 8) {
-                        pageHeroButton(title: "Add", systemImage: "plus") {
-                            addEventDate = selectedDate
-                            showAddEventPopup = true
-                        }
-
-                        pageHeroButton(title: "Import", systemImage: "camera") {
-                            showPhotoImportDialog = true
-                        }
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    summaryMetricTile(title: "Today", value: "\(todayCalendarEvents.count)")
-                    summaryMetricTile(title: "Synced", value: "\(syncedCalendarCount)")
-                    summaryMetricTile(title: "Quick", value: "\(quickActionCount)")
-                }
-            }
-            .padding(18)
-            .appAmbientCardStyle(
-                colorScheme: colorScheme,
-                variant: pageCardVariant,
-                cornerRadius: 26,
-                highlightStrength: 0.95
-            )
-        )
-    }
-
-    private func summaryMetricTile(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(FontManager.geist(size: 12, weight: .medium))
-                .foregroundColor(Color.emailGlassMutedText(colorScheme))
-
-            Text(value)
-                .font(FontManager.geist(size: 22, weight: .semibold))
-                .foregroundColor(Color.appTextPrimary(colorScheme))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
-    }
-
-    private func compactHeroButton(title: String, systemImage: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-            Text(title)
-        }
-        .font(FontManager.geist(size: 12, weight: .semibold))
-        .foregroundColor(.black)
-        .padding(.horizontal, 12)
-        .frame(height: 36)
-        .background(
-            Capsule()
-                .fill(Color.homeGlassAccent)
-        )
-    }
-
-    private func pageHeroButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            compactHeroButton(title: title, systemImage: systemImage)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func pageHeroIconButton(systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.black)
-                .frame(width: 36, height: 36)
-                .background(
-                    Circle()
-                        .fill(Color.homeGlassAccent)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
     private func formattedCalendarHeroDate(_ date: Date) -> String {
         FormatterCache.weekdayMonthDay.string(from: date)
+    }
+
+    private var inboxContextStrip: some View {
+        pageContextStrip(
+            title: "Focus",
+            summary: inboxTodaySummary,
+            chips: [
+                "Today \(todayInboxEmails.count)",
+                "Action \(inboxActionRequiredCount)",
+                "Unread \(inboxUnreadCount)"
+            ]
+        )
+    }
+
+    private var sentContextStrip: some View {
+        pageContextStrip(
+            title: "Momentum",
+            summary: sentAwaitingReplyCount == 0
+                ? "Recent sends are moving cleanly, so the outbox reads more like a record than a backlog."
+                : "A few sent threads now look like they are waiting on someone else, so this view is best for follow-up checks.",
+            chips: [
+                "Today \(sentTodayCount)",
+                "Week \(sentThisWeekCount)",
+                "Waiting \(sentAwaitingReplyCount)"
+            ]
+        )
+    }
+
+    private var calendarContextStrip: some View {
+        pageContextStrip(
+            title: "Selected day",
+            summary: selectedDateCalendarEvents.isEmpty
+                ? "\(formattedCalendarHeroDate(selectedDate)) is open right now. Use the month grid and agenda below to add something without leaving the current calendar structure."
+                : "\(formattedCalendarHeroDate(selectedDate)) has \(selectedDateCalendarEvents.count) event\(selectedDateCalendarEvents.count == 1 ? "" : "s"), with \(selectedDateOpenEventsCount) still open and \(selectedDateCompletedEventsCount) already done.",
+            chips: [
+                "Selected \(selectedDateCalendarEvents.count)",
+                "Open \(selectedDateOpenEventsCount)",
+                "Synced \(syncedCalendarCount)"
+            ]
+        )
+    }
+
+    private func pageContextStrip(title: String, summary: String, chips: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .tracking(1.0)
+                    .foregroundColor(Color.emailGlassMutedText(colorScheme))
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 6) {
+                    ForEach(chips, id: \.self) { chip in
+                        contextChip(chip)
+                    }
+                }
+            }
+
+            Text(summary)
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topLeading,
+            cornerRadius: 22,
+            highlightStrength: 0.34
+        )
+    }
+
+    private func contextChip(_ title: String) -> some View {
+        Text(title)
+            .font(FontManager.geist(size: 11, weight: .semibold))
+            .foregroundColor(Color.appTextPrimary(colorScheme))
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(
+                Capsule()
+                    .fill(Color.appChip(colorScheme))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+            )
+    }
+
+    private func eventSearchReferenceDate(for task: TaskItem) -> Date {
+        if let targetDate = task.targetDate {
+            return Calendar.current.startOfDay(for: targetDate)
+        }
+        return task.weekday.dateForCurrentWeek()
+    }
+
+    private func eventSearchSubtitle(for task: TaskItem) -> String {
+        let dateText = FormatterCache.weekdayShortMonthDay.string(from: eventSearchReferenceDate(for: task))
+        let timeText = task.scheduledTime.map { FormatterCache.shortTime.string(from: $0) } ?? "All day"
+
+        if let location = task.location?.trimmingCharacters(in: .whitespacesAndNewlines), !location.isEmpty {
+            return "\(dateText) · \(timeText) · \(location)"
+        }
+
+        if let description = task.description?.trimmingCharacters(in: .whitespacesAndNewlines), !description.isEmpty {
+            return "\(dateText) · \(timeText) · \(description)"
+        }
+
+        return "\(dateText) · \(timeText)"
     }
 
     private func tasksForCalendarDate(_ date: Date) -> [TaskItem] {

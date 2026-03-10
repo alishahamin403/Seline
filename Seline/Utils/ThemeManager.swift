@@ -129,9 +129,11 @@ class ThemeManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.detectSystemTheme() // Re-detect system theme when app becomes active
-            self?.updateEffectiveColorScheme()
-            self?.startTimer()
+            Task { @MainActor [weak self] in
+                self?.detectSystemTheme() // Re-detect system theme when app becomes active
+                self?.updateEffectiveColorScheme()
+                self?.startTimer()
+            }
         }
 
         // Listen for when app goes to background
@@ -140,7 +142,9 @@ class ThemeManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.stopTimer()
+            Task { @MainActor [weak self] in
+                self?.stopTimer()
+            }
         }
 
         // Listen for significant time changes (timezone, date change, etc.)
@@ -149,8 +153,10 @@ class ThemeManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.detectSystemTheme() // Re-detect system theme on time changes
-            self?.updateEffectiveColorScheme()
+            Task { @MainActor [weak self] in
+                self?.detectSystemTheme() // Re-detect system theme on time changes
+                self?.updateEffectiveColorScheme()
+            }
         }
 
         // Start timer for periodic checks
@@ -177,7 +183,9 @@ class ThemeManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.detectSystemTheme()
+            Task { @MainActor [weak self] in
+                self?.detectSystemTheme()
+            }
         }
 
         // Detect system theme on app launch
@@ -218,12 +226,10 @@ class ThemeManager: ObservableObject {
         }
     }
 
-    nonisolated deinit {
-        Task { @MainActor in
-            timer?.invalidate()
-            if let observer = systemThemeObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
+    deinit {
+        timer?.invalidate()
+        if let observer = systemThemeObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 }

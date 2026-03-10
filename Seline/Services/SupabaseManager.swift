@@ -164,7 +164,7 @@ class SupabaseManager: ObservableObject {
             )
 
         // Return the public URL
-        let publicURL = try await storage
+        let publicURL = try storage
             .from("note-images")
             .getPublicURL(path: path)
 
@@ -199,7 +199,7 @@ class SupabaseManager: ObservableObject {
             )
 
         // Return the public URL
-        let publicURL = try await storage
+        let publicURL = try storage
             .from(bucket)
             .getPublicURL(path: path)
 

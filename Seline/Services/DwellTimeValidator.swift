@@ -36,6 +36,7 @@ class DwellTimeValidator: ObservableObject {
         let entryTime: Date
         let initialLocation: CLLocation
         let geofenceRadius: CLLocationDistance
+        let requiredDwellTimeSeconds: TimeInterval
         var validationTimer: Timer?
 
         var elapsedSeconds: TimeInterval {
@@ -43,7 +44,7 @@ class DwellTimeValidator: ObservableObject {
         }
 
         var remainingSeconds: TimeInterval {
-            return max(0, DwellTimeValidator.shared.requiredDwellTimeSeconds - elapsedSeconds)
+            return max(0, requiredDwellTimeSeconds - elapsedSeconds)
         }
     }
 
@@ -83,7 +84,8 @@ class DwellTimeValidator: ObservableObject {
             placeName: placeName,
             entryTime: Date(),
             initialLocation: currentLocation,
-            geofenceRadius: geofenceRadius
+            geofenceRadius: geofenceRadius,
+            requiredDwellTimeSeconds: requiredDwellTimeSeconds
         )
 
         pendingEntries[placeId] = pendingEntry

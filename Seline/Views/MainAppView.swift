@@ -121,9 +121,59 @@ struct MainAppView: View {
         return formatDateAndTime(targetDate)
     }
 
+    private var trimmedHomeSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isHomeSearchPresented: Bool {
+        isSearchFocused || !trimmedHomeSearchText.isEmpty
+    }
+
+    private func clearHomeSearch() {
+        searchText = ""
+        searchResults = []
+        isSearchFocused = false
+    }
+
+    private func isNoteInFolderHierarchy(_ note: Note, named folderName: String) -> Bool {
+        guard let rootFolderId = notesManager.folders.first(where: { $0.name == folderName })?.id,
+              let folderId = note.folderId else {
+            return false
+        }
+
+        var currentFolderId: UUID? = folderId
+        while let currentId = currentFolderId {
+            if currentId == rootFolderId {
+                return true
+            }
+            currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+        }
+        return false
+    }
+
+    private func homeSearchBadgeLabel(for type: OverlaySearchResultType) -> String {
+        switch type {
+        case .email:
+            return "Email"
+        case .event:
+            return "Event"
+        case .note:
+            return "Note"
+        case .location:
+            return "Place"
+        case .folder:
+            return "Folder"
+        case .receipt:
+            return "Receipt"
+        case .recurringExpense:
+            return "Recurring"
+        }
+    }
+
     /// Compute search results (called with debounce, not on every render)
     private func performSearchComputation() -> [OverlaySearchResult] {
-        guard !searchText.isEmpty else {
+        let query = trimmedHomeSearchText
+        guard !query.isEmpty else {
             return []
         }
 
@@ -139,7 +189,7 @@ struct MainAppView: View {
         }
 
         var results: [OverlaySearchResult] = []
-        let lowercasedSearch = searchText.lowercased()
+        let lowercasedSearch = query.lowercased()
 
         // OPTIMIZATION: Use cached flattened tasks, refresh every 30 seconds
         let cacheAge = Date().timeIntervalSince(lastCacheUpdate)
@@ -235,10 +285,47 @@ struct MainAppView: View {
             ))
         }
 
-        // Search notes
+        // Search receipts (from Receipts folder notes)
+        let receiptStatistics = notesManager.getReceiptStatistics()
+        let allReceipts = receiptStatistics.flatMap { yearSummary in
+            yearSummary.monthlySummaries.flatMap { $0.receipts }
+        }
+        let notesById = Dictionary(uniqueKeysWithValues: notesManager.notes.map { ($0.id, $0) })
+        let receiptNoteIds = Set(allReceipts.map(\.noteId))
+
+        let matchingReceipts = allReceipts.filter {
+            let receiptNoteText = notesById[$0.noteId]?.displayContent.lowercased() ?? ""
+            return $0.title.lowercased().contains(lowercasedSearch) ||
+                $0.category.lowercased().contains(lowercasedSearch) ||
+                receiptNoteText.contains(lowercasedSearch)
+        }
+        
+        // Limit to 3 most relevant receipts for faster search
+        for receipt in matchingReceipts.prefix(3) {
+            // Find the note for this receipt
+            if let note = notesManager.notes.first(where: { $0.id == receipt.noteId }) {
+                let dateString = FormatterCache.shortDate.string(from: receipt.date)
+                
+                results.append(OverlaySearchResult(
+                    type: .receipt,
+                    title: receipt.title,
+                    subtitle: "\(CurrencyParser.formatAmount(receipt.amount)) • \(dateString)",
+                    icon: "doc.text",
+                    task: nil,
+                    email: nil,
+                    note: note,
+                    location: nil,
+                    category: receipt.category
+                ))
+            }
+        }
+
+        // Search notes, excluding receipt-backed notes so receipts only appear once
         let matchingNotes = notesManager.notes.filter {
-            $0.title.lowercased().contains(lowercasedSearch) ||
-            $0.content.lowercased().contains(lowercasedSearch)
+            !receiptNoteIds.contains($0.id) &&
+            !isNoteInFolderHierarchy($0, named: "Receipts") &&
+            ($0.title.lowercased().contains(lowercasedSearch) ||
+             $0.displayContent.lowercased().contains(lowercasedSearch))
         }
 
         // Limit to 3 most relevant notes for faster search
@@ -247,7 +334,7 @@ struct MainAppView: View {
                 type: .note,
                 title: note.title,
                 subtitle: note.formattedDateModified,
-                icon: "note.text",
+                icon: note.isJournalWeeklyRecap ? "book.closed.fill" : (note.isJournalEntry ? "square.and.pencil" : "note.text"),
                 task: nil,
                 email: nil,
                 note: note,
@@ -278,39 +365,6 @@ struct MainAppView: View {
                 category: nil
             ))
         }
-
-        // Search receipts (from Receipts folder notes)
-        let receiptStatistics = notesManager.getReceiptStatistics()
-        let allReceipts = receiptStatistics.flatMap { yearSummary in
-            yearSummary.monthlySummaries.flatMap { $0.receipts }
-        }
-        
-        let matchingReceipts = allReceipts.filter {
-            $0.title.lowercased().contains(lowercasedSearch) ||
-            $0.category.lowercased().contains(lowercasedSearch)
-        }
-        
-        // Limit to 3 most relevant receipts for faster search
-        for receipt in matchingReceipts.prefix(3) {
-            // Find the note for this receipt
-            if let note = notesManager.notes.first(where: { $0.id == receipt.noteId }) {
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateStyle = .medium
-                let dateString = dateFormatter.string(from: receipt.date)
-                
-                results.append(OverlaySearchResult(
-                    type: .receipt,
-                    title: receipt.title,
-                    subtitle: "\(CurrencyParser.formatAmount(receipt.amount)) • \(dateString)",
-                    icon: "doc.text",
-                    task: nil,
-                    email: nil,
-                    note: note,
-                    location: nil,
-                    category: receipt.category
-                ))
-            }
-        }
         
         // Search recurring expenses (from cache - will be empty if not loaded yet)
         if let cachedExpenses: [RecurringExpense] = CacheManager.shared.get(forKey: CacheManager.CacheKey.allRecurringExpenses) {
@@ -322,9 +376,7 @@ struct MainAppView: View {
             
             // Limit to 3 most relevant expenses for faster search
             for expense in matchingExpenses.prefix(3) {
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateStyle = .medium
-                let nextDateString = dateFormatter.string(from: expense.nextOccurrence)
+                let nextDateString = FormatterCache.shortDate.string(from: expense.nextOccurrence)
                 
                 results.append(OverlaySearchResult(
                     type: .recurringExpense,
@@ -686,9 +738,8 @@ struct MainAppView: View {
                 searchSelectedFolder = category
             }
         case .receipt:
-            // Receipts are notes - open the note
             if let note = result.note {
-                searchSelectedNote = note
+                selectedNoteToOpen = note
             }
         case .recurringExpense:
             // Navigate to receipt stats view which shows recurring expenses
@@ -806,7 +857,6 @@ struct MainAppView: View {
                 // This ensures the app immediately updates from light to dark mode
                 // The onChange itself triggers a view update cycle
             }
-            .id(colorScheme) // Force complete view recreation on theme change
     }
 
     private var mainContent: some View {
@@ -824,22 +874,14 @@ struct MainAppView: View {
                     deepLinkHandler.processPendingAction()
 
                     Task {
-                        await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
-                    }
-
-                    Task {
                         let (mergedCount, deletedCount) = await LocationVisitAnalytics.shared.mergeAndCleanupVisits()
                         if mergedCount > 0 || deletedCount > 0 {
                             print("🧹 On app startup - Merged \(mergedCount) visit(s), deleted \(deletedCount) short visit(s)")
                         }
                     }
 
-                    do {
-                        locationService.requestLocationPermission()
-                        geofenceManager.requestLocationPermission()
-                    } catch {
-                        print("⚠️ Error requesting location permissions: \(error)")
-                    }
+                    locationService.requestLocationPermission()
+                    geofenceManager.requestLocationPermission()
 
                     Task {
                         try? await Task.sleep(nanoseconds: 500_000_000)
@@ -1202,32 +1244,15 @@ struct MainAppView: View {
         !isEmailDetailOpen
     }
 
+    private func bottomTabBarVerticalOffset(for geometry: GeometryProxy) -> CGFloat {
+        geometry.safeAreaInsets.bottom > 0 ? 10 : 4
+    }
+
     private func mainContentVStack(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
             ZStack {
                 if selectedTab == .home {
                     homeContentWithoutHeader
-                        .task {
-                            if emailService.inboxEmails.isEmpty {
-                                await emailService.loadEmailsForFolder(.inbox)
-                            }
-                        }
-                        .task(id: selectedTab) {
-                            let isEmpty = await MainActor.run { emailService.inboxEmails.isEmpty }
-                            Task.detached(priority: .utility) {
-                                if isEmpty {
-                                    await emailService.loadEmailsForFolder(.inbox)
-                                }
-                                let places = await MainActor.run { locationsManager.savedPlaces }
-                                await withTaskGroup(of: Void.self) { group in
-                                    for place in places.prefix(20) {
-                                        group.addTask {
-                                            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
-                                        }
-                                    }
-                                }
-                            }
-                        }
                 }
                 if selectedTab == .email {
                     EmailView(onDetailNavigationChanged: { isShowingDetail in
@@ -1242,24 +1267,14 @@ struct MainAppView: View {
                 }
                 if selectedTab == .maps {
                     MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
-                        .task(id: selectedTab) {
-                            Task.detached(priority: .utility) {
-                                let places = await MainActor.run { locationsManager.savedPlaces }
-                                await withTaskGroup(of: Void.self) { group in
-                                    for place in places.prefix(20) {
-                                        group.addTask {
-                                            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
-                                        }
-                                    }
-                                }
-                            }
-                        }
                 }
             }
             .frame(maxHeight: .infinity)
 
             if shouldShowFloatingTabBar {
                 BottomTabBar(selectedTab: $selectedTab)
+                    .padding(.top, -bottomTabBarVerticalOffset(for: geometry))
+                    .offset(y: bottomTabBarVerticalOffset(for: geometry))
             }
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -1268,7 +1283,7 @@ struct MainAppView: View {
     }
 
     // Detail Content Removal - mainContentHeader is no longer used
-    
+
     // Generate an icon based on sender email or name (same logic as EmailRow)
 
     // Generate an icon based on sender email or name (same logic as EmailRow)
@@ -1768,41 +1783,54 @@ struct MainAppView: View {
 
     // NEW: App-wide search bar for searching emails, events, notes, receipts, etc.
     private var appSearchBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .font(FontManager.geist(size: 14, weight: .medium))
-                .foregroundColor(.gray)
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.56))
 
-            TextField("Search", text: $searchText)
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .focused($isSearchFocused)
-                .submitLabel(.search)
+            ZStack(alignment: .leading) {
+                if searchText.isEmpty && !isSearchFocused {
+                    Text("Search")
+                        .font(FontManager.geist(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.38) : Color.black.opacity(0.28))
+                        .allowsHitTesting(false)
+                }
 
-            // Clear button
+                TextField("", text: $searchText)
+                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .focused($isSearchFocused)
+                    .submitLabel(.search)
+                    .opacity((searchText.isEmpty && !isSearchFocused) ? 0.02 : 1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             if !searchText.isEmpty {
                 Button(action: {
                     searchText = ""
                     searchResults = []
-                    isSearchFocused = false
                 }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(FontManager.geist(size: 14, weight: .medium))
-                        .foregroundColor(.gray)
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.42) : Color.black.opacity(0.35))
                 }
                 .buttonStyle(PlainButtonStyle())
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 20)
+        .padding(.horizontal, 16)
+        .frame(height: 42)
+        .frame(maxWidth: .infinity)
+        .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 21)
+        .contentShape(RoundedRectangle(cornerRadius: 21))
+        .onTapGesture {
+            isSearchFocused = true
+        }
     }
 
-    // Search results dropdown (used when not in overlay mode - kept for compatibility)
     private var searchResultsDropdown: some View {
         let screenHeight = UIScreen.main.bounds.height
-        // Calculate available height: screen height minus keyboard minus search bar area (top safe area + search bar height ~160px) minus small gap
-        let availableHeight = screenHeight - keyboardHeight - 160 - 16
+        let availableHeight = screenHeight - keyboardHeight - 180
+        let dropdownHeight = max(220, min(screenHeight * 0.58, availableHeight))
 
         return ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 4) {
@@ -1821,7 +1849,8 @@ struct MainAppView: View {
             .padding(.vertical, 6)
             .padding(.horizontal, 4)
         }
-        .frame(height: max(400, availableHeight))
+        .scrollDismissesKeyboard(.interactively)
+        .frame(maxHeight: dropdownHeight)
         .padding(8)
         .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 22, highlightStrength: 0.85)
     }
@@ -1880,7 +1909,7 @@ struct MainAppView: View {
                 Spacer()
 
                 // Modern type badge with better styling - smaller
-                Text(result.type.rawValue.capitalized)
+                Text(homeSearchBadgeLabel(for: result.type))
                     .font(FontManager.geist(size: 10, weight: .semibold))
                     .foregroundColor(
                         colorScheme == .dark ?
@@ -1905,27 +1934,142 @@ struct MainAppView: View {
         .buttonStyle(PlainButtonStyle())
     }
 
-    // Container for app-wide search bar and results
     private var searchBarContainer: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                // Profile avatar button
-                profileAvatarButton
+        HStack(spacing: 10) {
+            appSearchBar
+            homeQuickAddButton
+            homeProfileButton
+        }
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.top, 4)
+    }
 
-                // Search bar
-                appSearchBar
+    private var homeQuickAddButton: some View {
+        Menu {
+            Button(action: {
+                HapticManager.shared.selection()
+                showingAddEventPopup = true
+            }) {
+                Label("Todo", systemImage: "checklist")
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 24, highlightStrength: 1.05)
-            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
 
-            if !searchText.isEmpty {
-                searchResultsDropdown
-                    .padding(.top, 8)
-                    .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+            Button(action: {
+                HapticManager.shared.selection()
+                todoImportSourceType = .camera
+                showingTodoPhotoImportSheet = true
+            }) {
+                Label("Todo Camera", systemImage: "camera.fill")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
+                showingNewNoteSheet = true
+            }) {
+                Label("New Note", systemImage: "note.text.badge.plus")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(.black)
+                .frame(width: 42, height: 42)
+                .background(
+                    Circle()
+                        .fill(Color.homeGlassAccent)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private var homeProfileButton: some View {
+        Button(action: {
+            HapticManager.shared.selection()
+            showingSettings = true
+        }) {
+            Group {
+                if let profilePictureUrl = profilePictureUrl,
+                   let url = URL(string: profilePictureUrl) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure(_), .empty:
+                            homeProfileFallbackAvatar
+                        @unknown default:
+                            homeProfileFallbackAvatar
+                        }
+                    }
+                } else {
+                    homeProfileFallbackAvatar
+                }
+            }
+            .frame(width: 42, height: 42)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .task {
+            await fetchUserProfilePicture()
+        }
+    }
+
+    private var homeProfileFallbackAvatar: some View {
+        Group {
+            if let name = authManager.currentUser?.profile?.name,
+               let firstChar = name.first {
+                Circle()
+                    .fill(Color.appChip(colorScheme))
+                    .overlay(
+                        Text(String(firstChar).uppercased())
+                            .font(FontManager.geist(size: 16, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                    )
+            } else {
+                Circle()
+                    .fill(Color.appChip(colorScheme))
+                    .overlay(
+                        Image(systemName: "person.fill")
+                            .font(FontManager.geist(size: 15, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                    )
             }
         }
+    }
+
+    private var homeSearchBackdrop: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: 92)
+
+            ZStack {
+                Color.black.opacity(colorScheme == .dark ? 0.18 : 0.05)
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                clearHomeSearch()
+            }
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .transition(.opacity)
+    }
+
+    private var homeSearchResultsOverlay: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: 86)
+
+            searchResultsDropdown
+                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.top, 8)
+
+            Spacer(minLength: 0)
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .transition(.opacity)
     }
 
     private var mainContentWidgets: some View {
@@ -2163,7 +2307,7 @@ struct MainAppView: View {
         await geofenceManager.updateVisitNotesInSupabase(updatedVisit)
 
         // Dismiss the popup by adding to dismissed set (the visit now has notes so it won't show anyway)
-        await MainActor.run {
+        _ = await MainActor.run {
             dismissedVisitReasonIds.insert(visit.id)
         }
 
@@ -2175,33 +2319,30 @@ struct MainAppView: View {
         ZStack(alignment: .top) {
             HomeGlassBackgroundLayer(colorScheme: colorScheme)
 
-            // Blurred background when in search mode (overlay)
-            if isSearchFocused || !searchText.isEmpty {
-                ZStack {
-                    Color.black.opacity(0.4)
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                }
-                .ignoresSafeArea()
-                .onTapGesture {
-                    isSearchFocused = false
-                    searchText = ""
-                }
-                .zIndex(99)
+            if isHomeSearchPresented {
+                homeSearchBackdrop
+                    .zIndex(90)
             }
             
-            // Main content with search bar fixed at top
             VStack(spacing: 0) {
-                // Search bar fixed at top
                 searchBarContainer
-                    .padding(.top, -2)
-                
-                // Main content widgets below search bar
-                visitReasonPopupSection
-                mainContentWidgets
+                    .padding(.top, -4)
+                    .zIndex(120)
+
+                VStack(spacing: 0) {
+                    visitReasonPopupSection
+                    mainContentWidgets
+                }
+                .blur(radius: isHomeSearchPresented ? 8 : 0)
+                .allowsHitTesting(!isHomeSearchPresented)
             }
             .background(Color.clear)
             .zIndex(100)
+
+            if !trimmedHomeSearchText.isEmpty {
+                homeSearchResultsOverlay
+                    .zIndex(110)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -2328,7 +2469,7 @@ struct MainAppView: View {
                 }
                 
                 // Create note with receipt content
-                var newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
+                let newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
                 
                 // Save note first, then upload image
                 let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
@@ -2431,7 +2572,7 @@ struct MainAppView: View {
                 }
 
                 // Create note with receipt content
-                var newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
+                let newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
 
                 // Save note first, then upload image
                 let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)

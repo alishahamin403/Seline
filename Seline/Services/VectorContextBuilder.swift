@@ -33,15 +33,29 @@ class VectorContextBuilder {
         "dec": 12, "december": 12
     ]
 
+    func clearConversationAnchors() {
+    }
+
     // MARK: - Configuration
 
-    /// Determine dynamic search limit based on query complexity
-    private func determineSearchLimit(forQuery query: String) -> Int {
+    /// Determine dynamic search limit based on query complexity and temporal intent.
+    private func determineSearchLimit(forQuery query: String, preferHistorical: Bool = false) -> Int {
         let lowercased = query.lowercased()
 
+        if preferHistorical || isHistoricalQuery(query: query) {
+            return 140
+        }
+
         // Broad semantic queries - need comprehensive results
-        if lowercased.contains("all ") || lowercased.contains("every ") || lowercased.contains("total ") {
-            return 100
+        if lowercased.contains("all ")
+            || lowercased.contains("every ")
+            || lowercased.contains("total ")
+            || lowercased.contains("history ")
+            || lowercased.contains("in the past")
+            || lowercased.contains("how much")
+            || lowercased.contains("paid")
+            || lowercased.contains("spent") {
+            return 140
         }
 
         // Date-specific queries - moderate limit (dates narrow scope)
@@ -52,6 +66,69 @@ class VectorContextBuilder {
 
         // Focused semantic queries - smaller limit for precision
         return 30
+    }
+
+    private func isStructuredHistoricalFactQuery(_ query: String) -> Bool {
+        let lower = " " + query.lowercased() + " "
+        let factSignals = [
+            " how many times ",
+            " how often ",
+            " when did i go ",
+            " when did i last go ",
+            " last went ",
+            " last visit ",
+            " all the times ",
+            " all times ",
+            " which days ",
+            " what days ",
+            " how much did i spend ",
+            " how much did i pay ",
+            " what did i pay ",
+            " who was i with ",
+            " who did i spend my time with ",
+            " where did i go ",
+            " what other times ",
+            " which other times ",
+            " other visits "
+        ]
+        return factSignals.contains { lower.contains($0) }
+    }
+
+    private func isHistoricalQuery(query: String, dateRange: (start: Date, end: Date)? = nil) -> Bool {
+        let lower = query.lowercased()
+        let historicalHints = [
+            "oldest", "earliest", "first time", "historical", "history",
+            "years ago", "back in", "in the past", "archive"
+        ]
+        if historicalHints.contains(where: { lower.contains($0) }) {
+            return true
+        }
+
+        if let year = extractExplicitYear(from: lower),
+           year < Calendar.current.component(.year, from: Date()) {
+            return true
+        }
+
+        if let dateRange {
+            let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+            if dateRange.end < thirtyDaysAgo {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func extractExplicitYear(from text: String) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: #"\b(19\d{2}|20\d{2})\b"#) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard
+            let match = regex.firstMatch(in: text, range: range),
+            let yearRange = Range(match.range(at: 1), in: text)
+        else {
+            return nil
+        }
+        return Int(text[yearRange])
     }
 
     // MARK: - Query Understanding (single LLM decides: date range vs vector vs clarify)
@@ -72,6 +149,7 @@ class VectorContextBuilder {
 
         // Entity-grounded "when did I go X with Y" is better served by semantic retrieval than date parsing.
         if lower.contains("when did i go") {
+            let hasExplicitYear = lower.range(of: #"\b(19\d{2}|20\d{2})\b"#, options: .regularExpression) != nil
             let hasExplicitRelativeDate = lower.contains("today")
                 || lower.contains("yesterday")
                 || lower.contains("tomorrow")
@@ -80,6 +158,7 @@ class VectorContextBuilder {
                 || lower.contains("last week")
                 || lower.contains("month")
                 || lower.contains("year")
+                || hasExplicitYear
             if !hasExplicitRelativeDate {
                 return false
             }
@@ -104,6 +183,9 @@ class VectorContextBuilder {
         if lower.range(of: #"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b"#, options: .regularExpression) != nil {
             return true
         }
+        if lower.range(of: #"\b(19\d{2}|20\d{2})\b"#, options: .regularExpression) != nil {
+            return true
+        }
 
         // Referential follow-ups ("that", "then", etc.) benefit from disambiguation.
         if !conversationHistory.isEmpty {
@@ -124,30 +206,131 @@ class VectorContextBuilder {
         let reason: String
     }
 
-    /// Deterministic routing for explicit month/year queries.
-    /// Example handled: "any weekend in January 2026".
+    private func deterministicTemporalRangeFromTemporalService(
+        for query: String,
+        calendar: Calendar
+    ) -> DeterministicTemporalRange? {
+        let lower = query.lowercased()
+        guard let extracted = TemporalUnderstandingService.shared.extractTemporalRange(from: query) else {
+            return nil
+        }
+
+        let bounds = TemporalUnderstandingService.shared.normalizedBounds(for: extracted, calendar: calendar)
+        guard bounds.end > bounds.start else { return nil }
+
+        return DeterministicTemporalRange(
+            start: bounds.start,
+            end: bounds.end,
+            weekendOnly: lower.contains("weekend"),
+            reason: "temporal parser (\(extracted.description))"
+        )
+    }
+
+    private func normalizedExclusiveEnd(
+        for endDate: Date,
+        startDate: Date,
+        calendar: Calendar
+    ) -> Date {
+        if endDate <= startDate {
+            return calendar.date(byAdding: .day, value: 1, to: startDate) ?? endDate
+        }
+
+        let startOfEndDay = calendar.startOfDay(for: endDate)
+        let isMidnightBoundary = abs(endDate.timeIntervalSince(startOfEndDay)) < 1
+        if isMidnightBoundary {
+            return calendar.date(byAdding: .day, value: 1, to: startOfEndDay) ?? endDate
+        }
+
+        return endDate
+    }
+
+    /// Deterministic routing for explicit month/year or year-only queries.
+    /// Examples handled: "any weekend in January 2026", "what happened in 2023".
     private func deterministicTemporalRange(for query: String) -> DeterministicTemporalRange? {
         let lower = query.lowercased()
         let weekendOnly = lower.contains("weekend")
         let calendar = Calendar.current
 
-        // Match single "month year" mention (e.g., January 2026, jan 2026).
-        let pattern = #"\b(?:in|of)?\s*(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s*,?\s*(\d{4})\b"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+        // 0) Match explicit relative-day queries.
+        let todayStart = calendar.startOfDay(for: Date())
+        if lower.contains("day before yesterday") {
+            if let start = calendar.date(byAdding: .day, value: -2, to: todayStart),
+               let end = calendar.date(byAdding: .day, value: 1, to: start) {
+                return DeterministicTemporalRange(
+                    start: start,
+                    end: end,
+                    weekendOnly: false,
+                    reason: "explicit relative-day query (day before yesterday)"
+                )
+            }
+        } else if lower.contains("yesterday") {
+            if let start = calendar.date(byAdding: .day, value: -1, to: todayStart),
+               let end = calendar.date(byAdding: .day, value: 1, to: start) {
+                return DeterministicTemporalRange(
+                    start: start,
+                    end: end,
+                    weekendOnly: false,
+                    reason: "explicit relative-day query (yesterday)"
+                )
+            }
+        } else if lower.contains("today") {
+            if let end = calendar.date(byAdding: .day, value: 1, to: todayStart) {
+                return DeterministicTemporalRange(
+                    start: todayStart,
+                    end: end,
+                    weekendOnly: false,
+                    reason: "explicit relative-day query (today)"
+                )
+            }
+        }
+
+        if let parsedRange = deterministicTemporalRangeFromTemporalService(for: query, calendar: calendar) {
+            return parsedRange
+        }
+
+        // 1) Match single "month year" mention (e.g., January 2026, jan 2026).
+        let monthYearPattern = #"\b(?:in|of)?\s*(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s*,?\s*(\d{4})\b"#
+        if let regex = try? NSRegularExpression(pattern: monthYearPattern, options: [.caseInsensitive]) {
+            let matches = regex.matches(in: lower, range: NSRange(lower.startIndex..., in: lower))
+            if matches.count == 1,
+               let match = matches.first,
+               let monthRange = Range(match.range(at: 1), in: lower),
+               let yearRange = Range(match.range(at: 2), in: lower) {
+                let monthKey = String(lower[monthRange])
+                if let month = monthNameToNumber[monthKey], let year = Int(String(lower[yearRange])) {
+                    var startComponents = DateComponents()
+                    startComponents.calendar = calendar
+                    startComponents.timeZone = TimeZone.current
+                    startComponents.year = year
+                    startComponents.month = month
+                    startComponents.day = 1
+
+                    if let monthStart = calendar.date(from: startComponents),
+                       let monthEnd = calendar.date(byAdding: .month, value: 1, to: monthStart) {
+                        let reason = weekendOnly
+                            ? "explicit weekend-in-month query (\(monthKey) \(year))"
+                            : "explicit month-year query (\(monthKey) \(year))"
+                        return DeterministicTemporalRange(
+                            start: calendar.startOfDay(for: monthStart),
+                            end: calendar.startOfDay(for: monthEnd),
+                            weekendOnly: weekendOnly,
+                            reason: reason
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2) Match single explicit year mention (e.g., 2023).
+        let yearPattern = #"\b(19\d{2}|20\d{2})\b"#
+        guard let yearRegex = try? NSRegularExpression(pattern: yearPattern, options: []) else {
             return nil
         }
-        let matches = regex.matches(in: lower, range: NSRange(lower.startIndex..., in: lower))
-
-        // If multiple explicit month-year mentions are present, let the LLM handle comparison logic.
-        guard matches.count == 1,
-              let match = matches.first,
-              let monthRange = Range(match.range(at: 1), in: lower),
-              let yearRange = Range(match.range(at: 2), in: lower) else {
-            return nil
-        }
-
-        let monthKey = String(lower[monthRange])
-        guard let month = monthNameToNumber[monthKey], let year = Int(String(lower[yearRange])) else {
+        let yearMatches = yearRegex.matches(in: lower, range: NSRange(lower.startIndex..., in: lower))
+        guard yearMatches.count == 1,
+              let yearMatch = yearMatches.first,
+              let yearRange = Range(yearMatch.range(at: 1), in: lower),
+              let year = Int(String(lower[yearRange])) else {
             return nil
         }
 
@@ -155,22 +338,19 @@ class VectorContextBuilder {
         startComponents.calendar = calendar
         startComponents.timeZone = TimeZone.current
         startComponents.year = year
-        startComponents.month = month
+        startComponents.month = 1
         startComponents.day = 1
 
-        guard let monthStart = calendar.date(from: startComponents),
-              let monthEnd = calendar.date(byAdding: .month, value: 1, to: monthStart) else {
+        guard let yearStart = calendar.date(from: startComponents),
+              let yearEnd = calendar.date(byAdding: .year, value: 1, to: yearStart) else {
             return nil
         }
 
-        let reason = weekendOnly
-            ? "explicit weekend-in-month query (\(monthKey) \(year))"
-            : "explicit month-year query (\(monthKey) \(year))"
         return DeterministicTemporalRange(
-            start: calendar.startOfDay(for: monthStart),
-            end: calendar.startOfDay(for: monthEnd),
-            weekendOnly: weekendOnly,
-            reason: reason
+            start: calendar.startOfDay(for: yearStart),
+            end: calendar.startOfDay(for: yearEnd),
+            weekendOnly: false,
+            reason: "explicit year query (\(year))"
         )
     }
 
@@ -511,8 +691,9 @@ class VectorContextBuilder {
     private func buildEntityConstrainedSemanticContext(
         query: String,
         conversationHistory: [(role: String, content: String)],
-        dateRange: (start: Date, end: Date)?
-    ) async -> String {
+        dateRange: (start: Date, end: Date)?,
+        documentTypes: [VectorSearchService.DocumentType]? = nil
+    ) async -> (context: String, evidence: [RelevantContentInfo]) {
         let stopWords: Set<String> = [
             "what", "when", "where", "who", "how", "show", "me", "the", "a", "an", "is", "it", "was",
             "i", "we", "you", "my", "our", "with", "at", "in", "on", "of", "for", "to", "and", "or",
@@ -536,11 +717,16 @@ class VectorContextBuilder {
         }
 
         let anchors = Array(anchorTokens.prefix(6))
-        guard anchors.count >= 2 else { return "" }
+        guard anchors.count >= 2 else { return ("", []) }
 
         do {
-            let candidates = try await vectorSearch.search(query: query, limit: 45, dateRange: dateRange)
-            guard !candidates.isEmpty else { return "" }
+            let candidates = try await vectorSearch.search(
+                query: query,
+                documentTypes: documentTypes,
+                limit: 45,
+                dateRange: dateRange
+            )
+            guard !candidates.isEmpty else { return ("", []) }
 
             var tokenFrequency: [String: Int] = [:]
             for token in anchors {
@@ -565,7 +751,7 @@ class VectorContextBuilder {
                 return (result, matchedTokens)
             }
 
-            guard !matched.isEmpty else { return "" }
+            guard !matched.isEmpty else { return ("", []) }
 
             let df = DateFormatter()
             df.dateStyle = .medium
@@ -575,6 +761,8 @@ class VectorContextBuilder {
             var context = "=== QUERY-FOCUSED MATCHES (ENTITY-CONSTRAINED) ===\n"
             context += "Anchors: \(anchors.joined(separator: ", "))\n"
             context += "Only items matching at least 2 anchors are listed.\n\n"
+            var evidence: [RelevantContentInfo] = []
+            var seenEvidenceKeys = Set<String>()
             for item in limited {
                 let title = item.result.title ?? item.result.documentType.displayName
                 let similarity = Int(item.result.similarity * 100)
@@ -591,12 +779,39 @@ class VectorContextBuilder {
                 if !snippet.isEmpty {
                     context += "  - \(snippet.prefix(180))\n"
                 }
+
+                if let mapped = vectorSearch.evidenceItem(from: item.result) {
+                    let key = dedupKey(for: mapped)
+                    if !seenEvidenceKeys.contains(key) {
+                        seenEvidenceKeys.insert(key)
+                        evidence.append(mapped)
+                    }
+                }
             }
             context += "\n"
-            return context
+            return (context, evidence)
         } catch {
             print("⚠️ Entity-constrained semantic context failed: \(error.localizedDescription)")
-            return ""
+            return ("", [])
+        }
+    }
+
+    private func dedupKey(for item: RelevantContentInfo) -> String {
+        switch item.contentType {
+        case .email:
+            return "email::\(item.emailId ?? item.id.uuidString)"
+        case .note:
+            return "note::\(item.noteId?.uuidString ?? item.id.uuidString)"
+        case .receipt:
+            return "receipt::\(item.receiptId?.uuidString ?? item.id.uuidString)"
+        case .event:
+            return "event::\(item.eventId?.uuidString ?? item.id.uuidString)"
+        case .location:
+            return "location::\(item.locationId?.uuidString ?? item.id.uuidString)"
+        case .visit:
+            return "visit::\(item.visitId?.uuidString ?? item.id.uuidString)"
+        case .person:
+            return "person::\(item.personId?.uuidString ?? item.id.uuidString)"
         }
     }
 
@@ -677,13 +892,15 @@ class VectorContextBuilder {
 
         // Compute "last weekend" and "weekend before that" so the model has exact reference dates
         var referenceBlock = ""
-        let weekday = calendar.component(.weekday, from: today) // 1=Sun ... 7=Sat
-        let daysToLastSat = (weekday == 7) ? 0 : (weekday == 1 ? 1 : weekday)
-        if let lastSaturday = calendar.date(byAdding: .day, value: -daysToLastSat, to: todayStart),
-           let lastWeekendEnd = calendar.date(byAdding: .day, value: 2, to: lastSaturday),
-           let weekendBeforeStart = calendar.date(byAdding: .day, value: -7, to: lastSaturday),
-           let weekendBeforeEnd = calendar.date(byAdding: .day, value: -5, to: lastSaturday) {
-            let lastWeekendStartStr = df.string(from: lastSaturday)
+        let weekday = calendar.component(.weekday, from: todayStart) // 1=Sun ... 7=Sat
+        let daysBackToSaturday = weekday == 7 ? 0 : (weekday == 1 ? 1 : weekday)
+        let isActiveWeekend = weekday == 1 || weekday == 7
+        if let mostRecentSaturday = calendar.date(byAdding: .day, value: -daysBackToSaturday, to: todayStart),
+           let lastWeekendStart = calendar.date(byAdding: .day, value: isActiveWeekend ? -7 : 0, to: mostRecentSaturday),
+           let lastWeekendEnd = calendar.date(byAdding: .day, value: 2, to: lastWeekendStart),
+           let weekendBeforeStart = calendar.date(byAdding: .day, value: -7, to: lastWeekendStart),
+           let weekendBeforeEnd = calendar.date(byAdding: .day, value: 2, to: weekendBeforeStart) {
+            let lastWeekendStartStr = df.string(from: lastWeekendStart)
             let lastWeekendEndStr = df.string(from: lastWeekendEnd)
             let weekendBeforeStartStr = df.string(from: weekendBeforeStart)
             let weekendBeforeEndStr = df.string(from: weekendBeforeEnd)
@@ -786,6 +1003,8 @@ class VectorContextBuilder {
 
         var context = ""
         var metadata = ContextMetadata()
+        var evidence: [RelevantContentInfo] = []
+        let preferredDocumentTypes = preferredDocumentTypes(for: query)
 
         // 1. STATIC: Essential context (optimized for caching - date only, no time)
         context += buildEssentialContext()
@@ -804,10 +1023,6 @@ class VectorContextBuilder {
             understanding = .dateRange(start: forcedRange.start, end: forcedRange.end)
             useWeekendOnlyCompleteness = forcedRange.weekendOnly
             print("📅 Deterministic query understanding: \(forcedRange.reason) → DATE RANGE \(forcedRange.start) to \(forcedRange.end)")
-        } else if let contextualWeekendRange = await inferWeekendRangeFromLocalData(for: query, conversationHistory: conversationHistory) {
-            understanding = .dateRange(start: contextualWeekendRange.start, end: contextualWeekendRange.end)
-            useWeekendOnlyCompleteness = contextualWeekendRange.weekendOnly
-            print("📅 Deterministic query understanding: \(contextualWeekendRange.reason) → DATE RANGE \(contextualWeekendRange.start) to \(contextualWeekendRange.end)")
         } else if shouldUseQueryUnderstandingLLM(query: query, conversationHistory: conversationHistory) {
             print("🔍 Query understanding...")
             understanding = await understandQuery(query: query, conversationHistory: conversationHistory)
@@ -825,7 +1040,8 @@ class VectorContextBuilder {
         }
 
         // Guardrail: if the parser asks for clarification on a concrete entity query, continue with vector retrieval.
-        if case .clarify = understanding, shouldFallbackFromClarifyToVectorSearch(query: query) {
+        if case .clarify = understanding,
+           shouldFallbackFromClarifyToVectorSearch(query: query) {
             understanding = .vectorSearch
             print("📅 Guardrail routing: CLARIFY for concrete query → vector search fallback")
         }
@@ -836,15 +1052,22 @@ class VectorContextBuilder {
             context += question + "\n"
             metadata.estimatedTokens = estimateTokenCount(context)
             metadata.buildTime = Date().timeIntervalSince(startTime)
-            return ContextResult(context: context, metadata: metadata)
+            return ContextResult(context: context, metadata: metadata, evidence: [])
 
         case .dateRange(let start, let end):
             let dateRange = (start: start, end: end)
             let queryLower = query.lowercased()
             let isComparison = queryLower.contains("compare") || queryLower.contains(" vs ") || queryLower.contains(" versus ") || queryLower.contains("compared to")
+            let isHistoricalMode = isHistoricalQuery(query: query, dateRange: dateRange)
+            let daySpan = Calendar.current.dateComponents([.day], from: start, to: end).day ?? 0
+            let shouldUseCompleteDayData = daySpan > 0 && daySpan <= 45
+
+            if !shouldUseCompleteDayData {
+                print("📅 Large date range (\(daySpan) days) - using vector retrieval instead of complete day expansion")
+            }
 
             // When user asks to "compare to last week" (or similar), also fetch this week so the model has both periods
-            if isComparison {
+            if isComparison && shouldUseCompleteDayData {
                 let calendar = Calendar.current
                 let today = Date()
                 let todayStart = calendar.startOfDay(for: today)
@@ -868,36 +1091,59 @@ class VectorContextBuilder {
             }
 
             do {
-                let dayContext = useWeekendOnlyCompleteness
-                    ? await buildWeekendOnlyCompletenessContext(dateRange: dateRange)
-                    : await buildDayCompletenessContext(dateRange: dateRange)
-                if !dayContext.isEmpty {
-                    if isComparison {
-                        context += "\n=== OTHER PERIOD (Requested range, e.g. last week) ===\n"
-                    }
-                    context += "\n" + dayContext
-                    metadata.usedCompleteDayData = true
-                    print("✅ Found complete day data via direct DB query")
+                if shouldUseCompleteDayData {
+                    let dayContext = useWeekendOnlyCompleteness
+                        ? await buildWeekendOnlyCompletenessContext(dateRange: dateRange)
+                        : await buildDayCompletenessContext(dateRange: dateRange)
+                    if !dayContext.isEmpty {
+                        if isComparison {
+                            context += "\n=== OTHER PERIOD (Requested range, e.g. last week) ===\n"
+                        }
+                        context += "\n" + dayContext
+                        metadata.usedCompleteDayData = true
+                        print("✅ Found complete day data via direct DB query")
 
-                    let constrainedSemanticContext = await buildEntityConstrainedSemanticContext(
-                        query: query,
-                        conversationHistory: conversationHistory,
-                        dateRange: dateRange
-                    )
-                    if !constrainedSemanticContext.isEmpty {
-                        context += "\n" + constrainedSemanticContext
+                        if !isStructuredHistoricalFactQuery(query) {
+                            let constrainedSemantic = await buildEntityConstrainedSemanticContext(
+                                query: query,
+                                conversationHistory: conversationHistory,
+                                dateRange: dateRange,
+                                documentTypes: preferredDocumentTypes
+                            )
+                            if !constrainedSemantic.context.isEmpty {
+                                context += "\n" + constrainedSemantic.context
+                                evidence.append(contentsOf: constrainedSemantic.evidence)
+                                metadata.usedVectorSearch = true
+                                print("✅ Added entity-constrained semantic matches for date-range query")
+                            }
+                        } else {
+                            print("⚡️ Skipping redundant semantic enrichment for structured historical fact query")
+                        }
+                    } else {
+                        print("⚠️ Direct DB query returned nothing, falling back to vector search")
+                        let limit = determineSearchLimit(forQuery: query, preferHistorical: isHistoricalMode)
+                        let relevantContext = try await vectorSearch.getRelevantContext(
+                            forQuery: query,
+                            limit: limit,
+                            documentTypes: preferredDocumentTypes,
+                            dateRange: dateRange,
+                            preferHistorical: isHistoricalMode
+                        )
+                        context += "\n" + relevantContext.context
+                        evidence.append(contentsOf: relevantContext.evidence)
                         metadata.usedVectorSearch = true
-                        print("✅ Added entity-constrained semantic matches for date-range query")
                     }
                 } else {
-                    print("⚠️ Direct DB query returned nothing, falling back to vector search")
-                    let limit = determineSearchLimit(forQuery: query)
+                    let limit = determineSearchLimit(forQuery: query, preferHistorical: true)
                     let relevantContext = try await vectorSearch.getRelevantContext(
                         forQuery: query,
                         limit: limit,
-                        dateRange: dateRange
+                        documentTypes: preferredDocumentTypes,
+                        dateRange: dateRange,
+                        preferHistorical: true
                     )
-                    context += "\n" + relevantContext
+                    context += "\n" + relevantContext.context
+                    evidence.append(contentsOf: relevantContext.evidence)
                     metadata.usedVectorSearch = true
                 }
             } catch {
@@ -907,36 +1153,45 @@ class VectorContextBuilder {
 
         case .vectorSearch:
             do {
-                let limit = determineSearchLimit(forQuery: query)
-                var relevantContext = try await vectorSearch.getRelevantContext(
+                let isHistoricalMode = isHistoricalQuery(query: query)
+                let limit = determineSearchLimit(forQuery: query, preferHistorical: isHistoricalMode)
+                let relevantContext = try await vectorSearch.getRelevantContext(
                     forQuery: query,
                     limit: limit,
-                    dateRange: nil
+                    documentTypes: preferredDocumentTypes,
+                    dateRange: nil,
+                    preferHistorical: isHistoricalMode
                 )
-                if !relevantContext.isEmpty {
-                    context += "\n" + relevantContext
+                if !relevantContext.context.isEmpty {
+                    context += "\n" + relevantContext.context
+                    evidence.append(contentsOf: relevantContext.evidence)
                     metadata.usedVectorSearch = true
                     // Second pass: if first result is thin, fetch more with expanded limit
-                    if relevantContext.count < 2500 {
-                        let secondLimit = min(limit + 25, 80)
+                    if relevantContext.context.count < 2500 {
+                        let secondLimit = isHistoricalMode ? min(limit + 40, 180) : min(limit + 25, 80)
                         let secondContext = try await vectorSearch.getRelevantContext(
                             forQuery: query,
                             limit: secondLimit,
-                            dateRange: nil
+                            documentTypes: preferredDocumentTypes,
+                            dateRange: nil,
+                            preferHistorical: isHistoricalMode
                         )
-                        if !secondContext.isEmpty && secondContext != relevantContext {
+                        if !secondContext.context.isEmpty && secondContext.context != relevantContext.context {
                             context += "\n\n=== ADDITIONAL RELEVANT DATA (second pass) ===\n"
-                            context += secondContext
+                            context += secondContext.context
+                            evidence.append(contentsOf: secondContext.evidence)
                         }
                     }
 
-                    let constrainedSemanticContext = await buildEntityConstrainedSemanticContext(
+                    let constrainedSemantic = await buildEntityConstrainedSemanticContext(
                         query: query,
                         conversationHistory: conversationHistory,
-                        dateRange: nil
+                        dateRange: nil,
+                        documentTypes: preferredDocumentTypes
                     )
-                    if !constrainedSemanticContext.isEmpty {
-                        context += "\n" + constrainedSemanticContext
+                    if !constrainedSemantic.context.isEmpty {
+                        context += "\n" + constrainedSemantic.context
+                        evidence.append(contentsOf: constrainedSemantic.evidence)
                     }
                 } else {
                     context += "\n[No relevant data found for this query]\n"
@@ -950,6 +1205,7 @@ class VectorContextBuilder {
         // 5. Calculate token estimate
         metadata.estimatedTokens = estimateTokenCount(context)
         metadata.buildTime = Date().timeIntervalSince(startTime)
+        let dedupedEvidence = deduplicateEvidence(evidence)
 
         print("📊 Context built: ~\(metadata.estimatedTokens) tokens in \(String(format: "%.2f", metadata.buildTime))s")
 
@@ -963,7 +1219,25 @@ class VectorContextBuilder {
         }
         #endif
 
-        return ContextResult(context: context, metadata: metadata)
+        return ContextResult(context: context, metadata: metadata, evidence: dedupedEvidence)
+    }
+
+    private func preferredDocumentTypes(for query: String) -> [VectorSearchService.DocumentType]? {
+        let lowercased = query.lowercased()
+        let journalSignals = [
+            "journal",
+            "diary",
+            "weekly recap",
+            "weekly summary",
+            "journal recap",
+            "journal summary"
+        ]
+
+        if journalSignals.contains(where: { lowercased.contains($0) }) {
+            return [.note]
+        }
+
+        return nil
     }
     
     /// Build compact context for voice mode (even smaller)
@@ -1139,11 +1413,14 @@ class VectorContextBuilder {
         } catch {
             print("⚠️ Failed to fetch visits for day: \(error)")
         }
+
+        let visitPeopleMap = await PeopleManager.shared.getPeopleForVisits(
+            visitIds: visitsForDay.map(\.id)
+        )
         
         // 2. Events/Tasks (source-of-truth from TaskManager) — build list for per-day output
         var validTasks: [TaskItem] = []
         do {
-            let tagManager = TagManager.shared
             var allTasks = TaskManager.shared.getTasksForDate(dayStart).filter { !$0.isDeleted }
             var iterDay = calendar.date(byAdding: .day, value: 1, to: dayStart)!
             while iterDay < dayEnd {
@@ -1202,10 +1479,36 @@ class VectorContextBuilder {
                 }
         }
 
-        // 4. Emails (local cache) — include communication evidence for date-specific queries
-        let emailsForRange = (EmailService.shared.inboxEmails + EmailService.shared.sentEmails)
+        // 4. Emails (local cache first, Gmail API fallback) — include communication evidence for date-specific queries
+        var emailsForRange = (EmailService.shared.inboxEmails + EmailService.shared.sentEmails)
             .filter { $0.timestamp >= dayStart && $0.timestamp < dayEnd }
             .sorted { $0.timestamp < $1.timestamp }
+
+        if emailsForRange.isEmpty {
+            let spanDays = max(1, Calendar.current.dateComponents([.day], from: dayStart, to: dayEnd).day ?? 1)
+            if spanDays <= 14 {
+                let queryFormatter = DateFormatter()
+                queryFormatter.locale = Locale(identifier: "en_US_POSIX")
+                queryFormatter.timeZone = TimeZone.current
+                queryFormatter.dateFormat = "yyyy/MM/dd"
+
+                let afterDate = queryFormatter.string(from: dayStart)
+                let beforeDate = queryFormatter.string(from: dayEnd)
+                let historicalQuery = "in:anywhere after:\(afterDate) before:\(beforeDate)"
+
+                do {
+                    let fetched = try await GmailAPIClient.shared.searchEmails(query: historicalQuery, maxResults: 80)
+                    if !fetched.isEmpty {
+                        emailsForRange = fetched
+                            .filter { $0.timestamp >= dayStart && $0.timestamp < dayEnd }
+                            .sorted { $0.timestamp < $1.timestamp }
+                        print("📧 Day completeness: Pulled \(emailsForRange.count) emails from Gmail API fallback")
+                    }
+                } catch {
+                    print("⚠️ Day completeness email fallback failed: \(error)")
+                }
+            }
+        }
         
         // 5. Per-day blocks (weekday + date so the model reports e.g. "Monday" not "Saturday")
         var currentDay = dayStart
@@ -1222,7 +1525,7 @@ class VectorContextBuilder {
                     let range = end != nil ? "\(timeFormatter.string(from: start))–\(timeFormatter.string(from: end!))" : "\(timeFormatter.string(from: start))–(ongoing)"
                     let duration = visit.durationMinutes.map { "\($0)m" } ?? "unknown duration"
                     let notes = (visit.visitNotes ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    let peopleForVisit = await PeopleManager.shared.getPeopleForVisit(visitId: visit.id)
+                    let peopleForVisit = visitPeopleMap[visit.id] ?? []
                     let peopleNames = peopleForVisit.map { $0.name }
                     var visitLine = "- \(range) • \(placeName) • \(duration)"
                     if !peopleNames.isEmpty { visitLine += " • With: \(peopleNames.joined(separator: ", "))" }
@@ -1265,7 +1568,11 @@ class VectorContextBuilder {
                 let total = receiptsOnDay.reduce(0.0) { $0 + $1.amount }
                 context += "RECEIPTS (\(receiptsOnDay.count)) — Total $\(String(format: "%.2f", total)):\n"
                 for r in receiptsOnDay.sorted(by: { $0.amount > $1.amount }) {
-                    let linkedPeople = await linkReceiptToPeople(receipt: r, visits: visitsForDay)
+                    let linkedPeople = linkReceiptToPeople(
+                        receipt: r,
+                        visits: visitsForDay,
+                        visitPeopleMap: visitPeopleMap
+                    )
                     var receiptLine = "- \(r.note.title) — $\(String(format: "%.2f", r.amount)) (\(r.category))"
                     if !linkedPeople.isEmpty { receiptLine += " — With: \(linkedPeople.joined(separator: ", "))" }
                     context += receiptLine + "\n"
@@ -1298,7 +1605,12 @@ class VectorContextBuilder {
             let receiptMatches = matchReceiptsToVisits(receipts: receiptNotes, visits: visitsForDay)
             
             // Build spending summary grouped by location
-            let spendingSummary = await buildSpendingSummary(matches: receiptMatches, visits: visitsForDay, timeFormatter: timeFormatter)
+            let spendingSummary = buildSpendingSummary(
+                matches: receiptMatches,
+                visits: visitsForDay,
+                visitPeopleMap: visitPeopleMap,
+                timeFormatter: timeFormatter
+            )
             if !spendingSummary.isEmpty {
                 context += spendingSummary + "\n"
             }
@@ -1353,8 +1665,9 @@ class VectorContextBuilder {
     /// Link receipts to people by finding visits within ±2 hours at same location
     private func linkReceiptToPeople(
         receipt: (note: Note, date: Date, amount: Double, category: String),
-        visits: [LocationVisitRecord]
-    ) async -> [String] {
+        visits: [LocationVisitRecord],
+        visitPeopleMap: [UUID: [Person]]
+    ) -> [String] {
         let twoHoursInSeconds: TimeInterval = 2 * 60 * 60
 
         // Find visits within ±2 hours of receipt time
@@ -1365,7 +1678,7 @@ class VectorContextBuilder {
 
         var allPeople: [String] = []
         for visit in nearbyVisits {
-            let people = await PeopleManager.shared.getPeopleForVisit(visitId: visit.id)
+            let people = visitPeopleMap[visit.id] ?? []
             allPeople.append(contentsOf: people.map { $0.name })
         }
 
@@ -1460,8 +1773,9 @@ class VectorContextBuilder {
     private func buildSpendingSummary(
         matches: [ReceiptVisitMatch],
         visits: [LocationVisitRecord],
+        visitPeopleMap: [UUID: [Person]],
         timeFormatter: DateFormatter
-    ) async -> String {
+    ) -> String {
         guard !matches.isEmpty else { return "" }
         
         // Group receipts by visit location
@@ -1511,8 +1825,8 @@ class VectorContextBuilder {
             if let visitTime = data.visitTime {
                 let timeStr = timeFormatter.string(from: visitTime)
                 if let visit = visits.first(where: { $0.entryTime == visitTime }),
-                   let place = LocationsManager.shared.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) {
-                    let people = await PeopleManager.shared.getPeopleForVisit(visitId: visit.id)
+                   LocationsManager.shared.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) != nil {
+                    let people = visitPeopleMap[visit.id] ?? []
                     if !people.isEmpty {
                         let peopleNames = people.map { $0.name }.joined(separator: ", ")
                         output += "   → Visit at \(timeStr) with \(peopleNames)\n"
@@ -1529,12 +1843,46 @@ class VectorContextBuilder {
     private func estimateTokenCount(_ text: String) -> Int {
         return text.count / 4
     }
+
+    private func deduplicateEvidence(_ evidence: [RelevantContentInfo]) -> [RelevantContentInfo] {
+        var seen = Set<String>()
+        var deduped: [RelevantContentInfo] = []
+
+        func key(for item: RelevantContentInfo) -> String {
+            switch item.contentType {
+            case .email:
+                return "email::\(item.emailId ?? item.id.uuidString)"
+            case .note:
+                return "note::\(item.noteId?.uuidString ?? item.id.uuidString)"
+            case .receipt:
+                return "receipt::\(item.receiptId?.uuidString ?? item.id.uuidString)"
+            case .event:
+                return "event::\(item.eventId?.uuidString ?? item.id.uuidString)"
+            case .location:
+                return "location::\(item.locationId?.uuidString ?? item.id.uuidString)"
+            case .visit:
+                return "visit::\(item.visitId?.uuidString ?? item.id.uuidString)"
+            case .person:
+                return "person::\(item.personId?.uuidString ?? item.id.uuidString)"
+            }
+        }
+
+        for item in evidence {
+            let itemKey = key(for: item)
+            if !seen.contains(itemKey) {
+                seen.insert(itemKey)
+                deduped.append(item)
+            }
+        }
+        return deduped
+    }
     
     // MARK: - Types
     
     struct ContextResult {
         let context: String
         let metadata: ContextMetadata
+        let evidence: [RelevantContentInfo]
     }
     
     struct ContextMetadata {

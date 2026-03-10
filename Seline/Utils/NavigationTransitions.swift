@@ -94,15 +94,9 @@ struct HeroNavigationLink<Destination: View, Label: View>: View {
             label
         }
         .buttonStyle(PlainButtonStyle())
-        .background(
-            NavigationLink(
-                destination: destination,
-                isActive: $isActive
-            ) {
-                EmptyView()
-            }
-            .hidden()
-        )
+        .navigationDestination(isPresented: $isActive) {
+            destination
+        }
     }
 }
 

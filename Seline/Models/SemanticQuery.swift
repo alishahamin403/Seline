@@ -356,18 +356,18 @@ struct AggregateOperation: OperationProtocol {
         case .countDistinct:
             // For now, count all items (they're already filtered)
             value = "\(items.count)"
-        case .sum(let field):
+        case .sum:
             let total = items.reduce(0.0) { $0 + $1.amount }
             value = String(format: "$%.2f", total)
-        case .average(let field):
+        case .average:
             guard !items.isEmpty else { value = "$0.00"; break }
             let total = items.reduce(0.0) { $0 + $1.amount }
             let avg = total / Double(items.count)
             value = String(format: "$%.2f", avg)
-        case .min(let field):
+        case .min:
             let min = items.min(by: { $0.amount < $1.amount })?.amount ?? 0
             value = String(format: "$%.2f", min)
-        case .max(let field):
+        case .max:
             let max = items.max(by: { $0.amount < $1.amount })?.amount ?? 0
             value = String(format: "$%.2f", max)
         }
@@ -817,9 +817,9 @@ enum UniversalItem {
             return receipt.category
         case .email(let email):
             return email.labels.first ?? "inbox"
-        case .event(let event):
+        case .event:
             return "Event"
-        case .note(let note):
+        case .note:
             return "Note"
         case .location(let location):
             return location.category

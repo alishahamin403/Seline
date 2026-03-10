@@ -24,8 +24,6 @@ struct DailyOverviewWidget: View {
     @State private var expandedSection: ExpandedSection? = nil
     @State private var quickNoteInput: String = ""
     @State private var editingQuickNote: QuickNote? = nil
-
-    @AppStorage("dismissedHomeMissedTodoIds") private var dismissedMissedTodoIdsString: String = ""
     
     private enum TodoRowMode {
         case today
@@ -36,6 +34,7 @@ struct DailyOverviewWidget: View {
         case date
         case weather
         case quickNotes
+        case expense
         case birthdays
     }
 
@@ -50,6 +49,12 @@ struct DailyOverviewWidget: View {
         let iconName: String
         let tasks: [TaskItem]
         var id: String { title.lowercased().replacingOccurrences(of: " ", with: "-") }
+    }
+
+    private struct HomeHeroAction: Identifiable {
+        let title: String
+        let section: ExpandedSection
+        var id: String { "\(section)-\(title)" }
     }
 
     private var dayStart: Date {
@@ -87,14 +92,6 @@ struct DailyOverviewWidget: View {
         colorScheme == .dark ? Color.claudeAccent.opacity(0.95) : Color.claudeAccent
     }
 
-    private var dailyOverviewCardBackground: some View {
-        HomeGlassCardBackground(
-            colorScheme: colorScheme,
-            cornerRadius: ShadcnRadius.xl,
-            highlightStrength: 1
-        )
-    }
-
     private var activeChipFillColor: Color {
         colorScheme == .dark ? .white : .black
     }
@@ -107,10 +104,6 @@ struct DailyOverviewWidget: View {
         homeState.upcomingBirthdays.map { item in
             UpcomingBirthdayItem(person: item.person, date: item.date)
         }
-    }
-
-    private var dismissedMissedTodoIds: Set<String> {
-        Set(dismissedMissedTodoIdsString.split(separator: ",").map(String.init))
     }
 
     private var todayTodos: [TaskItem] {
@@ -145,12 +138,6 @@ struct DailyOverviewWidget: View {
 
         return todayTodos
             .filter { !upNextIds.contains($0.id) }
-            .sorted { lhs, rhs in
-                let lhsCompleted = isTaskCompleted(lhs, mode: .today)
-                let rhsCompleted = isTaskCompleted(rhs, mode: .today)
-                if lhsCompleted != rhsCompleted { return !lhsCompleted }
-                return todayOccurrenceDate(for: lhs) < todayOccurrenceDate(for: rhs)
-            }
     }
 
     private var allTodoGroups: [AllTodoCategoryGroup] {
@@ -170,12 +157,7 @@ struct DailyOverviewWidget: View {
             AllTodoCategoryGroup(
                 title: title,
                 iconName: allTodoCategoryIconName(for: title),
-                tasks: tasks.sorted { lhs, rhs in
-                    let lhsCompleted = isTaskCompleted(lhs, mode: .today)
-                    let rhsCompleted = isTaskCompleted(rhs, mode: .today)
-                    if lhsCompleted != rhsCompleted { return !lhsCompleted }
-                    return todayOccurrenceDate(for: lhs) < todayOccurrenceDate(for: rhs)
-                }
+                tasks: tasks
             )
         }
         .sorted { lhs, rhs in
@@ -183,25 +165,76 @@ struct DailyOverviewWidget: View {
         }
     }
 
-    private var missedTodos: [TaskItem] {
-        homeState.flattenedTasks
-            .filter { task in
-                guard !task.isDeleted else { return false }
+    private var missedTodos: [TaskItem] { homeState.missedOneTimeTodos }
 
-                // Missed section should only include non-recurring non-expense todos.
-                guard !task.isRecurring else { return false }
-                guard task.parentRecurringTaskId == nil else { return false }
-                guard !isRecurringExpenseTask(task) else { return false }
-                guard !task.isCompletedOn(date: completionDate(for: task, mode: .missed)) else { return false }
+    private var openTodayCount: Int {
+        todayTodos.filter { !isTaskCompleted($0, mode: .today) }.count
+    }
 
-                return dueDate(for: task) < dayStart && !dismissedMissedTodoIds.contains(task.id)
-            }
-            .sorted { dueDate(for: $0) > dueDate(for: $1) }
+    private var actionableCount: Int {
+        openTodayCount + missedTodos.count
+    }
+
+    private var heroTitle: String {
+        switch actionableCount {
+        case 0:
+            return "A lighter day ahead"
+        case 1:
+            return "1 thing to close today"
+        default:
+            return "\(actionableCount) things to close today"
+        }
+    }
+
+    private var heroSummary: String {
+        let weatherLead = weatherService.weatherData?.description.lowercased() ?? "conditions shifting"
+        let overdueCount = missedTodos.count
+        let upNextCount = upNextShown.count
+
+        if actionableCount == 0 {
+            return "The day looks open, with \(weatherLead) and room to move at your own pace."
+        }
+
+        if overdueCount > 0 && upNextCount > 0 {
+            return "\(overdueCount) overdue, \(upNextCount) still queued, and \(weatherLead) in the mix."
+        }
+
+        if overdueCount > 0 {
+            return "\(overdueCount) items have slipped past their window, with \(weatherLead) around you."
+        }
+
+        if upNextCount > 0 {
+            return "\(upNextCount) timed items are lined up next, with \(weatherLead) through the day."
+        }
+
+        return "Your day is centered on what still needs closing, with \(weatherLead) carrying through."
+    }
+
+    private var heroActions: [HomeHeroAction] {
+        [
+            HomeHeroAction(title: "Todo", section: .date),
+            HomeHeroAction(title: "Weather", section: .weather),
+            HomeHeroAction(title: "Note", section: .quickNotes),
+            HomeHeroAction(title: "Expense", section: .expense)
+        ]
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 8),
+                    GridItem(.flexible(), spacing: 8)
+                ],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(heroActions) { item in
+                    heroSignalChip(item)
+                }
+            }
 
             if expandedSection != nil {
                 Divider()
@@ -211,32 +244,21 @@ struct DailyOverviewWidget: View {
             }
         }
         .padding(16)
-        .background(dailyOverviewCardBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                .stroke(Color.homeGlassBorder(colorScheme), lineWidth: 1)
-        )
-        .shadow(
-            color: colorScheme == .dark ? .black.opacity(0.24) : Color.black.opacity(0.08),
-            radius: colorScheme == .dark ? 10 : 20,
-            x: 0,
-            y: colorScheme == .dark ? 6 : 10
+        .homeGlassCardStyle(
+            colorScheme: colorScheme,
+            cornerRadius: ShadcnRadius.xl,
+            usesPureLightFill: true
         )
         .onAppear {
+            if isExpanded {
+                isExpanded = false
+            }
+            expandedSection = nil
             homeState.refreshAll()
             loadQuickNotes()
             locationService.requestLocationPermission()
             if let location = locationService.currentLocation {
                 refreshWeatherIfNeeded(location: location)
-            }
-            if isExpanded && expandedSection == nil {
-                expandedSection = .date
-            }
-        }
-        .onReceive(homeState.$upcomingBirthdays) { _ in
-            if expandedSection == .birthdays && upcomingBirthdaysThisMonth.isEmpty {
-                expandedSection = nil
-                isExpanded = false
             }
         }
         .onChange(of: locationService.currentLocation) { location in
@@ -244,72 +266,129 @@ struct DailyOverviewWidget: View {
             refreshWeatherIfNeeded(location: location)
         }
         .onChange(of: isExpanded) { expanded in
-            if expanded {
-                if expandedSection == nil {
-                    expandedSection = .date
-                }
-            } else {
+            if !expanded {
                 expandedSection = nil
             }
         }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(formattedDate)
-                        .font(FontManager.geist(size: 20, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(formattedDate.uppercased())
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .tracking(0.9)
+
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(heroTitle)
+                        .font(FontManager.geist(size: 30, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .lineSpacing(-2)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(heroSummary)
+                        .font(FontManager.geist(size: 15, weight: .medium))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Rectangle()
+                    .fill(Color.homeGlassInnerBorder(colorScheme))
+                    .frame(width: 1)
+                    .padding(.vertical, 2)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("WEATHER")
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .tracking(0.8)
+
+                    Text(weatherValueText)
+                        .font(FontManager.geist(size: 28, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+
+                    Text("deg")
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+
+                    Text(weatherDetailLine)
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-
-                Spacer(minLength: 8)
-
-                quickAddMenuButton
-            }
-
-            HStack(spacing: 8) {
-                summaryChip(
-                    title: "Todo \(todayTodos.count)",
-                    isActive: expandedSection == .date,
-                    action: {
-                        toggleSection(.date)
-                        HapticManager.shared.selection()
-                    }
-                )
-
-                summaryChip(
-                    title: weatherChipText,
-                    isActive: expandedSection == .weather,
-                    action: {
-                        toggleSection(.weather)
-                        HapticManager.shared.selection()
-                    }
-                )
-
-                summaryChip(
-                    title: "Notes \(quickNoteManager.quickNotes.count)",
-                    isActive: expandedSection == .quickNotes,
-                    action: {
-                        toggleSection(.quickNotes)
-                        HapticManager.shared.selection()
-                    }
-                )
-
-                if !upcomingBirthdaysThisMonth.isEmpty {
-                    summaryChip(
-                        title: "Birthdays \(upcomingBirthdaysThisMonth.count)",
-                        isActive: expandedSection == .birthdays,
-                        action: {
-                            toggleSection(.birthdays)
-                            HapticManager.shared.selection()
-                        }
-                    )
-                }
+                .frame(width: 86, alignment: .leading)
             }
         }
+    }
+
+    private var weatherValueText: String {
+        if let weather = weatherService.weatherData {
+            return "\(weather.temperature)"
+        }
+        return "--"
+    }
+
+    private var weatherDetailLine: String {
+        if let weather = weatherService.weatherData {
+            return "Feels like \(weather.feelsLike)°"
+        }
+        return "Checking now"
+    }
+
+    private func heroSignalChip(_ item: HomeHeroAction) -> some View {
+        let isActive = expandedSection == item.section
+
+        return HStack(spacing: 0) {
+            Text(item.title)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(
+                    isActive
+                    ? (colorScheme == .dark ? .black : .white)
+                    : Color.appTextPrimary(colorScheme)
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Capsule().fill(isActive ? homeAccentColor : Color.appChip(colorScheme)))
+        .overlay(
+            Capsule()
+                .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
+        )
+        .contentShape(Capsule())
+        .scrollSafeTapAction(minimumDragDistance: 10) {
+            HapticManager.shared.selection()
+            toggleSection(item.section)
+        }
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private func condensedTaskTitle(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Up next" }
+        if trimmed.count <= 18 {
+            return trimmed
+        }
+        return String(trimmed.prefix(18)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func durationLabel(for duration: TimeInterval) -> String {
+        let hours = Int(duration / 3600)
+        let minutes = Int(duration.truncatingRemainder(dividingBy: 3600) / 60)
+
+        if hours > 0 {
+            return minutes == 0 ? "\(hours) hr" : "\(hours)h \(minutes)m"
+        }
+        return "\(max(minutes, 1)) min"
+    }
+
+    private func formatHomeTime(_ date: Date) -> String {
+        FormatterCache.shortTime.string(from: date)
     }
 
     private func summaryChip(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
@@ -329,12 +408,12 @@ struct DailyOverviewWidget: View {
                     .fill(
                         isActive
                         ? activeChipFillColor
-                        : Color.homeGlassInnerTint(colorScheme)
+                        : Color.appChip(colorScheme)
                     )
             )
             .overlay(
                 Capsule()
-                    .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: isActive ? 0 : 0.75)
+                    .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: isActive ? 0 : 0.5)
             )
             .contentShape(Capsule())
             .scrollSafeTapAction(minimumDragDistance: 10, action: action)
@@ -391,6 +470,8 @@ struct DailyOverviewWidget: View {
             weatherExpandedContent
         case .quickNotes:
             quickNotesExpandedContent
+        case .expense:
+            expenseExpandedContent
         case .birthdays:
             birthdaysExpandedContent
         case .none:
@@ -654,6 +735,58 @@ struct DailyOverviewWidget: View {
         }
     }
 
+    private var expenseExpandedContent: some View {
+        let upcomingExpenses = Array(homeState.upcomingRecurringExpenses.prefix(5))
+
+        return VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Recurring Expenses", count: homeState.upcomingRecurringExpenses.count)
+
+            if upcomingExpenses.isEmpty {
+                emptyState("No upcoming recurring expenses")
+            } else {
+                ForEach(upcomingExpenses, id: \.id) { expense in
+                    recurringExpenseRow(expense)
+                }
+            }
+        }
+    }
+
+    private func recurringExpenseRow(_ expense: RecurringExpense) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(expense.title)
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .lineLimit(2)
+
+                Text(recurringExpenseDueLabel(for: expense))
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 10)
+
+            VStack(alignment: .trailing, spacing: 6) {
+                Text(expense.formattedAmount)
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .lineLimit(1)
+
+                Text(expense.statusBadge.uppercased())
+                    .font(FontManager.geist(size: 10, weight: .semibold))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.homeGlassInnerTint(colorScheme))
+                    )
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
     private var birthdaysExpandedContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader("Birthdays This Month", count: upcomingBirthdaysThisMonth.count)
@@ -736,46 +869,54 @@ struct DailyOverviewWidget: View {
                 }
             }
             .frame(width: 15, height: 15)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    HapticManager.shared.selection()
-                    taskManager.toggleTaskCompletion(task, forDate: completionDate(for: task, mode: mode))
-                }
-
-            HStack(spacing: 8) {
-                Text(timeLabel(for: task, mode: mode))
-                    .font(FontManager.geist(size: 12, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.6))
-                    .frame(width: 88, alignment: .leading)
-
-                Text(task.title)
-                    .font(FontManager.geist(size: 13, weight: .regular))
-                    .foregroundColor(
-                        isCompleted
-                        ? (colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.55))
-                        : (colorScheme == .dark ? .white : .black)
-                    )
-                    .strikethrough(isCompleted, color: colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.4))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-
-                Spacer()
-            }
+            .frame(width: 34, height: 34)
             .contentShape(Rectangle())
-            .onTapGesture {
+            .scrollSafeTapAction(minimumDragDistance: 8) {
+                HapticManager.shared.selection()
+                if mode == .missed {
+                    homeState.resolveMissedTodo(task)
+                }
+                taskManager.toggleTaskCompletion(task, forDate: completionDate(for: task, mode: mode))
+            }
+            .allowsParentScrolling()
+
+            Button(action: {
                 onTaskSelected?(task)
                 HapticManager.shared.cardTap()
+            }) {
+                HStack(spacing: 8) {
+                    Text(timeLabel(for: task, mode: mode))
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.6))
+                        .frame(width: 88, alignment: .leading)
+
+                    Text(task.title)
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(
+                            isCompleted
+                            ? (colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.55))
+                            : (colorScheme == .dark ? .white : .black)
+                        )
+                        .strikethrough(isCompleted, color: colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.4))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+
+                    Spacer()
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(PlainButtonStyle())
 
             if allowsDismiss {
                 Image(systemName: "xmark.circle.fill")
                     .font(FontManager.geist(size: 15, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.4))
                     .contentShape(Rectangle())
-                    .onTapGesture {
+                    .scrollSafeTapAction(minimumDragDistance: 8) {
                         HapticManager.shared.selection()
-                        dismissMissedTodo(task.id)
+                        homeState.dismissMissedTodo(task)
                     }
+                    .allowsParentScrolling()
             }
         }
         .padding(.vertical, 2)
@@ -880,12 +1021,6 @@ struct DailyOverviewWidget: View {
         }
     }
 
-    private func dismissMissedTodo(_ taskId: String) {
-        var ids = dismissedMissedTodoIds
-        ids.insert(taskId)
-        dismissedMissedTodoIdsString = ids.joined(separator: ",")
-    }
-
     private func birthdayDateLabel(_ date: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInToday(date) {
@@ -919,6 +1054,21 @@ struct DailyOverviewWidget: View {
             await weatherService.fetchWeather(for: location)
             lastWeatherFetch = Date()
         }
+    }
+
+    private func recurringExpenseDueLabel(for expense: RecurringExpense) -> String {
+        let calendar = Calendar.current
+        let occurrenceDate = expense.nextOccurrence
+
+        if calendar.isDateInToday(occurrenceDate) {
+            return "Due today"
+        }
+
+        if calendar.isDateInTomorrow(occurrenceDate) {
+            return "Due tomorrow"
+        }
+
+        return "Due \(FormatterCache.weekdayShortMonthDay.string(from: occurrenceDate))"
     }
 
     private func dueDate(for task: TaskItem) -> Date {

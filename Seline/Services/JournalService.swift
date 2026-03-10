@@ -42,13 +42,19 @@ final class JournalService: ObservableObject {
     private static let promptEnabledKey = "journalPromptEnabled"
     private static let promptHourKey = "journalPromptHour"
     private static let promptMinuteKey = "journalPromptMinute"
-    private static let minimumEntriesForWeeklyRecap = 3
+    private static let minimumEntriesForWeeklyRecap = 1
+    private static let weeklyRecapFingerprintPrefix = "journalWeeklyRecapFingerprint."
 
     private let notesManager = NotesManager.shared
     private let notificationService = NotificationService.shared
     private let openAIService = GeminiService.shared
     private let userDefaults = UserDefaults.standard
     private var isGeneratingWeeklyRecap = false
+    private let weekKeyFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        return formatter
+    }()
 
     private init() {
         if userDefaults.object(forKey: Self.promptEnabledKey) == nil {
@@ -68,12 +74,20 @@ final class JournalService: ObservableObject {
     }
 
     func prepareTodayDraft() -> JournalDraft {
-        prepareDraft(for: Date(), folderId: notesManager.getOrCreateJournalFolder())
+        prepareDraft(for: Date())
     }
 
     func prepareTodayDraftEnsuringFolder() async -> JournalDraft {
+        await prepareDraftEnsuringFolder(for: Date())
+    }
+
+    func prepareDraft(for date: Date) -> JournalDraft {
+        buildDraft(for: date, folderId: notesManager.getOrCreateJournalFolder())
+    }
+
+    func prepareDraftEnsuringFolder(for date: Date) async -> JournalDraft {
         let folderId = await notesManager.getOrCreateJournalFolderAsync()
-        return prepareDraft(for: Date(), folderId: folderId)
+        return buildDraft(for: date, folderId: folderId)
     }
 
     func stats(referenceDate: Date = Date()) -> JournalStats {
@@ -93,7 +107,7 @@ final class JournalService: ObservableObject {
         notificationService.cancelDailyJournalPrompt()
     }
 
-    func ensureWeeklyRecapIfNeeded(referenceDate: Date = Date()) async {
+    func ensureWeeklyRecapIfNeeded(referenceDate: Date = Date(), forceRefreshCurrentWeek: Bool = false) async {
         guard !isGeneratingWeeklyRecap else { return }
 
         let calendar = Calendar.current
@@ -103,18 +117,27 @@ final class JournalService: ObservableObject {
             return
         }
 
-        let normalizedWeekStart = calendar.startOfDay(for: previousWeekInterval.start)
-        if notesManager.journalWeeklyRecaps.contains(where: { recap in
-            guard let recapWeekStart = recap.journalWeekStartDate else { return false }
-            return calendar.isDate(recapWeekStart, inSameDayAs: normalizedWeekStart)
-        }) {
-            return
-        }
+        isGeneratingWeeklyRecap = true
+        defer { isGeneratingWeeklyRecap = false }
 
-        let weeklyEntries = notesManager.journalEntries
+        await upsertWeeklyRecap(
+            for: previousWeekInterval,
+            calendar: calendar,
+            forceRefresh: false
+        )
+        await upsertWeeklyRecap(
+            for: currentWeek,
+            calendar: calendar,
+            forceRefresh: forceRefreshCurrentWeek
+        )
+    }
+
+    private func upsertWeeklyRecap(for weekInterval: DateInterval, calendar: Calendar, forceRefresh: Bool) async {
+        let normalizedWeekStart = calendar.startOfDay(for: weekInterval.start)
+        let weeklyEntries = notesManager.meaningfulJournalEntries
             .filter { entry in
                 guard let journalDate = entry.journalDate else { return false }
-                return previousWeekInterval.contains(journalDate)
+                return weekInterval.contains(journalDate)
             }
             .sorted {
                 ($0.journalDate ?? $0.dateModified) < ($1.journalDate ?? $1.dateModified)
@@ -122,8 +145,26 @@ final class JournalService: ObservableObject {
 
         guard weeklyEntries.count >= Self.minimumEntriesForWeeklyRecap else { return }
 
-        isGeneratingWeeklyRecap = true
-        defer { isGeneratingWeeklyRecap = false }
+        let existingRecap = notesManager.journalWeeklyRecaps.first(where: { recap in
+            guard let recapWeekStart = recap.journalWeekStartDate else { return false }
+            return calendar.isDate(recapWeekStart, inSameDayAs: normalizedWeekStart)
+        })
+        let currentFingerprint = weeklyRecapFingerprint(for: weeklyEntries, calendar: calendar)
+        let fingerprintKey = weeklyRecapFingerprintKey(for: normalizedWeekStart)
+        let storedFingerprint = userDefaults.string(forKey: fingerprintKey)
+        let hasExistingContent = !(existingRecap?.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+
+        if !forceRefresh, let existingRecap, hasExistingContent {
+            if storedFingerprint == currentFingerprint {
+                return
+            }
+
+            if storedFingerprint == nil,
+               !weeklyEntries.contains(where: { $0.dateModified > existingRecap.dateModified }) {
+                userDefaults.set(currentFingerprint, forKey: fingerprintKey)
+                return
+            }
+        }
 
         let folderId = await notesManager.getOrCreateJournalFolderAsync()
         let recapText: String
@@ -132,7 +173,8 @@ final class JournalService: ObservableObject {
                 JournalSummaryInput(
                     date: $0.journalDate ?? $0.dateModified,
                     title: $0.title,
-                    preview: Self.previewText(for: $0)
+                    preview: Self.previewText(for: $0),
+                    mood: $0.journalMood
                 )
             }
             recapText = try await openAIService.generateJournalWeeklySummary(entries: summaryInputs)
@@ -141,16 +183,30 @@ final class JournalService: ObservableObject {
             print("⚠️ Falling back to deterministic journal recap: \(error.localizedDescription)")
         }
 
-        var recapNote = Note(
-            title: Self.weeklyRecapTitle(for: normalizedWeekStart, calendar: calendar),
-            content: recapText,
-            folderId: folderId,
-            kind: .journalWeeklyRecap,
-            journalWeekStartDate: normalizedWeekStart
-        )
-        recapNote.isPinned = false
+        if let existingRecap {
+            var updatedRecap = existingRecap
+            updatedRecap.title = Self.weeklyRecapTitle(for: normalizedWeekStart, calendar: calendar)
+            updatedRecap.content = recapText
+            updatedRecap.folderId = folderId
+            updatedRecap.kind = .journalWeeklyRecap
+            updatedRecap.journalWeekStartDate = normalizedWeekStart
+            updatedRecap.isPinned = false
+            updatedRecap.dateModified = Date()
+            let _ = await notesManager.updateNoteAndWaitForSync(updatedRecap)
+        } else {
+            var recapNote = Note(
+                title: Self.weeklyRecapTitle(for: normalizedWeekStart, calendar: calendar),
+                content: recapText,
+                folderId: folderId,
+                kind: .journalWeeklyRecap,
+                journalWeekStartDate: normalizedWeekStart
+            )
+            recapNote.isPinned = false
 
-        let _ = await notesManager.addNoteAndWaitForSync(recapNote)
+            let _ = await notesManager.addNoteAndWaitForSync(recapNote)
+        }
+
+        userDefaults.set(currentFingerprint, forKey: fingerprintKey)
     }
 
     func formatPromptTime() -> String {
@@ -168,7 +224,7 @@ final class JournalService: ObservableObject {
         return formatter.string(from: date)
     }
 
-    private func prepareDraft(for date: Date, folderId: UUID) -> JournalDraft {
+    private func buildDraft(for date: Date, folderId: UUID) -> JournalDraft {
         JournalDraft(
             title: Self.journalEntryTitle(for: date),
             folderId: folderId,
@@ -180,8 +236,11 @@ final class JournalService: ObservableObject {
     private func fallbackWeeklySummary(for entries: [Note]) -> String {
         let calendar = Calendar.current
         let completedDays = Set(entries.compactMap { $0.journalDate.map { calendar.startOfDay(for: $0) } }).count
+        let firstEntryPreview = entries.first.map(Self.previewText(for:)) ?? "You started the week quietly."
         let lastEntryPreview = entries.last.map(Self.previewText(for:)) ?? "You kept the habit moving this week."
-        return "You journaled on \(completedDays) day\(completedDays == 1 ? "" : "s") this week. The overall thread was consistency and reflection across the week. Last note highlight: \(lastEntryPreview)"
+        let moodSummary = dominantMoodSummary(for: entries)
+
+        return "You checked in on \(completedDays) day\(completedDays == 1 ? "" : "s") this week\(moodSummary). Early on, the week pointed toward \(firstEntryPreview). By the end, the thread that stood out most was \(lastEntryPreview)."
     }
 
     private static func journalEntryTitle(for date: Date) -> String {
@@ -201,5 +260,34 @@ final class JournalService: ObservableObject {
         note.preview
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func dominantMoodSummary(for entries: [Note]) -> String {
+        let moods = entries.compactMap(\.journalMood)
+        guard !moods.isEmpty else { return "" }
+
+        let dominantMood = moods.reduce(into: [JournalMood: Int]()) { counts, mood in
+            counts[mood, default: 0] += 1
+        }
+        .max { $0.value < $1.value }?
+        .key
+
+        guard let dominantMood else { return "" }
+        return ", with the overall mood leaning \(dominantMood.title.lowercased())"
+    }
+
+    private func weeklyRecapFingerprint(for entries: [Note], calendar: Calendar) -> String {
+        entries.map { entry in
+            let journalDay = calendar.startOfDay(for: entry.journalDate ?? entry.dateModified).timeIntervalSince1970
+            let mood = entry.journalMood?.rawValue ?? ""
+            let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let content = entry.displayContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "\(entry.id.uuidString)|\(journalDay)|\(title)|\(mood)|\(content)"
+        }
+        .joined(separator: "\n")
+    }
+
+    private func weeklyRecapFingerprintKey(for weekStart: Date) -> String {
+        Self.weeklyRecapFingerprintPrefix + weekKeyFormatter.string(from: weekStart)
     }
 }

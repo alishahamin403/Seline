@@ -12,6 +12,14 @@ class TemporalUnderstandingService {
         let startDate: Date
         let endDate: Date
         let description: String  // e.g., "Last Month (September)"
+        let isEndExclusive: Bool
+
+        init(startDate: Date, endDate: Date, description: String, isEndExclusive: Bool = false) {
+            self.startDate = startDate
+            self.endDate = endDate
+            self.description = description
+            self.isEndExclusive = isEndExclusive
+        }
     }
 
     // MARK: - Public API
@@ -39,6 +47,17 @@ class TemporalUnderstandingService {
         return nil
     }
 
+    func normalizedBounds(for range: DateRange, calendar: Calendar = .current) -> (start: Date, end: Date) {
+        let start = calendar.startOfDay(for: range.startDate)
+        let end: Date
+        if range.isEndExclusive {
+            end = range.endDate
+        } else {
+            end = normalizedExclusiveEnd(for: range.endDate, startDate: start, calendar: calendar)
+        }
+        return (start, end)
+    }
+
     /// Check if a date falls within a temporal expression from query
     /// Used for filtering search results by time
     func matchesTemporalExpression(_ date: Date, in query: String) -> Bool {
@@ -46,7 +65,8 @@ class TemporalUnderstandingService {
             return true  // No temporal filter, include everything
         }
 
-        return date >= dateRange.startDate && date <= dateRange.endDate
+        let bounds = normalizedBounds(for: dateRange)
+        return date >= bounds.start && date < bounds.end
     }
 
     // MARK: - Pattern Parsing
@@ -85,6 +105,21 @@ class TemporalUnderstandingService {
         let calendar = Calendar.current
         let today = Date()
 
+        // "day before yesterday"
+        if query.contains("day before yesterday") {
+            let todayStart = calendar.startOfDay(for: today)
+            guard let start = calendar.date(byAdding: .day, value: -2, to: todayStart) else {
+                return nil
+            }
+            let end = calendar.date(byAdding: .day, value: -1, to: todayStart) ?? todayStart
+            return DateRange(
+                startDate: start,
+                endDate: end,
+                description: "Day Before Yesterday",
+                isEndExclusive: true
+            )
+        }
+
         // "yesterday"
         if query.contains("yesterday") {
             let todayStart = calendar.startOfDay(for: today)
@@ -93,7 +128,8 @@ class TemporalUnderstandingService {
             return DateRange(
                 startDate: yesterdayStart,
                 endDate: yesterdayEnd,  // ✅ CORRECT: Full 24-hour day
-                description: "Yesterday"
+                description: "Yesterday",
+                isEndExclusive: true
             )
         }
 
@@ -106,8 +142,13 @@ class TemporalUnderstandingService {
             return DateRange(
                 startDate: todayStart,
                 endDate: todayEnd,  // ✅ CORRECT: Full 24-hour day (midnight to midnight)
-                description: "Today"
+                description: "Today",
+                isEndExclusive: true
             )
+        }
+
+        if let range = parseRelativeWeekendExpressions(query, calendar: calendar, today: today) {
+            return range
         }
 
         // "last X [days/weeks/months]" (e.g., "last 3 months", "last week")
@@ -148,7 +189,7 @@ class TemporalUnderstandingService {
         let year = extractYear(from: query) ?? currentYear
 
         // Summer: June, July, August
-        if query.contains("summer") {
+        if containsStandaloneSeasonTerm(query, "summer") {
             let startDate = calendar.date(from: DateComponents(year: year, month: 6, day: 1))!
             let endDate = calendar.date(from: DateComponents(year: year, month: 8, day: 31))!
             return DateRange(
@@ -159,7 +200,7 @@ class TemporalUnderstandingService {
         }
 
         // Fall/Autumn: September, October, November
-        if query.contains("fall") || query.contains("autumn") {
+        if containsStandaloneSeasonTerm(query, "fall") || containsStandaloneSeasonTerm(query, "autumn") {
             let startDate = calendar.date(from: DateComponents(year: year, month: 9, day: 1))!
             let endDate = calendar.date(from: DateComponents(year: year, month: 11, day: 30))!
             return DateRange(
@@ -170,7 +211,7 @@ class TemporalUnderstandingService {
         }
 
         // Winter: December, January, February
-        if query.contains("winter") {
+        if containsStandaloneSeasonTerm(query, "winter") {
             let startDate = calendar.date(from: DateComponents(year: year, month: 12, day: 1))!
             let endDate = calendar.date(from: DateComponents(year: year + 1, month: 2, day: 28))!
             return DateRange(
@@ -181,7 +222,7 @@ class TemporalUnderstandingService {
         }
 
         // Spring: March, April, May
-        if query.contains("spring") {
+        if containsStandaloneSeasonTerm(query, "spring") {
             let startDate = calendar.date(from: DateComponents(year: year, month: 3, day: 1))!
             let endDate = calendar.date(from: DateComponents(year: year, month: 5, day: 31))!
             return DateRange(
@@ -192,6 +233,11 @@ class TemporalUnderstandingService {
         }
 
         return nil
+    }
+
+    private func containsStandaloneSeasonTerm(_ query: String, _ term: String) -> Bool {
+        let pattern = "\\b" + NSRegularExpression.escapedPattern(for: term) + "\\b"
+        return query.range(of: pattern, options: .regularExpression) != nil
     }
 
     // MARK: - Helper Parsers
@@ -323,6 +369,78 @@ class TemporalUnderstandingService {
                     description: formatter.string(from: date)
                 )
             }
+        }
+
+        return nil
+    }
+
+    private func parseRelativeWeekendExpressions(_ query: String, calendar: Calendar, today: Date) -> DateRange? {
+        guard query.contains("weekend") else { return nil }
+
+        let todayStart = calendar.startOfDay(for: today)
+        guard let mostRecentSaturday = mostRecentSaturday(onOrBefore: todayStart, calendar: calendar) else {
+            return nil
+        }
+
+        let weekday = calendar.component(.weekday, from: todayStart) // 1 = Sunday, 7 = Saturday
+        let isActiveWeekend = weekday == 1 || weekday == 7
+
+        if query.contains("last last weekend") || query.contains("weekend before that") {
+            guard let lastWeekendStart = resolvedLastWeekendStart(
+                from: mostRecentSaturday,
+                isActiveWeekend: isActiveWeekend,
+                calendar: calendar
+            ),
+            let priorWeekendStart = calendar.date(byAdding: .day, value: -7, to: lastWeekendStart) else {
+                return nil
+            }
+
+            return weekendRange(starting: priorWeekendStart, description: "Weekend Before That", calendar: calendar)
+        }
+
+        if query.contains("last weekend") || query.contains("previous weekend") {
+            guard let lastWeekendStart = resolvedLastWeekendStart(
+                from: mostRecentSaturday,
+                isActiveWeekend: isActiveWeekend,
+                calendar: calendar
+            ) else {
+                return nil
+            }
+
+            return weekendRange(starting: lastWeekendStart, description: "Last Weekend", calendar: calendar)
+        }
+
+        if query.contains("this weekend") {
+            let start: Date
+            if isActiveWeekend {
+                start = mostRecentSaturday
+            } else {
+                let daysUntilSaturday = (7 - weekday + 7) % 7
+                guard let upcomingSaturday = calendar.date(byAdding: .day, value: daysUntilSaturday, to: todayStart) else {
+                    return nil
+                }
+                start = upcomingSaturday
+            }
+
+            return weekendRange(starting: start, description: "This Weekend", calendar: calendar)
+        }
+
+        if query.contains("next weekend") {
+            let baseSaturday: Date
+            if isActiveWeekend {
+                baseSaturday = mostRecentSaturday
+            } else {
+                let daysUntilSaturday = (7 - weekday + 7) % 7
+                guard let upcomingSaturday = calendar.date(byAdding: .day, value: daysUntilSaturday, to: todayStart) else {
+                    return nil
+                }
+                baseSaturday = upcomingSaturday
+            }
+
+            guard let nextWeekendStart = calendar.date(byAdding: .day, value: 7, to: baseSaturday) else {
+                return nil
+            }
+            return weekendRange(starting: nextWeekendStart, description: "Next Weekend", calendar: calendar)
         }
 
         return nil
@@ -496,6 +614,50 @@ class TemporalUnderstandingService {
     }
 
     // MARK: - Utility Helpers
+
+    private func normalizedExclusiveEnd(for endDate: Date, startDate: Date, calendar: Calendar) -> Date {
+        if endDate <= startDate {
+            return calendar.date(byAdding: .day, value: 1, to: startDate) ?? endDate
+        }
+
+        let startOfEndDay = calendar.startOfDay(for: endDate)
+        let isMidnightBoundary = abs(endDate.timeIntervalSince(startOfEndDay)) < 1
+        if isMidnightBoundary {
+            return calendar.date(byAdding: .day, value: 1, to: startOfEndDay) ?? endDate
+        }
+
+        return endDate
+    }
+
+    private func weekendRange(starting saturday: Date, description: String, calendar: Calendar) -> DateRange? {
+        let start = calendar.startOfDay(for: saturday)
+        guard let sundayStart = calendar.date(byAdding: .day, value: 1, to: start) else {
+            return nil
+        }
+
+        return DateRange(
+            startDate: start,
+            endDate: sundayStart,
+            description: description
+        )
+    }
+
+    private func resolvedLastWeekendStart(from mostRecentSaturday: Date, isActiveWeekend: Bool, calendar: Calendar) -> Date? {
+        if isActiveWeekend {
+            return calendar.date(byAdding: .day, value: -7, to: mostRecentSaturday)
+        }
+        return mostRecentSaturday
+    }
+
+    private func mostRecentSaturday(onOrBefore date: Date, calendar: Calendar) -> Date? {
+        let day = calendar.startOfDay(for: date)
+        let weekday = calendar.component(.weekday, from: day) // 1 = Sunday, 7 = Saturday
+        let daysBackToSaturday = weekday == 7 ? 0 : (weekday == 1 ? 1 : weekday)
+        guard let saturday = calendar.date(byAdding: .day, value: -daysBackToSaturday, to: day) else {
+            return nil
+        }
+        return calendar.startOfDay(for: saturday)
+    }
 
     private func extractYear(from query: String) -> Int? {
         let pattern = "\\b(20\\d{2}|19\\d{2})\\b"

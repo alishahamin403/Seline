@@ -187,7 +187,7 @@ struct EditTaskView: View {
                 updatedTask.emailIsImportant = task.emailIsImportant
                 updatedTask.emailAiSummary = task.emailAiSummary
 
-                if task.isRecurring, let onSaveRecurring {
+                if task.isRecurring, onSaveRecurring != nil {
                     pendingRecurringUpdate = updatedTask
                     showingRecurringSaveOptions = true
                 } else {

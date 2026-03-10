@@ -952,7 +952,7 @@ struct LocationMemorySection: View {
                 items: extraction.items.isEmpty ? nil : extraction.items,
                 frequency: extraction.frequency
             )
-            await loadMemories()
+            loadMemories()
         } catch {
             print("❌ Failed to save purchase memory: \(error)")
         }
@@ -965,7 +965,7 @@ struct LocationMemorySection: View {
                 type: .purpose,
                 content: text
             )
-            await loadMemories()
+            loadMemories()
         } catch {
             print("❌ Failed to save purpose memory: \(error)")
         }

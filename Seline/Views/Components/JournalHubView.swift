@@ -1,30 +1,5 @@
 import SwiftUI
 
-private enum JournalHistoryItem: Identifiable {
-    case entry(Note)
-    case recap(Note)
-
-    var id: UUID {
-        note.id
-    }
-
-    var note: Note {
-        switch self {
-        case .entry(let note), .recap(let note):
-            return note
-        }
-    }
-
-    var sortDate: Date {
-        switch self {
-        case .entry(let note):
-            return note.journalDate ?? note.dateModified
-        case .recap(let note):
-            return note.journalWeekStartDate ?? note.dateModified
-        }
-    }
-}
-
 struct JournalHubView: View {
     let openTodayOnAppear: Bool
     let onConsumeOpenToday: (() -> Void)?
@@ -34,12 +9,15 @@ struct JournalHubView: View {
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var journalService = JournalService.shared
     @Environment(\.colorScheme) private var colorScheme
-    @State private var searchText = ""
     @State private var draftToOpen: JournalDraft? = nil
     @State private var existingNoteToOpen: Note? = nil
     @State private var hasHandledOpenTodayOnAppear = false
     @State private var hasHandledScrollToHistoryOnAppear = false
-    @State private var isRefreshingRecap = false
+    @State private var showingPreviousRecaps = false
+    @State private var visibleHistoryMonth = Calendar.current.date(
+        from: Calendar.current.dateComponents([.year, .month], from: Date())
+    ) ?? Date()
+    @State private var selectedHistoryDate = Calendar.current.startOfDay(for: Date())
 
     private var journalStats: JournalStats {
         journalService.stats(referenceDate: Date())
@@ -49,21 +27,107 @@ struct JournalHubView: View {
         journalService.entryForToday()
     }
 
-    private var latestRecap: Note? {
-        journalService.latestRecap()
+    private var currentWeekStart: Date? {
+        Calendar.current.dateInterval(of: .weekOfYear, for: Date()).map {
+            Calendar.current.startOfDay(for: $0.start)
+        }
     }
 
-    private var historyItems: [JournalHistoryItem] {
-        let combined = notesManager.journalEntries.map { JournalHistoryItem.entry($0) } +
-            notesManager.journalWeeklyRecaps.map { JournalHistoryItem.recap($0) }
+    private var currentWeekMeaningfulEntries: [Note] {
+        guard let weekInterval = Calendar.current.dateInterval(of: .weekOfYear, for: Date()) else { return [] }
+        return notesManager.meaningfulJournalEntries
+            .filter { entry in
+                guard let journalDate = entry.journalDate else { return false }
+                return weekInterval.contains(journalDate)
+            }
+            .sorted { ($0.journalDate ?? $0.dateModified) < ($1.journalDate ?? $1.dateModified) }
+    }
 
-        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = trimmedQuery.isEmpty ? combined : combined.filter { item in
-            item.note.title.localizedCaseInsensitiveContains(trimmedQuery) ||
-            item.note.content.localizedCaseInsensitiveContains(trimmedQuery)
+    private var currentWeekJournalFingerprint: String {
+        currentWeekMeaningfulEntries.map { entry in
+            let journalDate = entry.journalDate ?? entry.dateModified
+            let normalizedDate = Calendar.current.startOfDay(for: journalDate).timeIntervalSince1970
+            let trimmedContent = entry.displayContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            let mood = entry.journalMood?.rawValue ?? ""
+            return "\(entry.id.uuidString)|\(normalizedDate)|\(entry.dateModified.timeIntervalSince1970)|\(mood)|\(trimmedContent)"
+        }
+        .joined(separator: "\n")
+    }
+
+    private var currentWeekRecap: Note? {
+        guard let currentWeekStart, !currentWeekMeaningfulEntries.isEmpty else { return nil }
+        return notesManager.journalWeeklyRecaps.first { recap in
+            guard let recapWeekStart = recap.journalWeekStartDate else { return false }
+            return Calendar.current.isDate(recapWeekStart, inSameDayAs: currentWeekStart)
+        }
+    }
+
+    private var previousWeekRecaps: [Note] {
+        guard let currentWeekStart else { return notesManager.journalWeeklyRecaps }
+        return notesManager.journalWeeklyRecaps.filter { recap in
+            guard let recapWeekStart = recap.journalWeekStartDate else { return true }
+            return !Calendar.current.isDate(recapWeekStart, inSameDayAs: currentWeekStart)
+        }
+    }
+
+    private var currentMonthStart: Date {
+        monthStart(for: Date())
+    }
+
+    private var oldestHistoryMonth: Date {
+        let oldestJournalDate = notesManager.journalEntries.last.map { $0.journalDate ?? $0.dateModified } ?? Date()
+        return monthStart(for: oldestJournalDate)
+    }
+
+    private var visibleHistoryMonthTitle: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: visibleHistoryMonth)
+    }
+
+    private var canShowOlderHistoryMonth: Bool {
+        visibleHistoryMonth > oldestHistoryMonth
+    }
+
+    private var canShowNewerHistoryMonth: Bool {
+        !Calendar.current.isDate(visibleHistoryMonth, equalTo: currentMonthStart, toGranularity: .month)
+    }
+
+    private var historyWeekdaySymbols: [String] {
+        ["S", "M", "T", "W", "T", "F", "S"]
+    }
+
+    private var historyCalendarWeeks: [[Date?]] {
+        let calendar = Calendar.current
+        guard let monthInterval = calendar.dateInterval(of: .month, for: visibleHistoryMonth) else { return [] }
+        let firstDay = calendar.startOfDay(for: monthInterval.start)
+        let weekdayIndex = calendar.component(.weekday, from: firstDay)
+        let leadingEmptyDays = (weekdayIndex - calendar.firstWeekday + 7) % 7
+
+        var dates: [Date?] = Array(repeating: nil, count: leadingEmptyDays)
+
+        var current = firstDay
+        let monthEnd = calendar.startOfDay(for: monthInterval.end)
+        while current < monthEnd {
+            dates.append(current)
+            current = calendar.date(byAdding: .day, value: 1, to: current) ?? current
         }
 
-        return filtered.sorted { $0.sortDate > $1.sortDate }
+        while dates.count % 7 != 0 {
+            dates.append(nil)
+        }
+
+        return stride(from: 0, to: dates.count, by: 7).map { index in
+            Array(dates[index..<min(index + 7, dates.count)])
+        }
+    }
+
+    private var selectedHistoryEntry: Note? {
+        notesManager.meaningfulJournalEntry(for: selectedHistoryDate)
+    }
+
+    private var selectedHistoryDateIsMissing: Bool {
+        selectedHistoryEntry == nil && shouldShowMissingIndicator(for: selectedHistoryDate)
     }
 
     private var promptTimeBinding: Binding<Date> {
@@ -87,7 +151,6 @@ struct JournalHubView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 14) {
                     heroCard
-                    todayEntryCard
                     weeklyRecapCard
                     historyCard
                         .id("journal-history")
@@ -103,7 +166,7 @@ struct JournalHubView: View {
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 Task {
-                    await journalService.ensureWeeklyRecapIfNeeded()
+                    await journalService.ensureWeeklyRecapIfNeeded(forceRefreshCurrentWeek: true)
                     if journalService.isPromptEnabled {
                         await journalService.scheduleDailyPromptIfNeeded()
                     }
@@ -127,6 +190,11 @@ struct JournalHubView: View {
                     }
                 }
             }
+            .onChange(of: currentWeekJournalFingerprint) { _ in
+                Task {
+                    await journalService.ensureWeeklyRecapIfNeeded(forceRefreshCurrentWeek: true)
+                }
+            }
             .fullScreenCover(item: $existingNoteToOpen) { note in
                 NoteEditView(
                     note: note,
@@ -148,6 +216,10 @@ struct JournalHubView: View {
                     initialNoteKind: draft.kind,
                     initialJournalDate: draft.journalDate
                 )
+            }
+            .sheet(isPresented: $showingPreviousRecaps) {
+                previousRecapsSheet
+                    .presentationBg()
             }
         }
     }
@@ -223,95 +295,55 @@ struct JournalHubView: View {
         )
     }
 
-    private var todayEntryCard: some View {
+    private var weeklyRecapCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Today")
-                        .font(FontManager.geist(size: 18, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                    Text(todayEntry == nil ? "No entry saved yet" : "You can reopen and add more")
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                }
+                Text("Weekly Recap")
+                    .font(FontManager.geist(size: 18, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
                 Spacer()
-                statusPill(
-                    text: journalStats.todayStatus == .complete ? "Done today" : "Today missing",
-                    isPositive: journalStats.todayStatus == .complete
-                )
+
+                HStack(spacing: 8) {
+                    Button(action: {
+                        showingPreviousRecaps = true
+                    }) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle()
+                                    .fill(Color.appInnerSurface(colorScheme))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(previousWeekRecaps.isEmpty)
+                    .opacity(previousWeekRecaps.isEmpty ? 0.45 : 1)
+                    .accessibilityLabel("Previous recaps")
+                }
             }
 
-            Button(action: openTodayEntry) {
-                HStack(spacing: 10) {
-                    Image(systemName: todayEntry == nil ? "square.and.pencil" : "doc.text")
-                        .font(.system(size: 15, weight: .medium))
-                    Text(todayEntry == nil ? "Write today's entry" : "Open today's entry")
-                        .font(FontManager.geist(size: 14, weight: .semibold))
-                    Spacer()
+            if let currentWeekRecap {
+                recapPreview(note: currentWeekRecap)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let currentWeekStart {
+                        Text(weekRangeTitle(for: currentWeekStart))
+                            .font(FontManager.geist(size: 15, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                            .lineLimit(1)
+                    }
+
+                    Text("No recap for this week yet. Add journal entries and Seline will keep this summary updated as the week progresses.")
+                        .font(FontManager.geist(size: 14, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
                 }
-                .foregroundColor(Color.appTextPrimary(colorScheme))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
                         .fill(Color.appInnerSurface(colorScheme))
                 )
-            }
-            .buttonStyle(PlainButtonStyle())
-
-            if let todayEntry {
-                Text(todayEntry.preview)
-                    .font(FontManager.geist(size: 14, weight: .regular))
-                    .foregroundColor(Color.appTextSecondary(colorScheme))
-                    .lineLimit(4)
-            } else {
-                Text("Capture what stood out, what drained you, or what you want to carry into tomorrow.")
-                    .font(FontManager.geist(size: 14, weight: .regular))
-                    .foregroundColor(Color.appTextSecondary(colorScheme))
-            }
-        }
-        .padding(16)
-        .background(sectionCardBackground)
-    }
-
-    private var weeklyRecapCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Weekly Recap")
-                        .font(FontManager.geist(size: 18, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                    Text("Saved summaries of the overall week")
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                }
-                Spacer()
-
-                Button(action: refreshRecap) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text(isRefreshingRecap ? "Checking" : "Refresh")
-                            .font(FontManager.geist(size: 12, weight: .semibold))
-                    }
-                    .foregroundColor(Color.appTextPrimary(colorScheme))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        Capsule()
-                            .fill(Color.appInnerSurface(colorScheme))
-                    )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .disabled(isRefreshingRecap)
-            }
-
-            if let latestRecap {
-                recapPreview(note: latestRecap)
-            } else {
-                Text("No weekly recap yet. Once you have enough entries for a completed week, Seline will save one here.")
-                    .font(FontManager.geist(size: 14, weight: .regular))
-                    .foregroundColor(Color.appTextSecondary(colorScheme))
             }
         }
         .padding(16)
@@ -320,70 +352,284 @@ struct JournalHubView: View {
 
     private var historyCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("History")
-                .font(FontManager.geist(size: 18, weight: .semibold))
-                .foregroundColor(Color.appTextPrimary(colorScheme))
+            historyCalendarCard
+            historySelectedDayCard
+        }
+    }
 
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(Color.appTextSecondary(colorScheme))
+    private var historyCalendarCard: some View {
+        VStack(spacing: 0) {
+            historyMonthNavigator
+            historyWeekdayHeader
+            historyMonthGrid
+        }
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topLeading,
+            cornerRadius: 24,
+            highlightStrength: 0.58
+        )
+    }
 
-                TextField("Search journal history", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(FontManager.geist(size: 14, weight: .regular))
-                    .foregroundColor(Color.appTextPrimary(colorScheme))
+    private var historyMonthNavigator: some View {
+        HStack {
+            Button(action: { shiftHistoryMonth(by: -1) }) {
+                Image(systemName: "chevron.left")
+                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .foregroundColor((colorScheme == .dark ? Color.white : Color.black).opacity(canShowOlderHistoryMonth ? 1 : 0.35))
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
             }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(!canShowOlderHistoryMonth)
+            .simultaneousGesture(TapGesture().onEnded { HapticManager.shared.selection() })
+
+            Spacer()
+
+            Text(visibleHistoryMonthTitle)
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+            Spacer()
+
+            Button(action: jumpToCurrentHistoryMonth) {
+                Text("Today")
+                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Button(action: { shiftHistoryMonth(by: 1) }) {
+                Image(systemName: "chevron.right")
+                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .foregroundColor((colorScheme == .dark ? Color.white : Color.black).opacity(canShowNewerHistoryMonth ? 1 : 0.35))
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(!canShowNewerHistoryMonth)
+            .simultaneousGesture(TapGesture().onEnded { HapticManager.shared.selection() })
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+    }
+
+    private var historyWeekdayHeader: some View {
+        HStack(spacing: 0) {
+            ForEach(historyWeekdaySymbols, id: \.self) { symbol in
+                Text(symbol)
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private var historyMonthGrid: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(historyCalendarWeeks.enumerated()), id: \.offset) { _, week in
+                HStack(spacing: 0) {
+                    ForEach(Array(week.enumerated()), id: \.offset) { _, date in
+                        if let date {
+                            historyCalendarDayCell(for: date, in: visibleHistoryMonth)
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Color.clear
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 58)
+            }
+        }
+        .padding(.bottom, 10)
+    }
+
+    private func historyCalendarDayCell(for date: Date, in month: Date) -> some View {
+        let note = notesManager.meaningfulJournalEntry(for: date)
+        let isSelected = Calendar.current.isDate(date, inSameDayAs: selectedHistoryDate)
+        let isToday = Calendar.current.isDateInToday(date)
+        let isMissing = note == nil && shouldShowMissingIndicator(for: date)
+        let isInCurrentMonth = Calendar.current.isDate(date, equalTo: month, toGranularity: .month)
+
+        return Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedHistoryDate = Calendar.current.startOfDay(for: date)
+            }
+            HapticManager.shared.selection()
+        }) {
+            VStack(spacing: 5) {
+                Text("\(Calendar.current.component(.day, from: date))")
+                    .font(FontManager.geist(size: 12, weight: isToday || isSelected ? .semibold : .regular))
+                    .foregroundColor(
+                        isSelected ? (colorScheme == .dark ? .black : .white) :
+                        isMissing && isInCurrentMonth ? journalAccentColor :
+                        !isInCurrentMonth ? (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.35)) :
+                        (colorScheme == .dark ? Color.white : Color.black)
+                    )
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Group {
+                            if isSelected {
+                                Circle().fill(colorScheme == .dark ? Color.white : Color.black)
+                            } else if isToday {
+                                Circle().stroke(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.3), lineWidth: 1.5)
+                            }
+                        }
+                    )
+
+                if let mood = note?.journalMood {
+                    Text(calendarMoodLabel(for: mood))
+                        .font(FontManager.geist(size: 8, weight: .medium))
+                        .foregroundColor(
+                            isSelected
+                            ? (colorScheme == .dark ? .black : .white)
+                            : (colorScheme == .dark ? Color.white.opacity(0.74) : Color.black.opacity(0.72))
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(
+                                    isSelected
+                                    ? (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.15))
+                                    : (colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.06))
+                                )
+                        )
+                } else if isMissing {
+                    Circle()
+                        .fill(journalAccentColor)
+                        .frame(width: 6, height: 6)
+                        .frame(height: 12)
+                } else {
+                    Color.clear
+                        .frame(height: 12)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    @ViewBuilder
+    private var historySelectedDayCard: some View {
+        if let selectedHistoryEntry {
+            historyEntryRow(note: selectedHistoryEntry, previewLineLimit: 3)
+        } else if selectedHistoryDateIsMissing {
+            let hasExistingDraft = notesManager.journalEntry(for: selectedHistoryDate) != nil
+            Button(action: {
+                openDraftOrContinueEntry(for: selectedHistoryDate)
+            }) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Text(formattedHistoryDayTitle(for: selectedHistoryDate))
+                            .font(FontManager.geist(size: 14, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                        Text("Missing")
+                            .font(FontManager.geist(size: 10, weight: .semibold))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(journalAccentColor)
+                            )
+
+                        Spacer()
+                    }
+
+                    Text(hasExistingDraft
+                         ? "This day still needs a finished journal entry. Continue it to fill the gap."
+                         : "No journal entry yet for this day. Open a draft to fill the gap.")
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(hasExistingDraft ? "Continue entry" : "Open draft")
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.appInnerSurface(colorScheme))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(journalAccentColor.opacity(colorScheme == .dark ? 0.55 : 0.9), lineWidth: 1)
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(formattedHistoryDayTitle(for: selectedHistoryDate))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                Text("No journal entry for this day yet.")
+                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color.appInnerSurface(colorScheme))
             )
-
-            if historyItems.isEmpty {
-                Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No journal history yet" : "No matching journal items")
-                    .font(FontManager.geist(size: 14, weight: .regular))
-                    .foregroundColor(Color.appTextSecondary(colorScheme))
-                    .padding(.top, 4)
-            } else {
-                VStack(spacing: 10) {
-                    ForEach(historyItems) { item in
-                        historyRow(item)
-                    }
-                }
-            }
         }
-        .padding(16)
-        .background(sectionCardBackground)
     }
 
-    private func historyRow(_ item: JournalHistoryItem) -> some View {
+    private func historyEntryRow(note: Note, previewLineLimit: Int = 2) -> some View {
         Button(action: {
-            existingNoteToOpen = item.note
+            existingNoteToOpen = note
         }) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 8) {
-                        Text(item.note.title)
+                        Text(note.title)
                             .font(FontManager.geist(size: 14, weight: .semibold))
                             .foregroundColor(Color.appTextPrimary(colorScheme))
                             .lineLimit(1)
 
-                        if item.note.isJournalWeeklyRecap {
-                            statusPill(text: "Recap", isPositive: false)
+                        if let mood = note.journalMood {
+                            moodPill(mood)
                         }
                     }
 
-                    Text(item.note.preview)
+                    Text(note.preview)
                         .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(Color.appTextSecondary(colorScheme))
-                        .lineLimit(2)
+                        .lineLimit(previewLineLimit)
                 }
 
                 Spacer(minLength: 12)
 
-                Text(historyDateLabel(for: item))
+                Text(historyDateLabel(for: note))
                     .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(Color.appTextSecondary(colorScheme))
             }
@@ -397,28 +643,40 @@ struct JournalHubView: View {
         .buttonStyle(PlainButtonStyle())
     }
 
+    private func moodPill(_ mood: JournalMood) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: mood.iconName)
+                .font(.system(size: 10, weight: .semibold))
+            Text(mood.title)
+                .font(FontManager.geist(size: 11, weight: .semibold))
+        }
+        .foregroundColor(Color.appTextPrimary(colorScheme))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(Color.appChip(colorScheme))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.appBorder(colorScheme), lineWidth: 0.8)
+        )
+    }
+
     private func recapPreview(note: Note) -> some View {
         Button(action: {
             existingNoteToOpen = note
         }) {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    statusPill(text: "Saved recap", isPositive: false)
-                    Spacer()
-                    Text(historyDateLabel(for: .recap(note)))
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                }
-
                 Text(note.title)
                     .font(FontManager.geist(size: 15, weight: .semibold))
                     .foregroundColor(Color.appTextPrimary(colorScheme))
                     .lineLimit(1)
 
-                Text(note.preview)
+                Text(recapPreviewText(for: note))
                     .font(FontManager.geist(size: 14, weight: .regular))
                     .foregroundColor(Color.appTextSecondary(colorScheme))
-                    .lineLimit(4)
+                    .lineLimit(6)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
@@ -428,6 +686,55 @@ struct JournalHubView: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    private var previousRecapsSheet: some View {
+        NavigationStack {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 10) {
+                    if previousWeekRecaps.isEmpty {
+                        Text("No previous weekly recaps yet")
+                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 8)
+                    } else {
+                        ForEach(previousWeekRecaps, id: \.id) { recap in
+                            Button {
+                                showingPreviousRecaps = false
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                    existingNoteToOpen = recap
+                                }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text(recap.title)
+                                        .font(FontManager.geist(size: 15, weight: .semibold))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                    Text(recapPreviewText(for: recap))
+                                        .font(FontManager.geist(size: 14, weight: .regular))
+                                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                                        .multilineTextAlignment(.leading)
+                                        .lineLimit(4)
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(Color.appInnerSurface(colorScheme))
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .background(Color.appBackground(colorScheme).ignoresSafeArea())
+            .navigationTitle("Previous Recaps")
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 
     private func journalMetricTile(title: String, value: String) -> some View {
@@ -450,16 +757,8 @@ struct JournalHubView: View {
         )
     }
 
-    private func statusPill(text: String, isPositive: Bool) -> some View {
-        Text(text)
-            .font(FontManager.geist(size: 12, weight: .semibold))
-            .foregroundColor(isPositive ? Color(red: 0.13, green: 0.48, blue: 0.23) : Color(red: 0.22, green: 0.37, blue: 0.67))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(isPositive ? Color(red: 0.87, green: 0.96, blue: 0.88) : Color(red: 0.88, green: 0.92, blue: 1.0))
-            )
+    private var journalAccentColor: Color {
+        Color(red: 0.98, green: 0.64, blue: 0.41)
     }
 
     private var heroBackground: some View {
@@ -467,7 +766,7 @@ struct JournalHubView: View {
             .fill(Color.appSurface(colorScheme))
             .overlay(alignment: .topTrailing) {
                 Circle()
-                    .fill(Color(red: 0.98, green: 0.64, blue: 0.41).opacity(colorScheme == .dark ? 0.14 : 0.22))
+                    .fill(journalAccentColor.opacity(colorScheme == .dark ? 0.14 : 0.22))
                     .frame(width: 220, height: 220)
                     .blur(radius: 8)
                     .offset(x: 60, y: -48)
@@ -490,31 +789,99 @@ struct JournalHubView: View {
             )
     }
 
-    private func historyDateLabel(for item: JournalHistoryItem) -> String {
+    private func historyDateLabel(for note: Note) -> String {
         let formatter = DateFormatter()
-        formatter.dateFormat = item.note.isJournalWeeklyRecap ? "MMM d" : "EEE"
-        let sourceDate = item.note.isJournalWeeklyRecap ? (item.note.journalWeekStartDate ?? item.note.dateModified) : (item.note.journalDate ?? item.note.dateModified)
+        formatter.dateFormat = "EEE"
+        let sourceDate = note.journalDate ?? note.dateModified
         return formatter.string(from: sourceDate)
+    }
+
+    private func formattedHistoryDayTitle(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d"
+        return formatter.string(from: date)
+    }
+
+    private func recapPreviewText(for note: Note) -> String {
+        let trimmed = note.displayContent
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmed.isEmpty else { return "No recap details yet." }
+        return String(trimmed.prefix(260))
+    }
+
+    private func calendarMoodLabel(for mood: JournalMood) -> String {
+        switch mood {
+        case .great: return "Great"
+        case .good: return "Good"
+        case .calm: return "Calm"
+        case .tired: return "Tired"
+        case .stressed: return "Stress"
+        case .low: return "Low"
+        }
+    }
+
+    private func monthStart(for date: Date) -> Date {
+        Calendar.current.date(
+            from: Calendar.current.dateComponents([.year, .month], from: date)
+        ) ?? Calendar.current.startOfDay(for: date)
+    }
+
+    private func shouldShowMissingIndicator(for date: Date) -> Bool {
+        let calendar = Calendar.current
+        let normalizedDate = calendar.startOfDay(for: date)
+        let today = calendar.startOfDay(for: Date())
+        return normalizedDate < today
+    }
+
+    private func shiftHistoryMonth(by offset: Int) {
+        guard let shiftedMonth = Calendar.current.date(byAdding: .month, value: offset, to: visibleHistoryMonth) else {
+            return
+        }
+
+        let normalizedMonth = monthStart(for: shiftedMonth)
+        visibleHistoryMonth = normalizedMonth
+
+        if Calendar.current.isDate(normalizedMonth, equalTo: currentMonthStart, toGranularity: .month) {
+            selectedHistoryDate = Calendar.current.startOfDay(for: Date())
+        } else {
+            selectedHistoryDate = normalizedMonth
+        }
+    }
+
+    private func jumpToCurrentHistoryMonth() {
+        visibleHistoryMonth = currentMonthStart
+        selectedHistoryDate = Calendar.current.startOfDay(for: Date())
+        HapticManager.shared.selection()
+    }
+
+    private func weekRangeTitle(for weekStart: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        let weekEnd = Calendar.current.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+        return "Weekly Recap • \(formatter.string(from: weekStart)) - \(formatter.string(from: weekEnd))"
+    }
+
+    private func openDraft(for date: Date) {
+        Task {
+            draftToOpen = await journalService.prepareDraftEnsuringFolder(for: date)
+        }
+    }
+
+    private func openDraftOrContinueEntry(for date: Date) {
+        if let existingEntry = notesManager.journalEntry(for: date) {
+            existingNoteToOpen = existingEntry
+        } else {
+            openDraft(for: date)
+        }
     }
 
     private func openTodayEntry() {
         if let entry = todayEntry {
             existingNoteToOpen = entry
         } else {
-            Task {
-                draftToOpen = await journalService.prepareTodayDraftEnsuringFolder()
-            }
-        }
-    }
-
-    private func refreshRecap() {
-        guard !isRefreshingRecap else { return }
-        isRefreshingRecap = true
-        Task {
-            await journalService.ensureWeeklyRecapIfNeeded()
-            await MainActor.run {
-                isRefreshingRecap = false
-            }
+            openDraft(for: Date())
         }
     }
 }

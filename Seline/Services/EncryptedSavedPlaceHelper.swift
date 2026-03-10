@@ -17,17 +17,17 @@ extension LocationsManager {
         var encryptedPlace = place
 
         // Encrypt location data
-        encryptedPlace.name = try await EncryptionManager.shared.encrypt(place.name)
-        encryptedPlace.address = try await EncryptionManager.shared.encrypt(place.address)
+        encryptedPlace.name = try await MainActor.run { try EncryptionManager.shared.encrypt(place.name) }
+        encryptedPlace.address = try await MainActor.run { try EncryptionManager.shared.encrypt(place.address) }
 
         // Encrypt custom name if it exists
         if let customName = place.customName {
-            encryptedPlace.customName = try await EncryptionManager.shared.encrypt(customName)
+            encryptedPlace.customName = try await MainActor.run { try EncryptionManager.shared.encrypt(customName) }
         }
 
         // Encrypt phone number if it exists
         if let phone = place.phone {
-            encryptedPlace.phone = try await EncryptionManager.shared.encrypt(phone)
+            encryptedPlace.phone = try await MainActor.run { try EncryptionManager.shared.encrypt(phone) }
         }
 
         // Note: Coordinates are NOT encrypted to preserve their Double type in the model
@@ -44,17 +44,17 @@ extension LocationsManager {
 
         do {
             // Decrypt location data
-            decryptedPlace.name = try await EncryptionManager.shared.decrypt(encryptedPlace.name)
-            decryptedPlace.address = try await EncryptionManager.shared.decrypt(encryptedPlace.address)
+            decryptedPlace.name = try await MainActor.run { try EncryptionManager.shared.decrypt(encryptedPlace.name) }
+            decryptedPlace.address = try await MainActor.run { try EncryptionManager.shared.decrypt(encryptedPlace.address) }
 
             // Decrypt custom name if it exists
             if let customName = encryptedPlace.customName {
-                decryptedPlace.customName = try await EncryptionManager.shared.decrypt(customName)
+                decryptedPlace.customName = try await MainActor.run { try EncryptionManager.shared.decrypt(customName) }
             }
 
             // Decrypt phone number if it exists
             if let phone = encryptedPlace.phone {
-                decryptedPlace.phone = try await EncryptionManager.shared.decrypt(phone)
+                decryptedPlace.phone = try await MainActor.run { try EncryptionManager.shared.decrypt(phone) }
             }
         } catch {
             // Decryption failed - this place is probably not encrypted (old data)
@@ -92,7 +92,7 @@ extension LocationsManager {
 
     /// Re-encrypt all existing saved places in Supabase
     func reencryptAllExistingSavedPlaces() async {
-        guard let userId = await AuthenticationManager.shared.supabaseUser?.id else {
+        guard let userId = await MainActor.run(body: { AuthenticationManager.shared.supabaseUser?.id }) else {
             print("❌ User not authenticated, cannot re-encrypt saved places")
             return
         }
@@ -117,7 +117,7 @@ extension LocationsManager {
             var errorCount = 0
 
             // Process each place
-            for (index, supabasePlace) in response.enumerated() {
+            for (_, supabasePlace) in response.enumerated() {
                 var place = SavedPlace(
                     googlePlaceId: supabasePlace.google_place_id,
                     name: supabasePlace.name,
@@ -129,7 +129,7 @@ extension LocationsManager {
                 place.id = UUID(uuidString: supabasePlace.id) ?? UUID()
 
                 // Check if already encrypted by trying to decrypt
-                let decryptTest = try? await EncryptionManager.shared.decrypt(supabasePlace.name)
+                let decryptTest = try? await MainActor.run { try EncryptionManager.shared.decrypt(supabasePlace.name) }
 
                 if decryptTest != nil && decryptTest == supabasePlace.name {
                     // Successfully decrypted to same value = already encrypted
@@ -173,7 +173,7 @@ extension LocationsManager {
 
 // MARK: - Supabase Data Structure
 
-struct SavedPlaceSupabaseData: Codable {
+private struct SavedPlaceSupabaseData: Codable {
     let id: String
     let user_id: String
     let google_place_id: String

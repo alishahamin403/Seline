@@ -304,7 +304,7 @@ struct AISummaryCard: View {
 
         value = value.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
         value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return GeminiService.shared.sanitizeEmailSummaryDisplayText(value)
     }
     
     private func isDummySummary(_ summary: String) -> Bool {
@@ -785,7 +785,7 @@ struct ClickableTextView: UIViewRepresentable {
         ]
         
         // Detect markdown-style links: [label](url)
-        let markdownLinkPattern = #"\[([^\]]+)\]\((https?://.+?)\)"#
+        let markdownLinkPattern = #"\[([^\]]+)\]\(([^)]+)\)"#
         if let mdRegex = try? NSRegularExpression(pattern: markdownLinkPattern, options: [.dotMatchesLineSeparators]) {
             let nsString = attributedString.string as NSString
             let mdMatches = mdRegex.matches(in: attributedString.string, options: [], range: NSRange(location: 0, length: nsString.length))
@@ -800,14 +800,19 @@ struct ClickableTextView: UIViewRepresentable {
                     let label = nsString.substring(with: labelRange)
                     let urlString = nsString.substring(with: urlRange)
                     
-                    if let url = URL(string: urlString) {
-                        let linkAttr = NSMutableAttributedString(string: label)
-                        linkAttr.addAttribute(.link, value: url, range: NSRange(location: 0, length: label.count))
-                        linkAttr.addAttribute(.font, value: font, range: NSRange(location: 0, length: label.count))
-                        linkAttr.addAttribute(.foregroundColor, value: linkColor, range: NSRange(location: 0, length: label.count))
-                        linkAttr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(location: 0, length: label.count))
-                        attributedString.replaceCharacters(in: fullRange, with: linkAttr)
+                    let visibleLabel = normalizedLinkLabel(label, fallbackURL: urlString)
+                    let replacement = NSMutableAttributedString(string: visibleLabel)
+                    replacement.addAttribute(.font, value: font, range: NSRange(location: 0, length: replacement.length))
+                    replacement.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: replacement.length))
+
+                    if let normalizedURL = normalizedURLString(urlString),
+                       !shouldCollapseURL(urlString) {
+                        replacement.addAttribute(.link, value: normalizedURL, range: NSRange(location: 0, length: replacement.length))
+                        replacement.addAttribute(.foregroundColor, value: linkColor, range: NSRange(location: 0, length: replacement.length))
+                        replacement.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(location: 0, length: replacement.length))
                     }
+
+                    attributedString.replaceCharacters(in: fullRange, with: replacement)
                 }
             }
         }
@@ -818,7 +823,7 @@ struct ClickableTextView: UIViewRepresentable {
             let currentString = attributedString.string as NSString
             let matches = regex.matches(in: attributedString.string, options: [], range: NSRange(location: 0, length: currentString.length))
             
-            for match in matches {
+            for match in matches.reversed() {
                 // Skip if this range already has a link attribute
                 var existingLink: Any? = nil
                 if match.range.location < attributedString.length {
@@ -827,13 +832,87 @@ struct ClickableTextView: UIViewRepresentable {
                 if existingLink != nil { continue }
                 
                 let urlString = currentString.substring(with: match.range)
-                if let url = URL(string: urlString) {
-                    attributedString.addAttribute(.link, value: url, range: match.range)
+                if let normalizedURL = normalizedURLString(urlString),
+                   !shouldCollapseURL(urlString) {
+                    attributedString.addAttribute(.link, value: normalizedURL, range: match.range)
+                } else {
+                    let label = fallbackURLLabel(for: urlString)
+                    let replacement = NSMutableAttributedString(string: label)
+                    replacement.addAttribute(.font, value: font, range: NSRange(location: 0, length: replacement.length))
+                    replacement.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: replacement.length))
+                    attributedString.replaceCharacters(in: match.range, with: replacement)
                 }
             }
         }
         
         textView.attributedText = attributedString
+    }
+
+    private func normalizedURLString(_ rawURL: String) -> URL? {
+        let compact = rawURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
+
+        if let url = URL(string: compact) {
+            return url
+        }
+
+        let trimmedPunctuation = compact.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?"))
+        return URL(string: trimmedPunctuation)
+    }
+
+    private func normalizedLinkLabel(_ label: String, fallbackURL: String) -> String {
+        let compact = label
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return compact.isEmpty ? fallbackURLLabel(for: fallbackURL) : compact
+    }
+
+    private func fallbackURLLabel(for rawURL: String) -> String {
+        if let url = normalizedURLString(rawURL),
+           let host = url.host?.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression),
+           !host.isEmpty {
+            return host
+        }
+
+        let lower = rawURL.lowercased()
+        if let destinationRange = lower.range(of: #"https?%3a%2f%2f[^&\s]+"#, options: .regularExpression) {
+            let encodedDestination = String(lower[destinationRange])
+            if let decodedURLString = encodedDestination.removingPercentEncoding,
+               let url = URL(string: decodedURLString),
+               let host = url.host?.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression),
+               !host.isEmpty {
+                return host
+            }
+        }
+
+        return "link"
+    }
+
+    private func shouldCollapseURL(_ rawURL: String) -> Bool {
+        let lower = rawURL.lowercased()
+        if rawURL.count > 140 {
+            return true
+        }
+
+        let noisyFragments = [
+            "%2f%2f",
+            "utm_",
+            "mc_cid",
+            "mc_eid",
+            "cm_mmc",
+            "af_",
+            "mi_mid",
+            "trk",
+            "redirect",
+            "reengagement",
+            "click.",
+            "lnk.",
+            "newsletter",
+            "davincipersonalization"
+        ]
+
+        return noisyFragments.contains { lower.contains($0) }
     }
 
     @available(iOS 16.0, *)

@@ -155,40 +155,6 @@ struct CalendarAgendaView: View {
             }
             
             Spacer()
-            
-            HStack(spacing: 8) {
-                if let onCameraAction = onCameraAction {
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        onCameraAction()
-                    }) {
-                        Image(systemName: "camera.fill")
-                            .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(primaryTextColor)
-                            .frame(width: 36, height: 36)
-                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                
-                if let onAddEvent = onAddEvent {
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        onAddEvent(selectedDate)
-                    }) {
-                        Text("Add")
-                            .font(FontManager.geist(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .black : .white)
-                            .padding(.horizontal, 12)
-                            .frame(height: 36)
-                            .background(
-                                Capsule()
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.92) : Color.appTextPrimary(colorScheme))
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
@@ -252,87 +218,88 @@ struct CalendarAgendaView: View {
         let isAllDay = event.scheduledTime == nil
         let categoryLabel = labelForEventCategory(event)
         
-        return Button(action: { onTapEvent(event) }) {
-            HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    // Time row - horizontal format
-                    HStack(spacing: 4) {
-                        if isAllDay {
-                            Text("All day")
-                                .font(FontManager.geist(size: 11, weight: .medium))
-                                .foregroundColor(secondaryTextColor)
-                        } else if let time = event.scheduledTime {
-                            Text(formatTimeRange(start: time, end: event.endTime))
-                                .font(FontManager.geist(size: 11, weight: .medium))
-                                .foregroundColor(secondaryTextColor)
-                        }
-                        
-                        Spacer()
-
-                        if event.hasEmailAttachment {
-                            Image(systemName: "envelope.fill")
-                                .font(FontManager.geist(size: 11, weight: .medium))
-                                .foregroundColor(secondaryTextColor)
-                        }
-                    }
-                    
-                    Text(event.title)
-                        .font(FontManager.geist(size: 15, weight: .medium))
-                        .foregroundColor(primaryTextColor)
-                        .strikethrough(isCompleted, color: primaryTextColor.opacity(0.5))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-
-                    HStack(spacing: 8) {
-                        if let categoryLabel {
-                            Text(categoryLabel)
-                                .font(FontManager.geist(size: 10, weight: .semibold))
-                                .foregroundColor(primaryTextColor.opacity(0.85))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.appChip(colorScheme))
-                                )
-                                .overlay(
-                                    Capsule()
-                                        .stroke(Color.appBorder(colorScheme), lineWidth: 0.8)
-                                )
-                        }
-
-                        if event.isRecurring, let frequency = event.recurrenceFrequency {
-                            Text(frequency.rawValue.lowercased())
-                                .font(FontManager.geist(size: 10, weight: .medium))
-                                .foregroundColor(tertiaryTextColor)
-                        }
-                    }
-                    
-                    // Description if present
-                    if let description = event.description, !description.isEmpty {
-                        Text(description)
-                            .font(FontManager.geist(size: 12, weight: .regular))
+        return HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 4) {
+                    if isAllDay {
+                        Text("All day")
+                            .font(FontManager.geist(size: 11, weight: .medium))
                             .foregroundColor(secondaryTextColor)
-                            .lineLimit(1)
+                    } else if let time = event.scheduledTime {
+                        Text(formatTimeRange(start: time, end: event.endTime))
+                            .font(FontManager.geist(size: 11, weight: .medium))
+                            .foregroundColor(secondaryTextColor)
+                    }
+
+                    Spacer()
+
+                    if event.hasEmailAttachment {
+                        Image(systemName: "envelope.fill")
+                            .font(FontManager.geist(size: 11, weight: .medium))
+                            .foregroundColor(secondaryTextColor)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                
-                Spacer(minLength: 0)
-                
-                Button(action: { 
-                    onToggleCompletion(event)
-                }) {
-                    Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                        .font(FontManager.geist(size: 24, weight: .regular))
-                        .foregroundColor(isCompleted ? Color.emailGlassAccent : secondaryTextColor)
+
+                Text(event.title)
+                    .font(FontManager.geist(size: 15, weight: .medium))
+                    .foregroundColor(primaryTextColor)
+                    .strikethrough(isCompleted, color: primaryTextColor.opacity(0.5))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                HStack(spacing: 8) {
+                    if let categoryLabel {
+                        Text(categoryLabel)
+                            .font(FontManager.geist(size: 10, weight: .semibold))
+                            .foregroundColor(primaryTextColor.opacity(0.85))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule()
+                                    .fill(Color.appChip(colorScheme))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.appBorder(colorScheme), lineWidth: 0.8)
+                            )
+                    }
+
+                    if event.isRecurring, let frequency = event.recurrenceFrequency {
+                        Text(frequency.rawValue.lowercased())
+                            .font(FontManager.geist(size: 10, weight: .medium))
+                            .foregroundColor(tertiaryTextColor)
+                    }
                 }
-                .buttonStyle(PlainButtonStyle())
-                .padding(.trailing, 12)
+
+                if let description = event.description, !description.isEmpty {
+                    Text(description)
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(secondaryTextColor)
+                        .lineLimit(1)
+                }
             }
-            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onTapEvent(event)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: {
+                HapticManager.shared.selection()
+                applyLocalCompletionToggle(for: event)
+                onToggleCompletion(event)
+            }) {
+                Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
+                    .font(FontManager.geist(size: 24, weight: .regular))
+                    .foregroundColor(isCompleted ? Color.emailGlassAccent : secondaryTextColor)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .padding(.trailing, 12)
         }
-        .buttonStyle(PlainButtonStyle())
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
     }
     
     // MARK: - Helper Methods
@@ -395,6 +362,31 @@ struct CalendarAgendaView: View {
             }
             return false
         }
+    }
+
+    private func applyLocalCompletionToggle(for task: TaskItem) {
+        guard let index = cachedEvents.firstIndex(where: { $0.id == task.id }) else { return }
+
+        var updatedTask = cachedEvents[index]
+        let calendar = Calendar.current
+
+        if updatedTask.isRecurring {
+            let completionDate = calendar.startOfDay(for: selectedDate)
+            if let existingIndex = updatedTask.completedDates.firstIndex(where: {
+                calendar.isDate($0, inSameDayAs: completionDate)
+            }) {
+                updatedTask.completedDates.remove(at: existingIndex)
+            } else {
+                updatedTask.completedDates.append(completionDate)
+            }
+            updatedTask.isCompleted = false
+            updatedTask.completedDate = nil
+        } else {
+            updatedTask.isCompleted.toggle()
+            updatedTask.completedDate = updatedTask.isCompleted ? Date() : nil
+        }
+
+        cachedEvents[index] = updatedTask
     }
     
 }

@@ -172,8 +172,6 @@ class ConversationContextService: ObservableObject {
 
         // Look at most recent searches
         for context in recentSearches.prefix(3) {
-            let lowerOldQuery = context.query.lowercased()
-
             // Check for common phrases (user refining search)
             if lowerNewQuery.contains("more") || lowerNewQuery.contains("also") ||
                lowerNewQuery.contains("another") || lowerNewQuery.contains("and") {

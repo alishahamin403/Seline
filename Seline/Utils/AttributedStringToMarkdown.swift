@@ -103,7 +103,6 @@ class AttributedStringToMarkdown {
 
         while position < text.count {
             let char = text[text.index(text.startIndex, offsetBy: position)]
-            let range = NSRange(location: position, length: 1)
 
             if let font = attrString.attribute(.font, at: position, effectiveRange: nil) as? UIFont {
                 let isBold = font.fontDescriptor.symbolicTraits.contains(.traitBold)

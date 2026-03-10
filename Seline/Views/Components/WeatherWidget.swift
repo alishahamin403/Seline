@@ -15,6 +15,8 @@ struct WeatherWidget: View {
     @State private var locationPreferences: UserLocationPreferences?
     @State private var timer: Timer? // Manual timer that we can start/stop
     @State private var lastWeatherFetch: Date? // Track last fetch
+    @State private var lastETAFingerprint: String?
+    @State private var lastETARefreshAt: Date = .distantPast
 
     private var currentWeather: WeatherData? {
         weatherService.weatherData
@@ -149,7 +151,7 @@ struct WeatherWidget: View {
                         do {
                             try await supabaseManager.saveLocationPreferences(updatedPreferences)
                             locationPreferences = updatedPreferences
-                            updateETAs()
+                            await updateETAs(force: true, reason: "preferences_saved")
                         } catch {
                             print("❌ Failed to save location: \(error)")
                         }
@@ -161,8 +163,7 @@ struct WeatherWidget: View {
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {
             case .active:
-                // App became active - only refresh if needed, NO automatic timer
-                refreshWeatherIfNeeded()
+                refreshVisibleContent(forceWeather: false, forceETAs: false, reason: "scene_active")
             case .background, .inactive:
                 // App went to background - stop timer
                 stopWeatherTimer()
@@ -171,57 +172,27 @@ struct WeatherWidget: View {
             }
         }
         .task {
-            // Use .task instead of .onAppear for async operations
-            // Only fetch if visible
             guard isVisible else { return }
-
-            locationService.requestLocationPermission()
-            loadLocationPreferences()
-
-            // If we already have a location, fetch weather (non-blocking)
-            if let location = locationService.currentLocation {
-                // Only fetch if weather data is stale or missing
-                if weatherService.weatherData == nil {
-                    await weatherService.fetchWeather(for: location)
-                }
-            }
+            refreshVisibleContent(forceWeather: false, forceETAs: false, reason: "initial_task")
         }
         .onChange(of: isVisible) { visible in
             if visible {
-                // When becoming visible, start location updates and fetch data
-                locationService.requestLocationPermission()
-                loadLocationPreferences()
-
-                if let location = locationService.currentLocation {
-                    Task {
-                        await weatherService.fetchWeather(for: location)
-                    }
-                }
-                // Update ETAs when becoming visible
-                updateETAs()
-
-                // Save ETAs to widget so it displays current values
-                navigationService.saveETAsToWidget()
+                refreshVisibleContent(forceWeather: false, forceETAs: false, reason: "visibility")
             } else {
                 // When becoming invisible, stop location updates
                 locationService.stopLocationUpdates()
             }
         }
         .onChange(of: locationService.currentLocation) { location in
-            // Only update if visible
             guard isVisible else { return }
 
-            if let location = location {
-                Task {
-                    await weatherService.fetchWeather(for: location)
-                    // Update ETAs when current location changes
-                    updateETAs()
-                }
+            if location != nil {
+                refreshVisibleContent(forceWeather: false, forceETAs: false, reason: "location_change")
             }
         }
         .onChange(of: locationPreferences) { _ in
-            // Update ETAs when location preferences change
-            updateETAs()
+            guard isVisible else { return }
+            refreshVisibleContent(forceWeather: false, forceETAs: true, reason: "preferences_change")
         }
     }
 
@@ -343,65 +314,91 @@ struct WeatherWidget: View {
 
     // MARK: - Methods
 
-    private func loadLocationPreferences() {
-        Task {
-            do {
-                let preferences = try await supabaseManager.loadLocationPreferences()
-                await MainActor.run {
-                    self.locationPreferences = preferences
-                }
-                updateETAs()
-            } catch {
-                print("❌ Failed to load location preferences: \(error)")
+    private func loadLocationPreferences(force: Bool = false) async {
+        if !force, locationPreferences != nil {
+            return
+        }
+
+        do {
+            let preferences = try await supabaseManager.loadLocationPreferences()
+            await MainActor.run {
+                self.locationPreferences = preferences
             }
+        } catch {
+            print("❌ Failed to load location preferences: \(error)")
         }
     }
 
-    private func updateETAs() {
+    private func updateETAs(force: Bool = false, reason: String = "manual") async {
         guard let preferences = locationPreferences else {
             print("⚠️ Location preferences not loaded yet")
             return
         }
 
-        // If we don't have current location yet, try to request it
-        if locationService.currentLocation == nil {
+        guard let currentLocation = locationService.currentLocation else {
             print("⚠️ Current location not available, requesting...")
             locationService.requestLocationPermission()
+            return
+        }
 
-            // Try again after a short delay to allow location to be fetched
-            Task {
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-                if let currentLocation = locationService.currentLocation {
-                    await navigationService.updateETAs(
-                        currentLocation: currentLocation,
-                        location1: preferences.location1Coordinate,
-                        location2: preferences.location2Coordinate,
-                        location3: preferences.location3Coordinate,
-                        location4: preferences.location4Coordinate
-                    )
+        let fingerprint = etaFingerprint(for: currentLocation, preferences: preferences)
+        if !force,
+           lastETAFingerprint == fingerprint,
+           Date().timeIntervalSince(lastETARefreshAt) < 60 {
+            return
+        }
 
-                    // Save ETAs to widget after calculation completes
-                    navigationService.saveETAsToWidget()
-                }
+        await navigationService.updateETAs(
+            currentLocation: currentLocation,
+            location1: preferences.location1Coordinate,
+            location2: preferences.location2Coordinate,
+            location3: preferences.location3Coordinate,
+            location4: preferences.location4Coordinate
+        )
+
+        lastETAFingerprint = fingerprint
+        lastETARefreshAt = Date()
+        navigationService.saveETAsToWidget()
+    }
+
+    private func etaFingerprint(for location: CLLocation, preferences: UserLocationPreferences) -> String {
+        let originLatitude = Int((location.coordinate.latitude * 1000).rounded())
+        let originLongitude = Int((location.coordinate.longitude * 1000).rounded())
+
+        let destinations = [
+            preferences.location1Coordinate,
+            preferences.location2Coordinate,
+            preferences.location3Coordinate,
+            preferences.location4Coordinate
+        ]
+            .map { destination -> String in
+                guard let destination else { return "nil" }
+                let latitude = Int((destination.latitude * 1000).rounded())
+                let longitude = Int((destination.longitude * 1000).rounded())
+                return "\(latitude),\(longitude)"
             }
-            return
-        }
+            .joined(separator: "|")
 
-        guard let currentLocation = locationService.currentLocation else {
-            return
-        }
+        return "\(originLatitude),\(originLongitude)::\(destinations)"
+    }
+
+    private func refreshVisibleContent(
+        forceWeather: Bool,
+        forceETAs: Bool,
+        reason: String
+    ) {
+        guard isVisible else { return }
 
         Task {
-            await navigationService.updateETAs(
-                currentLocation: currentLocation,
-                location1: preferences.location1Coordinate,
-                location2: preferences.location2Coordinate,
-                location3: preferences.location3Coordinate,
-                location4: preferences.location4Coordinate
-            )
+            locationService.requestLocationPermission()
+            await loadLocationPreferences(force: false)
 
-            // Save ETAs to widget after calculation completes
-            navigationService.saveETAsToWidget()
+            if let location = locationService.currentLocation {
+                await weatherService.fetchWeather(for: location, forceRefresh: forceWeather)
+                lastWeatherFetch = Date()
+            }
+
+            await updateETAs(force: forceETAs, reason: reason)
         }
     }
 
@@ -457,13 +454,7 @@ struct WeatherWidget: View {
             return
         }
 
-        // Fetch weather manually when user opens home page
-        if let location = locationService.currentLocation {
-            Task {
-                await weatherService.fetchWeather(for: location)
-                lastWeatherFetch = Date()
-            }
-        }
+        refreshVisibleContent(forceWeather: false, forceETAs: false, reason: "weather_if_needed")
     }
 }
 

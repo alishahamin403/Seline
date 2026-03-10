@@ -36,12 +36,27 @@ class VectorSearchService: ObservableObject {
     private let maxBatchSize = 50 // Max documents per batch
     private let similarityThreshold: Float = 0.22 // Higher precision to reduce noisy context contamination
     private let defaultResultLimit = 15 // Reduced from 50 to 15 for better UI performance
+    private let searchCandidateMultiplier = 3
+    private let historicalSearchCandidateMultiplier = 8
+    private let historicalBackfillPageSize = 50
+    private let historicalBackfillPagesPerMailbox = 12
+    private let historicalBackfillCoverageYears = 5
+    private let historicalBackfillRefreshInterval: TimeInterval = 60 * 60 * 6
+    private let visitEmbeddingRefreshCooldown: TimeInterval = 12
     // Removed recentDaysThreshold - now embedding ALL historical data
     
     // MARK: - Cache
 
     private var lastSyncedHashes: [String: Int] = [:] // document_id -> content_hash
     private var memoryAnnotationCache: [String: String] = [:] // title -> annotated title
+    private var cachedMemories: [MemorySupabaseData] = []
+    private var lastMemoryFetchTime: Date?
+    private var cachedHistoricalEmailsForEmbedding: [(email: Email, mailbox: String)] = []
+    private var lastHistoricalEmailBackfill: Date?
+    private var lastVisitEmbeddingRefresh: Date?
+    private var interactiveRequestCount = 0
+    private var pendingFullSyncRequested = false
+    private let gmailAPIClient = GmailAPIClient.shared
     
     // MARK: - Initialization
     
@@ -60,22 +75,28 @@ class VectorSearchService: ObservableObject {
         query: String,
         documentTypes: [DocumentType]? = nil,
         limit: Int = 15,
-        dateRange: (start: Date, end: Date)? = nil
+        dateRange: (start: Date, end: Date)? = nil,
+        preferHistorical: Bool = false
     ) async throws -> [SearchResult] {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return []
         }
 
+        let candidateMultiplier = preferHistorical ? historicalSearchCandidateMultiplier : searchCandidateMultiplier
         var requestBody: [String: Any] = [
             "action": "search",
             "query": query,
             "document_types": documentTypes?.map { $0.rawValue } ?? NSNull(),
-            "limit": limit * 3, // Get more results to filter client-side
+            "limit": limit * candidateMultiplier,
             "similarity_threshold": similarityThreshold
         ]
 
-        // DON'T send date range to edge function - we'll filter client-side
-        // This bypasses the JavaScript date comparison bug
+        if let dateRange {
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            requestBody["date_range_start"] = iso.string(from: dateRange.start)
+            requestBody["date_range_end"] = iso.string(from: dateRange.end)
+        }
 
         let response: SearchResponse = try await makeRequest(body: requestBody)
 
@@ -89,15 +110,16 @@ class VectorSearchService: ObservableObject {
         }
         
         // Debug logging for filtering
-        if let dateRange = dateRange {
+        if dateRange != nil {
             print("🔍 Vector search: \(beforeFilterCount) raw results, \(rawResults.count) after date filter")
             if beforeFilterCount > 0 && rawResults.count == 0 {
                 print("⚠️ ALL results filtered by date - metadata may be missing date fields")
             }
         }
 
-        // Limit to requested number after filtering
-        rawResults = Array(rawResults.prefix(limit))
+        // Limit candidates before additional boosting/merging.
+        let effectiveResultCap = preferHistorical ? (limit * 2) : limit
+        rawResults = Array(rawResults.prefix(effectiveResultCap))
 
         // Log search results and similarity scores
         if !rawResults.isEmpty {
@@ -114,7 +136,7 @@ class VectorSearchService: ObservableObject {
         }
 
         // Apply query-aware recency boost to vector results
-        let recencyWeight = recencyWeight(for: query, dateRange: dateRange)
+        let recencyWeight = recencyWeight(for: query, dateRange: dateRange, preferHistorical: preferHistorical)
         let vectorResults = rawResults.map { result -> SearchResult in
             let baseScore = result.similarity
             let recencyScore = calculateRecencyScore(metadata: result.metadata)
@@ -131,7 +153,12 @@ class VectorSearchService: ObservableObject {
         }
 
         // Hybrid keyword search (in-memory) for better recall
-        let keywordResults = await keywordSearch(query: query, dateRange: dateRange, documentTypes: documentTypes)
+        let keywordResults = await keywordSearch(
+            query: query,
+            dateRange: dateRange,
+            documentTypes: documentTypes,
+            recencyWeight: recencyWeight
+        )
 
         // Merge results (dedupe by type + id, keep highest score)
         var merged: [String: SearchResult] = [:]
@@ -147,39 +174,64 @@ class VectorSearchService: ObservableObject {
         }
 
         let mergedResults = merged.values.sorted { $0.similarity > $1.similarity }
+        logSearchDiagnostics(
+            query: query,
+            preferHistorical: preferHistorical,
+            dateRange: dateRange,
+            results: mergedResults
+        )
         return mergedResults
     }
     
-    /// Search and return formatted context for LLM
-    /// This is the main method used by SelineAppContext
+    /// Search and return formatted context + exact evidence used by the context.
     func getRelevantContext(
         forQuery query: String,
         limit: Int = 50,  // Increased from 15 to 50 for better historical data retrieval
-        dateRange: (start: Date, end: Date)? = nil
-    ) async throws -> String {
-        let results = try await search(query: query, limit: limit, dateRange: dateRange)
+        documentTypes: [DocumentType]? = nil,
+        dateRange: (start: Date, end: Date)? = nil,
+        preferHistorical: Bool = false
+    ) async throws -> RelevantContextResult {
+        let results = try await search(
+            query: query,
+            documentTypes: documentTypes,
+            limit: limit,
+            dateRange: dateRange,
+            preferHistorical: preferHistorical
+        )
 
         guard !results.isEmpty else {
-            return ""
+            return RelevantContextResult(context: "", evidence: [])
         }
 
         var context = "=== RELEVANT DATA (Semantic Search) ===\n"
         context += "Query matched \(results.count) items by semantic similarity:\n\n"
+        var evidence: [RelevantContentInfo] = []
+        var seenEvidenceKeys = Set<String>()
 
         // Fetch all memories once for batch annotation (performance optimization)
         let memories = await fetchAllMemories()
 
         // Group by document type with per-type caps
         let grouped = Dictionary(grouping: results) { $0.documentType }
-        let perTypeCaps: [DocumentType: Int] = [
-            .email: 8,
-            .task: 10,
-            .visit: 10,
-            .receipt: 8,
-            .note: 8,
-            .location: 6,
-            .person: 6
-        ]
+        let perTypeCaps: [DocumentType: Int] = preferHistorical
+            ? [
+                .email: 18,
+                .task: 16,
+                .visit: 16,
+                .receipt: 14,
+                .note: 14,
+                .location: 10,
+                .person: 10
+            ]
+            : [
+                .email: 8,
+                .task: 10,
+                .visit: 10,
+                .receipt: 8,
+                .note: 8,
+                .location: 6,
+                .person: 6
+            ]
 
         for (type, items) in grouped.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
             let cap = perTypeCaps[type] ?? 6
@@ -217,10 +269,185 @@ class VectorSearchService: ObservableObject {
                     }
                 }
                 context += "\n"
+
+                if let mappedEvidence = mapResultToEvidence(item) {
+                    let evidenceKey = evidenceDedupKey(for: mappedEvidence)
+                    if !seenEvidenceKeys.contains(evidenceKey) {
+                        seenEvidenceKeys.insert(evidenceKey)
+                        evidence.append(mappedEvidence)
+                    }
+                }
             }
         }
 
-        return context
+        return RelevantContextResult(context: context, evidence: evidence)
+    }
+
+    /// Refresh journal-specific note embeddings on demand so historical journal queries
+    /// do not depend on a full corpus sync having already completed.
+    func ensureJournalNoteEmbeddingsCurrent() async {
+        let notesManager = NotesManager.shared
+        let journalNotes = notesManager.notes.filter { $0.isJournalEntry || $0.isJournalWeeklyRecap }
+        guard !journalNotes.isEmpty else { return }
+
+        let documents = journalNotes.map { note -> [String: Any] in
+            let folderName = note.folderId.flatMap { id in
+                notesManager.folders.first(where: { $0.id == id })?.name
+            }
+            let content = note.embeddingContent(resolvedFolderName: folderName)
+            return [
+                "document_type": "note",
+                "document_id": note.id.uuidString,
+                "title": note.title,
+                "content": content,
+                "metadata": note.embeddingMetadata(resolvedFolderName: folderName)
+            ]
+        }
+
+        do {
+            let userId = try await SupabaseManager.shared.authClient.session.user.id
+            let ids = documents.compactMap { $0["document_id"] as? String }
+            let hashes = documents.compactMap { doc -> Int64? in
+                guard let content = doc["content"] as? String else { return nil }
+                return hashContent32BitDjb2(content)
+            }
+
+            let neededIds = try await checkDocumentsNeedingEmbedding(
+                userId: userId,
+                documentType: "note",
+                documentIds: ids,
+                contentHashes: hashes
+            )
+
+            guard !neededIds.isEmpty else { return }
+
+            let neededSet = Set(neededIds)
+            let docsToEmbed = documents.filter { doc in
+                guard let id = doc["document_id"] as? String else { return false }
+                return neededSet.contains(id)
+            }
+
+            guard !docsToEmbed.isEmpty else { return }
+
+            print("📝 Journal notes: Refreshing \(docsToEmbed.count) journal embeddings on demand")
+            _ = await batchEmbed(documents: docsToEmbed, type: "note")
+        } catch {
+            print("⚠️ Failed to refresh journal note embeddings on demand: \(error)")
+        }
+    }
+
+    private func evidenceDedupKey(for item: RelevantContentInfo) -> String {
+        switch item.contentType {
+        case .email:
+            return "email::\(item.emailId ?? item.id.uuidString)"
+        case .note:
+            return "note::\(item.noteId?.uuidString ?? item.id.uuidString)"
+        case .receipt:
+            return "receipt::\(item.receiptId?.uuidString ?? item.id.uuidString)"
+        case .event:
+            return "event::\(item.eventId?.uuidString ?? item.id.uuidString)"
+        case .location:
+            return "location::\(item.locationId?.uuidString ?? item.id.uuidString)"
+        case .visit:
+            return "visit::\(item.visitId?.uuidString ?? item.id.uuidString)"
+        case .person:
+            return "person::\(item.personId?.uuidString ?? item.id.uuidString)"
+        }
+    }
+
+    func evidenceItem(from result: SearchResult) -> RelevantContentInfo? {
+        mapResultToEvidence(result)
+    }
+
+    private func mapResultToEvidence(_ result: SearchResult) -> RelevantContentInfo? {
+        switch result.documentType {
+        case .email:
+            let subject = result.title?.isEmpty == false ? result.title! : "Email"
+            let sender = (result.metadata?["sender"] as? String) ?? "Unknown Sender"
+            let snippet = String(result.content.prefix(120))
+            let date = parseISODate(result.metadata?["date"]) ?? Date()
+            return .email(id: result.documentId, subject: subject, sender: sender, snippet: snippet, date: date)
+
+        case .task:
+            guard let eventId = UUID(uuidString: result.documentId) else { return nil }
+            let title = result.title?.isEmpty == false ? result.title! : "Event"
+            let date = parseISODate(result.metadata?["start"])
+                ?? parseISODate(result.metadata?["scheduled_time"])
+                ?? parseISODate(result.metadata?["target_date"])
+                ?? parseISODate(result.metadata?["created_at"])
+                ?? Date()
+            let category = (result.metadata?["category"] as? String) ?? "Personal"
+            return .event(id: eventId, title: title, date: date, category: category)
+
+        case .note:
+            guard let noteId = UUID(uuidString: result.documentId) else { return nil }
+            let title = result.title?.isEmpty == false ? result.title! : "Note"
+            let noteKind = (result.metadata?["note_kind"] as? String) ?? ""
+            let folder: String
+            if noteKind == NoteKind.journalEntry.rawValue {
+                folder = "Journal"
+            } else if noteKind == NoteKind.journalWeeklyRecap.rawValue {
+                folder = "Journal Weekly Summary"
+            } else {
+                folder = (result.metadata?["folder_name"] as? String) ?? "Notes"
+            }
+            return .note(id: noteId, title: title, snippet: String(result.content.prefix(120)), folder: folder)
+
+        case .receipt:
+            guard let noteId = UUID(uuidString: result.documentId) else { return nil }
+            let title = result.title?.replacingOccurrences(of: "Receipt: ", with: "") ?? "Receipt"
+            let amount = metadataDouble(result.metadata?["amount"])
+            let date = parseISODate(result.metadata?["date"])
+            let category = result.metadata?["category"] as? String
+            return .receipt(id: noteId, title: title, amount: amount, date: date, category: category)
+
+        case .location:
+            guard let placeId = UUID(uuidString: result.documentId) else { return nil }
+            let name = result.title?.isEmpty == false ? result.title! : "Place"
+            let address = (result.metadata?["address"] as? String) ?? ""
+            let category = (result.metadata?["place_category"] as? String) ?? ""
+            return .location(id: placeId, name: name, address: address, category: category)
+
+        case .visit:
+            guard let visitId = UUID(uuidString: result.documentId) else { return nil }
+            let placeId = (result.metadata?["place_id"] as? String).flatMap { UUID(uuidString: $0) }
+            let placeName = (result.metadata?["place_name"] as? String) ?? result.title?.replacingOccurrences(of: "Visit: ", with: "")
+            let address = result.metadata?["address"] as? String
+            let entry = parseISODate(result.metadata?["entry_time"])
+            let exit = parseISODate(result.metadata?["exit_time"])
+            let duration = metadataInt(result.metadata?["duration_minutes"])
+            return .visit(
+                id: visitId,
+                placeId: placeId,
+                placeName: placeName,
+                address: address,
+                entryTime: entry,
+                exitTime: exit,
+                durationMinutes: duration
+            )
+
+        case .person:
+            guard let personId = UUID(uuidString: result.documentId) else { return nil }
+            let name = result.title?.isEmpty == false ? result.title! : ((result.metadata?["person"] as? String) ?? "Person")
+            let relationship = result.metadata?["relationship"] as? String
+            return .person(id: personId, name: name, relationship: relationship)
+        }
+    }
+
+    private func metadataDouble(_ value: Any?) -> Double? {
+        if let doubleValue = value as? Double { return doubleValue }
+        if let intValue = value as? Int { return Double(intValue) }
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let stringValue = value as? String { return Double(stringValue) }
+        return nil
+    }
+
+    private func metadataInt(_ value: Any?) -> Int? {
+        if let intValue = value as? Int { return intValue }
+        if let doubleValue = value as? Double { return Int(doubleValue) }
+        if let number = value as? NSNumber { return number.intValue }
+        if let stringValue = value as? String, let intValue = Int(stringValue) { return intValue }
+        return nil
     }
 
     // MARK: - Date Filtering Helpers
@@ -228,6 +455,19 @@ class VectorSearchService: ObservableObject {
     private func matchesDateRange(metadata: [String: Any]?, dateRange: (start: Date, end: Date)) -> Bool {
         // Date-range query: unknown-date items are excluded to prevent cross-period leakage.
         guard let metadata = metadata else { return false }
+
+        // Journal entries: use the journal day.
+        if let journalDate = parseISODate(metadata["journal_date"]) {
+            return journalDate >= dateRange.start && journalDate < dateRange.end
+        }
+
+        // Weekly recaps: treat the recap as spanning the whole week.
+        if let weekStart = parseISODate(metadata["journal_week_start_date"]) {
+            let weekEnd = parseISODate(metadata["journal_week_end_date"])
+                ?? Calendar.current.date(byAdding: .day, value: 7, to: weekStart)
+                ?? weekStart
+            return weekStart < dateRange.end && weekEnd > dateRange.start
+        }
 
         // Prefer explicit date fields when available
         if let date = parseISODate(metadata["date"]) {
@@ -290,7 +530,8 @@ class VectorSearchService: ObservableObject {
     private func keywordSearch(
         query: String,
         dateRange: (start: Date, end: Date)?,
-        documentTypes: [DocumentType]?
+        documentTypes: [DocumentType]?,
+        recencyWeight: Float
     ) async -> [SearchResult] {
         let normalizedQuery = normalizeWhitespace(query.lowercased())
         guard !normalizedQuery.isEmpty else { return [] }
@@ -304,6 +545,7 @@ class VectorSearchService: ObservableObject {
         let typeFilter = documentTypes.map { Set($0) }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let memories = await fetchAllMemories()
 
         func score(for text: String) -> Float {
             let lower = text.lowercased()
@@ -318,19 +560,25 @@ class VectorSearchService: ObservableObject {
             return base
         }
 
+        func blendWithRecency(baseScore: Float, metadata: [String: Any]?) -> Float {
+            let recencyScore = calculateRecencyScore(metadata: metadata)
+            return ((1 - recencyWeight) * baseScore) + (recencyWeight * recencyScore)
+        }
+
         var results: [SearchResult] = []
 
         // Notes
         if typeFilter == nil || typeFilter?.contains(.note) == true {
             for note in NotesManager.shared.notes {
-                let content = "\(note.title)\n\n\(note.content)"
+                let folderName = note.folderId.flatMap { id in
+                    NotesManager.shared.folders.first(where: { $0.id == id })?.name
+                }
+                let content = note.embeddingContent(resolvedFolderName: folderName)
                 let s = score(for: content)
                 if s > 0 {
-                    let metadata: [String: Any] = [
-                        "date": iso.string(from: note.dateModified)
-                    ]
+                    let metadata = note.embeddingMetadata(resolvedFolderName: folderName)
                     if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
-                        let boosted = (0.7 * s) + (0.3 * calculateRecencyScore(metadata: metadata))
+                        let boosted = blendWithRecency(baseScore: s, metadata: metadata)
                         results.append(SearchResult(
                             documentType: .note,
                             documentId: note.id.uuidString,
@@ -369,6 +617,7 @@ class VectorSearchService: ObservableObject {
 
                 let s = score(for: content)
                 if s > 0 {
+                    let threadIDValue: Any = email.threadId ?? email.gmailThreadId ?? NSNull()
                     let metadata: [String: Any] = [
                         "date": iso.string(from: email.timestamp),
                         "sender": email.sender.displayName,
@@ -376,11 +625,11 @@ class VectorSearchService: ObservableObject {
                         "mailbox": mailbox,
                         "is_read": email.isRead,
                         "has_attachments": email.hasAttachments,
-                        "thread_id": email.threadId ?? email.gmailThreadId ?? NSNull(),
+                        "thread_id": threadIDValue,
                         "labels": email.labels.isEmpty ? NSNull() : email.labels
                     ]
                     if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
-                        let boosted = (0.8 * s) + (0.2 * calculateRecencyScore(metadata: metadata))
+                        let boosted = blendWithRecency(baseScore: s, metadata: metadata)
                         results.append(SearchResult(
                             documentType: .email,
                             documentId: email.id,
@@ -415,7 +664,7 @@ class VectorSearchService: ObservableObject {
                         "created_at": iso.string(from: task.createdAt)
                     ]
                     if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
-                        let boosted = (0.7 * s) + (0.3 * calculateRecencyScore(metadata: metadata))
+                        let boosted = blendWithRecency(baseScore: s, metadata: metadata)
                         results.append(SearchResult(
                             documentType: .task,
                             documentId: task.id,
@@ -433,13 +682,18 @@ class VectorSearchService: ObservableObject {
         if typeFilter == nil || typeFilter?.contains(.location) == true {
             let places = LocationsManager.shared.savedPlaces
             for place in places {
-                let content = "\(place.displayName)\n\(place.address)\n\(place.category)"
+                var content = "\(place.displayName)\n\(place.address)\n\(place.category)"
+                let aliases = memoryAliases(for: [place.displayName, place.name], memories: memories)
+                if !aliases.isEmpty {
+                    content += "\nAliases: \(aliases.joined(separator: ", "))"
+                }
                 let s = score(for: content)
                 if s > 0 {
                     let metadata: [String: Any] = [
-                        "location": place.displayName
+                        "location": place.displayName,
+                        "aliases": aliases.isEmpty ? NSNull() : aliases
                     ]
-                    let boosted = (0.7 * s) + (0.3 * calculateRecencyScore(metadata: metadata))
+                    let boosted = blendWithRecency(baseScore: s, metadata: metadata)
                     results.append(SearchResult(
                         documentType: .location,
                         documentId: place.id.uuidString,
@@ -469,15 +723,20 @@ class VectorSearchService: ObservableObject {
 
             let receiptNotes = notesManager.notes.filter { isUnderReceiptsFolderHierarchy(folderId: $0.folderId) }
             for note in receiptNotes {
-                let content = "\(note.title)\n\n\(note.content)"
+                var content = "\(note.title)\n\n\(note.content)"
+                let aliases = memoryAliases(for: [note.title], memories: memories)
+                if !aliases.isEmpty {
+                    content += "\nAliases: \(aliases.joined(separator: ", "))"
+                }
                 let s = score(for: content)
                 if s > 0 {
                     let metadata: [String: Any] = [
                         "date": iso.string(from: note.dateCreated),
-                        "merchant": note.title
+                        "merchant": note.title,
+                        "aliases": aliases.isEmpty ? NSNull() : aliases
                     ]
                     if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
-                        let boosted = (0.7 * s) + (0.3 * calculateRecencyScore(metadata: metadata))
+                        let boosted = blendWithRecency(baseScore: s, metadata: metadata)
                         results.append(SearchResult(
                             documentType: .receipt,
                             documentId: note.id.uuidString,
@@ -487,6 +746,85 @@ class VectorSearchService: ObservableObject {
                             similarity: boosted
                         ))
                     }
+                }
+            }
+        }
+
+        // Visits (direct DB fetch for lexical fallback when embedding recall misses)
+        if typeFilter == nil || typeFilter?.contains(.visit) == true {
+            if let userId = SupabaseManager.shared.getCurrentUser()?.id {
+                do {
+                    let client = await SupabaseManager.shared.getPostgrestClient()
+                    var queryBuilder = client
+                        .from("location_visits")
+                        .select()
+                        .eq("user_id", value: userId.uuidString)
+
+                    if let dateRange {
+                        queryBuilder = queryBuilder
+                            .gte("entry_time", value: iso.string(from: dateRange.start))
+                            .lt("entry_time", value: iso.string(from: dateRange.end))
+                    }
+
+                    let response = try await queryBuilder
+                        .order("entry_time", ascending: false)
+                        .limit(1200)
+                        .execute()
+                    let visits: [LocationVisitRecord] = try JSONDecoder.supabaseDecoder().decode([LocationVisitRecord].self, from: response.data)
+                    let placesById = Dictionary(uniqueKeysWithValues: LocationsManager.shared.savedPlaces.map { ($0.id, $0) })
+                    let visitPeopleMap = await PeopleManager.shared.getPeopleForVisits(visitIds: visits.map(\.id))
+
+                    for visit in visits {
+                        let place = placesById[visit.savedPlaceId]
+                        let placeName = place?.displayName ?? "Unknown Location"
+                        let people = visitPeopleMap[visit.id] ?? []
+                        let aliases = memoryAliases(for: [placeName], memories: memories)
+                        var content = """
+                        Visit: \(placeName)
+                        Address: \(place?.address ?? "")
+                        City: \(place?.city ?? "")
+                        Province: \(place?.province ?? "")
+                        Country: \(place?.country ?? "")
+                        With: \(people.map(\.name).joined(separator: ", "))
+                        Day: \(visit.dayOfWeek)
+                        Time: \(visit.timeOfDay)
+                        Notes: \(visit.visitNotes ?? "")
+                        """
+                        if !aliases.isEmpty {
+                            content += "\nAliases: \(aliases.joined(separator: ", "))"
+                        }
+                        let s = score(for: content)
+                        if s > 0 {
+                            let metadata: [String: Any] = [
+                                "entry_time": iso.string(from: visit.entryTime),
+                                "exit_time": visit.exitTime.map { iso.string(from: $0) } ?? NSNull(),
+                                "duration_minutes": visit.durationMinutes ?? NSNull(),
+                                "place_id": visit.savedPlaceId.uuidString,
+                                "place_name": placeName,
+                                "place_category": place?.category ?? NSNull(),
+                                "address": place?.address ?? NSNull(),
+                                "city": place?.city ?? NSNull(),
+                                "province": place?.province ?? NSNull(),
+                                "country": place?.country ?? NSNull(),
+                                "people": people.isEmpty ? NSNull() : people.map(\.name),
+                                "people_ids": people.isEmpty ? NSNull() : people.map { $0.id.uuidString },
+                                "aliases": aliases.isEmpty ? NSNull() : aliases
+                            ]
+                            if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
+                                let boosted = blendWithRecency(baseScore: s, metadata: metadata)
+                                results.append(SearchResult(
+                                    documentType: .visit,
+                                    documentId: visit.id.uuidString,
+                                    title: "Visit: \(placeName)",
+                                    content: content,
+                                    metadata: metadata,
+                                    similarity: boosted
+                                ))
+                            }
+                        }
+                    }
+                } catch {
+                    print("⚠️ Keyword visit search failed: \(error)")
                 }
             }
         }
@@ -506,7 +844,7 @@ class VectorSearchService: ObservableObject {
                     let metadata: [String: Any] = [
                         "person": person.name
                     ]
-                    let boosted = (0.7 * s) + (0.3 * calculateRecencyScore(metadata: metadata))
+                    let boosted = blendWithRecency(baseScore: s, metadata: metadata)
                     results.append(SearchResult(
                         documentType: .person,
                         documentId: person.id.uuidString,
@@ -522,11 +860,19 @@ class VectorSearchService: ObservableObject {
         return results
     }
 
-    private func recencyWeight(for query: String, dateRange: (start: Date, end: Date)?) -> Float {
+    private func recencyWeight(
+        for query: String,
+        dateRange: (start: Date, end: Date)?,
+        preferHistorical: Bool
+    ) -> Float {
+        if preferHistorical {
+            return 0.0
+        }
+
         let lower = query.lowercased()
         let historicalHints = [
             "which weekend", "what weekend", "that weekend", "weekend before",
-            "when did", "trip", "stay", "last year", "years ago", "ago"
+            "when did", "trip", "stay", "last year", "years ago", "ago", "oldest", "earliest", "historical"
         ]
         let recentHints = ["today", "this week", "recent", "latest", "now", "currently"]
 
@@ -554,7 +900,7 @@ class VectorSearchService: ObservableObject {
     }
 
     private func extractExplicitYear(from text: String) -> Int? {
-        guard let regex = try? NSRegularExpression(pattern: #"\b(20\d{2})\b"#) else { return nil }
+        guard let regex = try? NSRegularExpression(pattern: #"\b(19\d{2}|20\d{2})\b"#) else { return nil }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         guard let match = regex.firstMatch(in: text, range: range),
               let yearRange = Range(match.range(at: 1), in: text) else {
@@ -625,8 +971,49 @@ class VectorSearchService: ObservableObject {
         return fallbackFormatter.date(from: value)
     }
 
+    private func logSearchDiagnostics(
+        query: String,
+        preferHistorical: Bool,
+        dateRange: (start: Date, end: Date)?,
+        results: [SearchResult]
+    ) {
+        guard !results.isEmpty else {
+            print("📊 Search diagnostics | mode=\(preferHistorical ? "historical" : "default") | results=0")
+            return
+        }
+
+        let datedResults = results.compactMap { result -> Date? in
+            guard let metadata = result.metadata else { return nil }
+            return extractDateForRecency(from: metadata)
+        }
+        let oldest = datedResults.min()
+        let newest = datedResults.max()
+        let distribution = Dictionary(grouping: results, by: { $0.documentType })
+            .map { "\($0.key.rawValue):\($0.value.count)" }
+            .sorted()
+            .joined(separator: ", ")
+
+        let formatter = ISO8601DateFormatter()
+        let oldestLabel = oldest.map { formatter.string(from: $0) } ?? "unknown"
+        let newestLabel = newest.map { formatter.string(from: $0) } ?? "unknown"
+        let rangeLabel: String = {
+            guard let dateRange else { return "none" }
+            return "\(formatter.string(from: dateRange.start))→\(formatter.string(from: dateRange.end))"
+        }()
+
+        print(
+            "📊 Search diagnostics | mode=\(preferHistorical ? "historical" : "default") | query=\"\(query.prefix(80))\" | results=\(results.count) | range=\(rangeLabel) | oldest=\(oldestLabel) | newest=\(newestLabel) | distribution=\(distribution)"
+        )
+    }
+
     /// Batch fetch all memories for annotation (call once before annotating multiple titles)
     private func fetchAllMemories() async -> [MemorySupabaseData] {
+        if let lastMemoryFetchTime,
+           Date().timeIntervalSince(lastMemoryFetchTime) < 120,
+           !cachedMemories.isEmpty {
+            return cachedMemories
+        }
+
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             print("🧠 Memory fetch skipped: No user ID")
             return []
@@ -647,6 +1034,8 @@ class VectorSearchService: ObservableObject {
             let data: [MemorySupabaseData] = try decoder.decode([MemorySupabaseData].self, from: response.data)
 
             print("🧠 Fetched \(data.count) memories for batch annotation")
+            cachedMemories = data
+            lastMemoryFetchTime = Date()
             return data
         } catch {
             print("⚠️ Memory fetch failed: \(error)")
@@ -678,12 +1067,45 @@ class VectorSearchService: ObservableObject {
     }
     
     // MARK: - Embedding Sync
+
+    var isInteractiveRequestActive: Bool {
+        interactiveRequestCount > 0
+    }
+
+    func beginInteractiveRequest(reason: String) {
+        interactiveRequestCount += 1
+        if interactiveRequestCount == 1 {
+            print("⏸️ Chat-priority mode enabled (\(reason))")
+        }
+    }
+
+    func endInteractiveRequest(reason: String) {
+        interactiveRequestCount = max(0, interactiveRequestCount - 1)
+        if interactiveRequestCount == 0 {
+            print("▶️ Chat-priority mode cleared (\(reason))")
+            if pendingFullSyncRequested, !isIndexing {
+                pendingFullSyncRequested = false
+                Task { @MainActor in
+                    await self.syncAllEmbeddings()
+                }
+            }
+        }
+    }
+
+    private func deferFullSync(reason: String) {
+        pendingFullSyncRequested = true
+        print("⏸️ Deferring embedding sync (\(reason)) while chat is active")
+    }
     
     /// Sync embeddings for all user data
     /// Call this on app launch and periodically
     func syncEmbeddingsIfNeeded() async {
         // Only sync if not already syncing
         guard !isIndexing else { return }
+        guard !isInteractiveRequestActive else {
+            deferFullSync(reason: "syncEmbeddingsIfNeeded")
+            return
+        }
         
         // Check if we've synced recently (within 30 seconds to allow immediate embedding of new data)
         if let lastSync = lastSyncTime,
@@ -699,12 +1121,51 @@ class VectorSearchService: ObservableObject {
     func syncEmbeddingsImmediately() async {
         // Only sync if not already syncing
         guard !isIndexing else { return }
+        guard !isInteractiveRequestActive else {
+            deferFullSync(reason: "syncEmbeddingsImmediately")
+            return
+        }
         
         await syncAllEmbeddings()
     }
+
+    /// Incremental refresh for visit embeddings after visit/link mutations.
+    func refreshVisitEmbeddingsIncremental(reason: String) async {
+        let now = Date()
+        if let lastRefresh = lastVisitEmbeddingRefresh,
+           now.timeIntervalSince(lastRefresh) < visitEmbeddingRefreshCooldown {
+            print("⚡️ Skipping visit embedding refresh (\(reason)) - cooldown active")
+            return
+        }
+
+        lastVisitEmbeddingRefresh = now
+
+        guard !isInteractiveRequestActive else {
+            deferFullSync(reason: "refreshVisitEmbeddingsIncremental:\(reason)")
+            return
+        }
+
+        guard !isIndexing else {
+            print("⚡️ Skipping visit embedding refresh (\(reason)) - full sync in progress")
+            return
+        }
+
+        let refreshed = await syncLocationVisitEmbeddings()
+        if refreshed > 0 {
+            print("✅ Visit embeddings refreshed (\(reason)): \(refreshed) updated")
+        } else {
+            print("ℹ️ Visit embeddings already up-to-date (\(reason))")
+        }
+    }
     
     /// Force sync all embeddings
-    func syncAllEmbeddings() async {
+    @discardableResult
+    func syncAllEmbeddings() async -> Bool {
+        guard !isInteractiveRequestActive else {
+            deferFullSync(reason: "syncAllEmbeddings")
+            return false
+        }
+
         isIndexing = true
         embeddingProgress = 0.0
         embeddingStatus = "Starting sync..."
@@ -719,64 +1180,55 @@ class VectorSearchService: ObservableObject {
         print("⚠️  NOTE: Embedding sync requires 'embeddings-proxy' edge function to be deployed")
         let startTime = Date()
         
-        do {
-            // Sync each document type - COMPREHENSIVE coverage
-            
-            embeddingStatus = "Syncing notes..."
-            let notesCount = await syncNoteEmbeddings()
-            embeddingProgress = 0.12
+        // Sync each document type - COMPREHENSIVE coverage
+        
+        embeddingStatus = "Syncing notes..."
+        let notesCount = await syncNoteEmbeddings()
+        embeddingProgress = 0.12
 
-            embeddingStatus = "Syncing emails..."
-            let emailsCount = await syncEmailEmbeddings()
-            embeddingProgress = 0.24
-            
-            embeddingStatus = "Syncing tasks..."
-            let tasksCount = await syncTaskEmbeddings()
-            embeddingProgress = 0.40
-            
-            embeddingStatus = "Syncing locations..."
-            let locationsCount = await syncLocationEmbeddings()
-            embeddingProgress = 0.56
-            
-            embeddingStatus = "Syncing receipts..."
-            let receiptsCount = await syncReceiptEmbeddings()
-            embeddingProgress = 0.72
-            
-            embeddingStatus = "Syncing visits..."
-            let visitsCount = await syncLocationVisitEmbeddings()
-            embeddingProgress = 0.88
-            
-            embeddingStatus = "Syncing people..."
-            let peopleCount = await syncPeopleEmbeddings()
-            
-            embeddingProgress = 1.0
-            embeddingStatus = "Complete"
-            
-            let totalCount = notesCount + emailsCount + tasksCount + locationsCount + receiptsCount + visitsCount + peopleCount
-            embeddingsCount = totalCount
-            lastSyncTime = Date()
-            hasCompletedFirstSync = true
-            
-            let duration = Date().timeIntervalSince(startTime)
-            print("✅ Embedding sync complete: \(totalCount) documents in \(String(format: "%.1f", duration))s")
-            print("   Notes: \(notesCount), Emails: \(emailsCount), Tasks: \(tasksCount), Locations: \(locationsCount), Receipts: \(receiptsCount), Visits: \(visitsCount), People: \(peopleCount)")
-            
-            // Log any potential issues
-            if totalCount == 0 {
-                print("⚠️ WARNING: No documents were embedded. This might indicate:")
-                print("   - All documents are already embedded (check database)")
-                print("   - No documents exist in the app")
-                print("   - Authentication issues")
-            }
-            
-        } catch {
-            embeddingStatus = "Failed: \(error.localizedDescription)"
-            print("❌ Embedding sync failed: \(error)")
-            print("   Error details: \(error.localizedDescription)")
-            if let vectorError = error as? VectorSearchError {
-                print("   VectorSearchError: \(vectorError.errorDescription ?? "unknown")")
-            }
+        embeddingStatus = "Syncing emails..."
+        let emailsCount = await syncEmailEmbeddings()
+        embeddingProgress = 0.24
+        
+        embeddingStatus = "Syncing tasks..."
+        let tasksCount = await syncTaskEmbeddings()
+        embeddingProgress = 0.40
+        
+        embeddingStatus = "Syncing locations..."
+        let locationsCount = await syncLocationEmbeddings()
+        embeddingProgress = 0.56
+        
+        embeddingStatus = "Syncing receipts..."
+        let receiptsCount = await syncReceiptEmbeddings()
+        embeddingProgress = 0.72
+        
+        embeddingStatus = "Syncing visits..."
+        let visitsCount = await syncLocationVisitEmbeddings()
+        embeddingProgress = 0.88
+        
+        embeddingStatus = "Syncing people..."
+        let peopleCount = await syncPeopleEmbeddings()
+        
+        embeddingProgress = 1.0
+        embeddingStatus = "Complete"
+        
+        let totalCount = notesCount + emailsCount + tasksCount + locationsCount + receiptsCount + visitsCount + peopleCount
+        embeddingsCount = totalCount
+        lastSyncTime = Date()
+        hasCompletedFirstSync = true
+        
+        let duration = Date().timeIntervalSince(startTime)
+        print("✅ Embedding sync complete: \(totalCount) documents in \(String(format: "%.1f", duration))s")
+        print("   Notes: \(notesCount), Emails: \(emailsCount), Tasks: \(tasksCount), Locations: \(locationsCount), Receipts: \(receiptsCount), Visits: \(visitsCount), People: \(peopleCount)")
+        
+        // Log any potential issues
+        if totalCount == 0 {
+            print("⚠️ WARNING: No documents were embedded. This might indicate:")
+            print("   - All documents are already embedded (check database)")
+            print("   - No documents exist in the app")
+            print("   - Authentication issues")
         }
+        return true
     }
     
     /// Sync note embeddings - embed ALL notes (no date limit)
@@ -786,19 +1238,20 @@ class VectorSearchService: ObservableObject {
 
         print("📝 Notes: Syncing all \(allNotes.count) notes (no date limit)")
 
+        let notesManager = NotesManager.shared
+
         // Prepare documents for embedding
         let documents = allNotes.map { note -> [String: Any] in
-            let content = "\(note.title)\n\n\(note.content)"
+            let folderName = note.folderId.flatMap { id in
+                notesManager.folders.first(where: { $0.id == id })?.name
+            }
+            let content = note.embeddingContent(resolvedFolderName: folderName)
             return [
                 "document_type": "note",
                 "document_id": note.id.uuidString,
                 "title": note.title,
                 "content": content,
-                "metadata": [
-                    "date": ISO8601DateFormatter().string(from: note.dateModified),
-                    "folder_id": note.folderId?.uuidString ?? NSNull(),
-                    "is_pinned": note.isPinned
-                ] as [String: Any]
+                "metadata": note.embeddingMetadata(resolvedFolderName: folderName)
             ]
         }
         
@@ -840,15 +1293,9 @@ class VectorSearchService: ObservableObject {
     
     /// Sync email embeddings
     private func syncEmailEmbeddings() async -> Int {
-        let inboxEmails = EmailService.shared.inboxEmails.map { ($0, "inbox") }
-        let sentEmails = EmailService.shared.sentEmails.map { ($0, "sent") }
-        let allEmails = (inboxEmails + sentEmails).sorted { $0.0.timestamp > $1.0.timestamp }
-        guard !allEmails.isEmpty else { return 0 }
-
-        print("📧 Emails: Syncing \(allEmails.count) emails")
+        let allEmails = await collectLiveEmailsForEmbedding()
         let iso = ISO8601DateFormatter()
-
-        let documents = allEmails.map { (email, mailbox) -> [String: Any] in
+        let liveEmailDocuments = allEmails.map { (email, mailbox) -> [String: Any] in
             var content = """
             Subject: \(email.subject)
             From: \(email.sender.displayName) <\(email.sender.email)>
@@ -893,12 +1340,42 @@ class VectorSearchService: ObservableObject {
                     "is_read": email.isRead,
                     "is_important": email.isImportant,
                     "has_attachments": email.hasAttachments,
-                    "thread_id": email.threadId ?? email.gmailThreadId ?? NSNull(),
+                    "thread_id": (email.threadId ?? email.gmailThreadId ?? NSNull()) as Any,
                     "gmail_message_id": email.gmailMessageId ?? NSNull(),
                     "labels": email.labels.isEmpty ? NSNull() : email.labels,
                     "created_at": iso.string(from: email.timestamp)
                 ] as [String: Any]
             ]
+        }
+
+        let liveGmailMessageIds = Set(allEmails.compactMap { $0.email.gmailMessageId })
+        let savedEmailDocuments = await buildSavedEmailDocumentsForEmbedding(
+            existingGmailMessageIds: liveGmailMessageIds
+        )
+
+        let documents = liveEmailDocuments + savedEmailDocuments
+        guard !documents.isEmpty else {
+            print("📧 Emails: No email documents available for embedding")
+            return 0
+        }
+
+        print(
+            "📧 Emails: Syncing \(documents.count) documents (\(liveEmailDocuments.count) live + \(savedEmailDocuments.count) saved-folder)"
+        )
+
+        if let oldest = documents
+            .compactMap({ doc -> Date? in
+                guard
+                    let metadata = doc["metadata"] as? [String: Any],
+                    let dateString = metadata["date"] as? String
+                else { return nil }
+                return parseMetadataDate(dateString)
+            })
+            .min() {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            print("📧 Emails: Oldest document date in sync batch = \(formatter.string(from: oldest))")
         }
 
         do {
@@ -933,6 +1410,204 @@ class VectorSearchService: ObservableObject {
             print("❌ Error checking email embeddings: \(error)")
             return await batchEmbed(documents: documents, type: "email")
         }
+    }
+
+    private func collectLiveEmailsForEmbedding() async -> [(email: Email, mailbox: String)] {
+        let inboxEmails = EmailService.shared.inboxEmails.map { ($0, "inbox") }
+        let sentEmails = EmailService.shared.sentEmails.map { ($0, "sent") }
+        var merged = dedupeEmailTuples(inboxEmails + sentEmails)
+
+        let hasFreshCachedBackfill = {
+            guard
+                let lastBackfill = lastHistoricalEmailBackfill,
+                Date().timeIntervalSince(lastBackfill) < historicalBackfillRefreshInterval,
+                !cachedHistoricalEmailsForEmbedding.isEmpty
+            else {
+                return false
+            }
+            return true
+        }()
+
+        if hasFreshCachedBackfill {
+            print("📧 Emails: Reusing cached historical backfill (\(cachedHistoricalEmailsForEmbedding.count) docs)")
+            merged = dedupeEmailTuples(merged + cachedHistoricalEmailsForEmbedding)
+            return merged
+        }
+
+        guard shouldBackfillHistoricalEmails(for: merged) else {
+            return merged
+        }
+
+        let fetchedHistorical = await fetchHistoricalEmailsFromGmail()
+        guard !fetchedHistorical.isEmpty else {
+            return merged
+        }
+
+        cachedHistoricalEmailsForEmbedding = fetchedHistorical
+        lastHistoricalEmailBackfill = Date()
+        merged = dedupeEmailTuples(merged + fetchedHistorical)
+        return merged
+    }
+
+    private func shouldBackfillHistoricalEmails(for emails: [(email: Email, mailbox: String)]) -> Bool {
+        guard !emails.isEmpty else { return true }
+
+        let oldestDate = emails.map { $0.email.timestamp }.min() ?? Date()
+        let oneYearAgo = Calendar.current.date(byAdding: .year, value: -1, to: Date()) ?? Date()
+        let hasShallowHistory = oldestDate > oneYearAgo
+        let hasLowVolume = emails.count < 350
+
+        return hasShallowHistory || hasLowVolume
+    }
+
+    private func fetchHistoricalEmailsFromGmail() async -> [(email: Email, mailbox: String)] {
+        let coverageTargetDate = Calendar.current.date(
+            byAdding: .year,
+            value: -historicalBackfillCoverageYears,
+            to: Date()
+        ) ?? .distantPast
+
+        async let inbox = fetchHistoricalMailboxEmails(
+            folder: .inbox,
+            maxPages: historicalBackfillPagesPerMailbox,
+            pageSize: historicalBackfillPageSize,
+            coverageTargetDate: coverageTargetDate
+        )
+        async let sent = fetchHistoricalMailboxEmails(
+            folder: .sent,
+            maxPages: historicalBackfillPagesPerMailbox,
+            pageSize: historicalBackfillPageSize,
+            coverageTargetDate: coverageTargetDate
+        )
+
+        let inboxEmails = await inbox
+        let sentEmails = await sent
+        let combined = inboxEmails + sentEmails
+        let deduped = dedupeEmailTuples(combined)
+        print("📧 Emails: Historical backfill fetched \(deduped.count) emails from Gmail")
+        return deduped
+    }
+
+    private func fetchHistoricalMailboxEmails(
+        folder: EmailFolder,
+        maxPages: Int,
+        pageSize: Int,
+        coverageTargetDate: Date
+    ) async -> [(email: Email, mailbox: String)] {
+        let mailbox = folder == .inbox ? "inbox" : "sent"
+        var results: [(email: Email, mailbox: String)] = []
+        var pageToken: String? = nil
+        var pagesFetched = 0
+
+        while pagesFetched < maxPages {
+            do {
+                let response: (emails: [Email], nextPageToken: String?)
+                switch folder {
+                case .inbox:
+                    response = try await gmailAPIClient.fetchInboxEmails(maxResults: pageSize, pageToken: pageToken)
+                case .sent:
+                    response = try await gmailAPIClient.fetchSentEmails(maxResults: pageSize, pageToken: pageToken)
+                default:
+                    return results
+                }
+
+                guard !response.emails.isEmpty else { break }
+                results.append(contentsOf: response.emails.map { ($0, mailbox) })
+                pageToken = response.nextPageToken
+                pagesFetched += 1
+
+                let oldestInPage = response.emails.map(\.timestamp).min() ?? Date()
+                if oldestInPage <= coverageTargetDate || pageToken == nil {
+                    break
+                }
+            } catch {
+                print("⚠️ Emails: Historical \(mailbox) backfill stopped: \(error)")
+                break
+            }
+        }
+
+        return results
+    }
+
+    private func dedupeEmailTuples(_ emails: [(email: Email, mailbox: String)]) -> [(email: Email, mailbox: String)] {
+        var seenIds = Set<String>()
+        var deduped: [(email: Email, mailbox: String)] = []
+
+        for tuple in emails.sorted(by: { $0.email.timestamp > $1.email.timestamp }) {
+            let stableId = tuple.email.gmailMessageId ?? tuple.email.id
+            if seenIds.insert(stableId).inserted {
+                deduped.append(tuple)
+            }
+        }
+
+        return deduped
+    }
+
+    private func buildSavedEmailDocumentsForEmbedding(
+        existingGmailMessageIds: Set<String>
+    ) async -> [[String: Any]] {
+        let emailFolderService = EmailFolderService.shared
+        let iso = ISO8601DateFormatter()
+        var documents: [[String: Any]] = []
+        var seenSavedGmailIds = Set<String>()
+
+        do {
+            let folders = try await emailFolderService.fetchFolders()
+            guard !folders.isEmpty else { return [] }
+
+            for folder in folders {
+                let savedEmails = try await emailFolderService.fetchEmailsInFolder(folderId: folder.id)
+                for email in savedEmails {
+                    if existingGmailMessageIds.contains(email.gmailMessageId) { continue }
+                    if !seenSavedGmailIds.insert(email.gmailMessageId).inserted { continue }
+
+                    var content = """
+                    Subject: \(email.subject)
+                    From: \((email.senderName?.isEmpty == false ? email.senderName! : email.senderEmail)) <\(email.senderEmail)>
+                    Snippet: \(email.snippet ?? "")
+                    """
+
+                    if !email.recipients.isEmpty {
+                        content += "\nTo: \(email.recipients.joined(separator: ", "))"
+                    }
+                    if !email.ccRecipients.isEmpty {
+                        content += "\nCC: \(email.ccRecipients.joined(separator: ", "))"
+                    }
+                    if let body = email.body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        content += "\nBody: \(String(body.prefix(6000)))"
+                    }
+                    if let aiSummary = email.aiSummary, !aiSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        content += "\nAI Summary: \(aiSummary)"
+                    }
+                    if !email.attachments.isEmpty {
+                        content += "\nAttachments: \(email.attachments.map(\.fileName).joined(separator: ", "))"
+                    }
+
+                    let documentId = "saved_\(email.id.uuidString)"
+                    documents.append([
+                        "document_type": "email",
+                        "document_id": documentId,
+                        "title": email.subject,
+                        "content": content,
+                        "metadata": [
+                            "date": iso.string(from: email.timestamp),
+                            "sender": (email.senderName?.isEmpty == false ? email.senderName! : email.senderEmail),
+                            "sender_email": email.senderEmail,
+                            "mailbox": "saved_folder",
+                            "folder_name": folder.name,
+                            "gmail_message_id": email.gmailMessageId,
+                            "has_attachments": !email.attachments.isEmpty,
+                            "saved_email_id": email.id.uuidString,
+                            "created_at": iso.string(from: email.timestamp)
+                        ] as [String: Any]
+                    ])
+                }
+            }
+        } catch {
+            print("⚠️ Emails: Failed loading saved-folder emails for embeddings: \(error)")
+        }
+
+        return documents
     }
 
     /// Sync task embeddings - embed ALL tasks (no date limit)
@@ -1137,6 +1812,7 @@ class VectorSearchService: ObservableObject {
         guard !locations.isEmpty else { return 0 }
 
         print("📍 Locations: Syncing all \(locations.count) saved places")
+        let memories = await fetchAllMemories()
         
         let documents = locations.map { place -> [String: Any] in
             // Build comprehensive content for embedding
@@ -1194,6 +1870,14 @@ class VectorSearchService: ObservableObject {
             if let isOpen = place.isOpenNow {
                 content += "\nCurrently: \(isOpen ? "Open" : "Closed")"
             }
+
+            let aliases = memoryAliases(
+                for: [place.displayName, place.name],
+                memories: memories
+            )
+            if !aliases.isEmpty {
+                content += "\nAliases: \(aliases.joined(separator: ", "))"
+            }
             
             return [
                 "document_type": "location",
@@ -1211,7 +1895,8 @@ class VectorSearchService: ObservableObject {
                     "cuisine": place.userCuisine ?? NSNull(),
                     "latitude": place.latitude,
                     "longitude": place.longitude,
-                    "has_notes": place.userNotes != nil && !place.userNotes!.isEmpty
+                    "has_notes": place.userNotes != nil && !place.userNotes!.isEmpty,
+                    "aliases": aliases.isEmpty ? NSNull() : aliases
                 ] as [String: Any]
             ]
         }
@@ -1278,6 +1963,7 @@ class VectorSearchService: ObservableObject {
             guard !allReceiptNotes.isEmpty else { return 0 }
 
             print("💵 Receipts: Syncing all \(allReceiptNotes.count) receipts (no date limit)")
+            let memories = await fetchAllMemories()
 
             let iso = ISO8601DateFormatter()
             let monthYearFormatter = DateFormatter()
@@ -1299,6 +1985,11 @@ class VectorSearchService: ObservableObject {
                 if !note.content.isEmpty {
                     content += "\n\nDetails:\n\(note.content.prefix(900))"
                 }
+
+                let aliases = memoryAliases(for: [note.title], memories: memories)
+                if !aliases.isEmpty {
+                    content += "\nAliases: \(aliases.joined(separator: ", "))"
+                }
                 
                 return [
                     "document_type": "receipt",
@@ -1310,7 +2001,8 @@ class VectorSearchService: ObservableObject {
                         "amount": amount,
                         "category": category,
                         "date": iso.string(from: date),
-                        "month_year": monthYearFormatter.string(from: date)
+                        "month_year": monthYearFormatter.string(from: date),
+                        "aliases": aliases.isEmpty ? NSNull() : aliases
                     ] as [String: Any]
                 ]
             }
@@ -1378,6 +2070,65 @@ class VectorSearchService: ObservableObject {
         let collapsed = trimmed.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private func normalizeAliasText(_ text: String) -> String {
+        normalizeWhitespace(
+            text
+                .lowercased()
+                .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
+        )
+    }
+
+    private func isMeaningfulAliasPhrase(_ text: String) -> Bool {
+        let ignoredTokens: Set<String> = [
+            "what", "when", "where", "who", "why", "how",
+            "this", "that", "these", "those", "them", "they",
+            "about", "all", "every", "list", "amount", "amounts",
+            "pay", "paid", "spent", "spend", "total",
+            "receipt", "receipts", "visit", "visits", "trip", "trips"
+        ]
+        let tokens = normalizeAliasText(text)
+            .split(separator: " ")
+            .map(String.init)
+        guard !tokens.isEmpty else { return false }
+        return tokens.contains(where: { $0.count >= 3 && !ignoredTokens.contains($0) })
+    }
+
+    private func memoryAliases(for seedTexts: [String], memories: [MemorySupabaseData]) -> [String] {
+        let normalizedSeeds = seedTexts
+            .map(normalizeAliasText)
+            .filter { !$0.isEmpty }
+        guard !normalizedSeeds.isEmpty else { return [] }
+
+        var aliases = Set<String>()
+
+        for memory in memories where memory.confidence >= 0.7 {
+            let normalizedKey = normalizeAliasText(memory.key)
+            let normalizedValue = normalizeAliasText(memory.value)
+
+            guard isMeaningfulAliasPhrase(normalizedKey), isMeaningfulAliasPhrase(normalizedValue) else {
+                continue
+            }
+
+            for seed in normalizedSeeds {
+                if seed.contains(normalizedKey) || normalizedKey.contains(seed) {
+                    if normalizedValue != seed {
+                        aliases.insert(memory.value.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                }
+
+                if seed.contains(normalizedValue) || normalizedValue.contains(seed) {
+                    if normalizedKey != seed {
+                        aliases.insert(memory.key.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                }
+            }
+        }
+
+        return aliases
+            .filter { !$0.isEmpty }
+            .sorted()
+    }
     
     /// Match the edge function's djb2 32-bit hash (signed int32), returned as Int64.
     private func hashContent32BitDjb2(_ content: String) -> Int64 {
@@ -1416,7 +2167,11 @@ class VectorSearchService: ObservableObject {
             print("📍 Visits: Syncing all \(visits.count) visits (no date limit)")
 
             let locations = LocationsManager.shared.savedPlaces
+            let notesManager = NotesManager.shared
+            let notesById = Dictionary(uniqueKeysWithValues: notesManager.notes.map { ($0.id, $0) })
+            let visitReceiptLinks = VisitReceiptLinkStore.allLinks()
             let iso = ISO8601DateFormatter()
+            let memories = await fetchAllMemories()
             
             let dateFormatter = DateFormatter()
             dateFormatter.dateStyle = .full
@@ -1432,12 +2187,13 @@ class VectorSearchService: ObservableObject {
             // Build documents (one per visit) - break up complex expression
             var documents: [[String: Any]] = []
             
-            // Pre-fetch people for all visits to avoid repeated queries
-            var visitPeopleMap: [String: [Person]] = [:]
-            for visit in visits {
-                let people = await PeopleManager.shared.getPeopleForVisit(visitId: visit.id)
-                if !people.isEmpty {
-                    visitPeopleMap[visit.id.uuidString] = people
+            // Pre-fetch people for all visits in one query to avoid N round-trips.
+            let batchedVisitPeople = await PeopleManager.shared.getPeopleForVisits(
+                visitIds: visits.map(\.id)
+            )
+            let visitPeopleMap = batchedVisitPeople.reduce(into: [String: [Person]]()) { partialResult, entry in
+                if !entry.value.isEmpty {
+                    partialResult[entry.key.uuidString] = entry.value
                 }
             }
             
@@ -1458,6 +2214,15 @@ class VectorSearchService: ObservableObject {
                 
                 if let address, !address.isEmpty {
                     content += "\nAddress: \(address)"
+                }
+                if let city = place?.city, !city.isEmpty {
+                    content += "\nCity: \(city)"
+                }
+                if let province = place?.province, !province.isEmpty {
+                    content += "\nProvince: \(province)"
+                }
+                if let country = place?.country, !country.isEmpty {
+                    content += "\nCountry: \(country)"
                 }
                 
                 if let end {
@@ -1491,6 +2256,34 @@ class VectorSearchService: ObservableObject {
                 if let notes = visit.visitNotes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     content += "\nReason/Notes: \(notes)"
                 }
+
+                let linkedReceiptId = visitReceiptLinks[visit.id]
+                let linkedReceiptNote = linkedReceiptId.flatMap { notesById[$0] }
+                let linkedReceiptAmount: Double? = {
+                    guard let linkedReceiptNote else { return nil }
+                    let amountSource = linkedReceiptNote.content.isEmpty ? linkedReceiptNote.title : linkedReceiptNote.content
+                    return CurrencyParser.extractAmount(from: amountSource)
+                }()
+                let linkedReceiptDate: Date? = {
+                    guard let linkedReceiptNote else { return nil }
+                    return notesManager.extractFullDateFromTitle(linkedReceiptNote.title) ?? linkedReceiptNote.dateCreated
+                }()
+                let linkedReceiptCategory: String? = {
+                    guard let linkedReceiptNote else { return nil }
+                    return ReceiptCategorizationService.shared.quickCategorizeReceipt(
+                        title: linkedReceiptNote.title,
+                        content: linkedReceiptNote.content
+                    )
+                }()
+                if let linkedReceiptNote {
+                    content += "\nLinked receipt: \(linkedReceiptNote.title)"
+                    if let amount = linkedReceiptAmount {
+                        content += " ($\(String(format: "%.2f", amount)))"
+                    }
+                    if let category = linkedReceiptCategory {
+                        content += " [\(category)]"
+                    }
+                }
                 
                 if let mergeReason = visit.mergeReason, !mergeReason.isEmpty {
                     content += "\nMerge info: \(mergeReason)"
@@ -1501,9 +2294,18 @@ class VectorSearchService: ObservableObject {
                 }
                 
                 content += "\nMonth: \(monthYearFormatter.string(from: start))"
+
+                let aliases = memoryAliases(
+                    for: [placeName, linkedReceiptNote?.title ?? ""],
+                    memories: memories
+                )
+                if !aliases.isEmpty {
+                    content += "\nAliases: \(aliases.joined(separator: ", "))"
+                }
                 
                 // Get people names for metadata
                 let peopleNames = visitPeopleMap[visit.id.uuidString]?.map { $0.name } ?? []
+                let peopleIds = visitPeopleMap[visit.id.uuidString]?.map { $0.id.uuidString } ?? []
                 
                 let document: [String: Any] = [
                     "document_type": "visit",
@@ -1515,6 +2317,9 @@ class VectorSearchService: ObservableObject {
                         "place_name": placeName,
                         "place_category": placeCategory,
                         "address": address ?? NSNull(),
+                        "city": place?.city ?? NSNull(),
+                        "province": place?.province ?? NSNull(),
+                        "country": place?.country ?? NSNull(),
                         "entry_time": iso.string(from: start),
                         "exit_time": end.map { iso.string(from: $0) } ?? NSNull(),
                         "duration_minutes": duration ?? NSNull(),
@@ -1526,7 +2331,14 @@ class VectorSearchService: ObservableObject {
                         "confidence_score": visit.confidenceScore ?? NSNull(),
                         "merge_reason": visit.mergeReason ?? NSNull(),
                         "visit_notes": visit.visitNotes ?? NSNull(),
-                        "people": peopleNames.isEmpty ? NSNull() : peopleNames
+                        "people": peopleNames.isEmpty ? NSNull() : peopleNames,
+                        "people_ids": peopleIds.isEmpty ? NSNull() : peopleIds,
+                        "aliases": aliases.isEmpty ? NSNull() : aliases,
+                        "linked_receipt_id": linkedReceiptId?.uuidString ?? NSNull(),
+                        "linked_receipt_title": linkedReceiptNote?.title ?? NSNull(),
+                        "linked_receipt_amount": linkedReceiptAmount ?? NSNull(),
+                        "linked_receipt_date": linkedReceiptDate.map { iso.string(from: $0) } ?? NSNull(),
+                        "linked_receipt_category": linkedReceiptCategory ?? NSNull()
                     ] as [String: Any]
                 ]
                 documents.append(document)
@@ -1846,21 +2658,92 @@ class VectorSearchService: ObservableObject {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(SupabaseManager.shared.anonKey, forHTTPHeaderField: "apikey")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw VectorSearchError.invalidResponse
-        }
-        
-        if httpResponse.statusCode != 200 {
-            if let errorResponse = try? JSONDecoder().decode(VectorSearchErrorResponse.self, from: data) {
-                throw VectorSearchError.apiError(errorResponse.error)
+
+        let maxAttempts = 3
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw VectorSearchError.invalidResponse
+                }
+
+                if httpResponse.statusCode != 200 {
+                    if shouldRetryHTTPStatus(httpResponse.statusCode), attempt < maxAttempts {
+                        let delayNs = retryDelayNanoseconds(forAttempt: attempt)
+                        print("⚠️ embeddings-proxy HTTP \(httpResponse.statusCode), retrying attempt \(attempt + 1)/\(maxAttempts)")
+                        try? await Task.sleep(nanoseconds: delayNs)
+                        continue
+                    }
+
+                    if let errorResponse = try? JSONDecoder().decode(VectorSearchErrorResponse.self, from: data) {
+                        throw VectorSearchError.apiError(errorResponse.error)
+                    }
+                    throw VectorSearchError.httpError(httpResponse.statusCode)
+                }
+
+                return try JSONDecoder().decode(T.self, from: data)
+            } catch {
+                lastError = error
+                if isTransientNetworkError(error), attempt < maxAttempts {
+                    let delayNs = retryDelayNanoseconds(forAttempt: attempt)
+                    print("⚠️ embeddings-proxy transient network error, retrying attempt \(attempt + 1)/\(maxAttempts): \(error.localizedDescription)")
+                    try? await Task.sleep(nanoseconds: delayNs)
+                    continue
+                }
+                throw error
             }
-            throw VectorSearchError.httpError(httpResponse.statusCode)
         }
-        
-        return try JSONDecoder().decode(T.self, from: data)
+
+        throw lastError ?? VectorSearchError.invalidResponse
+    }
+
+    private func retryDelayNanoseconds(forAttempt attempt: Int) -> UInt64 {
+        let baseSeconds = 0.35
+        let multiplier = pow(2.0, Double(max(0, attempt - 1)))
+        let seconds = min(baseSeconds * multiplier, 1.4)
+        return UInt64(seconds * 1_000_000_000)
+    }
+
+    private func shouldRetryHTTPStatus(_ statusCode: Int) -> Bool {
+        statusCode == 429 || (500...599).contains(statusCode)
+    }
+
+    private func isTransientNetworkError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .networkConnectionLost,
+                 .timedOut,
+                 .cannotFindHost,
+                 .cannotConnectToHost,
+                 .dnsLookupFailed,
+                 .notConnectedToInternet,
+                 .resourceUnavailable:
+                return true
+            default:
+                return false
+            }
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorNetworkConnectionLost,
+                 NSURLErrorTimedOut,
+                 NSURLErrorCannotFindHost,
+                 NSURLErrorCannotConnectToHost,
+                 NSURLErrorDNSLookupFailed,
+                 NSURLErrorNotConnectedToInternet,
+                 NSURLErrorResourceUnavailable:
+                return true
+            default:
+                return false
+            }
+        }
+
+        return false
     }
     
     // MARK: - Types
@@ -1894,6 +2777,11 @@ class VectorSearchService: ObservableObject {
         let content: String
         let metadata: [String: Any]?
         let similarity: Float
+    }
+
+    struct RelevantContextResult {
+        let context: String
+        let evidence: [RelevantContentInfo]
     }
     
     enum VectorSearchError: LocalizedError {

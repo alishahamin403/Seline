@@ -1,6 +1,16 @@
 import SwiftUI
 
+extension Notification.Name {
+    static let peopleHubAddRequested = Notification.Name("PeopleHubAddRequested")
+    static let peopleHubImportRequested = Notification.Name("PeopleHubImportRequested")
+}
+
 struct PeopleListView: View {
+    private struct PeopleActivityItem: Identifiable, Hashable {
+        let id: String
+        let title: String
+    }
+
     @ObservedObject var peopleManager: PeopleManager
     @ObservedObject var locationsManager: LocationsManager
     let colorScheme: ColorScheme
@@ -22,7 +32,8 @@ struct PeopleListView: View {
     @State private var categoryOrder: [String] = []
     @State private var filteredPeopleCache: [Person] = []
     @State private var groupedPeopleCache: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] = []
-
+    @State private var favouritePeopleCache: [Person] = []
+    @State private var upcomingBirthdayPeopleCache: [(person: Person, daysUntil: Int)] = []
     @State private var searchDebouncer = DebouncedTaskRunner()
     @State private var internalSearchText = ""
     @FocusState private var isSearchFocused: Bool
@@ -46,38 +57,11 @@ struct PeopleListView: View {
     }
 
     private var favouritePeople: [Person] {
-        peopleManager.getFavourites()
+        favouritePeopleCache
     }
 
     private var upcomingBirthdayPeople: [(person: Person, daysUntil: Int)] {
-        peopleManager.people
-            .compactMap { person -> (person: Person, daysUntil: Int)? in
-                guard let daysUntil = peopleDaysUntilBirthday(person), daysUntil <= 30 else { return nil }
-                return (person, daysUntil)
-            }
-            .sorted {
-                if $0.daysUntil == $1.daysUntil {
-                    return $0.person.displayName < $1.person.displayName
-                }
-                return $0.daysUntil < $1.daysUntil
-            }
-    }
-
-    private var peopleSummaryText: String {
-        guard !peopleManager.people.isEmpty else {
-            return "Keep people connected to places, timeline visits, gifts, and notes."
-        }
-
-        var parts = ["\(peopleManager.people.count) saved"]
-        let favouriteCount = favouritePeople.count
-        if favouriteCount > 0 {
-            parts.append("\(favouriteCount) favorites")
-        }
-        let birthdayCount = upcomingBirthdayPeople.count
-        if birthdayCount > 0 {
-            parts.append("\(birthdayCount) birthdays soon")
-        }
-        return parts.joined(separator: " · ")
+        upcomingBirthdayPeopleCache
     }
 
     private var sortedGroupedPeople: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] {
@@ -88,6 +72,57 @@ struct PeopleListView: View {
             let index2 = categoryOrder.firstIndex(of: group2.groupKey) ?? Int.max
             return index1 < index2
         }
+    }
+
+    private var heroSupportingText: String {
+        "Your close circle, family, and important connections in one place."
+    }
+
+    private var heroHeadlineText: String {
+        let count = peopleManager.people.count
+        guard count > 0 else { return "Build your people hub" }
+        return "\(count) \(count == 1 ? "person" : "people") in your circle"
+    }
+
+    private var recentActivityItems: [PeopleActivityItem] {
+        var items: [PeopleActivityItem] = []
+        var seenTitles = Set<String>()
+
+        func appendActivity(id: String, title: String?) {
+            guard let title, !title.isEmpty, !seenTitles.contains(title) else { return }
+            seenTitles.insert(title)
+            items.append(PeopleActivityItem(id: id, title: title))
+        }
+
+        if let updatedPerson = peopleManager.people.max(by: { $0.dateModified < $1.dateModified }) {
+            appendActivity(
+                id: "updated-\(updatedPerson.id.uuidString)",
+                title: "\(updatedPerson.displayName) was updated \(peopleRelativeDate(updatedPerson.dateModified))."
+            )
+        }
+
+        if let birthday = upcomingBirthdayPeople.first {
+            appendActivity(
+                id: "birthday-\(birthday.person.id.uuidString)",
+                title: "\(birthday.person.displayName) has a birthday \(birthdayTimingText(birthday.daysUntil))."
+            )
+        }
+
+        if let linkedPerson = peopleManager.people.max(by: { connectionWeight(for: $0) < connectionWeight(for: $1) }) {
+            appendActivity(
+                id: "links-\(linkedPerson.id.uuidString)",
+                title: linkedContextText(for: linkedPerson)
+            )
+        }
+
+        if favouritePeople.count > 0 {
+            appendActivity(
+                id: "favourites-count",
+                title: "\(favouritePeople.count) favourite\(favouritePeople.count == 1 ? "" : "s") are pinned for quick access."
+            )
+        }
+
+        return Array(items.prefix(3))
     }
 
     var body: some View {
@@ -193,6 +228,7 @@ struct PeopleListView: View {
             .onChange(of: peopleManager.people) { _ in
                 updateFilteredResults()
                 syncCategoryOrder()
+                refreshSummaryCache()
             }
             .onChange(of: isSearchActive) { newValue in
                 if newValue {
@@ -203,9 +239,20 @@ struct PeopleListView: View {
                 loadCategoryOrder()
                 updateFilteredResults()
                 syncCategoryOrder()
+                refreshSummaryCache()
             }
             .onDisappear {
                 searchDebouncer.cancel()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .peopleHubAddRequested)) { _ in
+                if !isEditMode {
+                    showingAddPerson = true
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .peopleHubImportRequested)) { _ in
+                if !isEditMode {
+                    showingContactsImport = true
+                }
             }
     }
 
@@ -231,8 +278,8 @@ struct PeopleListView: View {
                 stickyDeleteFooter
             }
         }
-        .opacity(isSearchActive && !internalSearchText.isEmpty ? 0.3 : 1.0)
-        .allowsHitTesting(!isSearchActive)
+        .blur(radius: isSearchActive && !internalSearchText.isEmpty ? 8 : 0)
+        .allowsHitTesting(!(isSearchActive && !internalSearchText.isEmpty))
     }
 
     private var searchOverlayView: some View {
@@ -240,7 +287,7 @@ struct PeopleListView: View {
             UnifiedSearchBar(
                 searchText: $internalSearchText,
                 isFocused: $isSearchFocused,
-                placeholder: "Search people, gifts, notes",
+                placeholder: "Search people",
                 onCancel: {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isSearchActive = false
@@ -249,11 +296,11 @@ struct PeopleListView: View {
                         updateFilteredResults()
                     }
                 },
-                colorScheme: colorScheme
+                colorScheme: colorScheme,
+                variant: peoplePageVariant
             )
             .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
             .padding(.top, 8)
-            .background(Color.clear)
 
             if !internalSearchText.isEmpty {
                 SearchResultsListView(
@@ -283,12 +330,6 @@ struct PeopleListView: View {
                 )
             }
         }
-        .background(
-            AppAmbientBackgroundLayer(
-                colorScheme: colorScheme,
-                variant: peoplePageVariant
-            )
-        )
         .transition(.move(edge: .top).combined(with: .opacity))
         .zIndex(100)
     }
@@ -296,17 +337,23 @@ struct PeopleListView: View {
     private var peopleHeroCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
                     if showsHeader {
-                        Text("People")
+                        Text("PEOPLE")
+                            .font(FontManager.geist(size: 10, weight: .semibold))
+                            .tracking(1.8)
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+
+                        Text(heroHeadlineText)
                             .font(FontManager.geist(size: 28, weight: .semibold))
                             .foregroundColor(Color.appTextPrimary(colorScheme))
-                    }
+                            .lineLimit(2)
 
-                    Text(isEditMode ? "Select people to delete or reorder groups." : peopleSummaryText)
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                        .lineLimit(2)
+                        Text(heroSupportingText)
+                            .font(FontManager.geist(size: 13, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 Spacer(minLength: 12)
@@ -319,48 +366,14 @@ struct PeopleListView: View {
                                 selectedPeopleForDeletion.removeAll()
                             }
                         }
-                    } else {
-                        if !peopleManager.people.isEmpty {
-                            iconActionPill(systemImage: "slider.horizontal.3", accessibilityLabel: "Edit people") {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    isEditMode = true
-                                }
+                    } else if !peopleManager.people.isEmpty {
+                        iconActionPill(systemImage: "slider.horizontal.3", accessibilityLabel: "Edit people") {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isEditMode = true
                             }
-                        }
-
-                        iconActionPill(systemImage: "person.crop.rectangle.stack", accessibilityLabel: "Import contacts") {
-                            showingContactsImport = true
-                        }
-
-                        primaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add person") {
-                            showingAddPerson = true
                         }
                     }
                 }
-            }
-
-            Button(action: activateSearch) {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-
-                    Text("Search people, gifts, notes")
-                        .font(FontManager.geist(size: 14, weight: .regular))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-
-                    Spacer()
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
-            }
-            .buttonStyle(PlainButtonStyle())
-
-            HStack(spacing: 10) {
-                metricTile(label: "Total", value: "\(peopleManager.people.count)")
-                metricTile(label: "Favorites", value: "\(favouritePeople.count)")
-                metricTile(label: "Birthdays soon", value: "\(upcomingBirthdayPeople.count)")
             }
 
             if peopleManager.people.isEmpty {
@@ -369,7 +382,7 @@ struct PeopleListView: View {
                 favoritesOverview
             }
         }
-        .padding(16)
+        .padding(18)
         .appAmbientCardStyle(
             colorScheme: colorScheme,
             variant: peoplePageVariant,
@@ -407,8 +420,9 @@ struct PeopleListView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Favourites")
-                    .font(FontManager.geist(size: 13, weight: .semibold))
-                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .tracking(1.6)
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -433,7 +447,7 @@ struct PeopleListView: View {
                                 }
                             }
                             .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 11)
                             .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -458,9 +472,13 @@ struct PeopleListView: View {
             if filteredPeopleCache.isEmpty {
                 emptyDirectoryState
             } else {
-                VStack(spacing: 12) {
+                VStack(spacing: 18) {
+                    if !recentActivityItems.isEmpty && !isEditMode {
+                        recentActivitySection
+                    }
+
                     ForEach(sortedGroupedPeople, id: \.groupKey) { group in
-                        groupCard(group)
+                        relationshipGroupSection(group)
                     }
                 }
             }
@@ -472,6 +490,42 @@ struct PeopleListView: View {
             cornerRadius: 24,
             highlightStrength: 0.5
         )
+    }
+
+    private var recentActivitySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Recent activity")
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .tracking(1.6)
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+
+            VStack(spacing: 0) {
+                ForEach(Array(recentActivityItems.enumerated()), id: \.element.id) { index, item in
+                    HStack(alignment: .top, spacing: 10) {
+                        Circle()
+                            .fill(Color(red: 0.98, green: 0.64, blue: 0.41).opacity(colorScheme == .dark ? 0.95 : 0.9))
+                            .frame(width: 7, height: 7)
+                            .padding(.top, 6)
+
+                        Text(item.title)
+                            .font(FontManager.geist(size: 13, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 11)
+
+                    if index < recentActivityItems.count - 1 {
+                        Divider()
+                            .overlay(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.7 : 0.9))
+                            .padding(.leading, 18)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+        }
     }
 
     private var relationshipFilterChips: some View {
@@ -544,26 +598,17 @@ struct PeopleListView: View {
         .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 24)
     }
 
-    private func groupCard(_ group: (groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(group.displayName)
-                            .font(FontManager.geist(size: 17, weight: .semibold))
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
+    private func relationshipGroupSection(_ group: (groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(group.displayName.uppercased())
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .tracking(1.6)
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
 
-                        Text("\(group.people.count)")
-                            .font(FontManager.geist(size: 11, weight: .semibold))
-                            .foregroundColor(Color.appTextSecondary(colorScheme))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(Color.appChip(colorScheme))
-                            )
-                    }
-                }
+                Text("\(group.people.count)")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
 
                 Spacer(minLength: 8)
 
@@ -580,11 +625,12 @@ struct PeopleListView: View {
                 }
             }
 
-            VStack(spacing: 10) {
-                ForEach(group.people) { person in
+            VStack(spacing: 0) {
+                ForEach(Array(group.people.enumerated()), id: \.element.id) { index, person in
                     PersonRowView(
                         person: person,
                         colorScheme: colorScheme,
+                        style: .plain,
                         isEditMode: isEditMode,
                         isSelected: selectedPeopleForDeletion.contains(person.id),
                         onTap: {
@@ -602,11 +648,15 @@ struct PeopleListView: View {
                             showingDeleteConfirmation = true
                         }
                     )
+
+                    if index < group.people.count - 1 {
+                        Divider()
+                            .overlay(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.7 : 0.9))
+                            .padding(.leading, isEditMode ? 92 : 70)
+                    }
                 }
             }
         }
-        .padding(16)
-        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 24)
     }
 
     private func groupReorderButton(systemImage: String, isEnabled: Bool, action: @escaping () -> Void) -> some View {
@@ -662,25 +712,6 @@ struct PeopleListView: View {
                 .ignoresSafeArea(edges: .bottom)
         )
         .shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.08), radius: 10, x: 0, y: -5)
-    }
-
-    private func metricTile(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label)
-                .font(FontManager.geist(size: 11, weight: .medium))
-                .foregroundColor(Color.appTextSecondary(colorScheme))
-                .lineLimit(1)
-
-            Text(value)
-                .font(FontManager.geist(size: 23, weight: .semibold))
-                .foregroundColor(Color.appTextPrimary(colorScheme))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
     }
 
     private func personMiniAvatar(_ person: Person) -> some View {
@@ -875,6 +906,25 @@ struct PeopleListView: View {
         groupedPeopleCache = groups
     }
 
+    private func refreshSummaryCache() {
+        let allPeople = peopleManager.people
+        let favouritePeople = peopleManager.getFavourites()
+        let upcomingBirthdays = allPeople
+            .compactMap { person -> (person: Person, daysUntil: Int)? in
+                guard let daysUntil = peopleDaysUntilBirthday(person), daysUntil <= 30 else { return nil }
+                return (person, daysUntil)
+            }
+            .sorted {
+                if $0.daysUntil == $1.daysUntil {
+                    return $0.person.displayName < $1.person.displayName
+                }
+                return $0.daysUntil < $1.daysUntil
+            }
+
+        favouritePeopleCache = favouritePeople
+        upcomingBirthdayPeopleCache = upcomingBirthdays
+    }
+
     private func syncCategoryOrder() {
         let currentKeys = groupedPeopleCache.map { $0.groupKey }
         var merged: [String] = []
@@ -946,11 +996,52 @@ struct PeopleListView: View {
         selectedPeopleForDeletion.removeAll()
         isEditMode = false
     }
+
+    private func birthdayTimingText(_ daysUntil: Int) -> String {
+        if daysUntil == 0 {
+            return "today"
+        }
+        if daysUntil == 1 {
+            return "tomorrow"
+        }
+        return "in \(daysUntil) days"
+    }
+
+    private func connectionWeight(for person: Person) -> Int {
+        (person.favouritePlaceIds?.count ?? 0) + (person.linkedPeople?.count ?? 0)
+    }
+
+    private func linkedContextText(for person: Person) -> String? {
+        let placeCount = person.favouritePlaceIds?.count ?? 0
+        let relatedPeopleCount = person.linkedPeople?.count ?? 0
+        guard placeCount > 0 || relatedPeopleCount > 0 else { return nil }
+
+        var parts: [String] = []
+        if placeCount > 0 {
+            parts.append("\(placeCount) place\(placeCount == 1 ? "" : "s")")
+        }
+        if relatedPeopleCount > 0 {
+            parts.append("\(relatedPeopleCount) relationship\(relatedPeopleCount == 1 ? "" : "s")")
+        }
+        return "\(person.displayName) is connected across \(parts.joined(separator: " and "))."
+    }
+
+    private func peopleRelativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
 }
 
 struct PersonRowView: View {
+    enum Style: Equatable {
+        case card
+        case plain
+    }
+
     let person: Person
     let colorScheme: ColorScheme
+    var style: Style = .card
     var isEditMode: Bool = false
     var isSelected: Bool = false
     let onTap: () -> Void
@@ -1014,6 +1105,24 @@ struct PersonRowView: View {
     }
 
     var body: some View {
+        rowContent
+            .padding(rowPadding)
+            .background(rowBackground)
+            .overlay(rowBorder)
+            .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
+        .onLongPressGesture(minimumDuration: 0.5) {
+            if !isEditMode, let onLongPress {
+                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                impactFeedback.impactOccurred()
+                onLongPress()
+            }
+        }
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 14) {
             if isEditMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -1050,31 +1159,41 @@ struct PersonRowView: View {
             Spacer(minLength: 6)
 
             if !isEditMode {
-                VStack(alignment: .trailing, spacing: 10) {
-                    Button(action: onFavouriteTap) {
-                        Image(systemName: person.isFavourite ? "star.fill" : "star")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(person.isFavourite ? .yellow : Color.appTextSecondary(colorScheme))
-                            .frame(width: 30, height: 30)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color.appChip(colorScheme))
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.7))
+                Button(action: onFavouriteTap) {
+                    Image(systemName: person.isFavourite ? "star.fill" : "star")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(person.isFavourite ? .yellow : Color.appTextSecondary(colorScheme))
+                        .frame(width: 30, height: 30)
+                        .background(favouriteButtonBackground)
                 }
+                .buttonStyle(PlainButtonStyle())
             }
         }
-        .padding(14)
-        .background(
+    }
+
+    private var rowPadding: EdgeInsets {
+        switch style {
+        case .card:
+            return EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+        case .plain:
+            return EdgeInsets(top: 14, leading: 0, bottom: 14, trailing: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var rowBackground: some View {
+        if style == .card {
             RoundedRectangle(cornerRadius: 20)
                 .fill(isSelected ? Color.appChipStrong(colorScheme) : Color.appInnerSurface(colorScheme))
-        )
-        .overlay(
+        } else if isSelected {
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color.appChipStrong(colorScheme))
+        }
+    }
+
+    @ViewBuilder
+    private var rowBorder: some View {
+        if style == .card {
             RoundedRectangle(cornerRadius: 20)
                 .stroke(
                     isSelected
@@ -1082,17 +1201,23 @@ struct PersonRowView: View {
                         : Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.85 : 0.7),
                     lineWidth: 1
                 )
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 20))
-        .onTapGesture {
-            onTap()
+        } else if isSelected {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(
+                    colorScheme == .dark ? Color.white.opacity(0.35) : Color.black.opacity(0.14),
+                    lineWidth: 1
+                )
         }
-        .onLongPressGesture(minimumDuration: 0.5) {
-            if !isEditMode, let onLongPress {
-                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                impactFeedback.impactOccurred()
-                onLongPress()
-            }
+    }
+
+    @ViewBuilder
+    private var favouriteButtonBackground: some View {
+        if style == .card {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.appChip(colorScheme))
+        } else {
+            Circle()
+                .fill(Color.clear)
         }
     }
 

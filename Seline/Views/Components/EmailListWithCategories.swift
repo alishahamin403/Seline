@@ -68,22 +68,16 @@ struct EmailListWithCategories: View {
         .refreshable {
             await onRefresh()
         }
-        .background(
-            NavigationLink(
-                destination: Group {
-                    if let email = selectedEmail {
-                        EmailDetailView(email: email)
-                    }
-                },
-                isActive: Binding(
-                    get: { selectedEmail != nil },
-                    set: { if !$0 { selectedEmail = nil } }
-                )
-            ) {
-                EmptyView()
+        .navigationDestination(
+            isPresented: Binding(
+                get: { selectedEmail != nil },
+                set: { if !$0 { selectedEmail = nil } }
+            )
+        ) {
+            if let email = selectedEmail {
+                EmailDetailView(email: email)
             }
-            .hidden()
-        )
+        }
     }
 }
 

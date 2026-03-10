@@ -306,7 +306,6 @@ class BlockDocumentController: ObservableObject {
     }
 
     private func renumberNumberedLists() {
-        var currentNumber = 1
         var lastIndentLevel = 0
         var numberStack: [Int: Int] = [0: 1] // Track number for each indent level
 

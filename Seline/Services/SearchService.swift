@@ -3,6 +3,23 @@ import Combine
 
 @MainActor
 class SearchService: ObservableObject {
+    enum ChatLoadingPhase: Equatable {
+        case idle
+        case retrieving
+        case generating
+
+        var statusLabel: String {
+            switch self {
+            case .idle:
+                return "Thinking..."
+            case .retrieving:
+                return "Retrieving data..."
+            case .generating:
+                return "Generating answer..."
+            }
+        }
+    }
+
     static let shared = SearchService()
 
     @Published var searchResults: [SearchResult] = []
@@ -14,6 +31,7 @@ class SearchService: ObservableObject {
     @Published var pendingNoteUpdate: NoteUpdateData?
     @Published var questionResponse: String? = nil
     @Published var isLoadingQuestionResponse: Bool = false
+    @Published var chatLoadingPhase: ChatLoadingPhase = .idle
 
     // Conversation state
     @Published var conversationHistory: [ConversationMessage] = []
@@ -72,6 +90,10 @@ class SearchService: ObservableObject {
     private let conversationActionHandler = ConversationActionHandler.shared
     private let infoExtractor = InformationExtractor.shared
 
+    var chatLoadingStatusLabel: String {
+        chatLoadingPhase.statusLabel
+    }
+
     private init() {
         // DEPRECATED: Semantic query system removed
         // disableSemanticQuerySystem()
@@ -88,6 +110,7 @@ class SearchService: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
     }
 
     // MARK: - Registration
@@ -212,6 +235,9 @@ class SearchService: ObservableObject {
 
         // Extract temporal range if mentioned in query
         let temporalRange = TemporalUnderstandingService.shared.extractTemporalRange(from: query)
+        let temporalBounds = temporalRange.map {
+            TemporalUnderstandingService.shared.normalizedBounds(for: $0)
+        }
 
         // Extract topics from this search for conversation context
         let extractedTopics = ConversationContextService.shared.extractTopicsFromQuery(query)
@@ -257,8 +283,8 @@ class SearchService: ObservableObject {
             let item = result.item
 
             // TEMPORAL FILTERING: Skip items outside the requested date range
-            if let dateRange = temporalRange, let itemDate = item.date {
-                if itemDate < dateRange.startDate || itemDate > dateRange.endDate {
+            if let temporalBounds, let itemDate = item.date {
+                if itemDate < temporalBounds.start || itemDate >= temporalBounds.end {
                     continue  // Skip this item, it's outside the time range
                 }
             }
@@ -480,6 +506,10 @@ class SearchService: ObservableObject {
     func addConversationMessage(_ userMessage: String) async {
         let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        guard !ChatUsageTracker.shared.isLimitReached else {
+            print("🚫 Daily chat limit reached; ignoring new message")
+            return
+        }
 
         // Enter conversation mode if not already in it
         if !isInConversationMode {
@@ -507,6 +537,7 @@ class SearchService: ObservableObject {
 
         // Get AI response with full conversation history for context
         isLoadingQuestionResponse = true
+        chatLoadingPhase = .retrieving
         let thinkStartTime = Date()  // Track when LLM starts thinking
 
         // Always use SelineChat - legacy path removed
@@ -517,6 +548,12 @@ class SearchService: ObservableObject {
 
     /// NEW simplified chat using SelineChat with proper streaming support
     private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date, skipUserMessage: Bool = false) async {
+        chatLoadingPhase = .retrieving
+        VectorSearchService.shared.beginInteractiveRequest(reason: "chat")
+        defer {
+            VectorSearchService.shared.endInteractiveRequest(reason: "chat")
+        }
+
         // Initialize SelineChat if needed
         if selineChat == nil {
             selineChat = SelineChat(appContext: SelineAppContext(), geminiService: GeminiService.shared)
@@ -540,6 +577,7 @@ class SearchService: ObservableObject {
             print("❌ SelineChat initialization failed")
             DispatchQueue.main.async {
                 self.isLoadingQuestionResponse = false
+                self.chatLoadingPhase = .idle
             }
             return
         }
@@ -563,10 +601,10 @@ class SearchService: ObservableObject {
             }
         }
 
-        // Populate relevant content (events, notes, emails, locations) so chat message gets clickable pills.
-        // For retry follow-ups like "try again", reuse the previous substantive query for retrieval grounding.
+        // Prepare non-citation chat UI state (event creation cards, ETA cards).
+        // Citation evidence now comes from VectorContextBuilder output to keep one source of truth.
         let effectiveQuery = chat.contextQueryForLatestUserTurn()
-        await chat.appContext.prepareRelevantContentForChat(userQuery: effectiveQuery)
+        await chat.appContext.prepareEventCreationInfoForChat(userQuery: effectiveQuery)
 
         setupSelineChatCallbacks(chat: chat, thinkStartTime: thinkStartTime)
         
@@ -578,82 +616,55 @@ class SearchService: ObservableObject {
     // Wire up streaming callbacks common to both normal chat and briefing
     private func setupSelineChatCallbacks(chat: SelineChat, thinkStartTime: Date) {
         let streamingMessageID = UUID()
+        weak var weakSelf = self
         var messageAdded = false
         var fullResponse = ""
-        var visibleResponse = ""
-        var revealTimer: Timer?
-        var didReceiveStreamingComplete = false
         var didFinalizeStreaming = false
-        let wordRevealInterval: TimeInterval = 0.06
-
-        func nextWordBoundaryCount(in text: String, from currentCount: Int) -> Int {
-            guard currentCount < text.count else { return text.count }
-            let start = text.index(text.startIndex, offsetBy: currentCount)
-            var index = start
-            var sawWordCharacter = false
-
-            while index < text.endIndex {
-                let character = text[index]
-                if character.isWhitespace {
-                    if sawWordCharacter {
-                        repeat {
-                            index = text.index(after: index)
-                        } while index < text.endIndex && text[index].isWhitespace
-                        return text.distance(from: text.startIndex, to: index)
-                    }
-                } else {
-                    sawWordCharacter = true
-                }
-                index = text.index(after: index)
-            }
-            return text.count
-        }
 
         func commitUpdate(with text: String) {
+            guard weakSelf != nil else { return }
+            if !messageAdded {
+                let assistantMsg = ConversationMessage(
+                    id: streamingMessageID,
+                    isUser: false,
+                    text: text,
+                    timestamp: Date(),
+                    intent: .general,
+                    timeStarted: thinkStartTime,
+                    locationInfo: chat.appContext.lastETALocationInfo,
+                    eventCreationInfo: chat.appContext.lastEventCreationInfo,
+                    relevantContent: chat.appContext.lastRelevantContent
+                )
+                conversationHistory.append(assistantMsg)
+                messageAdded = true
+                saveConversationLocally()
+            } else if let lastIndex = conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                let updatedMsg = ConversationMessage(
+                    id: streamingMessageID,
+                    isUser: false,
+                    text: text,
+                    timestamp: conversationHistory[lastIndex].timestamp,
+                    intent: conversationHistory[lastIndex].intent ?? .general,
+                    timeStarted: conversationHistory[lastIndex].timeStarted,
+                    locationInfo: chat.appContext.lastETALocationInfo,
+                    eventCreationInfo: chat.appContext.lastEventCreationInfo,
+                    relevantContent: chat.appContext.lastRelevantContent
+                )
+                conversationHistory[lastIndex] = updatedMsg
+                lastMessageContentVersion += 1
+                saveConversationLocally()
+            }
+        }
+
+        func finalizeStreaming() {
+            guard !didFinalizeStreaming else { return }
+            didFinalizeStreaming = true
+
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 if !messageAdded {
-                    let assistantMsg = ConversationMessage(
-                        id: streamingMessageID,
-                        isUser: false,
-                        text: text,
-                        timestamp: Date(),
-                        intent: .general,
-                        timeStarted: thinkStartTime,
-                        locationInfo: chat.appContext.lastETALocationInfo,
-                        eventCreationInfo: chat.appContext.lastEventCreationInfo,
-                        relevantContent: chat.appContext.lastRelevantContent
-                    )
-                    self.conversationHistory.append(assistantMsg)
-                    messageAdded = true
-                    self.saveConversationLocally()
-                } else if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                    let updatedMsg = ConversationMessage(
-                        id: streamingMessageID,
-                        isUser: false,
-                        text: text,
-                        timestamp: self.conversationHistory[lastIndex].timestamp ?? Date(),
-                        intent: self.conversationHistory[lastIndex].intent ?? .general,
-                        timeStarted: self.conversationHistory[lastIndex].timeStarted,
-                        locationInfo: chat.appContext.lastETALocationInfo,
-                        eventCreationInfo: chat.appContext.lastEventCreationInfo,
-                        relevantContent: chat.appContext.lastRelevantContent
-                    )
-                    self.conversationHistory[lastIndex] = updatedMsg
-                    self.lastMessageContentVersion += 1
-                    self.saveConversationLocally()
+                    commitUpdate(with: fullResponse)
                 }
-            }
-        }
-
-        func finalizeStreamingIfReady() {
-            guard didReceiveStreamingComplete, !didFinalizeStreaming, visibleResponse.count >= fullResponse.count else { return }
-            didFinalizeStreaming = true
-            revealTimer?.invalidate()
-            revealTimer = nil
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
                 // Update final message with completion time and fetch related data
                 if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
                     let rawResponseText = self.conversationHistory[lastIndex].text
@@ -675,6 +686,7 @@ class SearchService: ObservableObject {
                         eventCreationInfo: chat.appContext.lastEventCreationInfo,
                         relevantContent: aligned.relevantContent
                     )
+                    chat.updateResolvedVisitPlace(from: aligned.relevantContent ?? chat.appContext.lastRelevantContent)
                     self.conversationHistory[lastIndex] = updatedMsg
                     self.lastMessageContentVersion += 1
 
@@ -708,57 +720,37 @@ class SearchService: ObservableObject {
                 }
 
                 self.isLoadingQuestionResponse = false
+                self.chatLoadingPhase = .idle
                 print("✅ SelineChat streaming completed")
             }
         }
 
-        func revealNextWord() {
-            guard visibleResponse.count < fullResponse.count else {
-                if didReceiveStreamingComplete {
-                    finalizeStreamingIfReady()
-                } else {
-                    revealTimer?.invalidate()
-                    revealTimer = nil
+        chat.onStreamingStateChanged = { [weak self] isStreaming in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if isStreaming {
+                    self.chatLoadingPhase = .generating
+                } else if !self.isLoadingQuestionResponse {
+                    self.chatLoadingPhase = .idle
                 }
-                return
-            }
-
-            let currentCount = visibleResponse.count
-            let nextCount = nextWordBoundaryCount(in: fullResponse, from: currentCount)
-            let clampedCount = nextCount > currentCount ? nextCount : min(currentCount + 1, fullResponse.count)
-            visibleResponse = String(fullResponse.prefix(clampedCount))
-            commitUpdate(with: visibleResponse)
-            finalizeStreamingIfReady()
-        }
-
-        func startRevealTimerIfNeeded() {
-            guard revealTimer == nil else { return }
-            revealTimer = Timer.scheduledTimer(withTimeInterval: wordRevealInterval, repeats: true) { _ in
-                revealNextWord()
             }
         }
 
-        // Callback when a streaming chunk arrives (paced word-by-word reveal)
+        // Callback when a streaming chunk arrives (real-time token updates)
         chat.onStreamingChunk = { [weak self] chunk in
             DispatchQueue.main.async {
-                guard self != nil else { return }
+                guard let self = self else { return }
+                self.chatLoadingPhase = .generating
                 fullResponse += chunk
-                if visibleResponse.isEmpty {
-                    revealNextWord()
-                }
-                startRevealTimerIfNeeded()
+                commitUpdate(with: fullResponse)
             }
         }
 
-        // Callback when streaming completes (finish paced reveal, then finalize metadata)
+        // Callback when streaming completes (finalize metadata and citations)
         chat.onStreamingComplete = { [weak self] in
             DispatchQueue.main.async {
                 guard self != nil else { return }
-                didReceiveStreamingComplete = true
-                if visibleResponse.count < fullResponse.count {
-                    startRevealTimerIfNeeded()
-                }
-                finalizeStreamingIfReady()
+                finalizeStreaming()
             }
         }
     }
@@ -770,6 +762,7 @@ class SearchService: ObservableObject {
             relevantContent: selineChat?.appContext.lastRelevantContent
         )
         let finalResponse = aligned.text
+        selineChat?.updateResolvedVisitPlace(from: aligned.relevantContent ?? selineChat?.appContext.lastRelevantContent)
 
         if !enableStreamingResponses {
             Task {
@@ -791,6 +784,7 @@ class SearchService: ObservableObject {
                     )
                     self.conversationHistory.append(assistantMsg)
                     self.isLoadingQuestionResponse = false
+                    self.chatLoadingPhase = .idle
                     self.saveConversationLocally()
                     print("✅ SelineChat response added to history")
                 }
@@ -802,24 +796,12 @@ class SearchService: ObservableObject {
         var normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
         normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Normalize bullets
         let lines = normalized.components(separatedBy: "\n")
-        var rebuilt: [String] = []
-        for line in lines {
-            let leadingWhitespace = line.prefix { $0 == " " || $0 == "\t" }
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("• ") {
-                rebuilt.append("\(leadingWhitespace)- " + trimmed.dropFirst(2))
-            } else if trimmed.hasPrefix("* ") {
-                rebuilt.append("\(leadingWhitespace)- " + trimmed.dropFirst(2))
-            } else if trimmed.hasPrefix("– ") {
-                rebuilt.append("\(leadingWhitespace)- " + trimmed.dropFirst(2))
-            } else {
-                rebuilt.append(line)
-            }
-        }
+        let normalizedBullets = normalizeMarkdownBullets(in: lines)
+        let groupedBullets = normalizeHierarchicalBulletSections(in: normalizedBullets)
+        let formattedHeadings = normalizeStandaloneHeadings(in: groupedBullets)
 
-        normalized = rebuilt.joined(separator: "\n")
+        normalized = formattedHeadings.joined(separator: "\n")
         normalized = normalized.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
 
         // Ensure blank line before section headers
@@ -829,23 +811,179 @@ class SearchService: ObservableObject {
         return normalized
     }
 
+    private func normalizeMarkdownBullets(in lines: [String]) -> [String] {
+        lines.map { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return "" }
+
+            let leadingSpaces = line.prefix { $0 == " " || $0 == "\t" }
+                .reduce(into: "") { partial, character in
+                    partial.append(contentsOf: character == "\t" ? "  " : String(character))
+                }
+
+            if trimmed.hasPrefix("• ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("– ") || trimmed.hasPrefix("— ") {
+                return "\(leadingSpaces)- \(trimmed.dropFirst(2))"
+            }
+            return line.replacingOccurrences(of: "\t", with: "  ")
+        }
+    }
+
+    private func normalizeHierarchicalBulletSections(in lines: [String]) -> [String] {
+        var rebuilt: [String] = []
+        var activeParentLevel: Int?
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            guard !trimmed.isEmpty else {
+                activeParentLevel = nil
+                rebuilt.append("")
+                continue
+            }
+
+            guard let bullet = parseBulletMetadata(from: line) else {
+                activeParentLevel = nil
+                rebuilt.append(line)
+                continue
+            }
+
+            if bullet.level == 0, isSectionParentBullet(bullet.content) {
+                rebuilt.append("- **\(bullet.content)**")
+                activeParentLevel = bullet.level
+                continue
+            }
+
+            if let activeParentLevel, bullet.level == activeParentLevel {
+                rebuilt.append(formattedBulletLine(level: activeParentLevel + 1, content: bullet.content))
+                continue
+            }
+
+            rebuilt.append(formattedBulletLine(level: bullet.level, content: bullet.content))
+        }
+
+        return rebuilt
+    }
+
+    private func normalizeStandaloneHeadings(in lines: [String]) -> [String] {
+        var rebuilt: [String] = []
+
+        for index in lines.indices {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            guard !trimmed.isEmpty else {
+                rebuilt.append(line)
+                continue
+            }
+
+            if shouldPromoteToHeading(trimmed, nextNonEmptyLine: nextNonEmptyLine(after: index, in: lines)) {
+                rebuilt.append("**\(trimmed)**")
+            } else {
+                rebuilt.append(line)
+            }
+        }
+
+        return rebuilt
+    }
+
+    private func nextNonEmptyLine(after index: Int, in lines: [String]) -> String? {
+        guard index + 1 < lines.count else { return nil }
+
+        for candidate in lines[(index + 1)...] {
+            let trimmed = candidate.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        return nil
+    }
+
+    private func shouldPromoteToHeading(_ trimmed: String, nextNonEmptyLine: String?) -> Bool {
+        guard
+            !trimmed.hasPrefix("- "),
+            !trimmed.hasPrefix("**"),
+            !trimmed.hasPrefix("#"),
+            !trimmed.hasPrefix(">"),
+            !trimmed.hasPrefix("|"),
+            !trimmed.hasPrefix("```")
+        else {
+            return false
+        }
+
+        if isLikelyDateHeading(trimmed) {
+            return true
+        }
+
+        if trimmed.hasSuffix(":"),
+           trimmed.count <= 48,
+           trimmed.split(whereSeparator: \.isWhitespace).count <= 6,
+           let nextNonEmptyLine,
+           nextNonEmptyLine.hasPrefix("- ") {
+            return true
+        }
+
+        return false
+    }
+
+    private func isLikelyDateHeading(_ trimmed: String) -> Bool {
+        let weekdays = [
+            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+        ]
+        let months = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ]
+
+        let startsWithWeekday = weekdays.contains { trimmed.hasPrefix($0) }
+        let startsWithMonth = months.contains { trimmed.hasPrefix($0) }
+        let hasDigit = trimmed.rangeOfCharacter(from: .decimalDigits) != nil
+
+        return hasDigit && (startsWithWeekday || startsWithMonth)
+    }
+
+    private func isSectionParentBullet(_ content: String) -> Bool {
+        let trimmed = content.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasSuffix(":") else { return false }
+        guard trimmed.count <= 48 else { return false }
+        guard !trimmed.contains(".") else { return false }
+        return trimmed.split(whereSeparator: \.isWhitespace).count <= 6
+    }
+
+    private func formattedBulletLine(level: Int, content: String) -> String {
+        let indent = String(repeating: "  ", count: max(0, level))
+        return "\(indent)- \(content)"
+    }
+
+    private func parseBulletMetadata(from line: String) -> (level: Int, content: String)? {
+        let leadingSpaces = line.prefix { $0 == " " }.count
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("- ") else { return nil }
+
+        let level = max(0, leadingSpaces / 2)
+        let content = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        guard !content.isEmpty else { return nil }
+
+        return (level, content)
+    }
+
     private func alignCitationsWithRelevantContent(
         in responseText: String,
         relevantContent: [RelevantContentInfo]?
     ) -> (text: String, relevantContent: [RelevantContentInfo]?) {
-        let normalizedText = responseText
-            .replacingOccurrences(of: "[[", with: "[")
-            .replacingOccurrences(of: "]]", with: "]")
+        let normalizedText = normalizeCitationMarkers(in: responseText)
         let citationRegex = try! NSRegularExpression(pattern: "\\[\\s*(\\d+)\\s*\\]")
-        let matches = citationRegex.matches(in: normalizedText, range: NSRange(normalizedText.startIndex..., in: normalizedText))
+        let placeholderCitationRegex = try! NSRegularExpression(pattern: "\\[(?i:[a-z])\\]")
+        let numericMatches = citationRegex.matches(in: normalizedText, range: NSRange(normalizedText.startIndex..., in: normalizedText))
+        let placeholderMatches = placeholderCitationRegex.matches(in: normalizedText, range: NSRange(normalizedText.startIndex..., in: normalizedText))
 
         guard let content = relevantContent, !content.isEmpty else {
             return (stripCitationMarkers(from: normalizedText), nil)
         }
 
-        guard !matches.isEmpty else {
-            // Preserve source pills even when the model omitted numeric citations.
-            return (stripCitationMarkers(from: normalizedText), content)
+        guard !numericMatches.isEmpty || !placeholderMatches.isEmpty else {
+            // Inline-only citation mode: no fallback source pills when model omitted citations.
+            return (stripCitationMarkers(from: normalizedText), nil)
         }
 
         struct CitationReplacement {
@@ -853,49 +991,104 @@ class SearchService: ObservableObject {
             let replacementText: String
         }
 
+        enum CitationMatch {
+            case numeric(NSTextCheckingResult)
+            case placeholder(NSTextCheckingResult)
+
+            var range: NSRange {
+                switch self {
+                case .numeric(let result), .placeholder(let result):
+                    return result.range
+                }
+            }
+        }
+
         var replacements: [CitationReplacement] = []
         var orderedContent: [RelevantContentInfo] = []
-        var orderedIndexById: [UUID: Int] = [:]
+        var orderedIndexBySourceKey: [String: Int] = [:]
+        var displayedCitationSourceKeys = Set<String>()
+        let rawCitationIndexes: [Int] = numericMatches.compactMap { match in
+            guard let numberRange = Range(match.range(at: 1), in: normalizedText) else { return nil }
+            return Int(String(normalizedText[numberRange]))
+        }
+        let shouldTreatIndexesAsOneBased =
+            !rawCitationIndexes.isEmpty &&
+            !rawCitationIndexes.contains(0) &&
+            rawCitationIndexes.allSatisfy { $0 >= 1 && $0 <= content.count }
 
-        for match in matches {
-            guard
-                let numberRange = Range(match.range(at: 1), in: normalizedText),
-                let citedIndex = Int(String(normalizedText[numberRange]))
-            else { continue }
-
-            guard citedIndex >= 0, citedIndex < content.count else {
-                print("⚠️ Dropping citation [\(citedIndex)] - out of range for available sources (\(content.count))")
-                replacements.append(
-                    CitationReplacement(range: match.range, replacementText: "")
-                )
-                continue
-            }
-
-            let selectedItem = content[citedIndex]
-            let contextSnippet = citationContext(in: normalizedText, around: match.range)
-            guard isCitationLikelyValid(for: selectedItem, context: contextSnippet) else {
-                print("⚠️ Dropping citation [\(citedIndex)] - source/context mismatch")
-                replacements.append(
-                    CitationReplacement(range: match.range, replacementText: "")
-                )
-                continue
-            }
-
+        func replacement(for selectedItem: RelevantContentInfo, range: NSRange) -> CitationReplacement {
+            let sourceKey = citationSourceIdentityKey(for: selectedItem)
             let mappedIndex: Int
-            if let existing = orderedIndexById[selectedItem.id] {
+            if let existing = orderedIndexBySourceKey[sourceKey] {
                 mappedIndex = existing
             } else {
                 mappedIndex = orderedContent.count
                 orderedContent.append(selectedItem)
-                orderedIndexById[selectedItem.id] = mappedIndex
+                orderedIndexBySourceKey[sourceKey] = mappedIndex
             }
 
-            replacements.append(
-                CitationReplacement(
-                    range: match.range,
-                    replacementText: "[[\(mappedIndex)]]"
-                )
+            // Keep inline citations concise: render each source pill once per response.
+            if displayedCitationSourceKeys.contains(sourceKey) {
+                return CitationReplacement(range: range, replacementText: "")
+            }
+            displayedCitationSourceKeys.insert(sourceKey)
+
+            return CitationReplacement(
+                range: range,
+                replacementText: "[[\(mappedIndex)]]"
             )
+        }
+
+        let allMatches = (
+            numericMatches.map { CitationMatch.numeric($0) } +
+            placeholderMatches.map { CitationMatch.placeholder($0) }
+        ).sorted { lhs, rhs in
+            lhs.range.location < rhs.range.location
+        }
+
+        for match in allMatches {
+            switch match {
+            case .numeric(let result):
+                guard
+                    let numberRange = Range(result.range(at: 1), in: normalizedText),
+                    let parsedIndex = Int(String(normalizedText[numberRange]))
+                else { continue }
+                let citedIndex = shouldTreatIndexesAsOneBased ? parsedIndex - 1 : parsedIndex
+
+                guard citedIndex >= 0, citedIndex < content.count else {
+                    print("⚠️ Dropping citation [\(citedIndex)] - out of range for available sources (\(content.count))")
+                    replacements.append(CitationReplacement(range: result.range, replacementText: ""))
+                    continue
+                }
+
+                let selectedItem = content[citedIndex]
+                let contextSnippet = citationContext(in: normalizedText, around: result.range)
+                guard
+                    let matchScore = citationMatchScore(for: selectedItem, context: contextSnippet),
+                    matchScore >= minimumCitationScore(for: selectedItem)
+                else {
+                    print("⚠️ Dropping citation [\(citedIndex)] - source/context mismatch")
+                    replacements.append(CitationReplacement(range: result.range, replacementText: ""))
+                    continue
+                }
+
+                replacements.append(replacement(for: selectedItem, range: result.range))
+
+            case .placeholder(let result):
+                let contextSnippet = citationContext(in: normalizedText, around: result.range)
+                let bestIndex = bestMatchingCitationSourceIndex(
+                    in: content,
+                    context: contextSnippet,
+                    excluding: displayedCitationSourceKeys
+                )
+
+                guard let bestIndex else {
+                    replacements.append(CitationReplacement(range: result.range, replacementText: ""))
+                    continue
+                }
+
+                replacements.append(replacement(for: content[bestIndex], range: result.range))
+            }
         }
 
         let mutableText = NSMutableString(string: normalizedText)
@@ -905,42 +1098,230 @@ class SearchService: ObservableObject {
 
         let cleanedText = cleanupCitationSpacing(in: mutableText as String)
         if orderedContent.isEmpty {
-            // If all citations were dropped by validation, keep source pills from retrieval.
-            return (stripCitationMarkers(from: cleanedText), content)
+            return (cleanedText, nil)
         }
         return (cleanedText, orderedContent)
     }
 
+    private func bestMatchingCitationSourceIndex(
+        in content: [RelevantContentInfo],
+        context: String,
+        excluding displayedCitationSourceKeys: Set<String>
+    ) -> Int? {
+        var bestIndex: Int?
+        var bestScore = Int.min
+        var isAmbiguous = false
+
+        for (index, item) in content.enumerated() {
+            let sourceKey = citationSourceIdentityKey(for: item)
+            guard !displayedCitationSourceKeys.contains(sourceKey) else { continue }
+
+            guard let score = citationMatchScore(for: item, context: context) else {
+                continue
+            }
+
+            if score > bestScore {
+                bestScore = score
+                bestIndex = index
+                isAmbiguous = false
+            } else if score == bestScore {
+                isAmbiguous = true
+            }
+        }
+
+        guard let bestIndex else { return nil }
+        let bestItem = content[bestIndex]
+        guard bestScore >= minimumCitationScore(for: bestItem), !isAmbiguous else {
+            return nil
+        }
+
+        return bestIndex
+    }
+
+    private func displayTitleForCitation(_ item: RelevantContentInfo) -> String {
+        switch item.contentType {
+        case .email:
+            return item.emailSubject ?? item.emailSender ?? "Email"
+        case .note:
+            return item.noteTitle ?? "Note"
+        case .receipt:
+            return item.receiptTitle ?? item.noteTitle ?? "Receipt"
+        case .event:
+            return item.eventTitle ?? "Event"
+        case .location:
+            return item.locationName ?? "Place"
+        case .visit:
+            return item.visitPlaceName ?? item.locationName ?? "Visit"
+        case .person:
+            return item.personName ?? "Person"
+        }
+    }
+
     private func isCitationLikelyValid(for item: RelevantContentInfo, context: String) -> Bool {
-        let lowerContext = context.lowercased()
-        let sourceTerms = sourceTerms(for: item)
-        let hasSourceTermMatch = sourceTerms.contains { lowerContext.contains($0) }
+        guard let score = citationMatchScore(for: item, context: context) else {
+            return false
+        }
+        return score >= minimumCitationScore(for: item)
+    }
+
+    private func citationMatchScore(for item: RelevantContentInfo, context: String) -> Int? {
+        let normalizedContext = context.lowercased()
+        let matchedTerms = sourceTerms(for: item).filter { normalizedContext.contains($0) }
+        let matchedTermScore = matchedTerms.reduce(0) { partial, term in
+            partial + min(term.count, 12)
+        }
+        let exactTitle = normalizedIdentityText(displayTitleForCitation(item))
+        let exactTitleMatch = !exactTitle.isEmpty && normalizedContext.contains(exactTitle)
 
         switch item.contentType {
         case .location:
-            // Strict for places/visits: only show pill when the line clearly references that place.
-            return hasSourceTermMatch
+            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
+            return matchedTermScore + (exactTitleMatch ? 18 : 0)
+        case .visit:
+            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
+            let activityBoost = (normalizedContext.contains("visit") || normalizedContext.contains("went")) ? 4 : 0
+            return matchedTermScore + (exactTitleMatch ? 18 : 0) + activityBoost
         case .event:
-            // Strict for events: avoid mapping calendar pills to generic lines.
-            return hasSourceTermMatch
+            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
+            let calendarBoost = (normalizedContext.contains("calendar") || normalizedContext.contains("event")) ? 4 : 0
+            return matchedTermScore + (exactTitleMatch ? 18 : 0) + calendarBoost
         case .email:
-            if hasSourceTermMatch { return true }
-            return lowerContext.contains("email")
-                || lowerContext.contains("inbox")
-                || lowerContext.contains("sender")
-                || lowerContext.contains("subject")
+            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
+            let emailBoost = (normalizedContext.contains("email") || normalizedContext.contains("inbox") || normalizedContext.contains("subject")) ? 4 : 0
+            return matchedTermScore + (exactTitleMatch ? 18 : 0) + emailBoost
         case .note:
-            if hasSourceTermMatch { return true }
-            let isReceiptNote = (item.noteFolder ?? "").lowercased().contains("receipt")
-            if isReceiptNote {
-                return lowerContext.contains("receipt")
-                    || lowerContext.contains("purchase")
-                    || lowerContext.contains("spent")
-                    || lowerContext.contains("charged")
-                    || lowerContext.contains("cost")
+            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
+            let noteBoost: Int
+            let lowerFolder = (item.noteFolder ?? "").lowercased()
+            if lowerFolder.contains("journal") || lowerFolder.contains("weekly summary") || lowerFolder.contains("weekly recap") || lowerFolder.contains("recap") {
+                noteBoost = (normalizedContext.contains("journal") || normalizedContext.contains("recap") || normalizedContext.contains("summary")) ? 4 : 0
+            } else {
+                noteBoost = normalizedContext.contains("note") ? 3 : 0
             }
-            return lowerContext.contains("note")
+            return matchedTermScore + (exactTitleMatch ? 18 : 0) + noteBoost
+        case .receipt:
+            let merchantPhrase = normalizedIdentityText(receiptMerchantLabel(for: item))
+            let merchantPhraseMatch = !merchantPhrase.isEmpty && normalizedContext.contains(merchantPhrase)
+            let amountMatch = contextMentionsReceiptAmount(item.receiptAmount, in: normalizedContext)
+            let categoryMatch = contextMentionsReceiptCategory(item.receiptCategory, in: normalizedContext)
+            guard merchantPhraseMatch || exactTitleMatch || !matchedTerms.isEmpty || (amountMatch && categoryMatch) else {
+                return nil
+            }
+
+            var score = matchedTermScore
+            if exactTitleMatch { score += 18 }
+            if merchantPhraseMatch { score += 22 }
+            if amountMatch { score += 20 }
+            if categoryMatch { score += 8 }
+            if amountMatch && (merchantPhraseMatch || exactTitleMatch || !matchedTerms.isEmpty) {
+                score += 10
+            }
+            if normalizedContext.contains("receipt")
+                || normalizedContext.contains("expense")
+                || normalizedContext.contains("purchase")
+                || normalizedContext.contains("paid")
+                || normalizedContext.contains("spent") {
+                score += 4
+            }
+            return score
+        case .person:
+            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
+            let withBoost = normalizedContext.contains("with") ? 3 : 0
+            return matchedTermScore + (exactTitleMatch ? 18 : 0) + withBoost
         }
+    }
+
+    private func minimumCitationScore(for item: RelevantContentInfo) -> Int {
+        switch item.contentType {
+        case .receipt:
+            return 18
+        case .email:
+            return 10
+        case .note:
+            return 8
+        case .event, .location, .visit, .person:
+            return 6
+        }
+    }
+
+    private func receiptMerchantLabel(for item: RelevantContentInfo) -> String {
+        let rawTitle = item.receiptTitle ?? item.noteTitle ?? ""
+        for separator in [" - ", " — ", " – "] {
+            if let range = rawTitle.range(of: separator) {
+                let prefix = rawTitle[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !prefix.isEmpty {
+                    return prefix
+                }
+            }
+        }
+        return rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func contextMentionsReceiptAmount(_ amount: Double?, in context: String) -> Bool {
+        guard let amount else { return false }
+        return extractCurrencyValues(from: context).contains { abs($0 - amount) < 0.011 }
+    }
+
+    private func contextMentionsReceiptCategory(_ category: String?, in context: String) -> Bool {
+        let normalizedCategory = normalizedIdentityText(category)
+        guard !normalizedCategory.isEmpty else { return false }
+
+        let categoryTerms = normalizedCategory
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 4 }
+
+        if context.contains(normalizedCategory) {
+            return true
+        }
+
+        return categoryTerms.contains { context.contains($0) }
+    }
+
+    private func extractCurrencyValues(from context: String) -> [Double] {
+        let pattern = "\\$\\s*(\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)"
+        let regex = try! NSRegularExpression(pattern: pattern)
+        let matches = regex.matches(in: context, range: NSRange(context.startIndex..., in: context))
+
+        return matches.compactMap { match in
+            guard let range = Range(match.range(at: 1), in: context) else { return nil }
+            let rawValue = context[range].replacingOccurrences(of: ",", with: "")
+            return Double(rawValue)
+        }
+    }
+
+    private func citationSourceIdentityKey(for item: RelevantContentInfo) -> String {
+        switch item.contentType {
+        case .email:
+            if let emailId = item.emailId, !emailId.isEmpty { return "email:\(emailId)" }
+            return "email:\(normalizedIdentityText(item.emailSubject))|\(normalizedIdentityText(item.emailSender))|\(Int(item.emailDate?.timeIntervalSince1970 ?? 0))"
+        case .note:
+            if let noteId = item.noteId { return "note:\(noteId.uuidString.lowercased())" }
+            return "note:\(normalizedIdentityText(item.noteTitle))|\(normalizedIdentityText(item.noteSnippet))"
+        case .receipt:
+            if let receiptId = item.receiptId { return "receipt:\(receiptId.uuidString.lowercased())" }
+            if let noteId = item.noteId { return "receipt-note:\(noteId.uuidString.lowercased())" }
+            let amountKey = item.receiptAmount.map { String(format: "%.2f", $0) } ?? "0.00"
+            return "receipt:\(normalizedIdentityText(item.receiptTitle))|\(amountKey)|\(Int(item.receiptDate?.timeIntervalSince1970 ?? 0))"
+        case .event:
+            if let eventId = item.eventId { return "event:\(eventId.uuidString.lowercased())" }
+            return "event:\(normalizedIdentityText(item.eventTitle))|\(Int(item.eventDate?.timeIntervalSince1970 ?? 0))"
+        case .location:
+            if let locationId = item.locationId { return "location:\(locationId.uuidString.lowercased())" }
+            return "location:\(normalizedIdentityText(item.locationName))|\(normalizedIdentityText(item.locationAddress))"
+        case .visit:
+            if let visitId = item.visitId { return "visit:\(visitId.uuidString.lowercased())" }
+            if let placeId = item.visitPlaceId { return "visit-place:\(placeId.uuidString.lowercased())|\(Int(item.visitEntryTime?.timeIntervalSince1970 ?? 0))" }
+            return "visit:\(normalizedIdentityText(item.visitPlaceName))|\(Int(item.visitEntryTime?.timeIntervalSince1970 ?? 0))"
+        case .person:
+            if let personId = item.personId { return "person:\(personId.uuidString.lowercased())" }
+            return "person:\(normalizedIdentityText(item.personName))|\(normalizedIdentityText(item.personRelationship))"
+        }
+    }
+
+    private func normalizedIdentityText(_ value: String?) -> String {
+        (value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 
     private func sourceTerms(for item: RelevantContentInfo) -> [String] {
@@ -948,17 +1329,26 @@ class SearchService: ObservableObject {
         switch item.contentType {
         case .location:
             rawValue = "\(item.locationName ?? "") \(item.locationAddress ?? "")"
+        case .visit:
+            rawValue = "\(item.visitPlaceName ?? "") \(item.locationName ?? "") \(item.locationAddress ?? "") \(item.visitEntryTime?.description ?? "")"
         case .event:
             rawValue = "\(item.eventTitle ?? "") \(item.eventCategory ?? "")"
         case .email:
             rawValue = "\(item.emailSubject ?? "") \(item.emailSender ?? "")"
         case .note:
-            rawValue = "\(item.noteTitle ?? "") \(item.noteSnippet ?? "")"
+            rawValue = "\(item.noteTitle ?? "") \(item.noteSnippet ?? "") \(item.noteFolder ?? "")"
+        case .receipt:
+            rawValue = "\(receiptMerchantLabel(for: item)) \(item.receiptCategory ?? "")"
+        case .person:
+            rawValue = "\(item.personName ?? "") \(item.personRelationship ?? "")"
         }
 
         let stopWords: Set<String> = [
             "the", "and", "for", "with", "from", "your", "you", "this", "that",
-            "visit", "visited", "event", "note", "email", "calendar", "place"
+            "visit", "visited", "event", "note", "email", "calendar", "place",
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+            "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december"
         ]
 
         let tokens = rawValue
@@ -977,9 +1367,45 @@ class SearchService: ObservableObject {
         return String(text[start..<end]).lowercased()
     }
 
+    private func normalizeCitationMarkers(in text: String) -> String {
+        let normalizedBrackets = text
+            .replacingOccurrences(of: "[[", with: "[")
+            .replacingOccurrences(of: "]]", with: "]")
+
+        let groupedCitationRegex = try! NSRegularExpression(pattern: "\\[(\\s*\\d+\\s*(?:,\\s*\\d+\\s*)+)\\]")
+        let matches = groupedCitationRegex.matches(
+            in: normalizedBrackets,
+            range: NSRange(normalizedBrackets.startIndex..., in: normalizedBrackets)
+        )
+
+        guard !matches.isEmpty else { return normalizedBrackets }
+
+        let mutable = NSMutableString(string: normalizedBrackets)
+        for match in matches.reversed() {
+            guard let contentRange = Range(match.range(at: 1), in: normalizedBrackets) else { continue }
+            let numbers = normalizedBrackets[contentRange]
+                .split(separator: ",")
+                .compactMap { part in
+                    Int(String(part).trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+            guard !numbers.isEmpty else {
+                mutable.replaceCharacters(in: match.range, with: "")
+                continue
+            }
+
+            let replacement = numbers
+                .map { "[\($0)]" }
+                .joined(separator: " ")
+            mutable.replaceCharacters(in: match.range, with: replacement)
+        }
+
+        return mutable as String
+    }
+
     private func stripCitationMarkers(from text: String) -> String {
-        var stripped = text
+        var stripped = normalizeCitationMarkers(in: text)
             .replacingOccurrences(of: "\\[\\s*\\d+\\s*\\]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\[(?i:[a-z])\\]", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\[(?i:see\\s+[^\\]]+)\\]", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\[(?i:from\\s+[^\\]]+)\\]", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\[(?i:sources?\\s*[^\\]]*)\\]", with: "", options: .regularExpression)
@@ -1090,6 +1516,11 @@ class SearchService: ObservableObject {
     /// Regenerate response for a given assistant message
     /// Finds the previous user message and re-sends it to get a new response
     func regenerateResponse(for assistantMessageId: UUID) async {
+        guard !ChatUsageTracker.shared.isLimitReached else {
+            print("🚫 Daily chat limit reached; regeneration blocked")
+            return
+        }
+
         // Find the assistant message in history
         guard let assistantIndex = conversationHistory.firstIndex(where: { $0.id == assistantMessageId && !$0.isUser }) else {
             print("❌ Could not find assistant message to regenerate")
@@ -1137,6 +1568,11 @@ class SearchService: ObservableObject {
 
     /// Start a conversation with an initial question
     func startConversation(with initialQuestion: String) async {
+        guard !ChatUsageTracker.shared.isLimitReached else {
+            print("🚫 Daily chat limit reached; startConversation blocked")
+            return
+        }
+
         startNewConversation()
         await addConversationMessage(initialQuestion)
     }
@@ -1189,7 +1625,7 @@ class SearchService: ObservableObject {
             }
 
         case .deleteEvent:
-            if let deletionData = conversationActionHandler.compileDeletionData(from: action) {
+            if conversationActionHandler.compileDeletionData(from: action) != nil {
                 // Handle deletion
                 let msg = ConversationMessage(
                     isUser: false,
@@ -1224,7 +1660,7 @@ class SearchService: ObservableObject {
             }
 
         case .deleteNote:
-            if let deletionData = conversationActionHandler.compileDeletionData(from: action) {
+            if conversationActionHandler.compileDeletionData(from: action) != nil {
                 // Handle deletion
                 let msg = ConversationMessage(
                     isUser: false,
@@ -1397,7 +1833,15 @@ class SearchService: ObservableObject {
     private func saveConversationLocally() {
         let defaults = UserDefaults.standard
         do {
-            let encoded = try JSONEncoder().encode(conversationHistory)
+            // Keep local cache bounded so UserDefaults never approaches the 4MB platform limit.
+            var snapshot = Array(conversationHistory.suffix(120))
+            var encoded = try JSONEncoder().encode(snapshot)
+
+            if encoded.count > 1_000_000 {
+                snapshot = Array(conversationHistory.suffix(40))
+                encoded = try JSONEncoder().encode(snapshot)
+            }
+
             defaults.set(encoded, forKey: "lastConversation")
         } catch {
             print("❌ Error saving conversation locally: \(error)")
@@ -1509,7 +1953,15 @@ class SearchService: ObservableObject {
     private func saveConversationHistoryLocally() {
         let defaults = UserDefaults.standard
         do {
-            let encoded = try JSONEncoder().encode(savedConversations)
+            let compact = Array(savedConversations.prefix(30)).map { conversation in
+                SavedConversation(
+                    id: conversation.id,
+                    title: conversation.title,
+                    messages: Array(conversation.messages.suffix(80)),
+                    createdAt: conversation.createdAt
+                )
+            }
+            let encoded = try JSONEncoder().encode(compact)
             defaults.set(encoded, forKey: "conversationHistory")
         } catch {
             print("❌ Error saving conversation history: \(error)")
@@ -1542,8 +1994,6 @@ class SearchService: ObservableObject {
 
     /// Restore which note was being edited by scanning conversation for note updates
     private func restoreNoteContextFromConversation() {
-        let notesManager = NotesManager.shared
-
         // Scan conversation history to find the most recent note mention
         for message in conversationHistory.reversed() {
             guard !message.isUser else { continue }
@@ -1780,7 +2230,6 @@ class SearchService: ObservableObject {
             // Fetch recent/upcoming events from TaskManager
             let taskManager = TaskManager.shared
             let allTasks = taskManager.getAllTasksIncludingArchived()
-            let now = Date()
             let relevantEvents = allTasks
                 .filter { task in
                     // Only include events that are from calendar

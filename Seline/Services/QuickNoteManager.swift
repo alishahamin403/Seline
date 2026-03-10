@@ -29,19 +29,20 @@ class QuickNoteManager: ObservableObject {
             .execute()
 
         let data = response.data
-        print("📥 QuickNotes: Received data: \(String(data: data, encoding: .utf8) ?? "nil")")
+        let payloadPreview = String(data: data.prefix(180), encoding: .utf8) ?? "nil"
+        print("📥 QuickNotes: Received \(data.count) bytes (preview: \(payloadPreview))")
 
         let decoder = JSONDecoder()
         // Don't use convertFromSnakeCase - we have explicit CodingKeys in the DTO
 
         // Use ISO8601 date decoding
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let dateString = try container.decode(String.self)
 
             // Try with fractional seconds first
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             if let date = formatter.date(from: dateString) {
                 return date
             }

@@ -12,10 +12,10 @@ import UIKit
 @MainActor
 class GeminiService: ObservableObject {
     static let shared = GeminiService()
-    private static let defaultModelName = "gemini-2.0-flash"
-    private static let fallbackModelName = "gemini-2.0-flash-lite"
-    private static let defaultMaxOutputTokens = 1200
-    private static let defaultStreamingOutputTokens = 1200
+    nonisolated private static let defaultModelName = "gemini-2.0-flash"
+    nonisolated private static let fallbackModelName = "gemini-2.0-flash-lite"
+    nonisolated private static let defaultMaxOutputTokens = 1200
+    nonisolated private static let defaultStreamingOutputTokens = 1200
 
     // Published properties for UI
     @Published var quotaUsed: Int = 0
@@ -192,7 +192,9 @@ class GeminiService: ObservableObject {
 
         LINK FORMAT:
         - Never output raw URLs.
-        - Always format links as markdown: [descriptive text](https://...)
+        - Only include a link when it is essential to complete a real action.
+        - For marketing or newsletter emails, do not include CTA or tracking links; describe the action in plain text instead.
+        - When a link is essential, format it as markdown: [descriptive text](https://...)
 
         STYLE:
         - No filler text.
@@ -278,8 +280,8 @@ class GeminiService: ObservableObject {
             options: .regularExpression
         )
         text = text.replacingOccurrences(
-            of: "(?i)<a[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)</a>",
-            with: "$2 ($1)",
+            of: "(?i)<a[^>]*href=[\"'][^\"']+[\"'][^>]*>([\\s\\S]*?)</a>",
+            with: "\n$1\n",
             options: .regularExpression
         )
 
@@ -321,6 +323,13 @@ class GeminiService: ObservableObject {
 
     func sanitizeEmailSummary(_ summary: String) -> String {
         normalizeEmailSummary(summary)
+    }
+
+    func sanitizeEmailSummaryDisplayText(_ text: String) -> String {
+        sanitizeSummaryLinkNoise(
+            text.trimmingCharacters(in: .whitespacesAndNewlines),
+            preserveSafeMarkdownLinks: false
+        )
     }
 
     private func normalizeEmailSummary(_ summary: String) -> String {
@@ -414,8 +423,171 @@ class GeminiService: ObservableObject {
             options: .regularExpression
         )
         cleaned = stripLeadInLabel(from: cleaned)
+        cleaned = sanitizeSummaryLinkNoise(cleaned, preserveSafeMarkdownLinks: true)
         cleaned = cleaned.replacingOccurrences(of: "\\s*\\.\\.\\.$", with: "", options: .regularExpression)
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func sanitizeSummaryLinkNoise(
+        _ text: String,
+        preserveSafeMarkdownLinks: Bool
+    ) -> String {
+        var cleaned = text
+
+        cleaned = replacingMarkdownLinks(
+            in: cleaned,
+            preserveSafeMarkdownLinks: preserveSafeMarkdownLinks
+        )
+        cleaned = replacingBareURLs(
+            in: cleaned,
+            preserveURLs: preserveSafeMarkdownLinks
+        )
+        cleaned = cleaned.replacingOccurrences(of: "\\(\\s*\\)", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "\\s{2,}", with: " ", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "\\s+([,.;!?])", with: "$1", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "(:\\s*)([,.;!?])", with: "$2", options: .regularExpression)
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func replacingMarkdownLinks(
+        in text: String,
+        preserveSafeMarkdownLinks: Bool
+    ) -> String {
+        let pattern = #"\[([^\]]+)\]\(([^)]+)\)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
+            return text
+        }
+
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+        var cleaned = text
+
+        for match in matches.reversed() where match.numberOfRanges >= 3 {
+            let fullRange = match.range(at: 0)
+            let labelRange = match.range(at: 1)
+            let urlRange = match.range(at: 2)
+
+            let label = normalizedSummaryLinkLabel(nsText.substring(with: labelRange))
+            let urlString = nsText.substring(with: urlRange).trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let replacement: String
+            if preserveSafeMarkdownLinks,
+               !shouldHideSummaryURL(urlString),
+               let normalizedURL = normalizedSummaryURLString(from: urlString) {
+                replacement = label.isEmpty ? normalizedURL : "[\(label)](\(normalizedURL))"
+            } else {
+                replacement = label.isEmpty ? fallbackSummaryURLLabel(for: urlString) : label
+            }
+
+            cleaned = (cleaned as NSString).replacingCharacters(in: fullRange, with: replacement)
+        }
+
+        return cleaned
+    }
+
+    private func replacingBareURLs(
+        in text: String,
+        preserveURLs: Bool
+    ) -> String {
+        let pattern = #"https?://[^\s<>"{}|\\^`\[\]]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return text
+        }
+
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+        var cleaned = text
+
+        for match in matches.reversed() {
+            let rawURL = nsText.substring(with: match.range)
+            let replacement: String
+
+            if preserveURLs,
+               !shouldHideSummaryURL(rawURL),
+               let normalizedURL = normalizedSummaryURLString(from: rawURL) {
+                replacement = normalizedURL
+            } else {
+                replacement = fallbackSummaryURLLabel(for: rawURL)
+            }
+
+            cleaned = (cleaned as NSString).replacingCharacters(in: match.range, with: replacement)
+        }
+
+        return cleaned
+    }
+
+    private func normalizedSummaryLinkLabel(_ label: String) -> String {
+        label
+            .replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func normalizedSummaryURLString(from urlString: String) -> String? {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let candidate = trimmed.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
+        if URL(string: candidate) != nil {
+            return candidate
+        }
+
+        let withoutTrailingPunctuation = candidate.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?"))
+        if URL(string: withoutTrailingPunctuation) != nil {
+            return withoutTrailingPunctuation
+        }
+
+        return nil
+    }
+
+    private func fallbackSummaryURLLabel(for urlString: String) -> String {
+        let normalized = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: normalized),
+           let host = url.host?.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression),
+           !host.isEmpty {
+            return host
+        }
+
+        let lowerNormalized = normalized.lowercased()
+        if let destinationRange = lowerNormalized.range(of: #"https?%3a%2f%2f[^&\s]+"#, options: .regularExpression) {
+            let encodedURL = String(lowerNormalized[destinationRange])
+            if let decodedURLString = encodedURL.removingPercentEncoding,
+               let decoded = URL(string: decodedURLString),
+               let host = decoded.host?.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression),
+               !host.isEmpty {
+                return host
+            }
+        }
+
+        return "link"
+    }
+
+    private func shouldHideSummaryURL(_ urlString: String) -> Bool {
+        let lower = urlString.lowercased()
+
+        if urlString.count > 140 {
+            return true
+        }
+
+        let noisyFragments = [
+            "%2f%2f",
+            "utm_",
+            "mc_cid",
+            "mc_eid",
+            "cm_mmc",
+            "af_",
+            "mi_mid",
+            "trk",
+            "redirect",
+            "reengagement",
+            "click.",
+            "lnk.",
+            "link.",
+            "newsletter",
+            "daVinciPersonalization".lowercased()
+        ]
+
+        return noisyFragments.contains { lower.contains($0) }
     }
 
     private func stripLeadInLabel(from text: String) -> String {
@@ -678,6 +850,12 @@ class GeminiService: ObservableObject {
         saveDailyUsage()
     }
 
+    /// Track request usage for Gemini globally and for chat-only limits when applicable
+    private func trackOperationUsage(tokens: Int, operationType: String?) async {
+        await trackTokenUsage(tokens: tokens)
+        await ChatUsageTracker.shared.trackTokenUsage(tokens: tokens, operationType: operationType)
+    }
+
     /// Get remaining tokens for today
     var dailyTokensRemaining: Int {
         max(0, dailyTokenLimit - dailyTokensUsed)
@@ -884,7 +1062,7 @@ class GeminiService: ObservableObject {
         }
 
         let totalTokens = promptTokens + completionTokens
-        await trackTokenUsage(tokens: totalTokens)
+        await trackOperationUsage(tokens: totalTokens, operationType: request.operation_type)
         logEstimatedRequestCost(
             model: request.model,
             operationType: request.operation_type,
@@ -1063,7 +1241,7 @@ class GeminiService: ObservableObject {
             completionTokens = max(1, fullText.count / 4)
         }
         let totalTokens = promptTokens + completionTokens
-        await trackTokenUsage(tokens: totalTokens)
+        await trackOperationUsage(tokens: totalTokens, operationType: operationType)
         logEstimatedRequestCost(
             model: selectedModel,
             operationType: operationType,
@@ -1295,16 +1473,22 @@ class GeminiService: ObservableObject {
 
         let entryDescriptions = entries.map { entry in
             let preview = entry.preview.isEmpty ? "No additional details." : entry.preview
-            return "- \(formatter.string(from: entry.date)): \(entry.title)\n  \(preview)"
+            let moodLine = entry.mood.map { " (Mood: \($0.title))" } ?? ""
+            return "- \(formatter.string(from: entry.date)): \(entry.title)\(moodLine)\n  \(preview)"
         }.joined(separator: "\n")
 
         let systemPrompt = """
-        You summarize weekly journal writing without sounding clinical or overly therapeutic.
-        - Write 2 to 4 concise sentences.
-        - Identify the dominant emotional or thematic pattern across the week.
-        - Mention 1 or 2 recurring concrete ideas if they genuinely appear.
+        You write weekly journal recaps in a warm, casual, human tone.
+        - Sound like a thoughtful friend reflecting the week back, not a coach, therapist, or manager.
+        - Write 4 to 6 sentences.
+        - Identify the main emotional or thematic thread across the week.
+        - Mention 2 to 4 concrete moments, habits, worries, or bright spots that actually show up in the entries.
+        - Call out noticeable mood shifts, repeats, or gaps if they are visible in the notes.
+        - Make it specific enough that it could only belong to this week, not any generic week.
+        - Keep the language natural, relaxed, and grounded.
+        - Do not sound corporate, clinical, polished, or overly formal.
         - Do not diagnose, overreach, or invent hidden meaning.
-        - Do not use bullets, markdown, or labels.
+        - Do not use bullets, markdown, headings, or labels.
         - Return plain prose only.
         """
 
@@ -1313,13 +1497,13 @@ class GeminiService: ObservableObject {
 
         \(entryDescriptions)
 
-        Write a concise weekly journal recap.
+        Write a concise weekly journal recap that feels personal and natural.
         """
 
         return try await generateText(
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
-            maxTokens: 170,
+            maxTokens: 260,
             temperature: 0.4,
             operationType: "journal_weekly_summary"
         )
@@ -1683,5 +1867,115 @@ enum GeminiError: LocalizedError {
         case .apiError(let message):
             return "Gemini API error: \(message)"
         }
+    }
+}
+
+@MainActor
+final class ChatUsageTracker: ObservableObject {
+    static let shared = ChatUsageTracker()
+
+    @Published private(set) var dailyTokensUsed: Int = 0
+    @Published private(set) var dailyQueryCount: Int = 0
+    @Published private(set) var usagePercentage: Double = 0.0
+
+    private let dailyTokenLimitValue: Int = 1_500_000
+    private var lastResetDate: Date = Date()
+    private var notifiedThresholds: Set<Int> = []
+    private let thresholds = [50, 80, 90, 100]
+
+    private init() {
+        Task {
+            await loadDailyUsage()
+        }
+    }
+
+    var dailyTokenLimit: Int {
+        dailyTokenLimitValue
+    }
+
+    var dailyTokensRemaining: Int {
+        max(0, dailyTokenLimitValue - dailyTokensUsed)
+    }
+
+    var isLimitReached: Bool {
+        dailyTokensUsed >= dailyTokenLimitValue
+    }
+
+    nonisolated static func shouldTrack(operationType: String?) -> Bool {
+        guard let operationType else { return false }
+        return ["main_chat", "main_chat_stream", "conversation_summary"].contains(operationType)
+    }
+
+    func loadDailyUsage() async {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        let tokensKey = getUserKey("chat_dailyTokensUsed")
+        let queryCountKey = getUserKey("chat_dailyQueryCount")
+        let dateKey = getUserKey("chat_lastResetDate")
+        let thresholdsKey = getUserKey("chat_notifiedThresholds")
+
+        if let savedDate = UserDefaults.standard.object(forKey: dateKey) as? Date {
+            lastResetDate = savedDate
+        }
+
+        if !calendar.isDate(lastResetDate, inSameDayAs: today) {
+            dailyTokensUsed = 0
+            dailyQueryCount = 0
+            usagePercentage = 0
+            notifiedThresholds = []
+            lastResetDate = today
+            saveDailyUsage()
+            return
+        }
+
+        dailyTokensUsed = UserDefaults.standard.integer(forKey: tokensKey)
+        dailyQueryCount = UserDefaults.standard.integer(forKey: queryCountKey)
+        let savedThresholds = UserDefaults.standard.array(forKey: thresholdsKey) as? [Int] ?? []
+        notifiedThresholds = Set(savedThresholds)
+        usagePercentage = min(100.0, (Double(dailyTokensUsed) / Double(dailyTokenLimitValue)) * 100.0)
+    }
+
+    func trackTokenUsage(tokens: Int, operationType: String?) async {
+        guard tokens > 0, Self.shouldTrack(operationType: operationType) else { return }
+
+        await loadDailyUsage()
+
+        dailyTokensUsed += tokens
+        dailyQueryCount += 1
+        usagePercentage = min(100.0, (Double(dailyTokensUsed) / Double(dailyTokenLimitValue)) * 100.0)
+
+        let crossedThresholds = thresholds.filter { threshold in
+            !notifiedThresholds.contains(threshold) && usagePercentage >= Double(threshold)
+        }
+
+        if !crossedThresholds.isEmpty {
+            notifiedThresholds.formUnion(crossedThresholds)
+        }
+
+        saveDailyUsage()
+
+        if let highestCrossedThreshold = crossedThresholds.max() {
+            await NotificationService.shared.scheduleChatUsageNotification(percentage: highestCrossedThreshold)
+        }
+    }
+
+    private func saveDailyUsage() {
+        let tokensKey = getUserKey("chat_dailyTokensUsed")
+        let queryCountKey = getUserKey("chat_dailyQueryCount")
+        let dateKey = getUserKey("chat_lastResetDate")
+        let thresholdsKey = getUserKey("chat_notifiedThresholds")
+
+        UserDefaults.standard.set(dailyTokensUsed, forKey: tokensKey)
+        UserDefaults.standard.set(dailyQueryCount, forKey: queryCountKey)
+        UserDefaults.standard.set(lastResetDate, forKey: dateKey)
+        UserDefaults.standard.set(Array(notifiedThresholds).sorted(), forKey: thresholdsKey)
+    }
+
+    private func getUserKey(_ key: String) -> String {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id.uuidString else {
+            return key
+        }
+        return "\(key)_\(userId)"
     }
 }

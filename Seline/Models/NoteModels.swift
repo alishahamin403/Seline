@@ -29,6 +29,7 @@ struct JournalSummaryInput: Hashable {
     let date: Date
     let title: String
     let preview: String
+    let mood: JournalMood?
 }
 
 struct JournalDraft: Identifiable, Hashable {
@@ -37,6 +38,39 @@ struct JournalDraft: Identifiable, Hashable {
     let folderId: UUID
     let kind: NoteKind
     let journalDate: Date
+}
+
+enum JournalMood: String, CaseIterable, Codable, Hashable, Identifiable {
+    case great
+    case good
+    case calm
+    case tired
+    case stressed
+    case low
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .great: return "Great"
+        case .good: return "Good"
+        case .calm: return "Calm"
+        case .tired: return "Tired"
+        case .stressed: return "Stressed"
+        case .low: return "Low"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .great: return "sun.max.fill"
+        case .good: return "sparkles"
+        case .calm: return "leaf.fill"
+        case .tired: return "moon.zzz.fill"
+        case .stressed: return "bolt.fill"
+        case .low: return "cloud.drizzle.fill"
+        }
+    }
 }
 
 struct Note: Identifiable, Codable, Hashable {
@@ -105,8 +139,16 @@ struct Note: Identifiable, Codable, Hashable {
         FormatterCache.formattedNoteModified(dateModified)
     }
 
+    var journalMood: JournalMood? {
+        Self.extractJournalMood(from: content)
+    }
+
+    var displayContent: String {
+        Self.stripJournalMetadata(from: content)
+    }
+
     var preview: String {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = displayContent.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return "No additional text"
         }
@@ -123,6 +165,156 @@ struct Note: Identifiable, Codable, Hashable {
 
     var isJournalWeeklyRecap: Bool {
         resolvedKind == .journalWeeklyRecap
+    }
+
+    var isMeaningfulJournalEntry: Bool {
+        guard isJournalEntry else { return false }
+        let visibleContent = displayContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return journalMood != nil || !visibleContent.isEmpty
+    }
+
+    private static let journalMoodMetadataPrefix = "<!--seline:journal_mood="
+    private static let journalMoodMetadataSuffix = "-->"
+
+    static func extractJournalMood(from rawContent: String) -> JournalMood? {
+        let lines = rawContent.split(
+            maxSplits: 1,
+            omittingEmptySubsequences: false,
+            whereSeparator: \.isNewline
+        )
+        guard let firstLine = lines.first else { return nil }
+
+        let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix(journalMoodMetadataPrefix),
+              trimmed.hasSuffix(journalMoodMetadataSuffix) else {
+            return nil
+        }
+
+        let rawValue = trimmed
+            .replacingOccurrences(of: journalMoodMetadataPrefix, with: "")
+            .replacingOccurrences(of: journalMoodMetadataSuffix, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return JournalMood(rawValue: rawValue)
+    }
+
+    static func stripJournalMetadata(from rawContent: String) -> String {
+        let lines = rawContent.split(
+            maxSplits: 1,
+            omittingEmptySubsequences: false,
+            whereSeparator: \.isNewline
+        )
+        guard let firstLine = lines.first else { return rawContent }
+
+        let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix(journalMoodMetadataPrefix),
+              trimmed.hasSuffix(journalMoodMetadataSuffix) else {
+            return rawContent
+        }
+
+        guard lines.count > 1 else { return "" }
+        return String(lines[1])
+    }
+
+    static func applyJournalMood(_ mood: JournalMood?, to rawContent: String) -> String {
+        let stripped = stripJournalMetadata(from: rawContent)
+        guard let mood else { return stripped }
+
+        let metadata = "\(journalMoodMetadataPrefix)\(mood.rawValue)\(journalMoodMetadataSuffix)"
+        guard !stripped.isEmpty else { return metadata }
+        return "\(metadata)\n\(stripped)"
+    }
+}
+
+extension Note {
+    var embeddingDate: Date {
+        if let journalDate {
+            return journalDate
+        }
+        if let journalWeekStartDate {
+            return journalWeekStartDate
+        }
+        return dateModified
+    }
+
+    var embeddingWeekEndDate: Date? {
+        guard let start = journalWeekStartDate else { return nil }
+        return Calendar.current.date(byAdding: .day, value: 7, to: start)
+    }
+
+    func embeddingFolderName(resolvedFolderName: String?) -> String {
+        if isJournalWeeklyRecap {
+            return "Journal Weekly Summary"
+        }
+        if isJournalEntry {
+            return "Journal"
+        }
+        let trimmed = resolvedFolderName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "Notes" : trimmed
+    }
+
+    func embeddingContent(resolvedFolderName: String?) -> String {
+        let visibleContent = displayContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let folderName = embeddingFolderName(resolvedFolderName: resolvedFolderName)
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+
+        var lines: [String] = []
+        switch resolvedKind {
+        case .journalEntry:
+            lines.append("Journal Entry")
+            if let journalDate {
+                lines.append("Journal date: \(formatter.string(from: journalDate))")
+            }
+            if let mood = journalMood {
+                lines.append("Mood: \(mood.rawValue.capitalized)")
+            }
+        case .journalWeeklyRecap:
+            lines.append("Journal Weekly Summary")
+            if let weekStart = journalWeekStartDate {
+                let weekEnd = Calendar.current.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+                lines.append("Week of: \(formatter.string(from: weekStart)) to \(formatter.string(from: weekEnd))")
+            }
+        case .standard:
+            lines.append("Note")
+        }
+
+        lines.append("Title: \(title)")
+        lines.append("Folder: \(folderName)")
+
+        if !visibleContent.isEmpty {
+            lines.append("Content:")
+            lines.append(visibleContent)
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    func embeddingMetadata(resolvedFolderName: String?) -> [String: Any] {
+        let iso = ISO8601DateFormatter()
+        var metadata: [String: Any] = [
+            "date": iso.string(from: embeddingDate),
+            "folder_name": embeddingFolderName(resolvedFolderName: resolvedFolderName),
+            "folder_id": folderId?.uuidString ?? NSNull(),
+            "is_pinned": isPinned,
+            "note_kind": resolvedKind.rawValue
+        ]
+
+        if let journalDate {
+            metadata["journal_date"] = iso.string(from: journalDate)
+        }
+        if let journalWeekStartDate {
+            metadata["journal_week_start_date"] = iso.string(from: journalWeekStartDate)
+        }
+        if let embeddingWeekEndDate {
+            metadata["journal_week_end_date"] = iso.string(from: embeddingWeekEndDate)
+        }
+        if let mood = journalMood {
+            metadata["journal_mood"] = mood.rawValue
+        }
+
+        return metadata
     }
 }
 
@@ -407,7 +599,7 @@ class NotesManager: ObservableObject {
 
         let imageUrlsArray: [PostgREST.AnyJSON] = imageUrls.map { .string($0) }
 
-        var noteData: [String: PostgREST.AnyJSON] = [
+        let noteData: [String: PostgREST.AnyJSON] = [
             "id": .string(note.id.uuidString),
             "user_id": .string(userId.uuidString),
             "title": .string(encryptedNote.title),
@@ -457,8 +649,16 @@ class NotesManager: ObservableObject {
             // Use encrypted content as fallback (less ideal but better than nothing)
             content = note.content
         }
-        
-        let contentToEmbed = "\(note.title)\n\n\(content)"
+
+        let folderName = note.folderId.flatMap { id in
+            folders.first(where: { $0.id == id })?.name
+        }
+        let noteForEmbedding: Note = {
+            var copy = note
+            copy.content = content
+            return copy
+        }()
+        let contentToEmbed = noteForEmbedding.embeddingContent(resolvedFolderName: folderName)
         
         do {
             try await VectorSearchService.shared.embedDocument(
@@ -466,11 +666,7 @@ class NotesManager: ObservableObject {
                 id: note.id.uuidString,
                 title: note.title,
                 content: contentToEmbed,
-                metadata: [
-                    "date": ISO8601DateFormatter().string(from: note.dateModified),
-                    "folder_id": note.folderId?.uuidString ?? NSNull(),
-                    "is_pinned": note.isPinned
-                ]
+                metadata: noteForEmbedding.embeddingMetadata(resolvedFolderName: folderName)
             )
             print("✅ Immediately embedded note: \(note.title)")
         } catch {
@@ -590,7 +786,7 @@ class NotesManager: ObservableObject {
     }
 
     private func updateNoteInSupabaseAndTrackResult(_ note: Note) async -> (success: Bool, error: String?) {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
             return (false, "No user ID found")
         }
 
@@ -604,7 +800,7 @@ class NotesManager: ObservableObject {
         let formatter = ISO8601DateFormatter()
         let imageUrlsArray: [PostgREST.AnyJSON] = encryptedNote.imageUrls.map { .string($0) }
 
-        var noteData: [String: PostgREST.AnyJSON] = [
+        let noteData: [String: PostgREST.AnyJSON] = [
             "title": .string(encryptedNote.title),
             "content": .string(encryptedNote.content),
             "is_locked": .bool(encryptedNote.isLocked),
@@ -788,7 +984,7 @@ class NotesManager: ObservableObject {
                 .execute()
 
             // Re-insert to notes table
-            await saveNoteToSupabaseWithRetry(note, maxRetries: 3)
+            _ = await saveNoteToSupabaseWithRetry(note, maxRetries: 3)
         } catch {
             print("❌ Error restoring note from trash: \(error)")
         }
@@ -1427,6 +1623,10 @@ class NotesManager: ObservableObject {
             }
     }
 
+    var meaningfulJournalEntries: [Note] {
+        journalEntries.filter(\.isMeaningfulJournalEntry)
+    }
+
     var journalWeeklyRecaps: [Note] {
         notes
             .filter { $0.isJournalWeeklyRecap }
@@ -1455,13 +1655,20 @@ class NotesManager: ObservableObject {
         }
     }
 
+    func meaningfulJournalEntry(for day: Date, calendar: Calendar = .current) -> Note? {
+        meaningfulJournalEntries.first { entry in
+            guard let journalDate = entry.journalDate else { return false }
+            return calendar.isDate(journalDate, inSameDayAs: day)
+        }
+    }
+
     func latestJournalRecap() -> Note? {
         journalWeeklyRecaps.first
     }
 
     func journalStats(referenceDate: Date = Date(), calendar: Calendar = .current) -> JournalStats {
         let uniqueEntryDays = Set(
-            journalEntries.compactMap { entry in
+            meaningfulJournalEntries.compactMap { entry in
                 entry.journalDate.map { calendar.startOfDay(for: $0) }
             }
         )
@@ -1857,13 +2064,13 @@ class NotesManager: ObservableObject {
         // CRITICAL: Ensure encryption key is initialized before loading
         // Wait for EncryptionManager to be ready (max 5 seconds)
         var attempts = 0
-        while await EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
+        while EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
             attempts += 1
         }
 
         // If still not initialized, force initialize it now
-        if await !EncryptionManager.shared.isKeyInitialized {
+        if !EncryptionManager.shared.isKeyInitialized {
             print("⚠️ Encryption key not initialized after 5 seconds, initializing now with userId: \(userId.uuidString)")
             await MainActor.run {
                 EncryptionManager.shared.setupEncryption(with: userId)
@@ -1871,7 +2078,7 @@ class NotesManager: ObservableObject {
         }
 
         // Verify encryption key is now initialized before proceeding
-        if await !EncryptionManager.shared.isKeyInitialized {
+        if !EncryptionManager.shared.isKeyInitialized {
             print("❌ CRITICAL: Encryption key failed to initialize! Notes cannot be decrypted.")
             return
         }
@@ -2175,13 +2382,13 @@ class NotesManager: ObservableObject {
         // CRITICAL: Ensure encryption key is initialized before loading
         // Wait for EncryptionManager to be ready (max 5 seconds)
         var attempts = 0
-        while await EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
+        while EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
             attempts += 1
         }
 
         // If still not initialized, force initialize it now
-        if await !EncryptionManager.shared.isKeyInitialized {
+        if !EncryptionManager.shared.isKeyInitialized {
             print("⚠️ Encryption key not initialized after 5 seconds, initializing now with userId: \(userId.uuidString)")
             await MainActor.run {
                 EncryptionManager.shared.setupEncryption(with: userId)
@@ -2189,7 +2396,7 @@ class NotesManager: ObservableObject {
         }
 
         // Verify encryption key is now initialized
-        if await !EncryptionManager.shared.isKeyInitialized {
+        if !EncryptionManager.shared.isKeyInitialized {
             print("❌ CRITICAL: Encryption key failed to initialize! Folders cannot be decrypted.")
             return
         }
@@ -2255,7 +2462,7 @@ class NotesManager: ObservableObject {
         var folderName = data.name
         do {
             // Attempt to decrypt - if it fails, the name is probably plain text (original behavior)
-            let decryptedName = try await EncryptionManager.shared.decrypt(data.name)
+            let decryptedName = try EncryptionManager.shared.decrypt(data.name)
             folderName = decryptedName
             print("✅ Decrypted folder name: \(data.name.prefix(30))... → \(folderName)")
         } catch {
@@ -2444,7 +2651,7 @@ class NotesManager: ObservableObject {
                 note.isLocked = supabaseNote.is_locked
 
                 // Check if already encrypted by trying to decrypt
-                let decryptTest = try? await EncryptionManager.shared.decrypt(supabaseNote.title)
+                let decryptTest = try? EncryptionManager.shared.decrypt(supabaseNote.title)
 
                 if decryptTest != nil && decryptTest == supabaseNote.title {
                     // Successfully decrypted to same value = already encrypted

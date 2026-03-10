@@ -33,20 +33,19 @@ class GmailAPIClient {
 
     private func refreshAccessToken() async throws {
         return try await withCheckedThrowingContinuation { continuation in
-            GIDSignIn.sharedInstance.restorePreviousSignIn { user, error in
-                if let error = error {
+            Task {
+                do {
+                    guard try await GIDSignIn.sharedInstance.restorePreviousSignIn() != nil else {
+                        print("❌ No user after refresh attempt")
+                        continuation.resume(throwing: GmailAPIError.notAuthenticated)
+                        return
+                    }
+
+                    continuation.resume(returning: ())
+                } catch {
                     print("❌ Failed to refresh token: \(error.localizedDescription)")
                     continuation.resume(throwing: GmailAPIError.notAuthenticated)
-                    return
                 }
-
-                guard user != nil else {
-                    print("❌ No user after refresh attempt")
-                    continuation.resume(throwing: GmailAPIError.notAuthenticated)
-                    return
-                }
-
-                continuation.resume(returning: ())
             }
         }
     }

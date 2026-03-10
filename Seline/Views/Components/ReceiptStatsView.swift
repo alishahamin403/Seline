@@ -16,13 +16,16 @@ struct ReceiptStatsView: View {
     @State private var showRecurringExpenses = false
     @State private var drilldownMode: DrilldownMode = .overview
     @State private var showAllYearlyCategories = false
-    @State private var selectedMonthName: String? = nil
+    @State private var selectedMonthDate: Date? = nil
     @State private var monthlyCategoryFilter: String? = nil
     @State private var showMonthlyCategoryBreakdown = false
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
     @State private var categoryBreakdownDebounceTask: Task<Void, Never>? = nil  // Debounce task for category recalculation
     @State private var contentHeight: CGFloat = 400
+    @State private var availableYearsSnapshot: [Int] = []
+    @State private var currentYearStatsSnapshot: YearlyReceiptSummary? = nil
+    @State private var previousYearTotalSnapshot: Double? = nil
 
     var searchText: String? = nil
     var initialMonthDate: Date? = nil
@@ -32,11 +35,11 @@ struct ReceiptStatsView: View {
     var isPopup: Bool = false
 
     var availableYears: [Int] {
-        notesManager.getAvailableReceiptYears()
+        availableYearsSnapshot
     }
 
     var currentYearStats: YearlyReceiptSummary? {
-        notesManager.getReceiptStatistics(year: currentYear).first
+        currentYearStatsSnapshot
     }
 
     private var monthlySummaries: [MonthlyReceiptSummary] {
@@ -44,8 +47,11 @@ struct ReceiptStatsView: View {
     }
 
     private var selectedMonthlySummary: MonthlyReceiptSummary? {
-        if let selectedMonthName,
-           let match = monthlySummaries.first(where: { $0.month == selectedMonthName }) {
+        let calendar = Calendar.current
+        if let selectedMonthDate,
+           let match = monthlySummaries.first(where: {
+               calendar.isDate($0.monthDate, equalTo: selectedMonthDate, toGranularity: .month)
+           }) {
             return match
         }
         return monthlySummaries.first
@@ -71,11 +77,23 @@ struct ReceiptStatsView: View {
     }
 
     private var averageMonthlySpend: Double {
-        currentYearTotal / 12
+        let monthCount = monthlySummaries.filter { !$0.receipts.isEmpty }.count
+        guard monthCount > 0 else { return 0 }
+
+        let calendar = Calendar.current
+        let currentCalendarYear = calendar.component(.year, from: Date())
+        if currentYear == currentCalendarYear {
+            let completedMonths = max(calendar.component(.month, from: Date()) - 1, 0)
+            if completedMonths > 0 {
+                return currentYearTotal / Double(min(monthCount, completedMonths))
+            }
+        }
+
+        return currentYearTotal / Double(monthCount)
     }
 
     private var previousYearTotal: Double? {
-        notesManager.getReceiptStatistics(year: currentYear - 1).first?.yearlyTotal
+        previousYearTotalSnapshot
     }
 
     private var yearOverYearDelta: Double? {
@@ -200,44 +218,9 @@ struct ReceiptStatsView: View {
 
     private var currentMonthAveragePerDay: Double {
         guard let selectedMonthlySummary else { return 0 }
-        let days = Calendar.current.range(of: .day, in: .month, for: selectedMonthlySummary.monthDate)?.count ?? 30
+        let days = completedDayCount(for: selectedMonthlySummary.monthDate)
         guard days > 0 else { return selectedMonthlySummary.monthlyTotal }
         return selectedMonthlySummary.monthlyTotal / Double(days)
-    }
-
-    private var monthlyTotalsForYear: [Double] {
-        monthlySummaries.map(\.monthlyTotal)
-    }
-
-    private var monthlyBaseline: (average: Double, stdDev: Double)? {
-        let values = monthlyTotalsForYear
-        guard values.count >= 2 else { return nil }
-        let avg = values.reduce(0, +) / Double(values.count)
-        let variance = values.reduce(0) { partial, value in
-            let delta = value - avg
-            return partial + (delta * delta)
-        } / Double(values.count)
-        return (avg, sqrt(max(variance, 0)))
-    }
-
-    private var yearlyAnomalyText: String? {
-        guard let largestMonthlySummary,
-              let baseline = monthlyBaseline,
-              baseline.average > 0 else { return nil }
-
-        let delta = largestMonthlySummary.monthlyTotal - baseline.average
-        let percent = (delta / baseline.average) * 100
-        guard percent >= 25 else { return nil }
-
-        return "\(largestMonthlySummary.month) is \(String(format: "%.0f%%", percent)) above your monthly average."
-    }
-
-    private var receiptHeroSummaryText: String {
-        if currentYearReceiptCount == 0 {
-            return "Track receipts, categories, and monthly spending patterns."
-        }
-
-        return "\(currentYear) · \(currentYearReceiptCount) receipts · Avg \(CurrencyParser.formatAmountNoDecimals(averageMonthlySpend))/month"
     }
 
     var body: some View {
@@ -261,6 +244,7 @@ struct ReceiptStatsView: View {
             }
         }
         .onAppear {
+            refreshSummaryCache()
             let calendar = Calendar.current
             if let initialMonthDate {
                 let initialYear = calendar.component(.year, from: initialMonthDate)
@@ -273,12 +257,14 @@ struct ReceiptStatsView: View {
                 currentYear = availableYears.first ?? calendar.component(.year, from: Date())
             }
 
-            selectedMonthName = monthlySummaries.first?.month
+            refreshSummaryCache()
+            selectedMonthDate = monthlySummaries.first?.monthDate
             applyInitialMonthSelectionIfNeeded()
             loadCategoryBreakdown()
         }
         .onChange(of: currentYear) { _ in
-            selectedMonthName = monthlySummaries.first?.month
+            refreshSummaryCache()
+            selectedMonthDate = monthlySummaries.first?.monthDate
             monthlyCategoryFilter = nil
             drilldownMode = .overview
             applyInitialMonthSelectionIfNeeded()
@@ -289,6 +275,7 @@ struct ReceiptStatsView: View {
             categoryBreakdownDebounceTask = Task {
                 try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
                 if !Task.isCancelled {
+                    refreshSummaryCache()
                     loadCategoryBreakdown()
                 }
             }
@@ -553,7 +540,7 @@ struct ReceiptStatsView: View {
 
     private func monthSnapshotCard(_ monthlySummary: MonthlyReceiptSummary) -> some View {
         Button(action: {
-            selectedMonthName = monthlySummary.month
+            selectedMonthDate = monthlySummary.monthDate
             monthlyCategoryFilter = nil
             withAnimation(.easeInOut(duration: 0.2)) {
                 drilldownMode = .monthly
@@ -567,7 +554,7 @@ struct ReceiptStatsView: View {
 
                     Text("\(monthlySummary.receipts.count) receipts • Avg \(CurrencyParser.formatAmountNoDecimals(monthAveragePerDay(for: monthlySummary)))/day")
                         .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(secondaryTextColor)
+                        .foregroundColor(primaryTextColor)
                 }
 
                 Spacer()
@@ -750,7 +737,7 @@ struct ReceiptStatsView: View {
                             .fill(mutedFillColor)
                     )
                     .onTapGesture {
-                        selectedMonthName = monthlySummary.month
+                        selectedMonthDate = monthlySummary.monthDate
                         monthlyCategoryFilter = nil
                         withAnimation(.easeInOut(duration: 0.2)) {
                             drilldownMode = .monthly
@@ -851,7 +838,7 @@ struct ReceiptStatsView: View {
                 Text("Avg \(CurrencyParser.formatAmountNoDecimals(currentMonthAveragePerDay))/day")
             }
             .font(FontManager.geist(size: 13, weight: .medium))
-            .foregroundColor(secondaryTextColor)
+            .foregroundColor(primaryTextColor)
 
             HStack {
                 Text(CurrencyParser.formatAmountNoDecimals(currentMonthSummaryTotal))
@@ -1013,14 +1000,9 @@ struct ReceiptStatsView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Receipts")
+                    Text(String(currentYear))
                         .font(FontManager.geist(size: 28, weight: .semibold))
                         .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                    Text(receiptHeroSummaryText)
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                        .lineLimit(2)
                 }
 
                 Spacer(minLength: 12)
@@ -1083,10 +1065,6 @@ struct ReceiptStatsView: View {
                 receiptHeroMetricTile(label: "Avg/month", value: CurrencyParser.formatAmountNoDecimals(averageMonthlySpend))
             }
 
-            if let yearlyAnomalyText {
-                anomalyCallout(text: yearlyAnomalyText)
-            }
-
             if let yearOverYearDelta {
                 let isUp = yearOverYearDelta >= 0
                 let trendColor: Color = isUp ? .red : .green
@@ -1135,23 +1113,6 @@ struct ReceiptStatsView: View {
         .accessibilityLabel("Add receipt")
     }
 
-    private func anomalyCallout(text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "waveform.path.ecg")
-                .font(FontManager.geist(size: 10, weight: .semibold))
-            Text(text)
-                .font(FontManager.geist(size: 11, weight: .medium))
-                .lineLimit(2)
-        }
-        .foregroundColor(colorScheme == .dark ? Color.orange.opacity(0.95) : Color.orange.opacity(0.9))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(colorScheme == .dark ? Color.orange.opacity(0.18) : Color.orange.opacity(0.1))
-        )
-    }
-
     private var emptyReceiptsCard: some View {
         VStack(spacing: 8) {
             Image(systemName: "doc.text")
@@ -1187,6 +1148,13 @@ struct ReceiptStatsView: View {
         }
     }
 
+    private func refreshSummaryCache() {
+        let availableYears = notesManager.getAvailableReceiptYears()
+        availableYearsSnapshot = availableYears
+        currentYearStatsSnapshot = notesManager.getReceiptStatistics(year: currentYear).first
+        previousYearTotalSnapshot = notesManager.getReceiptStatistics(year: currentYear - 1).first?.yearlyTotal
+    }
+
     private func loadCategoryBreakdown() {
         guard !availableYears.isEmpty else {
             categoryBreakdown = nil
@@ -1205,14 +1173,17 @@ struct ReceiptStatsView: View {
     }
 
     private func monthAveragePerDay(for monthSummary: MonthlyReceiptSummary) -> Double {
-        let days = Calendar.current.range(of: .day, in: .month, for: monthSummary.monthDate)?.count ?? 30
+        let days = completedDayCount(for: monthSummary.monthDate)
         guard days > 0 else { return monthSummary.monthlyTotal }
         return monthSummary.monthlyTotal / Double(days)
     }
 
     private var selectedMonthIndex: Int? {
+        let calendar = Calendar.current
         guard let selectedMonthlySummary else { return nil }
-        return monthlySummaries.firstIndex(where: { $0.month == selectedMonthlySummary.month })
+        return monthlySummaries.firstIndex(where: {
+            calendar.isDate($0.monthDate, equalTo: selectedMonthlySummary.monthDate, toGranularity: .month)
+        })
     }
 
     private var canShiftToOlderMonth: Bool {
@@ -1231,7 +1202,7 @@ struct ReceiptStatsView: View {
         guard newIndex >= 0 && newIndex < monthlySummaries.count else { return }
 
         withAnimation(.easeInOut(duration: 0.2)) {
-            selectedMonthName = monthlySummaries[newIndex].month
+            selectedMonthDate = monthlySummaries[newIndex].monthDate
             monthlyCategoryFilter = nil
         }
     }
@@ -1260,9 +1231,21 @@ struct ReceiptStatsView: View {
         if let month = monthlySummaries.first(where: {
             calendar.isDate($0.monthDate, equalTo: initialMonthDate, toGranularity: .month)
         }) {
-            selectedMonthName = month.month
+            selectedMonthDate = month.monthDate
             drilldownMode = .monthly
         }
+    }
+
+    private func completedDayCount(for monthDate: Date) -> Int {
+        let calendar = Calendar.current
+        let fullMonthDayCount = calendar.range(of: .day, in: .month, for: monthDate)?.count ?? 30
+        let today = Date()
+
+        guard calendar.isDate(monthDate, equalTo: today, toGranularity: .month) else {
+            return fullMonthDayCount
+        }
+
+        return min(max(calendar.component(.day, from: today), 1), fullMonthDayCount)
     }
 
 }

@@ -17,7 +17,7 @@ struct CalendarMonthView: View {
     
     private let calendar = Calendar.current
     private let maxEventsPerCell = 1
-    private let rowHeight: CGFloat = 64
+    private let rowHeight: CGFloat = 58
     private static let cacheKeyDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -59,10 +59,6 @@ struct CalendarMonthView: View {
     
     private var backgroundColor: Color {
         Color.clear
-    }
-    
-    private var todayHighlightColor: Color {
-        Color.emailGlassAccent
     }
     
     // MARK: - Date Calculations
@@ -157,15 +153,13 @@ struct CalendarMonthView: View {
         }
         .background(backgroundColor)
         .onChange(of: selectedDate) { newDate in
-            // Update current month when selected date changes
             if !calendar.isDate(newDate, equalTo: currentMonth, toGranularity: .month) {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                withAnimation(.easeInOut(duration: 0.26)) {
                     currentMonth = newDate
                 }
             }
         }
         .onChange(of: currentMonth) { _ in
-            // Rebuild cache when month changes
             rebuildCacheForCurrentMonth()
             monthPageSelection = 1
         }
@@ -173,11 +167,9 @@ struct CalendarMonthView: View {
             rebuildCacheForCurrentMonth()
         }
         .onChange(of: taskManager.tasks) { _ in
-            // Rebuild cache when tasks change
             rebuildCacheForCurrentMonth()
         }
         .onAppear {
-            // Build initial cache
             rebuildCacheForCurrentMonth()
         }
     }
@@ -186,35 +178,34 @@ struct CalendarMonthView: View {
     
     private var monthNavigationHeader: some View {
         HStack {
-            // Previous month button
             Button(action: {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                withAnimation(.easeInOut(duration: 0.26)) {
                     previousMonth()
                 }
                 HapticManager.shared.selection()
             }) {
                 Image(systemName: "chevron.left")
                     .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(primaryTextColor)
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 32, height: 32)
-                    .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
             }
             .buttonStyle(PlainButtonStyle())
             
             Spacer()
             
-            // Month name
             Text(monthYearString)
                 .font(FontManager.geist(size: 18, weight: .semibold))
-                .foregroundColor(primaryTextColor)
+                .foregroundColor(colorScheme == .dark ? .white : .black)
             
             Spacer()
             
-            // Today button
-            let isCurrentMonth = calendar.isDate(currentMonth, equalTo: Date(), toGranularity: .month)
             Button(action: {
                 let today = calendar.startOfDay(for: Date())
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                withAnimation(.easeInOut(duration: 0.26)) {
                     selectedDate = today
                     currentMonth = today
                 }
@@ -222,25 +213,30 @@ struct CalendarMonthView: View {
             }) {
                 Text("Today")
                     .font(FontManager.geist(size: 13, weight: .medium))
-                    .foregroundColor(isCurrentMonth ? primaryTextColor : primaryTextColor.opacity(0.7))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
             }
             .buttonStyle(PlainButtonStyle())
             
-            // Next month button
             Button(action: {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                withAnimation(.easeInOut(duration: 0.26)) {
                     nextMonth()
                 }
                 HapticManager.shared.selection()
             }) {
                 Image(systemName: "chevron.right")
                     .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(primaryTextColor)
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 32, height: 32)
-                    .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
             }
             .buttonStyle(PlainButtonStyle())
         }
@@ -259,12 +255,12 @@ struct CalendarMonthView: View {
             ForEach(["S", "M", "T", "W", "T", "F", "S"], id: \.self) { day in
                 Text(day)
                     .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(secondaryTextColor)
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     .frame(maxWidth: .infinity)
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.bottom, 8)
     }
     
     // MARK: - Calendar Grid
@@ -285,10 +281,11 @@ struct CalendarMonthView: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .frame(height: CGFloat(weeksInMonth.count) * rowHeight)
+        .padding(.bottom, 10)
         .onChange(of: monthPageSelection) { newSelection in
             guard newSelection != 1 else { return }
 
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            withAnimation(.easeInOut(duration: 0.26)) {
                 if newSelection == 0 {
                     previousMonth()
                 } else {
@@ -316,7 +313,7 @@ struct CalendarMonthView: View {
         HStack(spacing: 0) {
             ForEach(Array(week.enumerated()), id: \.offset) { dayIndex, date in
                 if let date = date {
-                    dayCell(date: date)
+                    dayCell(date: date, in: currentMonth)
                         .frame(maxWidth: .infinity)
                 } else {
                     Color.clear
@@ -330,108 +327,70 @@ struct CalendarMonthView: View {
     
     // MARK: - Day Cell
     
-    private func dayCell(date: Date) -> some View {
+    private func dayCell(date: Date, in month: Date) -> some View {
+        let normalizedDate = calendar.startOfDay(for: date)
         let isToday = calendar.isDateInToday(date)
         let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
         let events = getFilteredEvents(for: date)
-        
-        return VStack(alignment: .leading, spacing: 1) {
-                // Day number - center aligned
-                HStack {
-                    Spacer()
-                    if isToday {
-                        Text(dayNumber(date))
-                            .font(FontManager.geist(size: 12, weight: .semibold))
-                            .foregroundColor(primaryTextColor)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .stroke(todayHighlightColor, lineWidth: 1.5)
-                            )
-                    } else if isSelected {
-                        Text(dayNumber(date))
-                            .font(FontManager.geist(size: 12, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .black : .white)
-                            .frame(width: 28, height: 28)
-                            .background(Circle().fill(colorScheme == .dark ? Color.white : Color.appTextPrimary(colorScheme)))
-                    } else {
-                        Text(dayNumber(date))
-                            .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(primaryTextColor)
-                            .frame(width: 28, height: 28)
-                    }
-                    Spacer()
-                }
-                .padding(.top, 1)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(events.prefix(maxEventsPerCell).enumerated()), id: \.element.id) { index, event in
-                        eventChip(event: event)
-                    }
-                    
-                    // More indicator if there are more events than displayed
-                    if events.count > maxEventsPerCell {
-                        HStack(spacing: 3) {
-                            Circle()
-                                .fill(secondaryTextColor.opacity(0.8))
-                                .frame(width: 3, height: 3)
-                            Circle()
-                                .fill(secondaryTextColor.opacity(0.8))
-                                .frame(width: 3, height: 3)
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.top, 1)
-                    }
-                }
-                .padding(.horizontal, 4)
+        let isInCurrentMonth = calendar.isDate(date, equalTo: month, toGranularity: .month)
+
+        return Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedDate = normalizedDate
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(
-                isSelected && !isToday ?
-                    (colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.05)) :
-                    Color.clear
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    selectedDate = date
-                }
-                HapticManager.shared.selection()
-            }
-    }
-    
-    // MARK: - Event Chip
-    
-    private func eventChip(event: TaskItem) -> some View {
-        let filterType = TimelineEventColorManager.filterType(from: event)
-        let tagColorIndex: Int?
-        if case .tag(let tagId) = filterType {
-            tagColorIndex = tagManager.getTag(by: tagId)?.colorIndex
-        } else {
-            tagColorIndex = nil
-        }
-        
-        return Text(event.title)
-            .font(FontManager.geist(size: 9, weight: .medium))
-            .foregroundColor(primaryTextColor.opacity(0.82))
-            .lineLimit(1)
-            .padding(.vertical, 2)
-            .padding(.horizontal, 6)
-            .frame(height: 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                Capsule()
-                    .fill(
-                        tagColorIndex != nil
-                            ? Color.emailGlassAccent.opacity(colorScheme == .dark ? 0.18 : 0.16)
-                            : Color.appChip(colorScheme)
+            HapticManager.shared.selection()
+        }) {
+            VStack(spacing: 5) {
+                Text(dayNumber(date))
+                    .font(FontManager.geist(size: 12, weight: isToday || isSelected ? .semibold : .regular))
+                    .foregroundColor(
+                        isSelected ? (colorScheme == .dark ? .black : .white) :
+                        !isInCurrentMonth ? (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.35)) :
+                        (colorScheme == .dark ? Color.white : Color.black)
                     )
-            )
-            .overlay(
-                Capsule()
-                    .stroke(Color.appBorder(colorScheme), lineWidth: 0.8)
-            )
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Group {
+                            if isSelected {
+                                Circle().fill(colorScheme == .dark ? Color.white : Color.black)
+                            } else if isToday {
+                                Circle().stroke(
+                                    colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.3),
+                                    lineWidth: 1.5
+                                )
+                            }
+                        }
+                    )
+
+                if let primaryEvent = events.first {
+                    Text(primaryEvent.title)
+                        .font(FontManager.geist(size: 8, weight: .medium))
+                        .foregroundColor(
+                            isSelected
+                            ? (colorScheme == .dark ? .black : .white)
+                            : (colorScheme == .dark ? Color.white.opacity(0.74) : Color.black.opacity(0.72))
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(
+                                    isSelected
+                                    ? (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.15))
+                                    : (colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.06))
+                                )
+                        )
+                } else {
+                    Color.clear
+                        .frame(height: 12)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+        }
+        .buttonStyle(PlainButtonStyle())
     }
     
     // MARK: - Helper Methods
@@ -463,7 +422,7 @@ struct CalendarMonthView: View {
     }
     
     private func rebuildCacheForCurrentMonth() {
-        let dates = daysInMonth
+        let dates = daysInMonth(for: monthOffset(-1)) + daysInMonth + daysInMonth(for: monthOffset(1))
         let currentTagId = selectedTagId
         var nextCache: [String: [TaskItem]] = [:]
         nextCache.reserveCapacity(dates.count)
@@ -518,14 +477,12 @@ struct CalendarMonthView: View {
     private func previousMonth() {
         if let newMonth = calendar.date(byAdding: .month, value: -1, to: currentMonth) {
             currentMonth = newMonth
-            HapticManager.shared.light()
         }
     }
     
     private func nextMonth() {
         if let newMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth) {
             currentMonth = newMonth
-            HapticManager.shared.light()
         }
     }
 

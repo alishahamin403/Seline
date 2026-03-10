@@ -1,6 +1,7 @@
 import Foundation
 import PostgREST
 
+@MainActor
 class RecurringExpenseService {
     static let shared = RecurringExpenseService()
 

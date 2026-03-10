@@ -18,9 +18,6 @@ struct NotesPlaceholderView: View, Searchable {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.shadcnBackground(colorScheme))
-        .onAppear {
-            SearchService.shared.registerSearchableProvider(self, for: .notes)
-        }
     }
 
     func getSearchableContent() -> [SearchableItem] {
@@ -66,9 +63,6 @@ struct MapsPlaceholderView: View, Searchable {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.shadcnBackground(colorScheme))
-        .onAppear {
-            SearchService.shared.registerSearchableProvider(self, for: .maps)
-        }
     }
 
     func getSearchableContent() -> [SearchableItem] {

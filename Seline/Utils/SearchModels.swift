@@ -47,6 +47,7 @@ struct SearchResult: Identifiable, Hashable {
 
 // MARK: - Searchable Protocol
 
+@MainActor
 protocol Searchable {
     func getSearchableContent() -> [SearchableItem]
 }

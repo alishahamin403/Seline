@@ -68,13 +68,13 @@ class AudioSessionCoordinator: ObservableObject {
 
             case .recording:
                 try audioSession.setCategory(.playAndRecord, mode: .spokenAudio,
-                    options: [.defaultToSpeaker, .allowBluetooth])
+                    options: [.defaultToSpeaker, .allowBluetoothHFP])
                 try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
                 print("🎙️ Audio session: recording")
 
             case .playback:
                 try audioSession.setCategory(.playAndRecord, mode: .spokenAudio,
-                    options: [.defaultToSpeaker, .allowBluetooth, .duckOthers])
+                    options: [.defaultToSpeaker, .allowBluetoothHFP, .duckOthers])
                 try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
                 print("🔊 Audio session: playback")
             }

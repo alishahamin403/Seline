@@ -132,6 +132,13 @@ struct RelevantContentInfo: Codable, Identifiable {
     let noteTitle: String?
     let noteSnippet: String?
     let noteFolder: String?
+
+    // For receipts
+    let receiptId: UUID?
+    let receiptTitle: String?
+    let receiptAmount: Double?
+    let receiptDate: Date?
+    let receiptCategory: String?
     
     // For events
     let eventId: UUID?
@@ -144,12 +151,28 @@ struct RelevantContentInfo: Codable, Identifiable {
     let locationName: String?
     let locationAddress: String?
     let locationCategory: String?
-    
+
+    // For visits
+    let visitId: UUID?
+    let visitEntryTime: Date?
+    let visitExitTime: Date?
+    let visitDurationMinutes: Int?
+    let visitPlaceId: UUID?
+    let visitPlaceName: String?
+
+    // For people
+    let personId: UUID?
+    let personName: String?
+    let personRelationship: String?
+
     enum ContentType: String, Codable {
         case email
         case note
+        case receipt
         case event
         case location
+        case visit
+        case person
     }
     
     // Convenience initializers
@@ -163,11 +186,14 @@ struct RelevantContentInfo: Codable, Identifiable {
             emailSnippet: snippet,
             emailDate: date,
             noteId: nil, noteTitle: nil, noteSnippet: nil, noteFolder: nil,
+            receiptId: nil, receiptTitle: nil, receiptAmount: nil, receiptDate: nil, receiptCategory: nil,
             eventId: nil, eventTitle: nil, eventDate: nil, eventCategory: nil,
-            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil
+            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil,
+            visitId: nil, visitEntryTime: nil, visitExitTime: nil, visitDurationMinutes: nil, visitPlaceId: nil, visitPlaceName: nil,
+            personId: nil, personName: nil, personRelationship: nil
         )
     }
-    
+
     static func note(id: UUID, title: String, snippet: String, folder: String) -> RelevantContentInfo {
         RelevantContentInfo(
             id: UUID(),
@@ -177,36 +203,112 @@ struct RelevantContentInfo: Codable, Identifiable {
             noteTitle: title,
             noteSnippet: snippet,
             noteFolder: folder,
+            receiptId: nil, receiptTitle: nil, receiptAmount: nil, receiptDate: nil, receiptCategory: nil,
             eventId: nil, eventTitle: nil, eventDate: nil, eventCategory: nil,
-            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil
+            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil,
+            visitId: nil, visitEntryTime: nil, visitExitTime: nil, visitDurationMinutes: nil, visitPlaceId: nil, visitPlaceName: nil,
+            personId: nil, personName: nil, personRelationship: nil
         )
     }
-    
+
+    static func receipt(id: UUID, title: String, amount: Double?, date: Date?, category: String?) -> RelevantContentInfo {
+        RelevantContentInfo(
+            id: UUID(),
+            contentType: .receipt,
+            emailId: nil, emailSubject: nil, emailSender: nil, emailSnippet: nil, emailDate: nil,
+            noteId: id,
+            noteTitle: title,
+            noteSnippet: nil,
+            noteFolder: "Receipts",
+            receiptId: id,
+            receiptTitle: title,
+            receiptAmount: amount,
+            receiptDate: date,
+            receiptCategory: category,
+            eventId: nil, eventTitle: nil, eventDate: nil, eventCategory: nil,
+            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil,
+            visitId: nil, visitEntryTime: nil, visitExitTime: nil, visitDurationMinutes: nil, visitPlaceId: nil, visitPlaceName: nil,
+            personId: nil, personName: nil, personRelationship: nil
+        )
+    }
+
     static func event(id: UUID, title: String, date: Date, category: String) -> RelevantContentInfo {
         RelevantContentInfo(
             id: UUID(),
             contentType: .event,
             emailId: nil, emailSubject: nil, emailSender: nil, emailSnippet: nil, emailDate: nil,
             noteId: nil, noteTitle: nil, noteSnippet: nil, noteFolder: nil,
+            receiptId: nil, receiptTitle: nil, receiptAmount: nil, receiptDate: nil, receiptCategory: nil,
             eventId: id,
             eventTitle: title,
             eventDate: date,
             eventCategory: category,
-            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil
+            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil,
+            visitId: nil, visitEntryTime: nil, visitExitTime: nil, visitDurationMinutes: nil, visitPlaceId: nil, visitPlaceName: nil,
+            personId: nil, personName: nil, personRelationship: nil
         )
     }
-    
+
     static func location(id: UUID, name: String, address: String, category: String) -> RelevantContentInfo {
         RelevantContentInfo(
             id: UUID(),
             contentType: .location,
             emailId: nil, emailSubject: nil, emailSender: nil, emailSnippet: nil, emailDate: nil,
             noteId: nil, noteTitle: nil, noteSnippet: nil, noteFolder: nil,
+            receiptId: nil, receiptTitle: nil, receiptAmount: nil, receiptDate: nil, receiptCategory: nil,
             eventId: nil, eventTitle: nil, eventDate: nil, eventCategory: nil,
             locationId: id,
             locationName: name,
             locationAddress: address,
-            locationCategory: category
+            locationCategory: category,
+            visitId: nil, visitEntryTime: nil, visitExitTime: nil, visitDurationMinutes: nil, visitPlaceId: nil, visitPlaceName: nil,
+            personId: nil, personName: nil, personRelationship: nil
+        )
+    }
+
+    static func visit(
+        id: UUID,
+        placeId: UUID?,
+        placeName: String?,
+        address: String? = nil,
+        entryTime: Date?,
+        exitTime: Date?,
+        durationMinutes: Int?
+    ) -> RelevantContentInfo {
+        RelevantContentInfo(
+            id: UUID(),
+            contentType: .visit,
+            emailId: nil, emailSubject: nil, emailSender: nil, emailSnippet: nil, emailDate: nil,
+            noteId: nil, noteTitle: nil, noteSnippet: nil, noteFolder: nil,
+            receiptId: nil, receiptTitle: nil, receiptAmount: nil, receiptDate: nil, receiptCategory: nil,
+            eventId: nil, eventTitle: nil, eventDate: nil, eventCategory: nil,
+            locationId: placeId,
+            locationName: placeName,
+            locationAddress: address,
+            locationCategory: nil,
+            visitId: id,
+            visitEntryTime: entryTime,
+            visitExitTime: exitTime,
+            visitDurationMinutes: durationMinutes,
+            visitPlaceId: placeId,
+            visitPlaceName: placeName,
+            personId: nil, personName: nil, personRelationship: nil
+        )
+    }
+
+    static func person(id: UUID, name: String, relationship: String?) -> RelevantContentInfo {
+        RelevantContentInfo(
+            id: UUID(),
+            contentType: .person,
+            emailId: nil, emailSubject: nil, emailSender: nil, emailSnippet: nil, emailDate: nil,
+            noteId: nil, noteTitle: nil, noteSnippet: nil, noteFolder: nil,
+            receiptId: nil, receiptTitle: nil, receiptAmount: nil, receiptDate: nil, receiptCategory: nil,
+            eventId: nil, eventTitle: nil, eventDate: nil, eventCategory: nil,
+            locationId: nil, locationName: nil, locationAddress: nil, locationCategory: nil,
+            visitId: nil, visitEntryTime: nil, visitExitTime: nil, visitDurationMinutes: nil, visitPlaceId: nil, visitPlaceName: nil,
+            personId: id,
+            personName: name,
+            personRelationship: relationship
         )
     }
 }

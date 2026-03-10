@@ -24,6 +24,12 @@ struct WeeklyVisitSummaryItem {
     let totalMinutes: Int
 }
 
+struct ProcessedVisitDisplayContext {
+    let displayedVisit: LocationVisitRecord
+    let sourceVisits: [LocationVisitRecord]
+    let isDerivedSplit: Bool
+}
+
 // MARK: - LocationVisitAnalytics Service
 
 @MainActor
@@ -110,40 +116,84 @@ class LocationVisitAnalytics: ObservableObject {
     /// Shared function to process visits for display (splits midnight-spanning, merges gaps)
     /// This ensures all views show consistent, processed visit data
     func processVisitsForDisplay(_ visits: [LocationVisitRecord]) -> [LocationVisitRecord] {
+        buildDisplayContexts(for: visits).map(\.displayedVisit)
+    }
+
+    func buildDisplayContexts(for visits: [LocationVisitRecord]) -> [ProcessedVisitDisplayContext] {
         guard !visits.isEmpty else { return [] }
-        var processedVisits: [LocationVisitRecord] = []
-        
-        // Track which time ranges have split visits to avoid duplicates
-        var splitVisitTimeRanges: Set<String> = []
-        
-        // First pass: identify all split visits and their time ranges
-        for visit in visits {
-            if visit.mergeReason?.contains("midnight_split") == true {
-                if let sessionId = visit.sessionId {
-                    splitVisitTimeRanges.insert(sessionId.uuidString)
-                }
+
+        let splitVisitSessionIds: Set<String> = Set(
+            visits.compactMap { visit in
+                guard visit.mergeReason?.contains("midnight_split") == true else { return nil }
+                return visit.sessionId?.uuidString
             }
-        }
-        
-        // Second pass: process visits
+        )
+
+        var expandedVisits: [(displayed: LocationVisitRecord, sourceVisits: [LocationVisitRecord])] = []
+
         for visit in visits {
-            // Skip unsplit visits that have corresponding split versions
-            if visit.spansMidnight() && visit.exitTime != nil && visit.mergeReason?.contains("midnight_split") != true {
-                // Check if this visit has split versions by looking for visits with same session_id
-                if let sessionId = visit.sessionId, splitVisitTimeRanges.contains(sessionId.uuidString) {
-                    continue
+            let isUnsplitMidnightVisit =
+                visit.spansMidnight() &&
+                visit.exitTime != nil &&
+                visit.mergeReason?.contains("midnight_split") != true
+
+            if isUnsplitMidnightVisit,
+               let sessionId = visit.sessionId,
+               splitVisitSessionIds.contains(sessionId.uuidString) {
+                continue
+            }
+
+            if isUnsplitMidnightVisit {
+                for splitVisit in visit.splitAtMidnightIfNeeded() {
+                    expandedVisits.append((displayed: splitVisit, sourceVisits: [visit]))
                 }
-                
-                // No split versions exist - split on the fly for display
-                let splitVisits = visit.splitAtMidnightIfNeeded()
-                processedVisits.append(contentsOf: splitVisits)
             } else {
-                // Normal visit or already split - add as-is
-                processedVisits.append(visit)
+                expandedVisits.append((displayed: visit, sourceVisits: [visit]))
             }
         }
 
-        return deduplicateLikelyDuplicateVisits(processedVisits)
+        let now = Date()
+        var groupedContexts: [(displayed: LocationVisitRecord, sourceVisits: [LocationVisitRecord])] = []
+
+        let groupedByPlace = Dictionary(grouping: expandedVisits) { $0.displayed.savedPlaceId }
+        for (_, placeVisits) in groupedByPlace {
+            let sortedPlaceVisits = placeVisits.sorted { $0.displayed.entryTime < $1.displayed.entryTime }
+
+            for candidate in sortedPlaceVisits {
+                if let duplicateIndex = groupedContexts.firstIndex(where: { existing in
+                    existing.displayed.savedPlaceId == candidate.displayed.savedPlaceId &&
+                    visitsAreLikelyDuplicate(existing.displayed, candidate.displayed, now: now)
+                }) {
+                    groupedContexts[duplicateIndex].sourceVisits = mergeSourceVisits(
+                        groupedContexts[duplicateIndex].sourceVisits,
+                        candidate.sourceVisits
+                    )
+
+                    if preferVisit(candidate.displayed, over: groupedContexts[duplicateIndex].displayed) {
+                        groupedContexts[duplicateIndex].displayed = candidate.displayed
+                    }
+                } else {
+                    groupedContexts.append(candidate)
+                }
+            }
+        }
+
+        return groupedContexts
+            .sorted { $0.displayed.entryTime > $1.displayed.entryTime }
+            .map { context in
+                let isDerivedSplit =
+                    !context.sourceVisits.contains(where: { $0.id == context.displayed.id }) &&
+                    context.sourceVisits.contains(where: { sourceVisit in
+                        sourceVisit.spansMidnight() &&
+                        sourceVisit.mergeReason?.contains("midnight_split") != true
+                    })
+
+                return ProcessedVisitDisplayContext(
+                    displayedVisit: context.displayed,
+                    sourceVisits: context.sourceVisits,
+                    isDerivedSplit: isDerivedSplit
+                )
+            }
     }
 
     private func deduplicateLikelyDuplicateVisits(_ visits: [LocationVisitRecord]) -> [LocationVisitRecord] {
@@ -226,6 +276,66 @@ class LocationVisitAnalytics: ObservableObject {
         }
 
         return candidate.updatedAt >= current.updatedAt
+    }
+
+    private func preferredRawVisit(
+        for displayedVisit: LocationVisitRecord,
+        sourceVisits: [LocationVisitRecord]
+    ) -> LocationVisitRecord? {
+        if let exactMatch = sourceVisits.first(where: { $0.id == displayedVisit.id }) {
+            return exactMatch
+        }
+
+        return sourceVisits.reduce(nil as LocationVisitRecord?) { currentBest, candidate in
+            guard let currentBest else { return candidate }
+            return preferVisit(candidate, over: currentBest) ? candidate : currentBest
+        }
+    }
+
+    private func mergeSourceVisits(
+        _ first: [LocationVisitRecord],
+        _ second: [LocationVisitRecord]
+    ) -> [LocationVisitRecord] {
+        var mergedById: [UUID: LocationVisitRecord] = [:]
+
+        for visit in first {
+            mergedById[visit.id] = visit
+        }
+
+        for visit in second {
+            mergedById[visit.id] = visit
+        }
+
+        return mergedById.values.sorted { lhs, rhs in
+            if lhs.updatedAt != rhs.updatedAt {
+                return lhs.updatedAt > rhs.updatedAt
+            }
+            return lhs.entryTime > rhs.entryTime
+        }
+    }
+
+    private func isDerivedSplitDisplayVisit(
+        _ displayedVisit: LocationVisitRecord,
+        sourceVisits: [LocationVisitRecord]
+    ) -> Bool {
+        !sourceVisits.contains(where: { $0.id == displayedVisit.id }) &&
+        sourceVisits.contains(where: { sourceVisit in
+            sourceVisit.spansMidnight() &&
+            sourceVisit.mergeReason?.contains("midnight_split") != true
+        })
+    }
+
+    private func timeOfDayName(for date: Date) -> String {
+        switch Calendar.current.component(.hour, from: date) {
+        case 5..<12:
+            return "Morning"
+        case 12..<17:
+            return "Afternoon"
+        case 17..<21:
+            return "Evening"
+        default:
+            return "Night"
+        }
     }
     
     /// CRITICAL: Handles midnight-spanning visits by splitting them and deduplicating
@@ -393,7 +503,7 @@ class LocationVisitAnalytics: ObservableObject {
 
     /// Get all locations visited on a specific date
     func getLocationsVisitedOnDate(_ date: Date) async -> [UUID: [LocationVisitRecord]] {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
             return [:]
         }
 
@@ -418,7 +528,7 @@ class LocationVisitAnalytics: ObservableObject {
 
     /// Get summary of visits for the current week starting from a specific date
     func getWeeklyVisitsSummary(from startDate: Date) async -> [WeeklyVisitSummaryItem] {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
             return []
         }
         
@@ -564,6 +674,10 @@ class LocationVisitAnalytics: ObservableObject {
         // Also invalidate today's visits since it aggregates all locations
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
         print("🔄 Invalidated stats & history cache for place \(placeId)")
+
+        Task { @MainActor in
+            await VectorSearchService.shared.refreshVisitEmbeddingsIncremental(reason: "visit cache invalidation (place)")
+        }
     }
 
     /// Invalidate all cached stats
@@ -571,6 +685,10 @@ class LocationVisitAnalytics: ObservableObject {
         CacheManager.shared.invalidate(keysWithPrefix: "cache.location")
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
         print("🔄 Invalidated all stats caches")
+
+        Task { @MainActor in
+            await VectorSearchService.shared.refreshVisitEmbeddingsIncremental(reason: "visit cache invalidation (all)")
+        }
     }
     
     /// CRITICAL: Unified cache invalidation for all visit-related caches
@@ -598,10 +716,28 @@ class LocationVisitAnalytics: ObservableObject {
 
         // Post notification to refresh UI
         NotificationCenter.default.post(name: NSNotification.Name("VisitHistoryUpdated"), object: nil)
+
+        // Keep visit retrieval fresh after any mutation affecting visit data.
+        Task { @MainActor in
+            await VectorSearchService.shared.refreshVisitEmbeddingsIncremental(reason: "visit cache invalidation")
+        }
     }
 
     /// Delete a specific visit from history
     func deleteVisit(id: String) async -> Bool {
+        guard let visitId = UUID(uuidString: id) else {
+            errorMessage = "Invalid visit ID"
+            print("❌ LocationVisitAnalytics: Invalid visit ID \(id)")
+            return false
+        }
+
+        return await deleteVisits(ids: [visitId])
+    }
+
+    func deleteVisits(ids: [UUID]) async -> Bool {
+        let uniqueIds = Array(Set(ids))
+        guard !uniqueIds.isEmpty else { return true }
+
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             errorMessage = "User not authenticated"
             print("❌ LocationVisitAnalytics: User not authenticated when deleting visit")
@@ -614,17 +750,123 @@ class LocationVisitAnalytics: ObservableObject {
             try await client
                 .from("location_visits")
                 .delete()
-                .eq("id", value: id)
                 .eq("user_id", value: userId.uuidString)
+                .in("id", values: uniqueIds.map(\.uuidString))
                 .execute()
 
-            print("✅ LocationVisitAnalytics: Successfully deleted visit \(id)")
-            // Invalidate cache to force refresh on next fetch
-            invalidateAllCache()
+            print("✅ LocationVisitAnalytics: Successfully deleted \(uniqueIds.count) visit row(s)")
+            invalidateAllVisitCaches()
             return true
         } catch {
             errorMessage = "Failed to delete visit: \(error.localizedDescription)"
             print("❌ LocationVisitAnalytics: Failed to delete visit: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func updateVisitTiming(
+        displayedVisit: LocationVisitRecord,
+        sourceVisits: [LocationVisitRecord],
+        entryTime: Date,
+        exitTime: Date?
+    ) async -> Bool {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            errorMessage = "User not authenticated"
+            print("❌ LocationVisitAnalytics: User not authenticated when updating visit")
+            return false
+        }
+
+        guard !sourceVisits.isEmpty else {
+            errorMessage = "Could not resolve visit details"
+            print("❌ LocationVisitAnalytics: Missing source visits for display visit \(displayedVisit.id)")
+            return false
+        }
+
+        if isDerivedSplitDisplayVisit(displayedVisit, sourceVisits: sourceVisits) {
+            errorMessage = "Overnight visits can't be edited from this view yet."
+            print("⚠️ LocationVisitAnalytics: Edit blocked for derived split visit \(displayedVisit.id)")
+            return false
+        }
+
+        if let exitTime, exitTime <= entryTime {
+            errorMessage = "End time must be after start time"
+            print("❌ LocationVisitAnalytics: Invalid visit time range")
+            return false
+        }
+
+        guard var primaryVisit = preferredRawVisit(for: displayedVisit, sourceVisits: sourceVisits) else {
+            errorMessage = "Could not find visit to update"
+            print("❌ LocationVisitAnalytics: Unable to choose primary source visit")
+            return false
+        }
+
+        let calendar = Calendar.current
+        let entryComponents = calendar.dateComponents([.weekday, .month, .year], from: entryTime)
+
+        primaryVisit.entryTime = entryTime
+        primaryVisit.exitTime = exitTime
+        primaryVisit.durationMinutes = exitTime.map { max(1, Int($0.timeIntervalSince(entryTime) / 60)) }
+        primaryVisit.dayOfWeek = LocationVisitRecord.dayOfWeekName(for: entryComponents.weekday ?? 1)
+        primaryVisit.timeOfDay = timeOfDayName(for: entryTime)
+        primaryVisit.month = entryComponents.month ?? primaryVisit.month
+        primaryVisit.year = entryComponents.year ?? primaryVisit.year
+        primaryVisit.updatedAt = Date()
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(identifier: "UTC")
+
+        var updateData: [String: PostgREST.AnyJSON] = [
+            "entry_time": .string(formatter.string(from: primaryVisit.entryTime)),
+            "exit_time": primaryVisit.exitTime != nil ? .string(formatter.string(from: primaryVisit.exitTime!)) : .null,
+            "duration_minutes": primaryVisit.durationMinutes != nil ? .double(Double(primaryVisit.durationMinutes!)) : .null,
+            "day_of_week": .string(primaryVisit.dayOfWeek),
+            "time_of_day": .string(primaryVisit.timeOfDay),
+            "month": .double(Double(primaryVisit.month)),
+            "year": .double(Double(primaryVisit.year)),
+            "updated_at": .string(formatter.string(from: primaryVisit.updatedAt))
+        ]
+
+        if let notes = primaryVisit.visitNotes {
+            updateData["visit_notes"] = .string(notes)
+        }
+
+        let duplicateIds = Set(sourceVisits.map(\.id)).subtracting([primaryVisit.id])
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+
+            try await client
+                .from("location_visits")
+                .update(updateData)
+                .eq("id", value: primaryVisit.id.uuidString)
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+
+            if !duplicateIds.isEmpty {
+                try await client
+                    .from("location_visits")
+                    .delete()
+                    .eq("user_id", value: userId.uuidString)
+                    .in("id", values: duplicateIds.map(\.uuidString))
+                    .execute()
+            }
+
+            if let activeVisit = GeofenceManager.shared.activeVisits[primaryVisit.savedPlaceId],
+               activeVisit.id == primaryVisit.id {
+                if primaryVisit.exitTime == nil {
+                    GeofenceManager.shared.updateActiveVisit(primaryVisit, for: primaryVisit.savedPlaceId)
+                } else {
+                    GeofenceManager.shared.activeVisits.removeValue(forKey: primaryVisit.savedPlaceId)
+                }
+            }
+
+            print("✅ LocationVisitAnalytics: Updated visit timing for \(primaryVisit.id.uuidString)")
+            invalidateAllVisitCaches()
+            return true
+        } catch {
+            errorMessage = "Failed to update visit: \(error.localizedDescription)"
+            print("❌ LocationVisitAnalytics: Failed to update visit timing: \(error.localizedDescription)")
             return false
         }
     }
@@ -790,11 +1032,11 @@ class LocationVisitAnalytics: ObservableObject {
             let groupedVisits = Dictionary(grouping: allVisits) { $0.savedPlaceId }
 
             var totalMerged = 0
-            var totalDeleted = 0
+            let totalDeleted = 0
             var visitsToDelete: Set<UUID> = []
 
             // Process each location's visits
-            for (placeId, visits) in groupedVisits {
+            for (_, visits) in groupedVisits {
                 let sortedVisits = visits.sorted { $0.entryTime < $1.entryTime }
 
                 var i = 0
@@ -1304,7 +1546,7 @@ class LocationVisitAnalytics: ObservableObject {
             // Group visits by place
             let visitsByPlace = Dictionary(grouping: allVisits) { $0.savedPlaceId }
 
-            for (placeId, visits) in visitsByPlace {
+            for (_, visits) in visitsByPlace {
                 // Sort by entry time
                 let sortedVisits = visits.sorted { $0.entryTime < $1.entryTime }
 

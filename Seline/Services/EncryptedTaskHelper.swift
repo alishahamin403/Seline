@@ -143,7 +143,7 @@ extension TaskManager {
             var errorCount = 0
 
             // Process each task
-            for (index, supabaseTask) in response.enumerated() {
+            for (_, supabaseTask) in response.enumerated() {
                 var task = TaskItem(
                     title: supabaseTask.title,
                     weekday: .monday,  // Default, actual value not used for encryption
@@ -196,7 +196,7 @@ extension TaskManager {
 
 // MARK: - Supabase Data Structure
 
-struct TaskItemSupabaseData: Codable {
+private struct TaskItemSupabaseData: Codable {
     let id: String
     let user_id: String
     let title: String

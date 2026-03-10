@@ -72,44 +72,141 @@ struct CurrentLocationCardWidget: View {
         return "--"
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Current Location")
-                        .font(FontManager.geist(size: 24, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                }
+    private var featuredVisits: [VisitSummary] {
+        Array(sortedVisits.prefix(3))
+    }
 
-                Spacer(minLength: 0)
+    private var locationNarrativeText: String {
+        if activeVisit != nil {
+            return "You are currently at \(currentLocationDisplay), and it is acting as the anchor point in today's movement."
+        }
+
+        if distanceToNearest != nil {
+            return "You're nearest to \(currentLocationDisplay), with today's saved stops grouped below for quick context."
+        }
+
+        return locationStatusLine
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Text("CURRENT LOCATION")
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .tracking(0.9)
+
+                Spacer(minLength: 12)
 
                 if activeVisit != nil {
-                    Text("Active")
-                        .font(FontManager.geist(size: 10, weight: .semibold))
-                        .foregroundColor(activeBadgeColor)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 5)
+                    Text("LIVE")
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
                         .background(
                             Capsule()
-                                .fill(Color.appChip(colorScheme))
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
                         )
                 }
             }
 
             currentLocationDisplayCard
 
-            HStack(spacing: 10) {
-                locationMetricTile(title: "Visits", value: "\(sortedVisits.count)")
-                locationMetricTile(title: activeVisit != nil ? "Time here" : "Nearest", value: activeVisit != nil ? currentTimeLabel : formattedDistanceToNearest)
-                locationMetricTile(title: "Folder", value: nearbyLocationFolder ?? "Saved")
-            }
+            Text(locationNarrativeText)
+                .font(FontManager.geist(size: 15, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .fixedSize(horizontal: false, vertical: true)
 
-            if !sortedVisits.isEmpty {
-                todayVisitsSection
+            if !featuredVisits.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(featuredVisits, id: \.id) { visit in
+                        featuredVisitCard(visit)
+                    }
+                }
             }
         }
-        .padding(16)
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 18)
         .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 24)
+    }
+
+    private func featuredVisitCard(_ visit: VisitSummary) -> some View {
+        let isCurrent = isVisitActive(visit)
+
+        return Button(action: {
+            selectPlace(with: visit.id)
+        }) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(visit.displayName)
+                        .font(FontManager.geist(size: 15, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .lineLimit(2)
+
+                    Spacer(minLength: 6)
+
+                    Text(durationLabel(for: visit.totalDurationMinutes))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .lineLimit(1)
+                }
+
+                Text(featuredVisitDescription(for: visit, isCurrent: isCurrent))
+                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.26 : 0.2))
+
+                        Capsule()
+                            .fill(isCurrent ? homeAccentColor : Color.appTextPrimary(colorScheme))
+                            .frame(width: progressWidth(for: visit.totalDurationMinutes, in: geo.size.width))
+                    }
+                }
+                .frame(height: 5)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(
+                        isCurrent
+                            ? homeAccentColor.opacity(colorScheme == .dark ? 0.16 : 0.18)
+                            : Color.homeGlassInnerTint(colorScheme)
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(
+                        isCurrent ? homeAccentColor.opacity(colorScheme == .dark ? 0.28 : 0.22) : Color.homeGlassInnerBorder(colorScheme),
+                        lineWidth: 1
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func featuredVisitDescription(for visit: VisitSummary, isCurrent: Bool) -> String {
+        if isCurrent {
+            return "Live visit right now."
+        }
+
+        if visit.totalDurationMinutes == maxVisitMinutes {
+            return "Longest stop in today's route."
+        }
+
+        if visit.totalDurationMinutes <= 15 {
+            return "Quick stop in today's loop."
+        }
+
+        return "Part of today's saved places."
     }
 
     private var todayVisitsSection: some View {
@@ -188,16 +285,11 @@ struct CurrentLocationCardWidget: View {
 
     @ViewBuilder
     private var currentLocationDisplayCard: some View {
-        let content = VStack(alignment: .leading, spacing: 6) {
+        let content = VStack(alignment: .leading, spacing: 4) {
             Text(currentLocationDisplay)
                 .font(FontManager.geist(size: 22, weight: .semibold))
                 .foregroundColor(Color.appTextPrimary(colorScheme))
                 .lineLimit(2)
-
-            Text(locationStatusLine)
-                .font(FontManager.geist(size: 14, weight: .medium))
-                .foregroundColor(Color.appTextSecondary(colorScheme))
-                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -256,8 +348,9 @@ struct CurrentLocationCardWidget: View {
     }
 
     private var locationStatusLine: String {
-        if activeVisit != nil, currentTimeLabel != "--" {
-            return "\(currentTimeLabel) here now"
+        let timeLabel = currentTimeLabel
+        if activeVisit != nil, timeLabel != "--" {
+            return "\(timeLabel) here now"
         }
 
         if distanceToNearest != nil {
@@ -275,8 +368,8 @@ struct CurrentLocationCardWidget: View {
 
     private func isVisitActive(_ visit: VisitSummary) -> Bool {
         if visit.isActive { return true }
-        if let nearby = nearbyLocation, !elapsedTimeString.isEmpty {
-            return visit.displayName == nearby
+        if let nearbyId = nearbyLocationPlace?.id, !elapsedTimeString.isEmpty {
+            return visit.id == nearbyId
         }
         return false
     }

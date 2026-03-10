@@ -13,6 +13,15 @@ struct SpendingAndETAWidget: View {
         }
     }
 
+    private struct WeekSpendDaySummary: Identifiable {
+        let date: Date
+        let label: String
+        let amount: Double
+        let isFuture: Bool
+
+        var id: TimeInterval { date.timeIntervalSince1970 }
+    }
+
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var insightsService = SpendingInsightsService.shared
     @Environment(\.colorScheme) var colorScheme
@@ -28,6 +37,8 @@ struct SpendingAndETAWidget: View {
     @State private var spendingInsights: [SpendingInsightsService.SpendingInsight] = []
     @State private var selectedInsight: SpendingInsightsService.SpendingInsight?
     @State private var selectedCategory: SelectedCategory?
+    @State private var selectedWeekSpendDate: Date = Calendar.current.startOfDay(for: Date())
+    @State private var expandedTopCategoryName: String? = nil
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
@@ -46,6 +57,28 @@ struct SpendingAndETAWidget: View {
             let year = calendar.component(.year, from: summary.monthDate)
             return month == currentMonth && year == currentYear
         }.reduce(0) { $0 + $1.monthlyTotal }
+    }
+
+    private var currentMonthReceipts: [ReceiptStat] {
+        guard let stats = currentYearStats else { return [] }
+        let calendar = Calendar.current
+        let now = Date()
+        let currentMonth = calendar.component(.month, from: now)
+        let currentYear = calendar.component(.year, from: now)
+
+        return stats.monthlySummaries
+            .filter { summary in
+                let month = calendar.component(.month, from: summary.monthDate)
+                let year = calendar.component(.year, from: summary.monthDate)
+                return month == currentMonth && year == currentYear
+            }
+            .flatMap { $0.receipts }
+    }
+
+    private var allReceipts: [ReceiptStat] {
+        notesManager.getReceiptStatistics()
+            .flatMap(\.monthlySummaries)
+            .flatMap(\.receipts)
     }
 
     private var todayReceiptStats: [ReceiptStat] {
@@ -120,6 +153,92 @@ struct SpendingAndETAWidget: View {
         return categoryBreakdownCache
     }
 
+    private var topSpendingCategories: [(category: String, amount: Double, percentage: Double)] {
+        Array(categoryBreakdown.prefix(3))
+    }
+
+    private var spendingComparisonCopy: String {
+        guard previousMonthTotal > 0 else {
+            if let strongest = topSpendingCategories.first {
+                return "Starting fresh this month, with \(strongest.category) leading so far."
+            }
+            return "Starting fresh this month with the first receipts just coming in."
+        }
+
+        let delta = monthlyTotal - previousMonthTotal
+        let comparisonMonth = Self.monthLabel(for: Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date())
+        let leadingCategory = topSpendingCategories.first?.category ?? "miscellaneous"
+        let comparisonText: String
+
+        if abs(delta) < 1 {
+            comparisonText = "Tracking even with \(comparisonMonth)"
+        } else if delta > 0 {
+            comparisonText = "\(CurrencyParser.formatAmountNoDecimals(delta)) above \(comparisonMonth)"
+        } else {
+            comparisonText = "\(CurrencyParser.formatAmountNoDecimals(abs(delta))) under \(comparisonMonth)"
+        }
+
+        return "\(comparisonText), strongest category is \(leadingCategory)."
+    }
+
+    private var weekSpendSummaries: [WeekSpendDaySummary] {
+        let calendar = mondayFirstCalendar
+        let today = calendar.startOfDay(for: Date())
+        let weekStart = startOfCurrentWeek(for: today)
+        let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+
+        let totalsByDay = Dictionary(grouping: allReceipts.filter { receipt in
+            let day = calendar.startOfDay(for: receipt.date)
+            return day >= weekStart && day < weekEnd
+        }) { receipt in
+            calendar.startOfDay(for: receipt.date)
+        }
+        .mapValues { receipts in
+            receipts.reduce(0.0) { total, receipt in
+                total + receipt.amount
+            }
+        }
+
+        return (0..<7).compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else {
+                return nil
+            }
+
+            let dayStart = calendar.startOfDay(for: date)
+            let amount = totalsByDay[dayStart] ?? 0
+
+            return WeekSpendDaySummary(
+                date: dayStart,
+                label: weekdayLabel(for: dayStart),
+                amount: dayStart > today ? 0 : amount,
+                isFuture: dayStart > today
+            )
+        }
+    }
+
+    private var selectedWeekSpendSummary: WeekSpendDaySummary? {
+        let calendar = mondayFirstCalendar
+
+        if let selected = weekSpendSummaries.first(where: { summary in
+            calendar.isDate(summary.date, inSameDayAs: selectedWeekSpendDate) && !summary.isFuture
+        }) {
+            return selected
+        }
+
+        return weekSpendSummaries.reversed().first(where: { !$0.isFuture }) ?? weekSpendSummaries.first
+    }
+
+    private var expandedTopCategory: (category: String, amount: Double, percentage: Double)? {
+        guard let expandedTopCategoryName else { return nil }
+        return topSpendingCategories.first(where: { $0.category == expandedTopCategoryName })
+    }
+
+    private var expandedTopCategoryReceipts: [ReceiptStat] {
+        guard let expandedTopCategoryName else { return [] }
+        return (categoryReceiptsMapCache[expandedTopCategoryName] ?? [])
+            .sorted { $0.date > $1.date }
+    }
+
     private func updateCategoryBreakdown() {
         Task {
             let calendar = Calendar.current
@@ -173,6 +292,10 @@ struct SpendingAndETAWidget: View {
             DispatchQueue.main.async {
                 self.categoryBreakdownCache = result
                 self.categoryReceiptsMapCache = breakdown.categoryReceipts
+                if let expandedTopCategoryName = self.expandedTopCategoryName,
+                   !result.contains(where: { $0.category == expandedTopCategoryName }) {
+                    self.expandedTopCategoryName = nil
+                }
                 // Update widget with spending data
                 Self.updateWidgetWithSpendingData(
                     monthlyTotal: self.monthlyTotal,
@@ -344,48 +467,54 @@ struct SpendingAndETAWidget: View {
         }
     }
 
+    private static func monthLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM"
+        return formatter.string(from: date)
+    }
+
     var body: some View {
         spendingCard()
-        .onAppear {
-            updateCategoryBreakdown()
-            generateSpendingInsights()
-        }
-        .onChange(of: notesManager.notes.count) { _ in
-            updateCategoryBreakdown()
-            generateSpendingInsights()
-        }
-        .sheet(isPresented: $showReceiptStats) {
-            ReceiptStatsView(isPopup: true)
-                .presentationDetents([.large])
-        }
-        .confirmationDialog("Add Receipt", isPresented: $showLegacyReceiptAddOptions, titleVisibility: .visible) {
-            Button("Take Picture") {
-                HapticManager.shared.buttonTap()
-                onAddReceipt?()
+            .onAppear {
+                updateCategoryBreakdown()
+                selectedWeekSpendDate = mondayFirstCalendar.startOfDay(for: Date())
             }
-            Button("Upload Images") {
-                HapticManager.shared.buttonTap()
-                onAddReceiptFromGallery?()
+            .onChange(of: notesManager.notes.count) { _ in
+                updateCategoryBreakdown()
+                selectedWeekSpendDate = mondayFirstCalendar.startOfDay(for: Date())
             }
-            Button("Cancel", role: .cancel) {}
-        }
-        .sheet(item: $selectedInsight) { insight in
-            if insight.hasDetails {
-                InsightDetailSheet(insight: insight)
-                    .presentationDetents([.medium, .large])
+            .sheet(isPresented: $showReceiptStats) {
+                ReceiptStatsView(isPopup: true)
+                    .presentationDetents([.large])
             }
-        }
-        .sheet(item: $selectedCategory) { category in
-            CategoryReceiptsListModal(
-                receipts: category.receipts,
-                categoryName: category.name,
-                total: category.total,
-                onReceiptTap: { receipt in
-                    onReceiptSelected?(receipt)
+            .confirmationDialog("Add Receipt", isPresented: $showLegacyReceiptAddOptions, titleVisibility: .visible) {
+                Button("Take Picture") {
+                    HapticManager.shared.buttonTap()
+                    onAddReceipt?()
                 }
-            )
-            .presentationDetents([.medium, .large])
-        }
+                Button("Upload Images") {
+                    HapticManager.shared.buttonTap()
+                    onAddReceiptFromGallery?()
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+            .sheet(item: $selectedInsight) { insight in
+                if insight.hasDetails {
+                    InsightDetailSheet(insight: insight)
+                        .presentationDetents([.medium, .large])
+                }
+            }
+            .sheet(item: $selectedCategory) { category in
+                CategoryReceiptsListModal(
+                    receipts: category.receipts,
+                    categoryName: category.name,
+                    total: category.total,
+                    onReceiptTap: { receipt in
+                        onReceiptSelected?(receipt)
+                    }
+                )
+                .presentationDetents([.medium, .large])
+            }
     }
 
     private func generateSpendingInsights() {
@@ -432,7 +561,7 @@ struct SpendingAndETAWidget: View {
             )
 
             await MainActor.run {
-                spendingInsights = insights
+                spendingInsights = insights.filter { $0.type != .spendingPace }
             }
         }
     }
@@ -441,71 +570,93 @@ struct SpendingAndETAWidget: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Spending")
-                        .font(FontManager.geist(size: 24, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                    Text("SPENDING")
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .tracking(0.9)
+
+                    Text("This month")
+                        .font(FontManager.geist(size: 22, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
                 }
 
                 Spacer(minLength: 12)
-                addReceiptMenuButton
+                addReceiptPillButton
             }
 
-            Button(action: openReceiptStatsPage) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                        .font(FontManager.geist(size: 22, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Button(action: openReceiptStatsPage) {
+                        Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
+                            .font(FontManager.geist(size: 42, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                    }
+                    .buttonStyle(PlainButtonStyle())
 
-                    Text("This month")
-                        .font(FontManager.geist(size: 14, weight: .medium))
+                    Text(spendingComparisonCopy)
+                        .font(FontManager.geist(size: 15, weight: .medium))
                         .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(PlainButtonStyle())
 
-            HStack(spacing: 10) {
-                Button(action: openTodayReceipts) {
-                    spendingMetricTile(
-                        title: "Today",
-                        value: CurrencyParser.formatAmountNoDecimals(dailyTotal)
+                Button(action: openReceiptStatsPage) {
+                    spendingSideMetricCard(
+                        title: "Receipts",
+                        value: "\(currentMonthReceipts.count)"
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
+                .frame(width: 120)
+            }
 
-                spendingMetricTile(
-                    title: "MoM",
-                    value: monthOverMonthMetricText,
-                    valueColor: monthOverMonthMetricColor
-                )
+            spendingRhythmRow
+            selectedWeekSpendDetail
 
-                Button(action: {
-                    if let category = categoryBreakdown.first?.category {
-                        openCategoryExpenses(for: category)
+            if !topSpendingCategories.isEmpty {
+                VStack(spacing: 10) {
+                    ForEach(topSpendingCategories, id: \.category) { category in
+                        topCategoryButtonRow(category)
                     }
-                }) {
-                    spendingMetricTile(
-                        title: "Top",
-                        value: categoryBreakdown.first?.category ?? "--"
-                    )
                 }
-                .buttonStyle(PlainButtonStyle())
-                .disabled(categoryBreakdown.isEmpty)
-            }
 
-            if !categoryBreakdown.isEmpty {
-                spendingSignalsOverview
-            }
-
-            if !spendingInsights.isEmpty {
-                insightsScrollView
+                if let expandedTopCategory {
+                    topCategoryDetailCard(expandedTopCategory)
+                }
             }
         }
-        .padding(16)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 24)
+        .homeGlassCardStyle(
+            colorScheme: colorScheme,
+            cornerRadius: 24,
+            usesPureLightFill: true
+        )
+    }
+
+    private var addReceiptPillButton: some View {
+        Button(action: {
+            HapticManager.shared.buttonTap()
+
+            if let onAddReceiptTapped {
+                onAddReceiptTapped()
+            } else if onAddReceipt != nil || onAddReceiptFromGallery != nil {
+                showLegacyReceiptAddOptions = true
+            }
+        }) {
+            Text("ADD RECEIPT")
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(.black)
+                .padding(.horizontal, 18)
+                .frame(height: 36)
+                .background(
+                    Capsule()
+                        .fill(homeAccentColor)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 
     private var addReceiptMenuButton: some View {
@@ -662,6 +813,12 @@ struct SpendingAndETAWidget: View {
         Color.homeGlassAccent
     }
 
+    private var mondayFirstCalendar: Calendar {
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2
+        return calendar
+    }
+
     private var monthOverMonthMetricText: String {
         guard previousMonthTotal > 0 else {
             return monthlyTotal > 0 ? "New" : "--"
@@ -678,9 +835,315 @@ struct SpendingAndETAWidget: View {
         return monthOverMonthPercentage.isIncrease ? .red : .green
     }
 
-    private func openTodayReceipts() {
-        HapticManager.shared.selection()
-        selectedCategory = SelectedCategory(name: "Today", receipts: todayReceiptStats)
+    private var spendingRhythmRow: some View {
+        let maximum = max(weekSpendSummaries.filter { !$0.isFuture }.map(\.amount).max() ?? 1, 1)
+
+        return HStack(alignment: .bottom, spacing: 8) {
+            ForEach(weekSpendSummaries) { day in
+                let isSelected = selectedWeekSpendSummary.map {
+                    mondayFirstCalendar.isDate($0.date, inSameDayAs: day.date)
+                } ?? false
+
+                Button(action: {
+                    guard !day.isFuture else { return }
+                    HapticManager.shared.selection()
+                    selectedWeekSpendDate = day.date
+                }) {
+                    VStack(spacing: 6) {
+                        Capsule()
+                            .fill(weekdayPillFillColor(for: day, isSelected: isSelected))
+                            .frame(
+                                width: weekdayPillWidth(for: day.amount, maximum: maximum, isFuture: day.isFuture),
+                                height: weekdayPillHeight(for: day.amount, maximum: maximum, isFuture: day.isFuture)
+                            )
+                            .opacity(weekdayPillOpacity(for: day, isSelected: isSelected))
+
+                        Text(day.label.uppercased())
+                            .font(FontManager.geist(size: 10, weight: .semibold))
+                            .foregroundColor(
+                                isSelected
+                                ? Color.appTextPrimary(colorScheme)
+                                : Color.appTextSecondary(colorScheme)
+                            )
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(
+                                isSelected
+                                ? Color.homeGlassInnerTint(colorScheme)
+                                : Color.clear
+                            )
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(day.isFuture)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private var selectedWeekSpendDetail: some View {
+        Group {
+            if let selected = selectedWeekSpendSummary {
+                HStack(alignment: .center, spacing: 12) {
+                    Capsule()
+                        .fill(selected.amount > 0 ? Color.homeGlassAccent : Color.homeGlassInnerTint(colorScheme))
+                        .frame(width: 8, height: 8)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(FormatterCache.weekdayShortMonthDay.string(from: selected.date))
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                        Text(selected.amount > 0 ? "Spent that day" : "No spend logged")
+                            .font(FontManager.geist(size: 11, weight: .medium))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                    }
+
+                    Spacer(minLength: 10)
+
+                    Text(CurrencyParser.formatAmountNoDecimals(selected.amount))
+                        .font(FontManager.geist(size: 16, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.homeGlassInnerTint(colorScheme))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
+                )
+            }
+        }
+    }
+
+    private func weekdayPillWidth(for amount: Double, maximum: Double, isFuture: Bool) -> CGFloat {
+        guard !isFuture else { return 28 }
+        guard amount > 0, maximum > 0 else { return 32 }
+        let ratio = max(amount / maximum, 0.18)
+        return 32 + (28 * ratio)
+    }
+
+    private func weekdayPillHeight(for amount: Double, maximum: Double, isFuture: Bool) -> CGFloat {
+        guard !isFuture else { return 10 }
+        guard amount > 0, maximum > 0 else { return 12 }
+        let ratio = max(amount / maximum, 0.22)
+        return 12 + (18 * ratio)
+    }
+
+    private func weekdayPillFillColor(for day: WeekSpendDaySummary, isSelected: Bool) -> Color {
+        if day.isFuture {
+            return Color.appTextPrimary(colorScheme)
+        }
+
+        if day.amount > 0 {
+            return isSelected ? Color.homeGlassAccent : Color.appTextPrimary(colorScheme)
+        }
+
+        return Color.appTextPrimary(colorScheme)
+    }
+
+    private func weekdayPillOpacity(for day: WeekSpendDaySummary, isSelected: Bool) -> Double {
+        if day.isFuture {
+            return colorScheme == .dark ? 0.14 : 0.1
+        }
+
+        if day.amount > 0 {
+            return isSelected ? 0.95 : 1
+        }
+
+        return isSelected ? 0.28 : (colorScheme == .dark ? 0.22 : 0.16)
+    }
+
+    private func startOfCurrentWeek(for date: Date) -> Date {
+        let calendar = mondayFirstCalendar
+        let components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
+        return calendar.startOfDay(for: calendar.date(from: components) ?? date)
+    }
+
+    private func weekdayLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = mondayFirstCalendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEE"
+        return formatter.string(from: date)
+    }
+
+    private func spendingSideMetricCard(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .tracking(0.7)
+
+            Text(value)
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color.homeGlassInnerTint(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
+        )
+    }
+
+    private func spendingCategoryRow(_ category: (category: String, amount: Double, percentage: Double)) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(category.category)
+                .font(FontManager.geist(size: 15, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .frame(width: 90, alignment: .leading)
+                .lineLimit(1)
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.26 : 0.2))
+
+                    Capsule()
+                        .fill(Color.appTextPrimary(colorScheme))
+                        .frame(width: max(28, geometry.size.width * CGFloat(category.percentage / 100)))
+                }
+            }
+            .frame(height: 6)
+
+            Text(CurrencyParser.formatAmountNoDecimals(category.amount))
+                .font(FontManager.geist(size: 15, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .frame(width: 64, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(height: 24)
+    }
+
+    private func topCategoryButtonRow(_ category: (category: String, amount: Double, percentage: Double)) -> some View {
+        let isExpanded = expandedTopCategoryName == category.category
+
+        return Button(action: {
+            HapticManager.shared.selection()
+            withAnimation(.easeInOut(duration: 0.18)) {
+                if isExpanded {
+                    expandedTopCategoryName = nil
+                } else {
+                    expandedTopCategoryName = category.category
+                }
+            }
+        }) {
+            HStack(alignment: .center, spacing: 12) {
+                spendingCategoryRow(category)
+
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func topCategoryDetailCard(_ category: (category: String, amount: Double, percentage: Double)) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(category.category)
+                        .font(FontManager.geist(size: 15, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                    Text("\(expandedTopCategoryReceipts.count) receipts")
+                        .font(FontManager.geist(size: 11, weight: .medium))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                }
+
+                Spacer(minLength: 10)
+
+                Text(CurrencyParser.formatAmountNoDecimals(category.amount))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+            }
+
+            if expandedTopCategoryReceipts.isEmpty {
+                Text("No receipt details available for this category.")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+            } else {
+                ForEach(Array(expandedTopCategoryReceipts.prefix(3).enumerated()), id: \.offset) { index, receipt in
+                    HStack(alignment: .center, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(receipt.title)
+                                .font(FontManager.geist(size: 12, weight: .semibold))
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
+                                .lineLimit(1)
+
+                            Text(FormatterCache.weekdayShortMonthDay.string(from: receipt.date))
+                                .font(FontManager.geist(size: 11, weight: .medium))
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                        }
+
+                        Spacer(minLength: 10)
+
+                        Text(CurrencyParser.formatAmountNoDecimals(receipt.amount))
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                    }
+
+                    if index < min(expandedTopCategoryReceipts.count, 3) - 1 {
+                        Divider()
+                            .overlay(Color.homeGlassInnerBorder(colorScheme))
+                    }
+                }
+
+                if expandedTopCategoryReceipts.count > 3 {
+                    Button(action: {
+                        openCategoryExpenses(for: category.category)
+                    }) {
+                        Text("View all")
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(Color.homeGlassInnerTint(colorScheme))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color.homeGlassInnerTint(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
+        )
+    }
+
+    private var monthlyForecastText: String {
+        insightsService.calculateSpendingPace(
+            currentMonthReceipts: currentMonthReceipts,
+            previousMonthTotal: previousMonthTotal
+        )?.value ?? "--"
     }
 
     private func openReceiptStatsPage() {

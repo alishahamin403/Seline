@@ -90,6 +90,9 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         case "journal_prompt":
             NotificationCenter.default.post(name: .navigateToJournal, object: nil, userInfo: userInfo)
 
+        case "chat_usage":
+            print("💬 Chat usage notification tapped")
+
         default:
             print("Unknown notification type: \(notificationType ?? "nil")")
         }

@@ -8,9 +8,6 @@ class UserPatternAnalysisService {
     static func analyzeUserPatterns(
         from metadata: AppDataMetadata
     ) -> UserPatterns {
-        let calendar = Calendar.current
-        let now = Date()
-
         // Analyze spending patterns
         let categorySpending = analyzeSpendingByCategory(metadata.receipts)
         let monthlyAvg = calculateAverageMonthlySpending(metadata.receipts)
@@ -97,7 +94,6 @@ class UserPatternAnalysisService {
         guard receipts.count >= 2 else { return "stable" }
 
         // Group by month
-        var monthlyTotals: [(month: String, amount: Double)] = []
         var monthlyMap: [String: Double] = [:]
 
         for receipt in receipts {
@@ -140,7 +136,6 @@ class UserPatternAnalysisService {
         }
 
         // Calculate frequency
-        let now = Date()
         let monthsOfData = 3.0  // Assume we have ~3 months of data
 
         return eventCounts

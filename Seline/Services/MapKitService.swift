@@ -64,11 +64,15 @@ class MapKitService: NSObject, ObservableObject {
         }
 
         // Update published properties on main thread
+        let resolvedETA1 = eta1
+        let resolvedETA2 = eta2
+        let resolvedETA3 = eta3
+        let resolvedETA4 = eta4
         await MainActor.run {
-            self.location1ETA = eta1
-            self.location2ETA = eta2
-            self.location3ETA = eta3
-            self.location4ETA = eta4
+            self.location1ETA = resolvedETA1
+            self.location2ETA = resolvedETA2
+            self.location3ETA = resolvedETA3
+            self.location4ETA = resolvedETA4
             self.lastUpdated = Date()
         }
     }

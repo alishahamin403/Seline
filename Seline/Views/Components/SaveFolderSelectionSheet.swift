@@ -320,7 +320,16 @@ class SaveFolderSelectionViewModel: ObservableObject {
     }
 }
 
-#Preview {
-    @State var isPresented = true
-    SaveFolderSelectionSheet(email: Email.sampleEmails[0], isPresented: $isPresented)
+private struct SaveFolderSelectionSheetPreviewContainer: View {
+    @State private var isPresented = true
+
+    var body: some View {
+        SaveFolderSelectionSheet(email: Email.sampleEmails[0], isPresented: $isPresented)
+    }
+}
+
+struct SaveFolderSelectionSheet_Previews: PreviewProvider {
+    static var previews: some View {
+        SaveFolderSelectionSheetPreviewContainer()
+    }
 }

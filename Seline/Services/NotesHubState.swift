@@ -18,11 +18,11 @@ final class NotesHubState: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var inputs = Inputs(searchText: "", selectedFolderId: nil, showUnfiledNotesOnly: false)
 
-    init(notesManager: NotesManager = .shared) {
-        self.notesManager = notesManager
+    init(notesManager: NotesManager? = nil) {
+        self.notesManager = notesManager ?? .shared
 
-        notesManager.$notes
-            .combineLatest(notesManager.$folders)
+        self.notesManager.$notes
+            .combineLatest(self.notesManager.$folders)
             .sink { [weak self] _, _ in
                 self?.refresh()
             }

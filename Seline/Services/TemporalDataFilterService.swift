@@ -141,6 +141,33 @@ class TemporalDataFilterService {
             return DateBounds(start: lastWeekStart, end: lastWeekEnd, periodDescription: "last week")
         }
 
+        if lower.contains("last weekend") || lower.contains("previous weekend") {
+            let todayStart = calendar.startOfDay(for: now)
+            let weekday = calendar.component(.weekday, from: todayStart)
+            let daysBackToSaturday = weekday == 7 ? 0 : (weekday == 1 ? 1 : weekday)
+            let isActiveWeekend = weekday == 1 || weekday == 7
+            let mostRecentSaturday = calendar.date(byAdding: .day, value: -daysBackToSaturday, to: todayStart)!
+            let weekendStart = calendar.date(byAdding: .day, value: isActiveWeekend ? -7 : 0, to: mostRecentSaturday)!
+            let weekendEnd = calendar.date(byAdding: DateComponents(day: 2, second: -1), to: weekendStart)!
+            return DateBounds(start: weekendStart, end: weekendEnd, periodDescription: "last weekend")
+        }
+
+        if lower.contains("this weekend") {
+            let todayStart = calendar.startOfDay(for: now)
+            let weekday = calendar.component(.weekday, from: todayStart)
+            let isActiveWeekend = weekday == 1 || weekday == 7
+            let weekendStart: Date
+            if isActiveWeekend {
+                let daysBackToSaturday = weekday == 7 ? 0 : 1
+                weekendStart = calendar.date(byAdding: .day, value: -daysBackToSaturday, to: todayStart)!
+            } else {
+                let daysUntilSaturday = (7 - weekday + 7) % 7
+                weekendStart = calendar.date(byAdding: .day, value: daysUntilSaturday, to: todayStart)!
+            }
+            let weekendEnd = calendar.date(byAdding: DateComponents(day: 2, second: -1), to: weekendStart)!
+            return DateBounds(start: weekendStart, end: weekendEnd, periodDescription: "this weekend")
+        }
+
         if lower.contains("this month") {
             let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
             let monthEnd = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart)!

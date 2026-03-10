@@ -1,5 +1,181 @@
 import SwiftUI
 
+enum ChatMarkdownDisplayFormatter {
+    static func normalize(_ text: String) -> String {
+        var normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let lines = normalized.components(separatedBy: "\n")
+        let normalizedBullets = normalizeBullets(in: lines)
+        let groupedBullets = normalizeHierarchicalBullets(in: normalizedBullets)
+        let formattedHeadings = normalizeStandaloneHeadings(in: groupedBullets)
+
+        normalized = formattedHeadings.joined(separator: "\n")
+        normalized = normalized.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+        normalized = normalized.replacingOccurrences(of: "\\n(?=\\*\\*[^\\n]+\\*\\*)", with: "\n\n", options: .regularExpression)
+
+        return normalized
+    }
+
+    private static func normalizeBullets(in lines: [String]) -> [String] {
+        lines.map { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return "" }
+
+            let leadingSpaces = line.prefix { $0 == " " || $0 == "\t" }
+                .reduce(into: "") { partial, character in
+                    partial.append(contentsOf: character == "\t" ? "  " : String(character))
+                }
+
+            if trimmed.hasPrefix("• ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("– ") || trimmed.hasPrefix("— ") {
+                return "\(leadingSpaces)- \(trimmed.dropFirst(2))"
+            }
+
+            return line.replacingOccurrences(of: "\t", with: "  ")
+        }
+    }
+
+    private static func normalizeHierarchicalBullets(in lines: [String]) -> [String] {
+        var rebuilt: [String] = []
+        var activeParentLevel: Int?
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            guard !trimmed.isEmpty else {
+                activeParentLevel = nil
+                rebuilt.append("")
+                continue
+            }
+
+            guard let bullet = parseBulletMetadata(from: line) else {
+                activeParentLevel = nil
+                rebuilt.append(line)
+                continue
+            }
+
+            if bullet.level == 0, isSectionParentBullet(bullet.content) {
+                rebuilt.append("- **\(bullet.content)**")
+                activeParentLevel = 0
+                continue
+            }
+
+            if let activeParentLevel, bullet.level == activeParentLevel {
+                rebuilt.append(formattedBulletLine(level: activeParentLevel + 1, content: bullet.content))
+                continue
+            }
+
+            rebuilt.append(formattedBulletLine(level: bullet.level, content: bullet.content))
+        }
+
+        return rebuilt
+    }
+
+    private static func normalizeStandaloneHeadings(in lines: [String]) -> [String] {
+        var rebuilt: [String] = []
+
+        for index in lines.indices {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            guard !trimmed.isEmpty else {
+                rebuilt.append(line)
+                continue
+            }
+
+            if shouldPromoteToHeading(trimmed, nextNonEmptyLine: nextNonEmptyLine(after: index, in: lines)) {
+                rebuilt.append("**\(trimmed)**")
+            } else {
+                rebuilt.append(line)
+            }
+        }
+
+        return rebuilt
+    }
+
+    private static func nextNonEmptyLine(after index: Int, in lines: [String]) -> String? {
+        guard index + 1 < lines.count else { return nil }
+
+        for candidate in lines[(index + 1)...] {
+            let trimmed = candidate.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        return nil
+    }
+
+    private static func shouldPromoteToHeading(_ trimmed: String, nextNonEmptyLine: String?) -> Bool {
+        guard
+            !trimmed.hasPrefix("- "),
+            !trimmed.hasPrefix("**"),
+            !trimmed.hasPrefix("#"),
+            !trimmed.hasPrefix(">"),
+            !trimmed.hasPrefix("|"),
+            !trimmed.hasPrefix("```")
+        else {
+            return false
+        }
+
+        if isLikelyDateHeading(trimmed) {
+            return true
+        }
+
+        if trimmed.hasSuffix(":"),
+           trimmed.count <= 48,
+           trimmed.split(whereSeparator: \.isWhitespace).count <= 6,
+           let nextNonEmptyLine,
+           nextNonEmptyLine.hasPrefix("- ") {
+            return true
+        }
+
+        return false
+    }
+
+    private static func isLikelyDateHeading(_ trimmed: String) -> Bool {
+        let weekdays = [
+            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+        ]
+        let months = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ]
+
+        let hasDigit = trimmed.rangeOfCharacter(from: .decimalDigits) != nil
+        return hasDigit && (
+            weekdays.contains { trimmed.hasPrefix($0) }
+                || months.contains { trimmed.hasPrefix($0) }
+        )
+    }
+
+    private static func isSectionParentBullet(_ content: String) -> Bool {
+        let normalized = content
+            .replacingOccurrences(of: "*", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard normalized.hasSuffix(":") else { return false }
+        guard normalized.count <= 48 else { return false }
+        guard !normalized.contains(".") else { return false }
+        return normalized.split(whereSeparator: \.isWhitespace).count <= 6
+    }
+
+    private static func formattedBulletLine(level: Int, content: String) -> String {
+        let indent = String(repeating: "  ", count: max(0, level))
+        return "\(indent)- \(content)"
+    }
+
+    private static func parseBulletMetadata(from line: String) -> (level: Int, content: String)? {
+        let leadingSpaces = line.prefix { $0 == " " }.count
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("- ") else { return nil }
+
+        let level = max(0, leadingSpaces / 2)
+        let content = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        guard !content.isEmpty else { return nil }
+        return (level, content)
+    }
+}
+
 /// Renders markdown text with proper formatting
 /// Converts # headings, bold, italics, tables, etc. into styled text
 struct MarkdownText: View {
@@ -8,7 +184,8 @@ struct MarkdownText: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(parseMarkdown(markdown)) { element in
+            let parsedElements = parseMarkdown(ChatMarkdownDisplayFormatter.normalize(markdown))
+            ForEach(Array(parsedElements.enumerated()), id: \.offset) { _, element in
                 renderElement(element)
                     .padding(.top, topPadding(for: element))
                     .padding(.bottom, bottomPadding(for: element))
@@ -26,6 +203,8 @@ struct MarkdownText: View {
         case .bulletPoint(_, _), .numberedPoint: return 6
         case .paragraph: return 12
         case .table: return 14
+        case .codeBlock: return 14
+        case .blockquote: return 12
         case .empty: return 4
         case .horizontalRule: return 10
         default: return 8
@@ -67,6 +246,20 @@ struct MarkdownText: View {
                 .background(colorScheme == .dark ? Color.black.opacity(0.3) : Color.gray.opacity(0.1))
                 .cornerRadius(4)
                 .textSelection(.enabled)
+        case .codeBlock(let text):
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(text)
+                    .font(.system(size: 13, weight: .regular, design: .monospaced))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.9))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+            }
+            .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08), lineWidth: 1)
+            )
         case .bulletPoint(let level, let text):
             bulletRow(level: level, text: text)
         case .numberedPoint(let number, let text):
@@ -88,6 +281,14 @@ struct MarkdownText: View {
                 .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
                 .frame(height: 1)
                 .padding(.vertical, 8)
+        case .blockquote(let text):
+            HStack(alignment: .top, spacing: 10) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.35) : Color.black.opacity(0.25))
+                    .frame(width: 3)
+                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.85))
+            }
         case .paragraph(let text):
             renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
         case .empty:
@@ -263,15 +464,41 @@ struct MarkdownText: View {
     
     @ViewBuilder
     private func renderRichText(_ text: String, size: CGFloat, weight: Font.Weight) -> some View {
-        // Parse simple markdown: **bold**, *italic*
-        // Also handle phone links
-        let attributedAsString = createRichText(text)
-        
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(attributedAsString.enumerated()), id: \.offset) { index, component in
-                renderRichComponent(component, size: size, baseWeight: weight)
-            }
+        let components = createRichText(text)
+        if components.isEmpty {
+            Text(stripMarkdownFormatting(text))
+                .font(FontManager.geist(size: size, systemWeight: weight))
+                .foregroundColor(colorScheme == .dark ? .white : .black.opacity(0.88))
+                .textSelection(.enabled)
+        } else {
+            richText(components: components, size: size, baseWeight: weight)
+                .textSelection(.enabled)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func richText(components: [RichTextComponent], size: CGFloat, baseWeight: Font.Weight) -> Text {
+        components.reduce(Text("")) { partial, component in
+            partial + styledText(component, size: size, baseWeight: baseWeight)
+        }
+    }
+
+    private func styledText(_ component: RichTextComponent, size: CGFloat, baseWeight: Font.Weight) -> Text {
+        let effectiveWeight: Font.Weight = component.isBold ? .bold : baseWeight
+        var token = Text(component.text)
+            .font(FontManager.geist(size: size, systemWeight: effectiveWeight))
+
+        if component.isItalic {
+            token = token.italic()
+        }
+
+        if component.isPhone {
+            token = token.foregroundColor(.blue).underline()
+        } else {
+            token = token.foregroundColor(colorScheme == .dark ? .white : .black.opacity(0.88))
+        }
+        return token
     }
     
     private struct RichTextComponent {
@@ -442,6 +669,36 @@ struct MarkdownText: View {
                 i += 1
                 continue
             }
+
+            // Fenced code blocks
+            if trimmed.hasPrefix("```") {
+                var codeLines: [String] = []
+                i += 1
+                while i < lines.count {
+                    let codeLine = lines[i]
+                    if codeLine.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                        i += 1
+                        break
+                    }
+                    codeLines.append(codeLine)
+                    i += 1
+                }
+                elements.append(.codeBlock(codeLines.joined(separator: "\n")))
+                continue
+            }
+
+            // Block quotes
+            if trimmed.hasPrefix(">") {
+                var quoteLines: [String] = []
+                while i < lines.count {
+                    let quoteTrimmed = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard quoteTrimmed.hasPrefix(">") else { break }
+                    quoteLines.append(String(quoteTrimmed.dropFirst()).trimmingCharacters(in: .whitespaces))
+                    i += 1
+                }
+                elements.append(.blockquote(quoteLines.joined(separator: "\n")))
+                continue
+            }
             
             // Horizontal rule
             if trimmed.count >= 3 && (trimmed.allSatisfy { $0 == "-" } || trimmed.allSatisfy { $0 == "*" } || trimmed.allSatisfy { $0 == "_" }) {
@@ -525,12 +782,35 @@ struct MarkdownText: View {
                 }
             }
 
-            // Regular paragraph
-            elements.append(.paragraph(line))
-            i += 1
+            // Regular paragraph: merge consecutive plain text lines for stable wrapping.
+            var paragraphLines: [String] = [line]
+            var cursor = i + 1
+            while cursor < lines.count {
+                let candidate = lines[cursor]
+                let candidateTrimmed = candidate.trimmingCharacters(in: .whitespaces)
+                if candidateTrimmed.isEmpty || isMarkdownStructuralLine(candidateTrimmed) {
+                    break
+                }
+                paragraphLines.append(candidate)
+                cursor += 1
+            }
+            elements.append(.paragraph(paragraphLines.joined(separator: "\n")))
+            i = cursor
         }
 
         return elements
+    }
+
+    private func isMarkdownStructuralLine(_ trimmed: String) -> Bool {
+        if trimmed.hasPrefix("```") || trimmed.hasPrefix(">") { return true }
+        if trimmed.hasPrefix("#") { return true }
+        if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("• ") { return true }
+        if trimmed.range(of: #"^\d+\.\s+"#, options: .regularExpression) != nil { return true }
+        if trimmed.count >= 3 && (trimmed.allSatisfy { $0 == "-" } || trimmed.allSatisfy { $0 == "*" } || trimmed.allSatisfy { $0 == "_" }) {
+            return true
+        }
+        if trimmed.filter({ $0 == "|" }).count >= 2 { return true }
+        return false
     }
     
     // MARK: - Table Parsing Helpers
@@ -616,6 +896,8 @@ enum MarkdownElement: Hashable, Identifiable {
     case bulletPoint(level: Int, text: String)
     case numberedPoint(Int, String)
     case table(headers: [String], rows: [[String]])
+    case codeBlock(String)
+    case blockquote(String)
     case horizontalRule
     case paragraph(String)
     case empty
@@ -634,6 +916,8 @@ enum MarkdownElement: Hashable, Identifiable {
         case .bulletPoint(let level, let text): return "bullet-\(level)-\(text.hashValue)"
         case .numberedPoint(let num, let text): return "num-\(num)-\(text.hashValue)"
         case .table(let headers, let rows): return "table-\(headers.hashValue)-\(rows.hashValue)"
+        case .codeBlock(let text): return "codeblock-\(text.hashValue)"
+        case .blockquote(let text): return "blockquote-\(text.hashValue)"
         case .horizontalRule: return "hr-\(UUID().uuidString)"
         case .paragraph(let text): return "p-\(text.hashValue)"
         case .empty: return "empty-\(UUID().uuidString)"

@@ -121,7 +121,7 @@ struct VisitReasonPopupCard: View {
                 .frame(width: 28, height: 28)
                 .background(
                     Circle()
-                        .fill(Color.homeGlassAccent)
+                        .fill(Color.appMonochromeAccentFill(colorScheme))
                 )
         }
     }

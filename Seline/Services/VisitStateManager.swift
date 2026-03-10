@@ -17,6 +17,7 @@ class VisitStateManager: ObservableObject {
         let todaysVisits: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)]
         let selectedDayVisits: [LocationVisitRecord]
         let monthVisitCounts: [Date: Int]
+        let selectedDayVisitContexts: [UUID: ProcessedVisitDisplayContext]
     }
 
     // MARK: - Published State
@@ -38,6 +39,10 @@ class VisitStateManager: ObservableObject {
     @Published var isLoadingToday: Bool = false
     @Published var isLoadingDay: Bool = false
     @Published var isLoadingMonth: Bool = false
+
+    private var selectedDayVisitContexts: [UUID: ProcessedVisitDisplayContext] = [:]
+    private var latestSelectedDayRequest: Date?
+    private var latestMonthRequest: Date?
 
     // MARK: - Initialization
 
@@ -95,18 +100,26 @@ class VisitStateManager: ObservableObject {
         defer { isLoadingDay = false }
 
         print("📊 [VisitStateManager] Fetching visits for \(date)...")
+        let calendar = Calendar.current
+        let requestedDay = calendar.startOfDay(for: date)
+        latestSelectedDayRequest = requestedDay
 
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             print("❌ [VisitStateManager] No user ID found")
-            selectedDayVisits = []
+            if latestSelectedDayRequest == requestedDay {
+                selectedDayVisits = []
+                selectedDayVisitContexts = [:]
+            }
             return
         }
 
-        let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: date)
+        let startOfDay = requestedDay
         guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else {
             print("❌ [VisitStateManager] Failed to calculate end of day")
-            selectedDayVisits = []
+            if latestSelectedDayRequest == requestedDay {
+                selectedDayVisits = []
+                selectedDayVisitContexts = [:]
+            }
             return
         }
 
@@ -123,15 +136,17 @@ class VisitStateManager: ObservableObject {
             let decoder = JSONDecoder.supabaseDecoder()
             let rawVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
-            // Process visits using shared function for consistency
-            let processedVisits = LocationVisitAnalytics.shared.processVisitsForDisplay(rawVisits)
+            let displayContexts = LocationVisitAnalytics.shared.buildDisplayContexts(for: rawVisits)
+            guard latestSelectedDayRequest == requestedDay else { return }
+            selectedDayVisits = displayContexts.map(\.displayedVisit)
+            selectedDayVisitContexts = Dictionary(uniqueKeysWithValues: displayContexts.map { ($0.displayedVisit.id, $0) })
 
-            selectedDayVisits = processedVisits.sorted { $0.entryTime > $1.entryTime }
-
-            print("📊 [VisitStateManager] Fetched \(processedVisits.count) visits for selected day")
+            print("📊 [VisitStateManager] Fetched \(displayContexts.count) visits for selected day")
         } catch {
             print("❌ [VisitStateManager] Error fetching visits for day: \(error)")
+            guard latestSelectedDayRequest == requestedDay else { return }
             selectedDayVisits = []
+            selectedDayVisitContexts = [:]
         }
     }
 
@@ -140,19 +155,25 @@ class VisitStateManager: ObservableObject {
         defer { isLoadingMonth = false }
 
         print("📊 [VisitStateManager] Fetching visits for month \(month)...")
+        let calendar = Calendar.current
+        let requestedMonth = calendar.startOfDay(for: month)
+        latestMonthRequest = requestedMonth
 
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             print("❌ [VisitStateManager] No user ID found")
-            currentMonth = month
-            monthVisitCounts = [:]
+            if latestMonthRequest == requestedMonth {
+                currentMonth = requestedMonth
+                monthVisitCounts = [:]
+            }
             return
         }
 
-        let calendar = Calendar.current
-        guard let monthInterval = calendar.dateInterval(of: .month, for: month) else {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: requestedMonth) else {
             print("❌ [VisitStateManager] Failed to calculate month boundaries")
-            currentMonth = month
-            monthVisitCounts = [:]
+            if latestMonthRequest == requestedMonth {
+                currentMonth = requestedMonth
+                monthVisitCounts = [:]
+            }
             return
         }
 
@@ -177,15 +198,42 @@ class VisitStateManager: ObservableObject {
                 visitsByDay[normalizedDate, default: 0] += 1
             }
 
-            currentMonth = month
+            guard latestMonthRequest == requestedMonth else { return }
+            currentMonth = requestedMonth
             monthVisitCounts = visitsByDay
 
             print("📊 [VisitStateManager] Fetched \(visitsByDay.count) days with visits for month")
         } catch {
             print("❌ [VisitStateManager] Error fetching visits for month: \(error)")
-            currentMonth = month
+            guard latestMonthRequest == requestedMonth else { return }
+            currentMonth = requestedMonth
             monthVisitCounts = [:]
         }
+    }
+
+    func canEditVisit(id: UUID) -> Bool {
+        guard let context = selectedDayVisitContexts[id] else { return true }
+        return !context.isDerivedSplit
+    }
+
+    func updateVisit(id: UUID, entryTime: Date, exitTime: Date?) async -> Bool {
+        guard let context = selectedDayVisitContexts[id] else {
+            print("❌ [VisitStateManager] Missing visit context for edit \(id.uuidString)")
+            return false
+        }
+
+        let success = await LocationVisitAnalytics.shared.updateVisitTiming(
+            displayedVisit: context.displayedVisit,
+            sourceVisits: context.sourceVisits,
+            entryTime: entryTime,
+            exitTime: exitTime
+        )
+
+        if success {
+            await refreshAllViews()
+        }
+
+        return success
     }
 
     // MARK: - Delete Method
@@ -209,16 +257,19 @@ class VisitStateManager: ObservableObject {
             return true
         }
 
+        let sourceVisitIds = selectedDayVisitContexts[id]?.sourceVisits.map(\.id) ?? [id]
+
         let snapshot = VisitDeletionSnapshot(
             todaysVisits: todaysVisits,
             selectedDayVisits: selectedDayVisits,
-            monthVisitCounts: monthVisitCounts
+            monthVisitCounts: monthVisitCounts,
+            selectedDayVisitContexts: selectedDayVisitContexts
         )
 
         applyOptimisticVisitDeletion(deletedVisit)
 
         Task {
-            let success = await LocationVisitAnalytics.shared.deleteVisit(id: id.uuidString)
+            let success = await LocationVisitAnalytics.shared.deleteVisits(ids: sourceVisitIds)
 
             if success {
                 await MainActor.run {
@@ -233,6 +284,7 @@ class VisitStateManager: ObservableObject {
                     todaysVisits = snapshot.todaysVisits
                     selectedDayVisits = snapshot.selectedDayVisits
                     monthVisitCounts = snapshot.monthVisitCounts
+                    selectedDayVisitContexts = snapshot.selectedDayVisitContexts
                 }
             }
         }
@@ -242,6 +294,7 @@ class VisitStateManager: ObservableObject {
 
     private func applyOptimisticVisitDeletion(_ visit: LocationVisitRecord) {
         selectedDayVisits.removeAll { $0.id == visit.id }
+        selectedDayVisitContexts.removeValue(forKey: visit.id)
 
         let calendar = Calendar.current
         let visitDay = calendar.startOfDay(for: visit.entryTime)

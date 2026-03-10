@@ -336,7 +336,7 @@ class GeofenceRadiusManager {
             print("📍 \(place.displayName)")
             print("   Category: \(place.category)")
             print("   Radius: \(Int(radius))m [\(source)]")
-            if let customRadius = place.customGeofenceRadius {
+            if place.customGeofenceRadius != nil {
                 let autoRadius = autoDetectRadius(from: place.category)
                 print("   (Auto would be: \(Int(autoRadius))m)")
             }
@@ -459,7 +459,6 @@ class GeofenceRadiusManager {
 
             // Suggest radius reduction
             let suggestedRadius1 = max(50, collision.distance * 0.4)
-            let suggestedRadius2 = max(50, collision.distance * 0.4)
 
             print("   💡 Suggestion: Reduce radii to ~\(Int(suggestedRadius1))m each to prevent overlap")
             print()

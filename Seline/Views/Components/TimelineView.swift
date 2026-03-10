@@ -350,7 +350,7 @@ struct TimelineView: View {
                             .id("timeline")
                         }
                         .onAppear {
-                            if isToday, let currentMinutes = currentTimeMinutes {
+                            if isToday, currentTimeMinutes != nil {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                     withAnimation {
                                         proxy.scrollTo("timeline")
@@ -673,7 +673,7 @@ struct TimelineView: View {
                                 date,
                                 time,
                                 time.addingTimeInterval(3600), // Default to 1 hour instead of nil
-                                .none,
+                                ReminderTime.none,
                                 false,
                                 nil,
                                 selectedTagId

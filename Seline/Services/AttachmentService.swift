@@ -12,8 +12,6 @@ class AttachmentService: ObservableObject {
 
     private let attachmentStorageBucket = "note-attachments"
     private let maxFileSizeBytes = 5 * 1024 * 1024 // 5MB total per note
-    private let authManager = AuthenticationManager.shared
-    private let openAIService = GeminiService.shared
 
     private init() {}
 
@@ -36,7 +34,7 @@ class AttachmentService: ObservableObject {
         let simpleFileName = "\(noteId.uuidString)_\(timestamp).\(fileExtension)"
 
         // Upload using SupabaseManager (same auth and verification as image uploads)
-        let publicURL = try await SupabaseManager.shared.uploadFile(
+        _ = try await SupabaseManager.shared.uploadFile(
             fileData,
             fileName: simpleFileName,
             userId: userId,
@@ -82,7 +80,7 @@ class AttachmentService: ObservableObject {
 
     /// Delete attachment and associated extracted data
     func deleteAttachment(_ attachment: NoteAttachment) async throws {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
             throw NSError(domain: "AttachmentService", code: 1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
 
@@ -212,7 +210,7 @@ class AttachmentService: ObservableObject {
 
     /// Update extracted data fields (user edited)
     func updateExtractedData(_ data: ExtractedData) async throws {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
             throw NSError(domain: "AttachmentService", code: 1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
 
@@ -253,6 +251,7 @@ class AttachmentService: ObservableObject {
             fileContent = extractTextFromFileData(fileData, fileName: fileName)
 
             // Call OpenAI to extract detailed content
+            let openAIService = await MainActor.run { GeminiService.shared }
             let responseText = try await openAIService.extractDetailedDocumentContent(
                 fileContent,
                 withPrompt: prompt,

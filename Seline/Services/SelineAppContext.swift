@@ -55,6 +55,20 @@ class SelineAppContext {
         Date().timeIntervalSince(lastRefreshTime) < cacheValidityDuration
     }
 
+    // MARK: - Chat Transient State Setters
+
+    func setLastETALocationInfo(_ info: ETALocationInfo?) {
+        lastETALocationInfo = info
+    }
+
+    func setLastEventCreationInfo(_ info: [EventCreationInfo]?) {
+        lastEventCreationInfo = info
+    }
+
+    func setLastRelevantContent(_ content: [RelevantContentInfo]?) {
+        lastRelevantContent = content
+    }
+
     // OPTIMIZATION: Reusable DateFormatters (created once, used everywhere)
     private lazy var dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -115,29 +129,29 @@ class SelineAppContext {
     }()
 
     init(
-        taskManager: TaskManager = TaskManager.shared,
-        tagManager: TagManager = TagManager.shared,
-        notesManager: NotesManager = NotesManager.shared,
-        emailService: EmailService = EmailService.shared,
-        weatherService: WeatherService = WeatherService.shared,
-        locationsManager: LocationsManager = LocationsManager.shared,
-        navigationService: NavigationService = NavigationService.shared,
-        categorizationService: ReceiptCategorizationService = ReceiptCategorizationService.shared,
-        habitTrackingService: HabitTrackingService = HabitTrackingService.shared,
-        visitFeedbackService: VisitFeedbackService = VisitFeedbackService.shared,
-        attachmentService: AttachmentService = AttachmentService.shared
+        taskManager: TaskManager? = nil,
+        tagManager: TagManager? = nil,
+        notesManager: NotesManager? = nil,
+        emailService: EmailService? = nil,
+        weatherService: WeatherService? = nil,
+        locationsManager: LocationsManager? = nil,
+        navigationService: NavigationService? = nil,
+        categorizationService: ReceiptCategorizationService? = nil,
+        habitTrackingService: HabitTrackingService? = nil,
+        visitFeedbackService: VisitFeedbackService? = nil,
+        attachmentService: AttachmentService? = nil
     ) {
-        self.taskManager = taskManager
-        self.tagManager = tagManager
-        self.notesManager = notesManager
-        self.emailService = emailService
-        self.weatherService = weatherService
-        self.locationsManager = locationsManager
-        self.navigationService = navigationService
-        self.categorizationService = categorizationService
-        self.habitTrackingService = habitTrackingService
-        self.visitFeedbackService = visitFeedbackService
-        self.attachmentService = attachmentService
+        self.taskManager = taskManager ?? .shared
+        self.tagManager = tagManager ?? .shared
+        self.notesManager = notesManager ?? .shared
+        self.emailService = emailService ?? .shared
+        self.weatherService = weatherService ?? .shared
+        self.locationsManager = locationsManager ?? .shared
+        self.navigationService = navigationService ?? .shared
+        self.categorizationService = categorizationService ?? .shared
+        self.habitTrackingService = habitTrackingService ?? .shared
+        self.visitFeedbackService = visitFeedbackService ?? .shared
+        self.attachmentService = attachmentService ?? .shared
 
         // Note: refresh() is called asynchronously in buildContextPrompt()
         // to fetch custom email folders and saved emails
@@ -336,20 +350,15 @@ class SelineAppContext {
         print("📍 Locations loaded: \(self.locations.count) (visit stats will be fetched on-demand)")
 
         // OPTIMIZATION: Fetch weather in background (non-blocking)
-        Task.detached(priority: .utility) { [self] in
-            do {
-                // Try to get current location, otherwise use default (Toronto)
-                let locationService = LocationService.shared
-                let location = await locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
+        Task(priority: .utility) { [weak self] in
+            guard let self else { return }
 
-                await self.weatherService.fetchWeather(for: location)
-                await MainActor.run {
-                    self.weatherData = self.weatherService.weatherData
-                    print("🌤️ Weather data fetched")
-                }
-            } catch {
-                print("⚠️ Failed to fetch weather: \(error)")
-            }
+            // Try to get current location, otherwise use default (Toronto)
+            let location = LocationService.shared.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
+
+            await self.weatherService.fetchWeather(for: location)
+            self.weatherData = self.weatherService.weatherData
+            print("🌤️ Weather data fetched")
         }
 
         print("📦 AppContext refreshed:")
@@ -691,25 +700,80 @@ class SelineAppContext {
     /// Detects if query is requesting to create an event
     func isEventCreationQuery(_ query: String) -> Bool {
         let lowercaseQuery = query.lowercased()
+        // Hard stop for recall / summary / question-style intents.
+        let recallSignals = [
+            "remind me what",
+            "remind me when",
+            "remind me where",
+            "remind me how",
+            "can you remind me",
+            "tell me what",
+            "what did i",
+            "what did we",
+            "where did i",
+            "where did we",
+            "who did i",
+            "who did we",
+            "how much did i",
+            "how much did we",
+            "can you tell me",
+            "which time"
+        ]
+        if recallSignals.contains(where: { lowercaseQuery.contains($0) }) {
+            return false
+        }
+
         let creationKeywords = [
             "create event", "create an event", "add event", "add an event",
-            "schedule", "set up", "set a", "remind me", "reminder for",
+            "schedule", "set up", "reminder for",
             "create meeting", "add meeting", "schedule meeting",
-            "create appointment", "add appointment", "book",
+            "create appointment", "add appointment", "book", "reserve",
             "put on my calendar", "add to my calendar", "add to calendar",
-            "new event", "make an event"
+            "new event", "make an event", "remind me to"
         ]
         
-        return creationKeywords.contains { keyword in
+        let hasCreationKeyword = creationKeywords.contains { keyword in
             lowercaseQuery.contains(keyword)
+        }
+        return hasCreationKeyword
+    }
+
+    private func hasExplicitEventCreationContext(_ query: String) -> Bool {
+        let lowercased = query.lowercased()
+        return [
+            "create", "add", "schedule", "set up", "book", "reserve",
+            "appointment", "meeting", "calendar", "event", "remind me to"
+        ].contains(where: { lowercased.contains($0) })
+    }
+
+    private func sanitizeEventCreationQuery(_ query: String) -> String {
+        return query.replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Populate lastRelevantContent and lastEventCreationInfo for chat UI pills. Call before sending the user message so the response message gets pill data.
+    func prepareEventCreationInfoForChat(userQuery: String) async {
+        lastETALocationInfo = nil
+        lastEventCreationInfo = nil
+        lastRelevantContent = nil
+
+        if isEventCreationQuery(userQuery) {
+            let extracted = extractEventDetails(from: sanitizeEventCreationQuery(userQuery))
+            if !extracted.isEmpty {
+                lastEventCreationInfo = extracted
+                print("📅 Set lastEventCreationInfo (\(extracted.count) events) for chat cards")
+            }
         }
     }
     
     /// Extracts event details from a creation query
     /// Returns array of EventCreationInfo for single or multiple events
     func extractEventDetails(from query: String) -> [EventCreationInfo] {
+        guard hasExplicitEventCreationContext(query) else {
+            return []
+        }
+
         var events: [EventCreationInfo] = []
-        let lowercaseQuery = query.lowercased()
         
         // Split by "and also", "and", "plus" for multiple events
         let eventSeparators = [" and also ", " also ", " plus "]
@@ -744,153 +808,12 @@ class SelineAppContext {
         
         return events
     }
-    
+
     /// Populate lastRelevantContent and lastEventCreationInfo for chat UI pills. Call before sending the user message so the response message gets pill data.
     func prepareRelevantContentForChat(userQuery: String) async {
-        lastETALocationInfo = nil
-        lastEventCreationInfo = nil
-        lastRelevantContent = nil
-        
-        if isEventCreationQuery(userQuery) {
-            let extracted = extractEventDetails(from: userQuery)
-            if !extracted.isEmpty {
-                lastEventCreationInfo = extracted
-                print("📅 Set lastEventCreationInfo (\(extracted.count) events) for chat pills")
-            }
-        }
-        
-        let terms = userQuery.lowercased()
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { $0.count > 2 }
-        guard !terms.isEmpty else { return }
-        
-        var found: [RelevantContentInfo] = []
-        let semanticMatches = await prepareRelevantContentViaSemanticSearch(userQuery: userQuery, limit: 12)
-        for item in semanticMatches {
-            appendRelevantContent(item, to: &found, maxPerType: 4)
-        }
-
-        let allEvents = taskManager.getAllTasksIncludingArchived().filter { !$0.isDeleted }
-        let allNotes = notesManager.notes
-        let allEmails = emailService.inboxEmails + emailService.sentEmails
-        let allPlaces = locationsManager.savedPlaces
-        
-        for event in allEvents.prefix(200) {
-            let text = "\(event.title) \(event.description ?? "")".lowercased()
-            if terms.contains(where: { text.contains($0) }), let eventId = UUID(uuidString: event.id) {
-                let category = tagManager.getTag(by: event.tagId)?.name ?? "Personal"
-                appendRelevantContent(
-                    .event(
-                        id: eventId,
-                        title: event.title,
-                        date: event.targetDate ?? event.scheduledTime ?? event.createdAt,
-                        category: category
-                    ),
-                    to: &found,
-                    maxPerType: 4
-                )
-                if countRelevantContent(of: .event, in: found) >= 4 { break }
-            }
-        }
-        
-        for note in allNotes.prefix(100) {
-            let text = "\(note.title) \(note.content)".lowercased()
-            if terms.contains(where: { text.contains($0) }) {
-                appendRelevantContent(
-                    .note(
-                        id: note.id,
-                        title: note.title,
-                        snippet: String(note.content.prefix(80)),
-                        folder: getCachedFolderName(for: note.folderId)
-                    ),
-                    to: &found,
-                    maxPerType: 4
-                )
-                if countRelevantContent(of: .note, in: found) >= 4 { break }
-            }
-        }
-        
-        for email in allEmails.prefix(100) {
-            let text = "\(email.subject) \(email.sender.displayName) \(email.sender.email) \(email.snippet)".lowercased()
-            if terms.contains(where: { text.contains($0) }) {
-                appendRelevantContent(
-                    .email(
-                        id: email.id,
-                        subject: email.subject,
-                        sender: email.sender.displayName,
-                        snippet: String(email.snippet.prefix(100)),
-                        date: email.timestamp
-                    ),
-                    to: &found,
-                    maxPerType: 4
-                )
-                if countRelevantContent(of: .email, in: found) >= 4 { break }
-            }
-        }
-        
-        for place in allPlaces.prefix(50) {
-            let text = "\(place.name) \(place.address)".lowercased()
-            if terms.contains(where: { text.contains($0) }) {
-                appendRelevantContent(
-                    .location(id: place.id, name: place.name, address: place.address, category: place.category ?? ""),
-                    to: &found,
-                    maxPerType: 3
-                )
-                if countRelevantContent(of: .location, in: found) >= 3 { break }
-            }
-        }
-        
-        // When query implies receipts/spending, add receipt notes (notes under Receipts folder) so source pills show "Receipt"
-        let queryLower = userQuery.lowercased()
-        let receiptQueryTerms = ["receipt", "receipts", "spent", "spend", "purchase", "purchases", "bought", "buy", "expense", "expenses", "haircut", "payment", "payments", "last haircut", "appointment"]
-        let impliesReceipts = receiptQueryTerms.contains { queryLower.contains($0) }
-        if impliesReceipts {
-            let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
-            let receiptNotes = allNotes.filter { isUnderReceiptsFolderHierarchy(folderId: $0.folderId, receiptsFolderId: receiptsFolderId) }
-            var receiptCount = found.filter { item in
-                item.contentType == .note && (item.noteFolder ?? "").lowercased().contains("receipt")
-            }.count
-            for note in receiptNotes.prefix(10) {
-                guard receiptCount < 4 else { break }
-                let alreadyInFound = found.contains { $0.noteId == note.id }
-                if alreadyInFound { continue }
-                let text = "\(note.title) \(note.content)".lowercased()
-                let matchesTerms = terms.contains(where: { text.contains($0) })
-                if matchesTerms || receiptNotes.count <= 3 {
-                    appendRelevantContent(
-                        .note(
-                            id: note.id,
-                            title: note.title,
-                            snippet: String(note.content.prefix(80)),
-                            folder: getCachedFolderName(for: note.folderId)
-                        ),
-                        to: &found,
-                        maxPerType: 4
-                    )
-                    receiptCount = found.filter { item in
-                        item.contentType == .note && (item.noteFolder ?? "").lowercased().contains("receipt")
-                    }.count
-                }
-            }
-            // If no term-matched receipts, add most recent receipt(s) so "from your receipts" still gets a pill
-            if receiptCount == 0, let first = receiptNotes.first {
-                appendRelevantContent(
-                    .note(
-                        id: first.id,
-                        title: first.title,
-                        snippet: String(first.content.prefix(80)),
-                        folder: getCachedFolderName(for: first.folderId)
-                    ),
-                    to: &found,
-                    maxPerType: 4
-                )
-            }
-        }
-        
-        if !found.isEmpty {
-            lastRelevantContent = found
-            print("🔍 Set lastRelevantContent (\(found.count) items) for chat pills")
-        }
+        // Kept for backward compatibility. Citation evidence now comes only from
+        // VectorContextBuilder/VectorSearch so sources and retrieval stay aligned.
+        await prepareEventCreationInfoForChat(userQuery: userQuery)
     }
 
     private func prepareRelevantContentViaSemanticSearch(userQuery: String, limit: Int) async -> [RelevantContentInfo] {
@@ -996,7 +919,7 @@ class SelineAppContext {
                             id: place.id,
                             name: place.displayName,
                             address: place.address,
-                            category: place.category ?? ""
+                            category: place.category
                         ),
                         to: &semanticFound,
                         maxPerType: 3
@@ -1021,7 +944,7 @@ class SelineAppContext {
                             id: place.id,
                             name: place.displayName,
                             address: place.address,
-                            category: place.category ?? ""
+                            category: place.category
                         ),
                         to: &semanticFound,
                         maxPerType: 3
@@ -1058,10 +981,20 @@ class SelineAppContext {
             return items.contains { $0.contentType == .email && $0.emailId == candidate.emailId }
         case .note:
             return items.contains { $0.contentType == .note && $0.noteId == candidate.noteId }
+        case .receipt:
+            let candidateId = candidate.receiptId ?? candidate.noteId
+            return items.contains { item in
+                let itemId = item.receiptId ?? item.noteId
+                return (item.contentType == .receipt || item.contentType == .note) && itemId == candidateId
+            }
         case .event:
             return items.contains { $0.contentType == .event && $0.eventId == candidate.eventId }
         case .location:
             return items.contains { $0.contentType == .location && $0.locationId == candidate.locationId }
+        case .visit:
+            return items.contains { $0.contentType == .visit && $0.visitId == candidate.visitId }
+        case .person:
+            return items.contains { $0.contentType == .person && $0.personId == candidate.personId }
         }
     }
 
@@ -1659,8 +1592,6 @@ class SelineAppContext {
     /// Extracts a restaurant or location name from the query
     /// Examples: "Eddies", "Starbucks", "Best Buy" from queries like "what bill at Eddies" or "prices at Starbucks"
     private func extractLocationName(from query: String) -> String? {
-        let lowercaseQuery = query.lowercased()
-
         // Look for pattern: "[at/to/for] [NAME]"
         let patterns = [
             "at\\s+([A-Za-z\\s&'-]+?)(?:\\s+(?:for|to|in|with)|\\?|$)",  // at [NAME]

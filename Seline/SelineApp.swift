@@ -270,29 +270,19 @@ struct SelineApp: App {
     }
 
     private func syncCalendarEventsOnFirstLaunch() {
-        // Sync calendar events on app launch
-        // This runs asynchronously without blocking app initialization
+        // Defer and gate launch sync to avoid blocking cold start.
         Task {
-            // DEBUG: Commented out to reduce console spam
-            // print("📅 [SelineApp] Starting calendar sync check on launch...")
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
 
-            // Check current permission status first
-            let status = EventKit.EKEventStore.authorizationStatus(for: .event)
-            // DEBUG: Commented out to reduce console spam
-            // print("📅 [SelineApp] Current calendar permission status: \(status.rawValue)")
+            guard SupabaseManager.shared.getCurrentUser()?.id != nil else { return }
+
+            let persistedLastSync = CalendarSyncService.shared.getLastSyncDate() ?? Date.distantPast
+            guard Date().timeIntervalSince(persistedLastSync) > (4 * 60 * 60) else { return }
 
             let hasAccess = await taskManager.requestCalendarAccess()
-            // DEBUG: Commented out to reduce console spam
-            // print("📅 [SelineApp] requestCalendarAccess returned: \(hasAccess)")
+            guard hasAccess else { return }
 
-            if hasAccess {
-                // DEBUG: Commented out to reduce console spam
-                // print("✅ [SelineApp] Calendar access granted - syncing events now")
-                await taskManager.syncCalendarEvents()
-            } else {
-                print("⚠️ [SelineApp] Calendar access not granted. Status: \(status.rawValue)")
-                print("⚠️ [SelineApp] User can enable it in Settings > Seline > Calendars")
-            }
+            await taskManager.syncCalendarEvents()
         }
     }
 
@@ -320,7 +310,7 @@ struct SelineApp: App {
             // Request location permission and set up geofences
             // If permission is already granted, this immediately sets up geofences
             // If not granted yet, geofences will be set up when permission is granted
-            geofenceManager.requestLocationPermission()
+            GeofenceManager.shared.requestLocationPermission()
             
             // CRITICAL FIX: Force enable background location immediately
             // This ensures location updates continue even when app is backgrounded
@@ -333,30 +323,17 @@ struct SelineApp: App {
             // Start CLVisit monitoring for accurate arrival/departure detection
             SharedLocationManager.shared.startVisitMonitoring()
 
-            // Load incomplete visits from Supabase to resume tracking
-            // This is important for cases where the app was killed mid-visit
-            await geofenceManager.loadIncompleteVisitsFromSupabase()
-            
             // CRITICAL: Start background validation timer immediately
             // This checks every 30 seconds if user entered/exited locations
             // even if iOS geofence events are delayed
-            let savedPlaces = locationsManager.savedPlaces
+            let savedPlaces = LocationsManager.shared.savedPlaces
             if !savedPlaces.isEmpty {
                 // Start the continuous location monitoring
                 LocationBackgroundValidationService.shared.startContinuousMonitoring(
-                    geofenceManager: geofenceManager,
+                    geofenceManager: GeofenceManager.shared,
                     locationManager: SharedLocationManager.shared,
                     savedPlaces: savedPlaces
                 )
-            }
-
-            // Run full visit cleanup once on launch to fix midnight splits, duplicates, and orphaned rows.
-            print("🌙 [SelineApp] Starting full visit cleanup...")
-            let cleanupResult = await LocationVisitAnalytics.shared.runFullVisitCleanup()
-            if cleanupResult.errors > 0 {
-                print("❌ [SelineApp] Visit cleanup finished with \(cleanupResult.errors) error(s)")
-            } else {
-                print("✅ [SelineApp] Visit cleanup complete: midnight=\(cleanupResult.midnightFixed), duplicates=\(cleanupResult.duplicatesRemoved), orphans=\(cleanupResult.orphansDeleted)")
             }
 
             print("✅ [SelineApp] Location services configured")

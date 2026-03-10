@@ -13,6 +13,16 @@ struct CalendarWeekView: View {
     @State private var isCreatingEvent = false
     
     private let calendar = Calendar.current
+    private static let dayLetterFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "E"
+        return formatter
+    }()
+    private static let dayNumberFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d"
+        return formatter
+    }()
     
     // MARK: - Filtered Tasks
     
@@ -89,7 +99,6 @@ struct CalendarWeekView: View {
                     taskManager.toggleTaskCompletion(task, forDate: selectedDate)
                 }
             )
-            .id("\(selectedDate.timeIntervalSince1970)-\(selectedTagId ?? "nil")") // Force refresh when date or filter changes
             
             // Timeline view for selected day
             TimelineView(
@@ -109,7 +118,6 @@ struct CalendarWeekView: View {
                     }
                 }
             )
-            .id("\(selectedDate.timeIntervalSince1970)-\(selectedTagId ?? "nil")") // Force refresh when date or filter changes
         }
         .background(backgroundColor)
     }
@@ -197,15 +205,11 @@ struct CalendarWeekView: View {
     // MARK: - Helper Methods
     
     private func dayLetter(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "E"
-        return String(formatter.string(from: date).prefix(1)).uppercased()
+        String(Self.dayLetterFormatter.string(from: date).prefix(1)).uppercased()
     }
     
     private func dayNumber(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d"
-        return formatter.string(from: date)
+        Self.dayNumberFormatter.string(from: date)
     }
     
 }

@@ -820,7 +820,7 @@ struct HybridNoteContentView: View {
     }
     
     private func updateTextSection(at index: Int, with newText: String) {
-        var items = MarkdownTableParser.parse(content)
+        let items = MarkdownTableParser.parse(content)
         guard index < items.count else { return }
         
         // Rebuild content with updated text section

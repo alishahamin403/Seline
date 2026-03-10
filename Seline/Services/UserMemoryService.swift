@@ -105,7 +105,7 @@ class UserMemoryService {
     /// Expand a query using user memories
     /// Returns additional search terms based on memory relationships
     func expandQuery(_ query: String) async -> [String] {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
             print("🧠 Query expansion: No user ID")
             return []
         }
@@ -156,7 +156,7 @@ class UserMemoryService {
 
     /// FIX: Delete garbage memories and create correct one
     func fixHaircutMemory() async throws {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
             throw NSError(domain: "UserMemoryService", code: 1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
 
@@ -171,7 +171,7 @@ class UserMemoryService {
         ]
 
         for id in garbageIds {
-            try? await client
+            _ = try? await client
                 .from("user_memory")
                 .delete()
                 .eq("id", value: id)

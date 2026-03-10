@@ -44,7 +44,7 @@ class InteractiveEventBuilder {
         }
 
         // Check what's ambiguous
-        if let date = action.extractedInfo.eventDate, !action.extractedInfo.isAllDay, action.extractedInfo.eventStartTime == nil {
+        if action.extractedInfo.eventDate != nil, !action.extractedInfo.isAllDay, action.extractedInfo.eventStartTime == nil {
             questions.append(ClarifyingQuestion(
                 field: "eventStartTime",
                 question: "What time should the event start? (e.g., 6 PM, 14:30)",

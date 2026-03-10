@@ -255,7 +255,7 @@ struct EmailFolderRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(folder.isImported ? Color.homeGlassAccent.opacity(0.8) : (colorScheme == .dark ? Color.white.opacity(0.22) : Color.black.opacity(0.16)))
+                .fill(folder.isImported ? Color.appMonochromeAccentBorder(colorScheme) : (colorScheme == .dark ? Color.white.opacity(0.22) : Color.black.opacity(0.16)))
                 .frame(width: 8, height: 8)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -302,7 +302,9 @@ class EmailFolderSidebarViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.loadFolders(force: true)
+            Task { @MainActor [weak self] in
+                self?.loadFolders(force: true)
+            }
         }
     }
 

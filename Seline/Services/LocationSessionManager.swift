@@ -147,7 +147,7 @@ class LocationSessionManager {
         // DEBUG: Commented out to reduce console spam
         // print("\n🔍 ===== RECOVERING SESSIONS ON APP LAUNCH =====")
 
-        guard let user = SupabaseManager.shared.getCurrentUser() else {
+        guard SupabaseManager.shared.getCurrentUser() != nil else {
             print("⚠️ No authenticated user")
             return
         }

@@ -478,7 +478,7 @@ struct RecurringExpenseEditView: View {
                     frequency: selectedFrequency
                 )
 
-                try await RecurringExpenseService.shared.updateRecurringExpense(updatedExpense)
+                _ = try await RecurringExpenseService.shared.updateRecurringExpense(updatedExpense)
 
                 await MainActor.run {
                     isSaving = false

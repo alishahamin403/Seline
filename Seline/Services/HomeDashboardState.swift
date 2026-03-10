@@ -17,6 +17,8 @@ final class HomeDashboardState: ObservableObject {
     @Published private(set) var hasPendingLocationSuggestion = false
     @Published private(set) var flattenedTasks: [TaskItem] = []
     @Published private(set) var todayTasks: [TaskItem] = []
+    @Published private(set) var missedOneTimeTodos: [TaskItem] = []
+    @Published private(set) var upcomingRecurringExpenses: [RecurringExpense] = []
     @Published private(set) var upcomingBirthdays: [UpcomingBirthdayItem] = []
 
     private let emailService: EmailService
@@ -25,22 +27,45 @@ final class HomeDashboardState: ObservableObject {
     private let visitState: VisitStateManager
     private let locationSuggestionService: LocationSuggestionService
     private let peopleManager: PeopleManager
+    private let recurringExpenseService: RecurringExpenseService
+    private let tagManager: TagManager
     private var cancellables = Set<AnyCancellable>()
+    private let dismissedMissedTodoStorageKey = "dismissedHomeMissedTodoKeys"
+    private static let missedTodoKeyDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar.current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = Calendar.current.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+    private static let missedTodoKeyTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar.current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = Calendar.current.timeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
 
     init(
-        emailService: EmailService = .shared,
-        taskManager: TaskManager = .shared,
-        notesManager: NotesManager = .shared,
-        visitState: VisitStateManager = .shared,
-        locationSuggestionService: LocationSuggestionService = .shared,
-        peopleManager: PeopleManager = .shared
+        emailService: EmailService? = nil,
+        taskManager: TaskManager? = nil,
+        notesManager: NotesManager? = nil,
+        visitState: VisitStateManager? = nil,
+        locationSuggestionService: LocationSuggestionService? = nil,
+        peopleManager: PeopleManager? = nil,
+        recurringExpenseService: RecurringExpenseService? = nil,
+        tagManager: TagManager? = nil
     ) {
-        self.emailService = emailService
-        self.taskManager = taskManager
-        self.notesManager = notesManager
-        self.visitState = visitState
-        self.locationSuggestionService = locationSuggestionService
-        self.peopleManager = peopleManager
+        self.emailService = emailService ?? .shared
+        self.taskManager = taskManager ?? .shared
+        self.notesManager = notesManager ?? .shared
+        self.visitState = visitState ?? .shared
+        self.locationSuggestionService = locationSuggestionService ?? .shared
+        self.peopleManager = peopleManager ?? .shared
+        self.recurringExpenseService = recurringExpenseService ?? .shared
+        self.tagManager = tagManager ?? .shared
 
         bind()
         refreshAll()
@@ -53,9 +78,11 @@ final class HomeDashboardState: ObservableObject {
             }
             .store(in: &cancellables)
 
-        taskManager.$tasks
+        taskManager.objectWillChange
             .sink { [weak self] _ in
-                self?.refreshTasks()
+                DispatchQueue.main.async {
+                    self?.refreshTasks()
+                }
             }
             .store(in: &cancellables)
 
@@ -91,6 +118,18 @@ final class HomeDashboardState: ObservableObject {
         todaysVisits = visitState.todaysVisits
         hasPendingLocationSuggestion = locationSuggestionService.hasPendingSuggestion
         refreshUpcomingBirthdays()
+        refreshRecurringExpenses()
+    }
+
+    func dismissMissedTodo(_ task: TaskItem) {
+        var keys = dismissedMissedTodoKeys
+        keys.insert(Self.missedTodoOccurrenceKey(for: task))
+        dismissedMissedTodoKeys = keys
+        refreshTasks()
+    }
+
+    func resolveMissedTodo(_ task: TaskItem) {
+        dismissMissedTodo(task)
     }
 
     private func refreshUnreadEmails() {
@@ -98,9 +137,11 @@ final class HomeDashboardState: ObservableObject {
     }
 
     private func refreshTasks() {
-        flattenedTasks = taskManager.getAllFlattenedTasks()
+        let allTasks = taskManager.getAllFlattenedTasks()
+        flattenedTasks = allTasks
         todayTasks = taskManager.getTasksForDate(Calendar.current.startOfDay(for: Date()))
         todayTaskCount = taskManager.getTasksForToday().count
+        missedOneTimeTodos = buildMissedOneTimeTodos(from: allTasks)
     }
 
     private func refreshPinnedNotes() {
@@ -133,5 +174,119 @@ final class HomeDashboardState: ObservableObject {
             }
             return lhs.date < rhs.date
         }
+    }
+
+    private func refreshRecurringExpenses() {
+        let recurringExpenseService = recurringExpenseService
+        Task { @MainActor in
+            do {
+                let expenses = try await recurringExpenseService.fetchActiveRecurringExpenses()
+                let now = Date()
+                let filtered = expenses
+                    .filter { expense in
+                        expense.isActive && (expense.endDate == nil || expense.endDate! >= now)
+                    }
+                    .sorted { $0.nextOccurrence < $1.nextOccurrence }
+
+                upcomingRecurringExpenses = filtered
+            } catch {
+                upcomingRecurringExpenses = []
+            }
+        }
+    }
+
+    private func buildMissedOneTimeTodos(from tasks: [TaskItem]) -> [TaskItem] {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        let dismissedKeys = dismissedMissedTodoKeys
+        var seenKeys = Set<String>()
+
+        return tasks
+            .filter { task in
+                guard !task.isDeleted else { return false }
+                guard !task.isRecurring else { return false }
+                guard task.parentRecurringTaskId == nil else { return false }
+                guard !isRecurringExpenseTask(task) else { return false }
+                guard task.targetDate != nil else { return false }
+                guard !task.isCompleted else { return false }
+
+                let occurrenceKey = Self.missedTodoOccurrenceKey(for: task)
+                guard !dismissedKeys.contains(occurrenceKey) else { return false }
+                guard dueDate(for: task) < todayStart else { return false }
+                guard seenKeys.insert(occurrenceKey).inserted else { return false }
+
+                return true
+            }
+            .sorted { dueDate(for: $0) > dueDate(for: $1) }
+    }
+
+    private func isRecurringExpenseTask(_ task: TaskItem) -> Bool {
+        if task.id.hasPrefix("recurring_") {
+            return true
+        }
+
+        if let tagId = task.tagId,
+           let tag = tagManager.getTag(by: tagId),
+           tag.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "recurring" {
+            return true
+        }
+
+        if let description = task.description?.lowercased(),
+           description.contains("amount:") && description.contains("category:") {
+            return true
+        }
+
+        return false
+    }
+
+    private func dueDate(for task: TaskItem) -> Date {
+        guard let targetDate = task.targetDate else { return task.createdAt }
+
+        guard let scheduledTime = task.scheduledTime else {
+            return Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: targetDate) ?? targetDate
+        }
+
+        let components = Calendar.current.dateComponents([.hour, .minute, .second], from: scheduledTime)
+        return Calendar.current.date(
+            bySettingHour: components.hour ?? 12,
+            minute: components.minute ?? 0,
+            second: components.second ?? 0,
+            of: targetDate
+        ) ?? targetDate
+    }
+
+    private var dismissedMissedTodoKeys: Set<String> {
+        get {
+            let values = UserDefaults.standard.stringArray(forKey: dismissedMissedTodoStorageKey) ?? []
+            return Set(values)
+        }
+        set {
+            UserDefaults.standard.set(Array(newValue).sorted(), forKey: dismissedMissedTodoStorageKey)
+        }
+    }
+
+    private static func missedTodoOccurrenceKey(for task: TaskItem) -> String {
+        let calendar = Calendar.current
+        let dueDate = task.targetDate ?? task.createdAt
+        let normalizedDay = calendar.startOfDay(for: dueDate)
+        let dayText = missedTodoKeyDayFormatter.string(from: normalizedDay)
+        let timeText = task.scheduledTime.map { scheduledTime in
+            missedTodoKeyTimeFormatter.string(from: scheduledTime)
+        } ?? "untimed"
+
+        let title = normalizeMissedTodoField(task.title)
+        let description = normalizeMissedTodoField(task.description ?? "")
+        let location = normalizeMissedTodoField(task.location ?? "")
+        let calendarTitle = normalizeMissedTodoField(task.calendarTitle ?? "")
+
+        return [dayText, timeText, title, description, location, calendarTitle]
+            .joined(separator: "|")
+    }
+
+    private static func normalizeMissedTodoField(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
 }

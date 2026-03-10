@@ -2013,8 +2013,6 @@ class OpenAIService: ObservableObject {
         }
 
         // Optimize conversation history to reduce token usage
-        let optimizedHistory = optimizeConversationHistory(conversationHistory)
-
         // Analyze conversation state to avoid redundancy and enable smarter follow-ups
         let conversationState = ConversationStateAnalyzerService.analyzeConversationState(
             currentQuery: query,
@@ -2307,8 +2305,6 @@ class OpenAIService: ObservableObject {
         }
 
         // Optimize conversation history to reduce token usage
-        let optimizedHistory = optimizeConversationHistory(conversationHistory)
-
         // Analyze conversation state to avoid redundancy and enable smarter follow-ups
         let conversationState = ConversationStateAnalyzerService.analyzeConversationState(
             currentQuery: query,
@@ -3082,8 +3078,6 @@ class OpenAIService: ObservableObject {
                     for receipt in receiptsToShow.sorted(by: { $0.dateCreated > $1.dateCreated }) {
                         let dateStr = dateFormatter.string(from: receipt.dateCreated)
                         // Try to extract amount from receipt title or content
-                        let contentPreview = String(receipt.content.prefix(150))
-
                         // Try to extract dollar amount using regex
                         let amountPattern = "\\$([0-9]+\\.?[0-9]*)"
                         if let regex = try? NSRegularExpression(pattern: amountPattern) {
@@ -5229,8 +5223,7 @@ class OpenAIService: ObservableObject {
                 queryDescription = "tomorrow"
             }
         } else if query.contains("next week") || query.contains("upcoming week") {
-            if let nextWeekStart = calendar.date(byAdding: .day, value: 1, to: currentDate),
-               let nextWeekEnd = calendar.date(byAdding: .day, value: 7, to: currentDate) {
+            if let nextWeekStart = calendar.date(byAdding: .day, value: 1, to: currentDate) {
                 targetDates = (0...6).compactMap { calendar.date(byAdding: .day, value: $0, to: nextWeekStart) }
                 queryDescription = "next week"
             }
@@ -5270,7 +5263,6 @@ class OpenAIService: ObservableObject {
 
                 if event.isRecurring {
                     // For recurring events, check if it recurs on this date based on frequency
-                    let eventWeekday = event.weekday.calendarWeekday
                     isMatch = shouldEventOccurOnDate(event: event, targetWeekday: targetWeekday, targetDay: targetDay, calendar: calendar)
                 } else {
                     // For one-time events, check if the date matches
@@ -5722,7 +5714,7 @@ class OpenAIService: ObservableObject {
 
     private func parseDataSources(_ raw: [[String: AnyCodable]]) -> [DataSource] {
         return raw.compactMap { dict -> DataSource? in
-            guard let typeStr = (dict["type"] as? AnyCodable)?.value as? String else { return nil }
+            guard let typeStr = dict["type"]?.value as? String else { return nil }
 
             switch typeStr {
             case "receipts":
@@ -5760,8 +5752,8 @@ class OpenAIService: ObservableObject {
 
     private func parseFilters(_ raw: [[String: AnyCodable]]) -> [AnyFilter] {
         return raw.compactMap { dict -> AnyFilter? in
-            guard let typeStr = (dict["type"] as? AnyCodable)?.value as? String else { return nil }
-            guard let params = (dict["parameters"] as? AnyCodable)?.value as? [String: Any] else { return nil }
+            guard let typeStr = dict["type"]?.value as? String else { return nil }
+            guard let params = dict["parameters"]?.value as? [String: Any] else { return nil }
 
             switch typeStr {
             case "date_range":
@@ -5808,8 +5800,8 @@ class OpenAIService: ObservableObject {
 
     private func parseOperations(_ raw: [[String: AnyCodable]]) -> [AnyOperation] {
         return raw.compactMap { dict in
-            guard let typeStr = (dict["type"] as? AnyCodable)?.value as? String else { return nil }
-            guard let params = (dict["parameters"] as? AnyCodable)?.value as? [String: Any] else { return nil }
+            guard let typeStr = dict["type"]?.value as? String else { return nil }
+            guard let params = dict["parameters"]?.value as? [String: Any] else { return nil }
 
             switch typeStr {
             case "aggregate":

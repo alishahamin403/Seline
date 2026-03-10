@@ -42,9 +42,7 @@ struct EmailDaySectionView: View {
         } else if isYesterday {
             return "Yesterday"
         } else {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE" // Full day name like "Wednesday"
-            return formatter.string(from: section.date)
+            return FormatterCache.weekdayFull.string(from: section.date)
         }
     }
     
@@ -191,9 +189,7 @@ struct EmailRowWithSummary: View {
     @State private var isSummaryExpanded = false
     @State private var aiSummary: String?
     @State private var isLoadingSummary = false
-    @State private var profilePictureUrl: String?
-    @StateObject private var openAIService = GeminiService.shared
-    @StateObject private var emailService = EmailService.shared
+    private let openAIService = GeminiService.shared
     
 
     
@@ -205,143 +201,8 @@ struct EmailRowWithSummary: View {
         Color.emailGlassInnerTint(colorScheme)
     }
 
-    private var summarySignalText: String {
-        [
-            email.subject,
-            email.snippet,
-            aiSummary ?? email.aiSummary ?? "",
-            email.sender.displayName,
-            email.sender.email
-        ]
-        .joined(separator: " ")
-        .lowercased()
-        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-    }
-
     private var isActionRequired: Bool {
-        let signal = summarySignalText
-
-        let noActionPhrases = [
-            "no action required",
-            "no response required",
-            "for your information",
-            "fyi",
-            "informational only"
-        ]
-
-        let directRequestPhrases = [
-            "action required",
-            "requires your action",
-            "please reply",
-            "reply needed",
-            "reply required",
-            "respond by",
-            "response required",
-            "please confirm",
-            "verify your",
-            "review and sign",
-            "sign and return",
-            "approval required",
-            "please approve",
-            "rsvp",
-            "confirm attendance",
-            "complete your",
-            "submit",
-            "update your",
-            "upload",
-            "accept or decline"
-        ]
-
-        let deadlineTaskPhrases = [
-            "payment due",
-            "invoice due",
-            "past due",
-            "overdue",
-            "due today",
-            "due tomorrow",
-            "due by",
-            "deadline",
-            "expires on",
-            "payment failed",
-            "card declined"
-        ]
-
-        let criticalAlertPhrases = [
-            "security alert",
-            "fraud alert",
-            "suspicious activity",
-            "password reset",
-            "verify your account",
-            "low balance",
-            "account locked"
-        ]
-
-        let announcementPhrases = [
-            "newsletter",
-            "announcement",
-            "new feature",
-            "new features",
-            "release notes",
-            "changelog",
-            "product update",
-            "developer news",
-            "what's new",
-            "introducing",
-            "now available",
-            "tips",
-            "learn more",
-            "read more",
-            "webinar",
-            "community update"
-        ]
-
-        let broadcastSenderHints = [
-            "noreply",
-            "no-reply",
-            "donotreply",
-            "newsletter",
-            "updates@",
-            "news@",
-            "notifications@"
-        ]
-
-        if containsAny(in: signal, phrases: noActionPhrases) {
-            return false
-        }
-
-        let hasCriticalAlert = containsAny(in: signal, phrases: criticalAlertPhrases)
-        if hasCriticalAlert {
-            return true
-        }
-
-        let hasDirectRequest = containsAny(in: signal, phrases: directRequestPhrases)
-        let hasDeadlineTask = containsAny(in: signal, phrases: deadlineTaskPhrases)
-
-        let senderEmail = email.sender.email.lowercased()
-        let subjectSnippet = "\(email.subject) \(email.snippet)".lowercased()
-        let isLikelyBroadcastSender = containsAny(in: senderEmail, phrases: broadcastSenderHints)
-        let isAnnouncement = containsAny(in: signal, phrases: announcementPhrases)
-            || containsAny(in: subjectSnippet, phrases: announcementPhrases)
-            || email.category == .promotions
-            || email.category == .social
-
-        if isAnnouncement && !hasDirectRequest && !hasDeadlineTask {
-            return false
-        }
-
-        if isLikelyBroadcastSender && !hasDeadlineTask && !hasCriticalAlert {
-            return false
-        }
-
-        if hasDeadlineTask {
-            return true
-        }
-
-        return hasDirectRequest && !isAnnouncement
-    }
-
-    private func containsAny(in text: String, phrases: [String]) -> Bool {
-        phrases.contains(where: { text.contains($0) })
+        email.requiresAction
     }
 
     private var emailStatusChip: (text: String, fill: Color, textColor: Color) {
@@ -440,7 +301,7 @@ struct EmailRowWithSummary: View {
                                     // Wait slightly for expansion animation to settle
                                     try? await Task.sleep(nanoseconds: 400_000_000)
                                     await MainActor.run {
-                                        emailService.markAsRead(email)
+                                        EmailService.shared.markAsRead(email)
                                     }
                                 }
                             }
@@ -552,9 +413,6 @@ struct EmailRowWithSummary: View {
                 Label("Delete", systemImage: "trash")
             }
         }
-        .task(id: email.sender.email) {
-            await fetchProfilePictureIfNeeded()
-        }
     }
     
     // MARK: - Avatar View
@@ -612,38 +470,11 @@ struct EmailRowWithSummary: View {
         if let senderAvatar = email.sender.avatarUrl, !senderAvatar.isEmpty {
             return senderAvatar
         }
-        if let profilePictureUrl, !profilePictureUrl.isEmpty {
-            return profilePictureUrl
-        }
-        return nil
-    }
-
-    private func fetchProfilePictureIfNeeded() async {
-        if let senderAvatar = email.sender.avatarUrl, !senderAvatar.isEmpty {
-            await MainActor.run {
-                profilePictureUrl = senderAvatar
-            }
-            return
-        }
-
         let cacheKey = CacheManager.CacheKey.emailProfilePicture(email.sender.email)
         if let cachedURL: String = CacheManager.shared.get(forKey: cacheKey), !cachedURL.isEmpty {
-            await MainActor.run {
-                profilePictureUrl = cachedURL
-            }
-            return
+            return cachedURL
         }
-
-        do {
-            if let fetchedURL = try await GmailAPIClient.shared.fetchProfilePicture(for: email.sender.email),
-               !fetchedURL.isEmpty {
-                await MainActor.run {
-                    profilePictureUrl = fetchedURL
-                }
-            }
-        } catch {
-            // Keep initials fallback if photo fetch fails.
-        }
+        return nil
     }
     
     /// Generate initials from a name (e.g., "Wealthsimple" -> "WS", "John Doe" -> "JD")
@@ -866,7 +697,7 @@ struct EmailRowWithSummary: View {
 
         value = value.replacingOccurrences(of: "\\p{Cf}", with: "", options: .regularExpression)
         value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return GeminiService.shared.sanitizeEmailSummaryDisplayText(value)
     }
 
     private func statusChip(text: String, fill: Color, textColor: Color) -> some View {
@@ -946,7 +777,7 @@ struct EmailRowWithSummary: View {
             let sanitizedExisting = openAIService.sanitizeEmailSummary(existing)
             aiSummary = sanitizedExisting
             if sanitizedExisting != existing {
-                await emailService.updateEmailWithAISummary(email, summary: sanitizedExisting)
+                await EmailService.shared.updateEmailWithAISummary(email, summary: sanitizedExisting)
             }
             return
         }
@@ -972,7 +803,7 @@ struct EmailRowWithSummary: View {
             }
 
             // Cache it
-            await emailService.updateEmailWithAISummary(email, summary: finalSummary)
+            await EmailService.shared.updateEmailWithAISummary(email, summary: finalSummary)
         } catch {
             await MainActor.run {
                 self.aiSummary = "Failed to generate summary"

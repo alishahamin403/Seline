@@ -84,13 +84,15 @@ class PiperTTSService: NSObject, ObservableObject {
     }
 }
 
-extension PiperTTSService: AVAudioPlayerDelegate {
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        isSpeaking = false
-        onSpeechFinished?()
-        onSpeechFinished = nil
+extension PiperTTSService: @preconcurrency AVAudioPlayerDelegate {
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
 
-        Task {
+            isSpeaking = false
+            onSpeechFinished?()
+            onSpeechFinished = nil
+
             try? await AudioSessionCoordinator.shared.requestMode(.idle)
         }
     }

@@ -119,7 +119,7 @@ struct ViewEventView: View {
                 dateTimeCard
                 
                 // Recurrence & Reminder Card (if applicable)
-                if task.isRecurring || task.reminderTime != .none {
+                if task.isRecurring || task.reminderTime != ReminderTime.none {
                     recurrenceReminderCard
                 }
                 

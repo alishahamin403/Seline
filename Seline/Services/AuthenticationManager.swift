@@ -39,11 +39,9 @@ class AuthenticationManager: ObservableObject {
             ReceiptCategorizationService.shared.setCurrentUser(session.user.id.uuidString)
 
             // Try to restore Google Sign-In state
-            GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, error in
-                Task { @MainActor in
-                    if let user = user {
-                        self?.currentUser = user
-                    }
+            Task { @MainActor [weak self] in
+                if let user = try? await GIDSignIn.sharedInstance.restorePreviousSignIn() {
+                    self?.currentUser = user
                 }
             }
 

@@ -170,34 +170,34 @@ class TextToSpeechService: NSObject, ObservableObject {
     }
 }
 
-extension TextToSpeechService: AVSpeechSynthesizerDelegate {
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        guard !usePiper else { return }
+extension TextToSpeechService: @preconcurrency AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            guard let self = self, !usePiper else { return }
 
-        isSpeaking = false
+            isSpeaking = false
 
-        if !speechQueue.isEmpty {
-            processSpeechQueue()
-        } else {
-            isProcessingQueue = false
-            onSpeechFinished?()
-            onSpeechFinished = nil
+            if !speechQueue.isEmpty {
+                processSpeechQueue()
+            } else {
+                isProcessingQueue = false
+                onSpeechFinished?()
+                onSpeechFinished = nil
 
-            Task {
                 try? await AudioSessionCoordinator.shared.requestMode(.idle)
             }
         }
     }
 
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        guard !usePiper else { return }
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            guard let self = self, !usePiper else { return }
 
-        isSpeaking = false
-        speechQueue.removeAll()
-        isProcessingQueue = false
-        onSpeechFinished = nil
+            isSpeaking = false
+            speechQueue.removeAll()
+            isProcessingQueue = false
+            onSpeechFinished = nil
 
-        Task {
             try? await AudioSessionCoordinator.shared.requestMode(.idle)
         }
     }

@@ -252,36 +252,29 @@ class SharedLocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
         
         let geofenceManager = GeofenceManager.shared
-        
-        for place in savedPlaces {
-            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
-            let distance = location.distance(from: placeLocation)
-            let radius = GeofenceRadiusManager.shared.getRadius(for: place)
-            
-            let isInside = distance <= radius
-            let hasActiveVisit = geofenceManager.getActiveVisit(for: place.id) != nil
-            
-            // Detect missed entry
-            if isInside && !hasActiveVisit {
-                // Check speed - ignore if moving fast (passing by)
-                if location.speed > 0 && location.speed > 5.5 { // > 20 km/h
-                    continue
-                }
-                
-                print("📍 Location update detected user inside \(place.displayName) - triggering entry check")
-                
-                // Create a synthetic geofence entry
-                let region = CLCircularRegion(
-                    center: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude),
-                    radius: radius,
-                    identifier: place.id.uuidString
-                )
-                await geofenceManager.handleGeofenceEntry(region: region)
-                
-                // Only handle one at a time
-                break
-            }
+
+        guard let place = geofenceManager.resolveBestMatchPlace(for: location, in: savedPlaces) else {
+            return
         }
+
+        let hasActiveVisit = geofenceManager.getActiveVisit(for: place.id) != nil
+        guard !hasActiveVisit else { return }
+
+        // Check speed - ignore if moving fast (passing by)
+        if location.speed > 0 && location.speed > 5.5 { // > 20 km/h
+            return
+        }
+
+        let radius = GeofenceRadiusManager.shared.getRadius(for: place)
+        print("📍 Location update best-match inside \(place.displayName) - triggering entry check")
+
+        // Create a synthetic geofence entry for the best match only.
+        let region = CLCircularRegion(
+            center: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude),
+            radius: radius,
+            identifier: place.id.uuidString
+        )
+        await geofenceManager.handleGeofenceEntry(region: region)
     }
 
     nonisolated func locationManager(

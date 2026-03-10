@@ -19,6 +19,7 @@ class SelineChat: ObservableObject {
     let appContext: SelineAppContext
     private let vectorContextBuilder = VectorContextBuilder.shared
     private let vectorSearchService = VectorSearchService.shared
+    private let compositeEpisodeResolver = CompositeEpisodeResolver.shared
     private let geminiService: GeminiService
     private let userProfileService: UserProfileService
     private let userMemoryService = UserMemoryService.shared
@@ -27,6 +28,8 @@ class SelineChat: ObservableObject {
     private var cachedHistorySummary = ""
     private var cachedHistorySummaryTurnCount = 0
     private let summaryRefreshTurnDelta = 4
+    private var lastResolvedVisitPlaceId: UUID?
+    private var lastResolvedVisitPlaceName: String?
     /// Toggle for using vector search (set to false to use legacy context building)
     /// Default: true for faster, more relevant responses
     var useVectorSearch = true
@@ -50,11 +53,11 @@ class SelineChat: ObservableObject {
     init(
         appContext: SelineAppContext? = nil,
         geminiService: GeminiService? = nil,
-        userProfileService: UserProfileService = .shared
+        userProfileService: UserProfileService? = nil
     ) {
         self.appContext = appContext ?? SelineAppContext()
         self.geminiService = geminiService ?? GeminiService.shared
-        self.userProfileService = userProfileService
+        self.userProfileService = userProfileService ?? .shared
     }
 
     // MARK: - Main Chat Interface
@@ -104,6 +107,10 @@ class SelineChat: ObservableObject {
     /// If the user wrote only "try again"/"again"/"retry", reuse the previous substantive user query.
     func contextQueryForLatestUserTurn() -> String {
         effectiveContextQueryForCurrentTurn()
+    }
+
+    func updateResolvedVisitPlace(from relevantContent: [RelevantContentInfo]?) {
+        _ = relevantContent
     }
     
     // MARK: - Memory Extraction
@@ -159,6 +166,9 @@ class SelineChat: ObservableObject {
     func clearHistory() async {
         conversationHistory = []
         resetHistorySummaryCache()
+        lastResolvedVisitPlaceId = nil
+        lastResolvedVisitPlaceName = nil
+        vectorContextBuilder.clearConversationAnchors()
         await appContext.refresh()
         
         // Sync embeddings in background for next conversation
@@ -218,6 +228,10 @@ class SelineChat: ObservableObject {
         // Get the effective context query for the current turn.
         let userMessage = effectiveContextQueryForCurrentTurn()
 
+        if shouldWarmJournalEmbeddings(for: userMessage) {
+            await vectorSearchService.ensureJournalNoteEmbeddingsCurrent()
+        }
+
         // OPTIMIZATION: Always use vector-based context builder for better performance
         let contextPrompt: String
 
@@ -229,6 +243,7 @@ class SelineChat: ObservableObject {
             }
             let result = await vectorContextBuilder.buildContext(forQuery: userMessage, conversationHistory: historyForContext)
             contextPrompt = result.context
+            appContext.setLastRelevantContent(result.evidence.isEmpty ? nil : result.evidence)
 
             print("🔍 Vector search: \(result.metadata.estimatedTokens) tokens (optimized from legacy ~10K+)")
 
@@ -257,6 +272,7 @@ class SelineChat: ObservableObject {
             }
             let result = await vectorContextBuilder.buildContext(forQuery: "general status update", conversationHistory: historyForContext)
             contextPrompt = result.context
+            appContext.setLastRelevantContent(result.evidence.isEmpty ? nil : result.evidence)
             print("📊 Empty query: Using minimal essential context (\(result.metadata.estimatedTokens) tokens)")
         }
             
@@ -290,6 +306,19 @@ class SelineChat: ObservableObject {
         return trimmed
     }
 
+    private func shouldWarmJournalEmbeddings(for query: String) -> Bool {
+        let lowercased = query.lowercased()
+        let journalSignals = [
+            "journal",
+            "diary",
+            "weekly recap",
+            "weekly summary",
+            "journal recap",
+            "journal summary"
+        ]
+        return journalSignals.contains(where: { lowercased.contains($0) })
+    }
+
     private func isRetryFollowUpMessage(_ text: String) -> Bool {
         let normalized = text
             .lowercased()
@@ -319,6 +348,1279 @@ class SelineChat: ObservableObject {
         }
         return false
     }
+
+    private struct DeterministicVisitResponse {
+        let response: String
+        let evidence: [RelevantContentInfo]
+    }
+
+    private struct LinkedReceiptEvidence {
+        let note: Note
+        let amount: Double
+        let date: Date
+        let category: String
+        let explicit: Bool
+        let linkedPeople: [Person]
+    }
+
+    private func deterministicEpisodeFactResponseIfNeeded(for userMessage: String) async -> DeterministicVisitResponse? {
+        guard isDeterministicHistoricalEpisodeQuery(userMessage) else { return nil }
+
+        let history = conversationHistory.map { message in
+            (role: message.role == .user ? "user" : "assistant", content: message.content)
+        }
+
+        guard let result = await compositeEpisodeResolver.resolve(
+            query: userMessage,
+            conversationHistory: history
+        ) else {
+            return nil
+        }
+
+        guard case .resolved(let resolution) = result else {
+            return nil
+        }
+
+        guard shouldAutoAnswerEpisodeResolution(resolution) else { return nil }
+
+        return DeterministicVisitResponse(
+            response: renderEpisodeResolution(resolution, query: userMessage),
+            evidence: resolution.evidence
+        )
+    }
+
+    private func shouldAutoAnswerEpisodeResolution(
+        _ resolution: CompositeEpisodeResolver.EpisodeResolution
+    ) -> Bool {
+        if resolution.matchQuality == .exact {
+            return true
+        }
+
+        if resolution.semanticSupportScore >= 3.5 {
+            return true
+        }
+
+        if resolution.jointMatchCount > 0 || resolution.proximityMatchCount > 0 {
+            return resolution.confidence >= 0.34
+        }
+
+        return resolution.confidence >= 0.44
+    }
+
+    private func isDeterministicHistoricalEpisodeQuery(_ query: String) -> Bool {
+        let lower = " " + query.lowercased() + " "
+        let temporalSignals = [
+            " when ",
+            " last time ",
+            " most recent ",
+            " latest ",
+            " last visit ",
+            " last went ",
+            " which weekend ",
+            " what weekend ",
+            " which trip ",
+            " what trip ",
+            " did i ever ",
+            " have i ever "
+        ]
+        let visitSignals = [
+            " go ",
+            " went ",
+            " visit ",
+            " visited ",
+            " trip ",
+            " stay ",
+            " weekend ",
+            " spent ",
+            " travel ",
+            " vacation "
+        ]
+        let hasTemporalSignal = temporalSignals.contains { lower.contains($0) }
+        let hasVisitSignal = visitSignals.contains { lower.contains($0) }
+        let hasPersonLikeCue = PeopleManager.shared.people.contains { person in
+            let aliases = [person.name, person.nickname]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            return aliases.contains { alias in
+                !alias.isEmpty && lower.contains(" \(alias) ")
+            }
+        }
+        let hasLocationCue = lower.contains(" to ")
+            || lower.contains(" at ")
+            || lower.contains(" in ")
+            || lower.range(of: #"\b[a-z]{3,}\b\s+with\b"#, options: .regularExpression) != nil
+
+        let hasCompositeFacetCue = hasPersonLikeCue && hasLocationCue
+        return hasTemporalSignal && (hasVisitSignal || hasCompositeFacetCue) && (hasPersonLikeCue || hasLocationCue)
+    }
+
+    private func renderEpisodeResolution(
+        _ resolution: CompositeEpisodeResolver.EpisodeResolution,
+        query: String
+    ) -> String {
+        let lower = query.lowercased()
+        let dateLabel = formattedEpisodeRange(start: resolution.start, end: resolution.end)
+        let visitCitation = resolution.evidence.firstIndex(where: { $0.contentType == .visit }).map { "[[\($0)]]" } ?? ""
+        let personCitation = resolution.evidence.firstIndex(where: { $0.contentType == .person }).map { "[[\($0)]]" }
+        let locationCitation = resolution.evidence.firstIndex(where: { $0.contentType == .location }).map { "[[\($0)]]" }
+        let supportCitation = resolution.evidence.firstIndex(where: {
+            $0.contentType == .note || $0.contentType == .email || $0.contentType == .receipt || $0.contentType == .event
+        }).map { "[[\($0)]]" }
+        let peopleLabel = resolution.matchedPeople.map(\.name).joined(separator: ", ")
+        let geoLabel = resolution.geoDescription ?? resolution.matchedAnchorName ?? resolution.label
+        let visitSuffix = visitCitation.isEmpty ? "" : " \(visitCitation)"
+
+        let lead: String
+        if resolution.matchQuality == .exact {
+            lead = lower.contains("last") || lower.contains("most recent") || lower.contains("latest")
+                ? "The last confirmed match was \(dateLabel)\(visitSuffix)."
+                : "The strongest confirmed match is \(dateLabel)\(visitSuffix)."
+        } else {
+            lead = lower.contains("last") || lower.contains("most recent") || lower.contains("latest")
+                ? "The best supported match was \(dateLabel)\(visitSuffix)."
+                : "The strongest supported match is \(dateLabel)\(visitSuffix)."
+        }
+
+        var detailFragments: [String] = []
+        if !peopleLabel.isEmpty {
+            if let personCitation {
+                detailFragments.append("I can see \(peopleLabel) in that trip episode \(personCitation)")
+            } else {
+                detailFragments.append("I can see \(peopleLabel) in that trip episode")
+            }
+        }
+
+        if resolution.matchQuality == .exact {
+            let locationFragment = detailFragments.isEmpty
+                ? "it lines up directly with \(geoLabel)"
+                : "and it lines up directly with \(geoLabel)"
+            if let locationCitation {
+                detailFragments.append("\(locationFragment) \(locationCitation)")
+            } else {
+                detailFragments.append(locationFragment)
+            }
+        } else {
+            let geoPhrase = detailFragments.isEmpty
+                ? "\(geoLabel) is supported indirectly rather than by an exact saved-place match"
+                : "and \(geoLabel) is supported indirectly rather than by an exact saved-place match"
+            if let locationCitation {
+                detailFragments.append("\(geoPhrase) \(locationCitation)")
+            } else {
+                detailFragments.append(geoPhrase)
+            }
+        }
+
+        var lines = [lead]
+        if !detailFragments.isEmpty {
+            lines.append(detailFragments.joined(separator: ", ") + ".")
+        }
+
+        if let supportingSourceSummary = resolution.supportingSourceSummary, !supportingSourceSummary.isEmpty {
+            if let supportCitation {
+                lines.append("I also found \(supportingSourceSummary) \(supportCitation), which reinforces this match.")
+            } else {
+                lines.append("I also found \(supportingSourceSummary), which reinforces this match.")
+            }
+        }
+
+        if let alternative = resolution.alternativeCandidates.first, alternative.confidence >= 0.55 {
+            let altLabel = formattedEpisodeRange(start: alternative.start, end: alternative.end)
+            lines.append("There are weaker alternatives, but \(dateLabel) is the strongest recent candidate; the next best is \(altLabel).")
+        }
+
+        return lines.joined(separator: " ")
+    }
+
+    private func formattedEpisodeRange(start: Date, end: Date) -> String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+
+        let lastDay = calendar.date(byAdding: .day, value: -1, to: end) ?? end
+        if calendar.isDate(start, inSameDayAs: lastDay) {
+            return formatter.string(from: start)
+        }
+        return "\(formatter.string(from: start)) to \(formatter.string(from: lastDay))"
+    }
+
+    private struct ReceiptQueryIntent {
+        let wantsAll: Bool
+        let wantsLatest: Bool
+        let wantsAmounts: Bool
+        let wantsCount: Bool
+        let mentionsReceiptConcept: Bool
+        let mentionsVisitConcept: Bool
+
+        var isReceiptFirstEligible: Bool {
+            (wantsAll || wantsLatest || wantsAmounts || wantsCount || mentionsReceiptConcept) && !mentionsVisitConcept
+        }
+    }
+
+    private struct ReceiptQueryMatch {
+        let note: Note
+        let date: Date
+        let amount: Double
+        let category: String
+        let matchedTerms: [String]
+        let score: Double
+        let linkedVisit: LocationVisitRecord?
+    }
+
+    private func deterministicReceiptFactResponseIfNeeded(for userMessage: String) async -> DeterministicVisitResponse? {
+        let intent = analyzeReceiptQueryIntent(userMessage)
+        guard intent.isReceiptFirstEligible else { return nil }
+
+        let notesManager = NotesManager.shared
+        let receiptNotes = receiptNotesForMatching(notesManager: notesManager)
+        guard !receiptNotes.isEmpty else { return nil }
+
+        let matchingTerms = await buildReceiptMatchingTerms(query: userMessage, place: nil)
+        guard !matchingTerms.isEmpty else { return nil }
+
+        let temporalConstraint = extractTemporalConstraint(for: userMessage)
+        let resolvedPlace = await resolvePlaceFromPhrase(userMessage, places: LocationsManager.shared.savedPlaces)
+
+        let supportingVisits: [LocationVisitRecord]
+        if let userId = SupabaseManager.shared.getCurrentUser()?.id, let resolvedPlace {
+            supportingVisits = await fetchAuthoritativeVisits(
+                userId: userId,
+                placeId: resolvedPlace.id,
+                dateRange: temporalConstraint
+            )
+        } else {
+            supportingVisits = []
+        }
+
+        let matches = buildReceiptQueryMatches(
+            query: userMessage,
+            intent: intent,
+            receiptNotes: receiptNotes,
+            notesManager: notesManager,
+            matchingTerms: matchingTerms,
+            temporalConstraint: temporalConstraint,
+            supportingVisits: supportingVisits
+        )
+        guard !matches.isEmpty else { return nil }
+
+        var evidence: [RelevantContentInfo] = []
+        var evidenceIndexByKey: [String: Int] = [:]
+
+        func key(for item: RelevantContentInfo) -> String {
+            switch item.contentType {
+            case .email:
+                return "email::\(item.emailId ?? item.id.uuidString)"
+            case .note:
+                return "note::\(item.noteId?.uuidString ?? item.id.uuidString)"
+            case .receipt:
+                return "receipt::\(item.receiptId?.uuidString ?? item.id.uuidString)"
+            case .event:
+                return "event::\(item.eventId?.uuidString ?? item.id.uuidString)"
+            case .location:
+                return "location::\(item.locationId?.uuidString ?? item.id.uuidString)"
+            case .visit:
+                return "visit::\(item.visitId?.uuidString ?? item.id.uuidString)"
+            case .person:
+                return "person::\(item.personId?.uuidString ?? item.id.uuidString)"
+            }
+        }
+
+        func citationIndex(for item: RelevantContentInfo) -> Int {
+            let itemKey = key(for: item)
+            if let existing = evidenceIndexByKey[itemKey] {
+                return existing
+            }
+            let newIndex = evidence.count
+            evidence.append(item)
+            evidenceIndexByKey[itemKey] = newIndex
+            return newIndex
+        }
+
+        let subjectLabel = receiptSubjectLabel(for: userMessage, matchingTerms: matchingTerms)
+        let totalAmount = matches.reduce(0.0) { $0 + $1.amount }
+        let pluralSuffix = matches.count == 1 ? "" : "s"
+
+        var lines: [String] = []
+        if intent.wantsLatest && !intent.wantsAll {
+            let latest = matches[0]
+            let receiptCitation = citationIndex(for: .receipt(
+                id: latest.note.id,
+                title: latest.note.title,
+                amount: latest.amount,
+                date: latest.date,
+                category: latest.category
+            ))
+            let latestDate = formattedEpisodeRange(start: latest.date, end: latest.date.addingTimeInterval(24 * 60 * 60))
+            lines.append("The most recent \(subjectLabel) receipt I found was \(latestDate) for $\(String(format: "%.2f", latest.amount)) [[\(receiptCitation)]].")
+            if let resolvedPlace {
+                let locationCitation = citationIndex(for: .location(
+                    id: resolvedPlace.id,
+                    name: resolvedPlace.displayName,
+                    address: resolvedPlace.address,
+                    category: resolvedPlace.category
+                ))
+                lines.append("It lines up with \(resolvedPlace.displayName) [[\(locationCitation)]].")
+            }
+            if matches.count > 1 {
+                lines.append("Across \(matches.count) matching receipt\(pluralSuffix), you paid $\(String(format: "%.2f", totalAmount)) in total.")
+            }
+        } else {
+            lines.append("I found \(matches.count) \(subjectLabel) receipt\(pluralSuffix) totaling $\(String(format: "%.2f", totalAmount)).")
+            if let resolvedPlace {
+                let locationCitation = citationIndex(for: .location(
+                    id: resolvedPlace.id,
+                    name: resolvedPlace.displayName,
+                    address: resolvedPlace.address,
+                    category: resolvedPlace.category
+                ))
+                let linkedCount = matches.filter { $0.linkedVisit != nil }.count
+                if linkedCount > 0 {
+                    lines.append("\(linkedCount) of them line up with your recorded visits to \(resolvedPlace.displayName) [[\(locationCitation)]].")
+                } else {
+                    lines.append("These match \(resolvedPlace.displayName) based on your saved aliases and receipt text [[\(locationCitation)]].")
+                }
+            }
+
+            let maxReceiptLines = intent.wantsAll ? 20 : 8
+            lines.append("")
+            lines.append("- **Receipts:**")
+            for match in matches.prefix(maxReceiptLines) {
+                let receiptCitation = citationIndex(for: .receipt(
+                    id: match.note.id,
+                    title: match.note.title,
+                    amount: match.amount,
+                    date: match.date,
+                    category: match.category
+                ))
+                let dateLabel = formattedEpisodeRange(start: match.date, end: match.date.addingTimeInterval(24 * 60 * 60))
+                var line = "  - \(dateLabel) — \(match.note.title) — $\(String(format: "%.2f", match.amount)) [[\(receiptCitation)]]"
+                if let visit = match.linkedVisit, let resolvedPlace {
+                    let visitCitation = citationIndex(for: .visit(
+                        id: visit.id,
+                        placeId: resolvedPlace.id,
+                        placeName: resolvedPlace.displayName,
+                        address: resolvedPlace.address,
+                        entryTime: visit.entryTime,
+                        exitTime: visit.exitTime,
+                        durationMinutes: visit.durationMinutes
+                    ))
+                    line += " (visit [[\(visitCitation)]])"
+                }
+                lines.append(line)
+            }
+
+            if matches.count > maxReceiptLines {
+                lines.append("  - ...and \(matches.count - maxReceiptLines) more matching receipts.")
+            }
+        }
+
+        return DeterministicVisitResponse(
+            response: lines.joined(separator: "\n"),
+            evidence: evidence
+        )
+    }
+
+    private func analyzeReceiptQueryIntent(_ query: String) -> ReceiptQueryIntent {
+        let lower = " " + query.lowercased() + " "
+        let wantsAll = lower.contains(" all ")
+            || lower.contains(" every ")
+            || lower.contains(" list ")
+            || lower.contains(" in the past ")
+            || lower.contains(" history ")
+        let wantsLatest = lower.contains(" latest ")
+            || lower.contains(" most recent ")
+            || lower.contains(" last ")
+            || lower.contains(" recent ")
+        let wantsAmounts = lower.contains(" how much ")
+            || lower.contains(" paid ")
+            || lower.contains(" pay ")
+            || lower.contains(" cost ")
+            || lower.contains(" spent ")
+            || lower.contains(" spend ")
+            || lower.contains(" total ")
+        let wantsCount = lower.contains(" how many ")
+            || lower.contains(" number of ")
+            || lower.contains(" count ")
+        let mentionsReceiptConcept = lower.contains(" receipt ")
+            || lower.contains(" receipts ")
+            || lower.contains(" purchase ")
+            || lower.contains(" purchases ")
+            || lower.contains(" merchant ")
+        let mentionsVisitConcept = lower.contains(" when did i go ")
+            || lower.contains(" when did we go ")
+            || lower.contains(" visit ")
+            || lower.contains(" visited ")
+            || lower.contains(" went ")
+            || lower.contains(" trip ")
+            || lower.contains(" weekend ")
+
+        return ReceiptQueryIntent(
+            wantsAll: wantsAll,
+            wantsLatest: wantsLatest,
+            wantsAmounts: wantsAmounts,
+            wantsCount: wantsCount,
+            mentionsReceiptConcept: mentionsReceiptConcept,
+            mentionsVisitConcept: mentionsVisitConcept
+        )
+    }
+
+    private func buildReceiptQueryMatches(
+        query: String,
+        intent: ReceiptQueryIntent,
+        receiptNotes: [Note],
+        notesManager: NotesManager,
+        matchingTerms: Set<String>,
+        temporalConstraint: (start: Date, end: Date)?,
+        supportingVisits: [LocationVisitRecord]
+    ) -> [ReceiptQueryMatch] {
+        let normalizedQuery = normalizeForMatching(query)
+        let queryTokens = Set(tokensForMatching(normalizedQuery))
+
+        let explicitLinksByNoteId = Dictionary(
+            uniqueKeysWithValues: VisitReceiptLinkStore.allLinks().map { (noteId: $0.value, visitId: $0.key) }
+        )
+
+        let matches = receiptNotes.compactMap { note -> ReceiptQueryMatch? in
+            let receiptDate = notesManager.extractFullDateFromTitle(note.title) ?? note.dateCreated
+            if let temporalConstraint,
+               !(receiptDate >= temporalConstraint.start && receiptDate < temporalConstraint.end) {
+                return nil
+            }
+
+            let normalizedCombined = normalizeForMatching("\(note.title) \(note.content)")
+            let combinedTokens = Set(tokensForMatching(normalizedCombined))
+
+            var matchedTerms: [String] = []
+            var score = 0.0
+
+            for term in matchingTerms.sorted(by: { $0.count > $1.count }) {
+                let termTokens = Set(tokensForMatching(term))
+                guard !termTokens.isEmpty else { continue }
+
+                if normalizedCombined.contains(term) {
+                    matchedTerms.append(term)
+                    score += termTokens.count > 1 ? 18.0 : (term.count >= 6 ? 14.0 : 10.0)
+                    continue
+                }
+
+                let overlap = termTokens.intersection(combinedTokens).count
+                if overlap == termTokens.count {
+                    matchedTerms.append(term)
+                    score += Double(overlap) * 6.0
+                }
+            }
+
+            let queryOverlap = queryTokens.intersection(combinedTokens).count
+            score += Double(queryOverlap) * 2.0
+
+            guard !matchedTerms.isEmpty || queryOverlap >= 2 else {
+                return nil
+            }
+
+            let linkedVisit: LocationVisitRecord? = {
+                if let explicitVisitId = explicitLinksByNoteId[note.id],
+                   let explicitVisit = supportingVisits.first(where: { $0.id == explicitVisitId }) {
+                    return explicitVisit
+                }
+
+                return supportingVisits
+                    .filter { visit in
+                        let visitEnd = visit.exitTime ?? visit.entryTime
+                        let nearestBoundary = min(
+                            abs(visit.entryTime.timeIntervalSince(receiptDate)),
+                            abs(visitEnd.timeIntervalSince(receiptDate))
+                        )
+                        return nearestBoundary <= 6 * 60 * 60
+                            || Calendar.current.isDate(receiptDate, inSameDayAs: visit.entryTime)
+                    }
+                    .min(by: { lhs, rhs in
+                        abs(lhs.entryTime.timeIntervalSince(receiptDate)) < abs(rhs.entryTime.timeIntervalSince(receiptDate))
+                    })
+            }()
+
+            if linkedVisit != nil {
+                score += 4.0
+            }
+
+            let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
+            let category = ReceiptCategorizationService.shared.quickCategorizeReceipt(title: note.title, content: note.content) ?? "Other"
+
+            return ReceiptQueryMatch(
+                note: note,
+                date: receiptDate,
+                amount: amount,
+                category: category,
+                matchedTerms: Array(Set(matchedTerms)).sorted(),
+                score: score,
+                linkedVisit: linkedVisit
+            )
+        }
+
+        return matches.sorted { lhs, rhs in
+            if intent.wantsLatest || intent.wantsAll || intent.wantsAmounts {
+                if lhs.date != rhs.date {
+                    return lhs.date > rhs.date
+                }
+            }
+            if abs(lhs.score - rhs.score) > 0.001 {
+                return lhs.score > rhs.score
+            }
+            return lhs.note.title < rhs.note.title
+        }
+    }
+
+    private func receiptSubjectLabel(for query: String, matchingTerms: Set<String>) -> String {
+        let normalizedQuery = normalizeForMatching(query)
+        let preferredTerms = matchingTerms
+            .filter {
+                normalizedQuery.contains($0)
+                    && tokensForMatching($0).count <= 3
+                    && $0.count <= 24
+            }
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count { return lhs.count > rhs.count }
+                return lhs < rhs
+            }
+
+        if let preferred = preferredTerms.first {
+            return preferred
+        }
+
+        if normalizedQuery.contains("haircut") {
+            return "haircut"
+        }
+
+        return "matching"
+    }
+
+    private func deterministicVisitFactResponseIfNeeded(for userMessage: String) async -> DeterministicVisitResponse? {
+        guard isDeterministicVisitFactQuery(userMessage) else { return nil }
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return nil }
+
+        let lower = userMessage.lowercased()
+        let places = LocationsManager.shared.savedPlaces
+        let explicitPlacePhrase = extractExplicitPlacePhrase(from: userMessage)
+        let hasCoreference = isVisitPlaceCoreferenceQuery(lower)
+
+        // Route broad temporal "where did I go" style questions through the
+        // date-range/day-complete pipeline instead of place-specific matching.
+        if explicitPlacePhrase == nil,
+           !hasCoreference,
+           isBroadTemporalVisitSummaryQuery(lower) {
+            return nil
+        }
+
+        let placeFromCoreference: SavedPlace? = {
+            guard hasCoreference, explicitPlacePhrase == nil else { return nil }
+            if let id = lastResolvedVisitPlaceId {
+                return places.first(where: { $0.id == id })
+            }
+            if let name = lastResolvedVisitPlaceName {
+                return places.first(where: { $0.displayName.caseInsensitiveCompare(name) == .orderedSame })
+            }
+            return nil
+        }()
+
+        let resolvedPlace: SavedPlace?
+        if let placeFromCoreference {
+            resolvedPlace = placeFromCoreference
+        } else {
+            resolvedPlace = await resolvePlaceFromPhrase(explicitPlacePhrase ?? userMessage, places: places)
+        }
+        guard let place = resolvedPlace else {
+            // Don't block the query with a canned failure when place matching is uncertain.
+            // Fall back to normal context retrieval (vector/date-range pipeline).
+            print("ℹ️ Deterministic visit resolver: place unresolved, falling back to contextual retrieval")
+            return nil
+        }
+
+        lastResolvedVisitPlaceId = place.id
+        lastResolvedVisitPlaceName = place.displayName
+
+        let temporalConstraint = extractTemporalConstraint(for: userMessage)
+        let visits = await fetchAuthoritativeVisits(
+            userId: userId,
+            placeId: place.id,
+            dateRange: temporalConstraint
+        )
+        var evidence: [RelevantContentInfo] = []
+        var evidenceIndexByKey: [String: Int] = [:]
+
+        func key(for item: RelevantContentInfo) -> String {
+            switch item.contentType {
+            case .email:
+                return "email::\(item.emailId ?? item.id.uuidString)"
+            case .note:
+                return "note::\(item.noteId?.uuidString ?? item.id.uuidString)"
+            case .receipt:
+                return "receipt::\(item.receiptId?.uuidString ?? item.id.uuidString)"
+            case .event:
+                return "event::\(item.eventId?.uuidString ?? item.id.uuidString)"
+            case .location:
+                return "location::\(item.locationId?.uuidString ?? item.id.uuidString)"
+            case .visit:
+                return "visit::\(item.visitId?.uuidString ?? item.id.uuidString)"
+            case .person:
+                return "person::\(item.personId?.uuidString ?? item.id.uuidString)"
+            }
+        }
+
+        func citationIndex(for item: RelevantContentInfo) -> Int {
+            let itemKey = key(for: item)
+            if let existing = evidenceIndexByKey[itemKey] {
+                return existing
+            }
+            let newIndex = evidence.count
+            evidence.append(item)
+            evidenceIndexByKey[itemKey] = newIndex
+            return newIndex
+        }
+
+        let locationCitation = citationIndex(for: .location(
+            id: place.id,
+            name: place.displayName,
+            address: place.address,
+            category: place.category
+        ))
+
+        guard !visits.isEmpty else {
+            let periodQualifier = temporalConstraint == nil ? "" : " in the requested time period"
+            return DeterministicVisitResponse(
+                response: "I found 0 recorded visits for \(place.displayName)\(periodQualifier) [[\(locationCitation)]].",
+                evidence: evidence
+            )
+        }
+
+        let notesManager = NotesManager.shared
+        let receiptNotes = receiptNotesForMatching(notesManager: notesManager)
+        let receiptMatchingTerms = await buildReceiptMatchingTerms(query: userMessage, place: place)
+        let visitDateFormatter = DateFormatter()
+        visitDateFormatter.dateStyle = .long
+        visitDateFormatter.timeStyle = .short
+
+        let totalVisits = visits.count
+        let maxVisitsToList = 12
+        var lines: [String] = []
+        let periodQualifier = temporalConstraint == nil ? "" : " in the requested time period"
+        lines.append("I found \(totalVisits) visits to \(place.displayName)\(periodQualifier) [[\(locationCitation)]].")
+        lines.append("")
+
+        let sortedVisits = visits.sorted { $0.entryTime > $1.entryTime }
+        for (offset, visit) in sortedVisits.prefix(maxVisitsToList).enumerated() {
+            let visitCitation = citationIndex(for: .visit(
+                id: visit.id,
+                placeId: place.id,
+                placeName: place.displayName,
+                address: place.address,
+                entryTime: visit.entryTime,
+                exitTime: visit.exitTime,
+                durationMinutes: visit.durationMinutes
+            ))
+            let visitLabel = visitDateFormatter.string(from: visit.entryTime)
+            var visitLine = "\(offset + 1). Visit on \(visitLabel) [[\(visitCitation)]]"
+            if let duration = visit.durationMinutes {
+                visitLine += " - \(duration) min"
+            }
+            lines.append(visitLine)
+
+            let visitPeople = await PeopleManager.shared.getPeopleForVisit(visitId: visit.id)
+            let linkedReceipts = await linkReceiptsForVisit(
+                visit: visit,
+                place: place,
+                notesManager: notesManager,
+                receiptNotes: receiptNotes,
+                matchingTerms: receiptMatchingTerms
+            )
+
+            if !linkedReceipts.isEmpty {
+                let receiptDetails = linkedReceipts.prefix(2).map { linked in
+                    let receiptCitation = citationIndex(for: .receipt(
+                        id: linked.note.id,
+                        title: linked.note.title,
+                        amount: linked.amount,
+                        date: linked.date,
+                        category: linked.category
+                    ))
+                    return "\(linked.note.title) ($\(String(format: "%.2f", linked.amount))) [[\(receiptCitation)]]"
+                }.joined(separator: ", ")
+                lines.append("   Receipts: \(receiptDetails)")
+            }
+
+            var allPeople = visitPeople
+            for receipt in linkedReceipts {
+                for person in receipt.linkedPeople where !allPeople.contains(where: { $0.id == person.id }) {
+                    allPeople.append(person)
+                }
+            }
+
+            if !allPeople.isEmpty {
+                let peopleDetails = allPeople.prefix(3).map { person in
+                    let personCitation = citationIndex(for: .person(
+                        id: person.id,
+                        name: person.name,
+                        relationship: person.relationshipDisplayText
+                    ))
+                    return "\(person.name) [[\(personCitation)]]"
+                }.joined(separator: ", ")
+                lines.append("   People: \(peopleDetails)")
+            }
+        }
+
+        if totalVisits > maxVisitsToList {
+            lines.append("")
+            lines.append("...and \(totalVisits - maxVisitsToList) more visits.")
+        }
+
+        let wantsSpending = lower.contains("spent")
+            || lower.contains("spending")
+            || lower.contains("how much")
+            || lower.contains("each time")
+            || lower.contains("paid")
+            || lower.contains("pay")
+
+        if wantsSpending {
+            let allLinkedReceipts = await collectAllLinkedReceipts(
+                visits: sortedVisits,
+                place: place,
+                notesManager: notesManager,
+                receiptNotes: receiptNotes,
+                matchingTerms: receiptMatchingTerms
+            )
+            if !allLinkedReceipts.isEmpty {
+                let total = allLinkedReceipts.reduce(0.0) { $0 + $1.amount }
+                lines.append("")
+                lines.append("Total linked spending: $\(String(format: "%.2f", total)).")
+            } else {
+                lines.append("")
+                lines.append("I don’t have linked receipt amounts for those visits.")
+            }
+        }
+
+        return DeterministicVisitResponse(response: lines.joined(separator: "\n"), evidence: evidence)
+    }
+
+    private func isDeterministicVisitFactQuery(_ query: String) -> Bool {
+        let lower = " " + query.lowercased() + " "
+        let factSignals = [
+            " how many times ",
+            " how often ",
+            " which days ",
+            " what days ",
+            " when did i go ",
+            " when did i last go ",
+            " last went ",
+            " last time i went ",
+            " last visit ",
+            " all the times ",
+            " all times ",
+            " every time ",
+            " times i went ",
+            " times i've gone ",
+            " times i have gone ",
+            " spent each time ",
+            " how much did i spend ",
+            " how much i spent ",
+            " how much did i pay ",
+            " how much i paid ",
+            " what did i pay ",
+            " what i paid ",
+            " what did i do ",
+            " what did we do ",
+            " what did i do with ",
+            " what did we do with ",
+            " tell me what i did ",
+            " tell me what we did ",
+            " which other times ",
+            " what other times ",
+            " other times ",
+            " other visits ",
+            " when else did i go ",
+            " when else have i gone "
+        ]
+        let hasSignal = factSignals.contains { lower.contains($0) }
+            || matchesFactVisitRegex(lower)
+        let hasVisitVerb = lower.contains(" go ")
+            || lower.contains(" went ")
+            || lower.contains(" visit ")
+            || lower.contains(" visited ")
+            || lower.contains(" been to ")
+            || lower.contains(" there ")
+            || lower.contains(" that place ")
+            || lower.contains(" same place ")
+            || lower.contains(" same location ")
+            || lower.contains(" same restaurant ")
+        let hasLocationCue = lower.range(of: #"\b(?:at|to)\s+[a-z0-9]"#, options: .regularExpression) != nil
+        return hasSignal && (hasVisitVerb || hasLocationCue)
+    }
+
+    private func isBroadTemporalVisitSummaryQuery(_ lower: String) -> Bool {
+        let temporalSignals = [
+            "day before yesterday",
+            "yesterday",
+            "today",
+            "last night",
+            "this morning",
+            "this afternoon",
+            "this evening",
+            "tonight",
+            "this week",
+            "last week",
+            "this month",
+            "last month"
+        ]
+
+        let broadSummarySignals = [
+            "where did i go",
+            "where i went",
+            "what did i do",
+            "how was my day",
+            "who did i spend my time with",
+            "who was i with"
+        ]
+
+        let hasTemporalSignal = temporalSignals.contains { lower.contains($0) }
+        let hasBroadSummarySignal = broadSummarySignals.contains { lower.contains($0) }
+        return hasTemporalSignal && hasBroadSummarySignal
+    }
+
+    private func matchesFactVisitRegex(_ lower: String) -> Bool {
+        let patterns = [
+            "\\ball\\s+(?:the\\s+)?times\\b",
+            "\\bhow\\s+often\\b",
+            "\\bhow\\s+many\\s+times\\b",
+            "\\bwhen\\s+did\\s+i\\s+(?:go|visit|went)\\b",
+            "\\bwhen\\s+else\\s+(?:did\\s+i\\s+)?(?:go|visit|went)\\b",
+            "\\b(?:which|what)\\s+other\\s+times\\b",
+            "\\bhow\\s+much\\s+(?:did\\s+i\\s+)?(?:pay|spend)\\b",
+            "\\bwhat\\s+(?:did\\s+i\\s+)?(?:pay|paid)\\b",
+            "\\bwhat\\s+did\\s+i\\s+do\\b",
+            "\\bwhat\\s+did\\s+we\\s+do\\b"
+        ]
+        for pattern in patterns {
+            if lower.range(of: pattern, options: .regularExpression) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func isVisitPlaceCoreferenceQuery(_ lower: String) -> Bool {
+        lower.contains(" there ")
+            || lower.hasSuffix(" there")
+            || lower.contains("that place")
+            || lower.contains("that location")
+            || lower.contains("same place")
+            || lower.contains("same location")
+            || lower.contains("same restaurant")
+            || lower.contains("same spot")
+            || lower.contains("same one")
+    }
+
+    private func extractExplicitPlacePhrase(from query: String) -> String? {
+        let patterns = [
+            "(?:go|went|visit|visited|been)\\s+(?:to|at)\\s+(.+?)(?:\\?|$|\\s+(?:and|with|how\\s+much|how\\s+many|how\\s+often|which\\s+days|what\\s+days|when\\s+did|did\\s+i|do\\s+i|any\\s+idea)\\b)",
+            "(?:to|at)\\s+(.+?)(?:\\?|$|\\s+(?:and|with|how\\s+much|how\\s+many|how\\s+often|which\\s+days|what\\s+days|when\\s+did|did\\s+i|do\\s+i|any\\s+idea)\\b)"
+        ]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let nsRange = NSRange(query.startIndex..<query.endIndex, in: query)
+            guard let match = regex.firstMatch(in: query, options: [], range: nsRange),
+                  let range = Range(match.range(at: 1), in: query) else { continue }
+            let raw = String(query[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleaned = cleanExtractedPlacePhrase(raw)
+            if cleaned.count >= 3 {
+                return cleaned
+            }
+        }
+        return nil
+    }
+
+    private func cleanExtractedPlacePhrase(_ phrase: String) -> String {
+        var cleaned = phrase
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        cleaned = cleaned.replacingOccurrences(
+            of: "^(?:the|a|an)\\s+",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        // Remove trailing temporal qualifiers that often ride along with place mentions.
+        cleaned = cleaned.replacingOccurrences(
+            of: "\\b(?:last|latest|recently|again)\\b$",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        cleaned = cleaned
+            .replacingOccurrences(of: "[,.;:!?]+$", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return cleaned
+    }
+
+    private func resolvePlaceFromPhrase(_ phrase: String, places: [SavedPlace]) async -> SavedPlace? {
+        guard !places.isEmpty else { return nil }
+        let expandedPhrases = await buildPlaceMatchingPhrases(from: phrase)
+        guard !expandedPhrases.isEmpty else { return nil }
+
+        var ranked: [(place: SavedPlace, score: Int)] = []
+
+        for place in places {
+            let combined = normalizeForMatching("\(place.displayName) \(place.name) \(place.address)")
+            if combined.isEmpty { continue }
+
+            let placeTokens = Set(tokensForMatching(combined))
+            var bestScore = 0
+
+            for candidate in expandedPhrases {
+                let phraseTokens = Set(tokensForMatching(candidate.phrase))
+                guard !phraseTokens.isEmpty else { continue }
+
+                var score = 0
+                if combined == candidate.phrase { score += 120 }
+                if combined.contains(candidate.phrase) || candidate.phrase.contains(combined) { score += 80 }
+
+                let overlap = phraseTokens.intersection(placeTokens).count
+                score += overlap * 12
+                if !phraseTokens.isEmpty {
+                    let coverage = Double(overlap) / Double(phraseTokens.count)
+                    score += Int((coverage * 28.0).rounded())
+                    if phraseTokens.isSubset(of: placeTokens) {
+                        score += 16
+                    }
+                }
+
+                if candidate.isMemoryExpansion {
+                    score = Int(Double(score) * 0.92)
+                }
+
+                bestScore = max(bestScore, score)
+            }
+
+            if let notes = place.userNotes?.lowercased(), !notes.isEmpty {
+                let normalizedNotes = normalizeForMatching(notes)
+                if expandedPhrases.contains(where: { normalizedNotes.contains($0.phrase) }) {
+                    bestScore += 12
+                }
+            }
+
+            if bestScore > 0 {
+                ranked.append((place, bestScore))
+            }
+        }
+
+        let sorted = ranked.sorted { lhs, rhs in
+            if lhs.score == rhs.score {
+                return lhs.place.displayName.count < rhs.place.displayName.count
+            }
+            return lhs.score > rhs.score
+        }
+        guard let best = sorted.first else { return nil }
+        let strongestPhraseTokens = expandedPhrases.map { Set(tokensForMatching($0.phrase)) }.max(by: { $0.count < $1.count }) ?? []
+        let minimumScore: Int = {
+            switch strongestPhraseTokens.count {
+            case 1: return 10
+            case 2: return 14
+            case 3: return 18
+            default: return 22
+            }
+        }()
+        guard best.score >= minimumScore else { return nil }
+        if sorted.count > 1, sorted[1].score >= best.score - 4, best.score < 70 {
+            let comparisonTokens = strongestPhraseTokens
+            let bestTokens = Set(tokensForMatching(normalizeForMatching("\(best.place.displayName) \(best.place.name) \(best.place.address)")))
+            let secondTokens = Set(tokensForMatching(normalizeForMatching("\(sorted[1].place.displayName) \(sorted[1].place.name) \(sorted[1].place.address)")))
+            let bestOverlap = comparisonTokens.intersection(bestTokens).count
+            let secondOverlap = comparisonTokens.intersection(secondTokens).count
+
+            if bestOverlap == secondOverlap {
+                return nil
+            }
+        }
+        return best.place
+    }
+
+    private struct PlaceMatchingPhrase {
+        let phrase: String
+        let isMemoryExpansion: Bool
+    }
+
+    private func buildPlaceMatchingPhrases(from phrase: String) async -> [PlaceMatchingPhrase] {
+        let normalizedOriginal = normalizeForMatching(phrase)
+        var results: [PlaceMatchingPhrase] = []
+        var seen = Set<String>()
+
+        func appendPhrase(_ raw: String, isMemoryExpansion: Bool) {
+            let normalized = normalizeForMatching(raw)
+            guard !normalized.isEmpty else { return }
+            let tokenCount = tokensForMatching(normalized).count
+            guard tokenCount > 0 else { return }
+            guard seen.insert(normalized).inserted else { return }
+            results.append(PlaceMatchingPhrase(phrase: normalized, isMemoryExpansion: isMemoryExpansion))
+        }
+
+        appendPhrase(normalizedOriginal, isMemoryExpansion: false)
+        let expansions = await UserMemoryService.shared.expandQuery(phrase)
+        for expansion in expansions {
+            appendPhrase(expansion, isMemoryExpansion: true)
+        }
+
+        return results
+    }
+
+    private func buildReceiptMatchingTerms(query: String, place: SavedPlace?) async -> Set<String> {
+        var terms = Set<String>()
+
+        func addTerm(_ raw: String?) {
+            guard let raw else { return }
+            let normalized = normalizeForMatching(raw)
+            guard !normalized.isEmpty else { return }
+            if normalized.count >= 3 {
+                terms.insert(normalized)
+            }
+            for token in tokensForMatching(normalized) where token.count >= 3 {
+                terms.insert(token)
+                if token.hasSuffix("s"), token.count >= 5 {
+                    terms.insert(String(token.dropLast()))
+                }
+            }
+        }
+
+        addTerm(query)
+        addTerm(place?.displayName)
+        addTerm(place?.name)
+        addTerm(place?.userNotes)
+
+        let expansions = await UserMemoryService.shared.expandQuery(query)
+        for expansion in expansions {
+            addTerm(expansion)
+            let reverseExpansions = await UserMemoryService.shared.expandQuery(expansion)
+            for reverse in reverseExpansions {
+                addTerm(reverse)
+            }
+        }
+
+        if let place {
+            let placeExpansions = await UserMemoryService.shared.expandQuery(place.displayName)
+            for expansion in placeExpansions {
+                addTerm(expansion)
+            }
+        }
+
+        return terms
+    }
+
+    private func normalizeForMatching(_ text: String) -> String {
+        text
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func tokensForMatching(_ text: String) -> [String] {
+        let stopWords: Set<String> = [
+            "the", "and", "for", "with", "to", "at", "in", "on",
+            "restaurant", "place", "location",
+            "can", "could", "would", "should", "tell", "show", "find", "which", "what", "where", "when", "who", "how",
+            "did", "do", "does", "is", "are", "was", "were", "am", "me", "my", "i", "you", "there",
+            "spent", "spend", "pay", "paid", "much", "time", "times", "about", "of"
+        ]
+        return text
+            .split(separator: " ")
+            .map(String.init)
+            .filter { $0.count >= 2 && !stopWords.contains($0) }
+    }
+
+    private func extractTemporalConstraint(for query: String) -> (start: Date, end: Date)? {
+        guard let extracted = TemporalUnderstandingService.shared.extractTemporalRange(from: query) else {
+            return nil
+        }
+        let bounds = TemporalUnderstandingService.shared.normalizedBounds(for: extracted)
+        guard bounds.end > bounds.start else { return nil }
+        return bounds
+    }
+
+    private func fetchAuthoritativeVisits(
+        userId: UUID,
+        placeId: UUID,
+        dateRange: (start: Date, end: Date)? = nil
+    ) async -> [LocationVisitRecord] {
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            var queryBuilder = client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .eq("saved_place_id", value: placeId.uuidString)
+
+            if let dateRange {
+                let iso = ISO8601DateFormatter()
+                iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                let widenedStart = dateRange.start.addingTimeInterval(-(12 * 60 * 60))
+                let widenedEnd = dateRange.end.addingTimeInterval(12 * 60 * 60)
+                queryBuilder = queryBuilder
+                    .gte("entry_time", value: iso.string(from: widenedStart))
+                    .lt("entry_time", value: iso.string(from: widenedEnd))
+            }
+
+            let response = try await queryBuilder
+                .order("entry_time", ascending: false)
+                .execute()
+            let visits = try JSONDecoder.supabaseDecoder().decode([LocationVisitRecord].self, from: response.data)
+            let processedVisits = LocationVisitAnalytics.shared.processVisitsForDisplay(visits)
+            let filteredVisits: [LocationVisitRecord]
+            if let dateRange {
+                filteredVisits = processedVisits.filter { visit in
+                    let visitStart = visit.entryTime
+                    let visitEnd = visit.exitTime ?? visit.entryTime
+                    return visitStart < dateRange.end && visitEnd >= dateRange.start
+                }
+            } else {
+                filteredVisits = processedVisits
+            }
+
+            return filteredVisits.sorted { $0.entryTime > $1.entryTime }
+        } catch {
+            print("❌ Deterministic visit fetch failed: \(error)")
+            return []
+        }
+    }
+
+    private func receiptNotesForMatching(notesManager: NotesManager) -> [Note] {
+        let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+
+        func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
+            guard let folderId else { return false }
+            if folderId == receiptsFolderId { return true }
+            if let folder = notesManager.folders.first(where: { $0.id == folderId }),
+               let parentId = folder.parentFolderId {
+                return isUnderReceiptsFolderHierarchy(folderId: parentId)
+            }
+            return false
+        }
+
+        return notesManager.notes.filter { isUnderReceiptsFolderHierarchy(folderId: $0.folderId) }
+    }
+
+    private func linkReceiptsForVisit(
+        visit: LocationVisitRecord,
+        place: SavedPlace,
+        notesManager: NotesManager,
+        receiptNotes: [Note],
+        matchingTerms: Set<String>
+    ) async -> [LinkedReceiptEvidence] {
+        var linked: [LinkedReceiptEvidence] = []
+        let visitPeople = await PeopleManager.shared.getPeopleForVisit(visitId: visit.id)
+
+        if let explicitReceiptId = VisitReceiptLinkStore.receiptId(for: visit.id),
+           let explicitNote = receiptNotes.first(where: { $0.id == explicitReceiptId }) {
+            let explicitDate = notesManager.extractFullDateFromTitle(explicitNote.title) ?? explicitNote.dateCreated
+            let explicitAmount = CurrencyParser.extractAmount(from: explicitNote.content.isEmpty ? explicitNote.title : explicitNote.content)
+            let explicitCategory = ReceiptCategorizationService.shared.quickCategorizeReceipt(title: explicitNote.title, content: explicitNote.content) ?? "Other"
+            let receiptPeople = await PeopleManager.shared.getPeopleForReceipt(noteId: explicitNote.id)
+            linked.append(
+                LinkedReceiptEvidence(
+                    note: explicitNote,
+                    amount: explicitAmount,
+                    date: explicitDate,
+                    category: explicitCategory,
+                    explicit: true,
+                    linkedPeople: mergePeople(visitPeople, receiptPeople)
+                )
+            )
+        }
+
+        // Only use heuristic matching when no explicit visit↔receipt link exists.
+        if linked.contains(where: { $0.explicit }) {
+            return linked.sorted { lhs, rhs in
+                if lhs.explicit != rhs.explicit { return lhs.explicit }
+                return lhs.date > rhs.date
+            }
+        }
+
+        let windowStart = visit.entryTime.addingTimeInterval(-2 * 60 * 60)
+        let windowEndBase = visit.exitTime ?? visit.entryTime.addingTimeInterval(2 * 60 * 60)
+        let windowEnd = windowEndBase.addingTimeInterval(2 * 60 * 60)
+        let normalizedPlaceName = normalizeForMatching(place.displayName)
+        let placeTokens = Set(tokensForMatching(normalizedPlaceName))
+        let calendar = Calendar.current
+
+        for note in receiptNotes {
+            if linked.contains(where: { $0.note.id == note.id }) { continue }
+
+            let receiptDate = notesManager.extractFullDateFromTitle(note.title) ?? note.dateCreated
+            let normalizedTitle = normalizeForMatching(note.title)
+            let normalizedCombined = normalizeForMatching("\(note.title) \(note.content)")
+            let combinedTokens = Set(tokensForMatching(normalizedCombined))
+            let tokenOverlap = placeTokens.intersection(combinedTokens).count
+            let placeMatches = normalizedCombined.contains(normalizedPlaceName)
+                || normalizedPlaceName.contains(normalizedTitle)
+                || tokenOverlap >= 2
+            let aliasMatches = matchingTerms.contains { term in
+                normalizedCombined.contains(term)
+            }
+
+            let withinTightWindow = receiptDate >= windowStart && receiptDate <= windowEnd
+            let sameDay = calendar.isDate(receiptDate, inSameDayAs: visit.entryTime)
+
+            guard (withinTightWindow && (placeMatches || aliasMatches)) || (sameDay && aliasMatches) else {
+                continue
+            }
+
+            let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
+            let category = ReceiptCategorizationService.shared.quickCategorizeReceipt(title: note.title, content: note.content) ?? "Other"
+            let receiptPeople = await PeopleManager.shared.getPeopleForReceipt(noteId: note.id)
+            linked.append(
+                LinkedReceiptEvidence(
+                    note: note,
+                    amount: amount,
+                    date: receiptDate,
+                    category: category,
+                    explicit: false,
+                    linkedPeople: mergePeople(visitPeople, receiptPeople)
+                )
+            )
+        }
+
+        return linked.sorted { lhs, rhs in
+            if lhs.explicit != rhs.explicit { return lhs.explicit }
+            return lhs.date > rhs.date
+        }
+    }
+
+    private func collectAllLinkedReceipts(
+        visits: [LocationVisitRecord],
+        place: SavedPlace,
+        notesManager: NotesManager,
+        receiptNotes: [Note],
+        matchingTerms: Set<String>
+    ) async -> [LinkedReceiptEvidence] {
+        var all: [LinkedReceiptEvidence] = []
+        for visit in visits {
+            let linked = await linkReceiptsForVisit(
+                visit: visit,
+                place: place,
+                notesManager: notesManager,
+                receiptNotes: receiptNotes,
+                matchingTerms: matchingTerms
+            )
+            for receipt in linked where !all.contains(where: { $0.note.id == receipt.note.id }) {
+                all.append(receipt)
+            }
+        }
+        return all
+    }
+
+    private func mergePeople(_ lhs: [Person], _ rhs: [Person]) -> [Person] {
+        var merged = lhs
+        for person in rhs where !merged.contains(where: { $0.id == person.id }) {
+            merged.append(person)
+        }
+        return merged
+    }
     
     private func buildSourceReferencePrompt() -> String {
         guard let sources = appContext.lastRelevantContent, !sources.isEmpty else {
@@ -334,6 +1636,7 @@ class SelineChat: ObservableObject {
         }
         lines.append("- Never invent indexes outside this list.")
         lines.append("- Only cite [[n]] when that exact source directly supports the sentence.")
+        lines.append("- Never write placeholder citations like [n], [source], or [ref]. If you cannot name a real source index, omit the citation.")
         return lines.joined(separator: "\n")
     }
 
@@ -343,6 +1646,16 @@ class SelineChat: ObservableObject {
             let name = item.locationName ?? "Place"
             let address = item.locationAddress?.isEmpty == false ? " (\(item.locationAddress!))" : ""
             return "Place: \(name)\(address)"
+        case .visit:
+            let place = item.visitPlaceName ?? item.locationName ?? "Visit"
+            let address = item.locationAddress?.isEmpty == false ? " (\(item.locationAddress!))" : ""
+            if let entry = item.visitEntryTime {
+                let formatter = DateFormatter()
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .short
+                return "Visit: \(place)\(address) at \(formatter.string(from: entry))"
+            }
+            return "Visit: \(place)\(address)"
         case .event:
             let title = item.eventTitle ?? "Event"
             if let date = item.eventDate {
@@ -356,6 +1669,16 @@ class SelineChat: ObservableObject {
             let title = item.noteTitle ?? "Note"
             let folder = item.noteFolder?.isEmpty == false ? " [\(item.noteFolder!)]" : ""
             return "Note: \(title)\(folder)"
+        case .receipt:
+            let title = item.receiptTitle ?? item.noteTitle ?? "Receipt"
+            if let amount = item.receiptAmount {
+                return "Receipt: \(title) ($\(String(format: "%.2f", amount)))"
+            }
+            return "Receipt: \(title)"
+        case .person:
+            let name = item.personName ?? "Person"
+            let relationship = item.personRelationship?.isEmpty == false ? " (\(item.personRelationship!))" : ""
+            return "Person: \(name)\(relationship)"
         case .email:
             let subject = item.emailSubject ?? "Email"
             let sender = item.emailSender?.isEmpty == false ? " from \(item.emailSender!)" : ""
@@ -549,8 +1872,11 @@ class SelineChat: ObservableObject {
         📎 CITE YOUR SOURCES (STRICT FORMAT):
         - When citing a source, use ONLY numeric inline citations in this exact format: [[n]]
         - Never output bracketed text citations like [See ...], [from ...], [USER MEMORY ...], or [RELEVANT DATA ...]
+        - Never output placeholder citations like [n], [source], [ref], or similar
         - Never invent source indexes; only use indexes listed under SOURCE REFERENCES
         - If a sentence is not directly grounded in one listed source item, do not attach a citation
+        - For receipts, emails, and purchases, place the citation immediately after the exact merchant / sender / item clause it supports
+        - If one sentence mentions 2 different purchases or messages, each one needs its own separate citation; never reuse one citation across multiple items
 
         🌍 SELINE'S HOLISTIC VIEW (CRITICAL - READ THIS):
         Seline is NOT just a calendar app or email assistant - it's a unified life management platform that tracks MULTIPLE interconnected aspects of the user's day:
@@ -606,6 +1932,19 @@ class SelineChat: ObservableObject {
 
         **Think like a human assistant who's been following the user all day** - what would they tell you if you asked "how was my day?" They wouldn't just list calendar events; they'd give you the FULL picture of where you went, what you did, who you talked to, what you accomplished, and what's still pending.
 
+        **For day / week / weekend summaries, write observations, not raw fragments:**
+        - Convert raw visit labels, receipt titles, and email subjects into natural sentences that explain the experience
+        - Good: "You were home at a few different points through the day."
+        - Good: "You went to Vision Centre at Trelawny for an eye checkup."
+        - Good: "Later you spent time at Sujaiya's home in Scarborough with Tasif, Suju's mom, and Sujaiya Tiba."
+        - Good: "You also received an invoice from Vision Centre at Trelawny."
+        - Bad: "Home for a few stretches during the day"
+        - Bad: "Suju Scarbs Home with Tasif, Suju's Mom, and Sujaiya Tiba"
+        - Bad: repeating raw merchant, place, or note titles without explaining them
+        - If the same place appears multiple times, summarize the pattern naturally instead of repeating each stint unless timing matters
+        - When people are linked to a visit, weave them into the sentence so it reads like a human recap
+        - If something sounds like a system label or database title, rewrite it into polished natural language before answering
+
         🔗 SMART CONNECTIONS - Synthesize Data Across Sources:
 
         The context includes cross-references like "Receipt at Chipotle — With: Sarah" or "💡 Visit to Starbucks had these receipts: Morning Coffee".
@@ -622,7 +1961,7 @@ class SelineChat: ObservableObject {
 
         **Data completeness notes:**
         - If context shows "50 matches" but the user asks for "all receipts", note there may be more
-        - If email data is limited to recent days, mention: "I have emails from the last 30 days"
+        - If email coverage appears partial for the asked period, explicitly say which dates are present vs missing
         - Be transparent about data boundaries when relevant to the question
 
         🧩 COMPLEX QUESTION REASONING:
@@ -643,16 +1982,17 @@ class SelineChat: ObservableObject {
 
         ✅ FORMAT YOUR RESPONSES CLEANLY - STRUCTURED AND SCANNABLE:
         - Break up long paragraphs into clear sections with line breaks
-        - Use bullets when helpful; nested bullets are optional
+        - Use bullets when helpful; when a bullet introduces a category, its child items must be nested underneath it with 2 leading spaces
+        - Even when using bullets, make each bullet read like a complete, human sentence or observation
         - Prefer this pattern for readability: main section line with "- **Section:**" and short sub-items underneath
         - Example:
         ```
         - **Places you visited:**
-          - Square One Dental from 11:33 AM to 1:03 PM
-          - Suju in the afternoon
+          - You spent late morning at Square One Dental from 11:33 AM to 1:03 PM.
+          - Later, you were with Suju in the afternoon.
         - **Purchases:**
-          - Square One Dental: $101.60 (Healthcare)
-          - Walmart: $36.09 (Shopping)
+          - You paid $101.60 at Square One Dental for healthcare.
+          - You also spent $36.09 at Walmart.
         ```
         - Use **bold** for key section headers (e.g. **Places you visited:**, **Purchases:**)
         - Add blank lines between major date sections (e.g. between Saturday and Sunday)
@@ -699,14 +2039,14 @@ class SelineChat: ObservableObject {
         
         **Today (January 24th):**
         - **Places you visited:**
-          - Square One Dental from 2:20 PM to 3:20 PM (should be wrapping up soon!)
-          - Home for most of the day
+          - You spent part of the afternoon at Square One Dental from 2:20 PM to 3:20 PM.
+          - Outside of that, you were mostly at home.
         - **Tasks:** Your "Take supplements" reminder is still open
         
         **This Week:**
-        - Tuesday, January 27th: Shirley/Ali drinks at Loose Moose from 4:00 PM to 7:00 PM
-        - Thursday, January 29th: Suju's Birthday
-        - Friday, January 30th: Mortgage payment of $2,500.00 and Telus Streaming for $20.34
+        - Tuesday, January 27th: You had Shirley/Ali drinks at Loose Moose from 4:00 PM to 7:00 PM.
+        - Thursday, January 29th: Suju's birthday is coming up.
+        - Friday, January 30th: You have a $2,500.00 mortgage payment and a $20.34 Telus Streaming charge.
         
         Anything specific you want to dive into? 💜
         ```
@@ -840,6 +2180,7 @@ class SelineChat: ObservableObject {
             print("❌ Streaming error: \(error)")
             let fallback = buildErrorMessage(error: error)
             onStreamingChunk?(fallback)
+            onStreamingComplete?()
             isStreaming = false
             onStreamingStateChanged?(false)
             return fallback

@@ -728,7 +728,7 @@ struct PersonDetailSheet: View {
     }
 
     private func loadRecentVisits() async {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
             return
         }
 

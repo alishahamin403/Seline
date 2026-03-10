@@ -151,14 +151,9 @@ struct CalendarSelectionView: View {
         isLoading = true
         defer { isLoading = false }
 
-        do {
-            calendars = await CalendarSyncService.shared.fetchAvailableCalendars()
-            if calendars.isEmpty {
-                errorMessage = "No calendars available. Please check permissions."
-                showError = true
-            }
-        } catch {
-            errorMessage = "Failed to load calendars: \(error.localizedDescription)"
+        calendars = await CalendarSyncService.shared.fetchAvailableCalendars()
+        if calendars.isEmpty {
+            errorMessage = "No calendars available. Please check permissions."
             showError = true
         }
     }

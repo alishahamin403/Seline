@@ -143,7 +143,8 @@ class LocationBackgroundTaskService {
         
         print("📍 Got background location: (\(currentLocation.coordinate.latitude), \(currentLocation.coordinate.longitude))")
         print("   Accuracy: ±\(String(format: "%.0f", currentLocation.horizontalAccuracy))m")
-        
+        let bestMatchPlaceId = geofenceManager.resolveBestMatchPlace(for: currentLocation, in: savedPlaces)?.id
+
         // Check if user is inside any saved location
         for place in savedPlaces {
             let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
@@ -154,11 +155,22 @@ class LocationBackgroundTaskService {
             let hasActiveVisit = geofenceManager.getActiveVisit(for: place.id) != nil
             
             if isInside && !hasActiveVisit {
+                // Only create from the best match to avoid overlapping false positives.
+                guard place.id == bestMatchPlaceId else { continue }
+
                 // User is inside but no active visit - start one!
                 print("🚨 DETECTED: User inside \(place.displayName) but NO active visit!")
                 print("   Distance: \(String(format: "%.0f", distance))m, Radius: \(String(format: "%.0f", radius))m")
-                
-                await startVisitFromBackground(for: place.id, placeName: place.displayName)
+
+                let syntheticRegion = CLCircularRegion(
+                    center: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude),
+                    radius: radius,
+                    identifier: place.id.uuidString
+                )
+                syntheticRegion.notifyOnEntry = true
+                syntheticRegion.notifyOnExit = true
+
+                await geofenceManager.handleGeofenceEntry(region: syntheticRegion)
                 
                 // Refresh widgets immediately
                 WidgetCenter.shared.reloadAllTimelines()
@@ -209,7 +221,7 @@ class LocationBackgroundTaskService {
         geofenceManager.updateActiveVisit(visit, for: placeId)
         
         // Create session
-        LocationSessionManager.shared.createSession(for: placeId, userId: userId)
+        _ = LocationSessionManager.shared.createSession(for: placeId, userId: userId)
         
         // Save to Supabase
         await geofenceManager.saveVisitToSupabase(visit)

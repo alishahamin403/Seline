@@ -168,11 +168,7 @@ class SpeechRecognitionService: ObservableObject {
         let inputNode = audioEngine.inputNode
         inputNode.removeTap(onBus: 0)
 
-        do {
-            audioEngine.prepare()
-        } catch {
-            throw SpeechRecognitionError.audioEnginePrepareFailed(error)
-        }
+        audioEngine.prepare()
 
         // 9. Validate audio format
         let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -227,27 +223,29 @@ class SpeechRecognitionService: ObservableObject {
     private func startSilenceDetection() {
         // Check every 0.3 seconds for silence
         silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
-            guard let self = self, self.isRecording else { return }
+            Task { @MainActor [weak self] in
+                guard let self = self, self.isRecording else { return }
 
-            guard let lastSpeech = self.lastSpeechTime else { return }
-            let silenceDuration = Date().timeIntervalSince(lastSpeech)
+                guard let lastSpeech = self.lastSpeechTime else { return }
+                let silenceDuration = Date().timeIntervalSince(lastSpeech)
 
-            // Check if we have meaningful speech
-            let trimmed = self.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let wordCount = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }.count
+                // Check if we have meaningful speech
+                let trimmed = self.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let wordCount = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }.count
 
-            let isMeaningful = wordCount >= 2 &&
-                               trimmed.rangeOfCharacter(from: .letters) != nil &&
-                               self.hasSpeechActivity
+                let isMeaningful = wordCount >= 2 &&
+                    trimmed.rangeOfCharacter(from: .letters) != nil &&
+                    self.hasSpeechActivity
 
-            // Auto-send after silence threshold
-            if silenceDuration >= self.silenceThreshold &&
-                isMeaningful &&
-                !self.hasAutoSent {
-                print("🎙️ Auto-send triggered: \(wordCount) words after \(silenceDuration)s silence")
-                self.hasAutoSent = true
-                self.stopRecording()
-                self.onAutoSend?()
+                // Auto-send after silence threshold
+                if silenceDuration >= self.silenceThreshold &&
+                    isMeaningful &&
+                    !self.hasAutoSent {
+                    print("🎙️ Auto-send triggered: \(wordCount) words after \(silenceDuration)s silence")
+                    self.hasAutoSent = true
+                    self.stopRecording()
+                    self.onAutoSend?()
+                }
             }
         }
     }

@@ -23,7 +23,7 @@ struct VisitStatsCard: View {
                             .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                     }
-                } else if let stats = stats {
+                } else if stats != nil {
                     // Summary text removed - detailed stats shown in cards below
                 } else {
                     Text("No visits tracked yet")
@@ -76,7 +76,7 @@ struct VisitStatsCard: View {
 
                             Spacer()
 
-                            if let lastVisit = stats.lastVisitDate {
+                            if stats.lastVisitDate != nil {
                                 VStack(alignment: .trailing, spacing: 2) {
                                     Text("Last Visit")
                                         .font(FontManager.geist(size: 11, weight: .medium))

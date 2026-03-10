@@ -15,12 +15,13 @@ final class EmailHubState: ObservableObject {
     private let emailService: EmailService
     private var inputs = Inputs(selectedTab: .inbox, selectedCategory: nil, showUnreadOnly: false)
     private var cancellables = Set<AnyCancellable>()
+    private var refreshGeneration = 0
 
-    init(emailService: EmailService = .shared) {
-        self.emailService = emailService
+    init(emailService: EmailService? = nil) {
+        self.emailService = emailService ?? .shared
 
-        emailService.$inboxEmails
-            .merge(with: emailService.$sentEmails)
+        self.emailService.$inboxEmails
+            .merge(with: self.emailService.$sentEmails)
             .sink { [weak self] _ in
                 self?.refresh()
             }
@@ -62,8 +63,26 @@ final class EmailHubState: ObservableObject {
         let filtered = inputs.showUnreadOnly
             ? emails.filter { !$0.isRead }
             : emails
+        let currentInputs = inputs
+        refreshGeneration += 1
+        let generation = refreshGeneration
 
-        filteredEmails = filtered.sorted { $0.timestamp > $1.timestamp }
-        daySections = EmailDaySection.categorizeByDay(filteredEmails)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let sortedEmails = filtered.sorted { $0.timestamp > $1.timestamp }
+            let nextSections = EmailDaySection.categorizeByDay(sortedEmails)
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.refreshGeneration == generation, self.inputs == currentInputs else { return }
+
+                if self.filteredEmails != sortedEmails {
+                    self.filteredEmails = sortedEmails
+                }
+
+                if self.daySections != nextSections {
+                    self.daySections = nextSections
+                }
+            }
+        }
     }
 }

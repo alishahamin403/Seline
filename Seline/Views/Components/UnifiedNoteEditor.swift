@@ -869,7 +869,6 @@ struct UnifiedNoteEditor: UIViewRepresentable {
                 } else {
                     checkboxButton = TodoCheckboxButton(type: .system)
                     checkboxButton.tag = 777
-                    checkboxButton.adjustsImageWhenHighlighted = false
                     checkboxButton.addTarget(self, action: #selector(checkboxTapped(_:)), for: .touchUpInside)
                     textView.addSubview(checkboxButton)
                 }
@@ -1323,13 +1322,8 @@ class MarkdownTextView: UITextView {
     }
     
     private func setupMenuItems() {
-        // Add custom menu items - Format group first (H1, H2, H3), then standard B/I
-        let h1Item = UIMenuItem(title: "Heading 1", action: #selector(makeH1))
-        let h2Item = UIMenuItem(title: "Heading 2", action: #selector(makeH2))
-        let h3Item = UIMenuItem(title: "Heading 3", action: #selector(makeH3))
-        // Note: UIMenuController items appear AFTER system items, so we can't move them before Bold/Italic
-        // But we can use clearer names
-        UIMenuController.shared.menuItems = [h1Item, h2Item, h3Item]
+        // UIEditMenuInteraction is required for custom edit-menu items on iOS 16+.
+        // Keep the selector handlers available without registering deprecated UIMenuController items.
     }
     
     private func setupFormattingObserver() {

@@ -6,45 +6,51 @@ struct UnifiedSearchBar: View {
     var placeholder: String
     var onCancel: () -> Void
     let colorScheme: ColorScheme
+    var variant: AppAmbientBackgroundVariant = .topLeading
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(FontManager.geist(size: 14, weight: .medium))
-                .foregroundColor(.gray)
+        HStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color.emailGlassMutedText(colorScheme))
 
-            TextField(placeholder, text: $searchText)
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .focused($isFocused)
-                .submitLabel(.search)
+                TextField(placeholder, text: $searchText)
+                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .focused($isFocused)
+                    .submitLabel(.search)
 
-            // Clear button (X icon)
-            if !searchText.isEmpty {
-                Button(action: {
-                    searchText = ""
-                    isFocused = false
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(FontManager.geist(size: 14, weight: .medium))
-                        .foregroundColor(.gray)
+                if !searchText.isEmpty {
+                    Button(action: {
+                        searchText = ""
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color.emailGlassMutedText(colorScheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
             }
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .frame(maxWidth: .infinity)
+            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 22)
 
-            // Cancel button
             Button(action: onCancel) {
                 Text("Cancel")
                     .font(FontManager.geist(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
             }
             .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+        .padding(.vertical, 12)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: variant,
+            cornerRadius: 24,
+            highlightStrength: 0.75
         )
     }
 }

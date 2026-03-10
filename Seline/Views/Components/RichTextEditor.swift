@@ -43,7 +43,7 @@ struct FormattableTextEditor: UIViewRepresentable {
             while position < mutableAttrString.length {
                 let range = NSRange(location: position, length: 1)
                 var effectiveRange = NSRange()
-                if let font = mutableAttrString.attribute(.font, at: position, effectiveRange: &effectiveRange) as? UIFont {
+                if mutableAttrString.attribute(.font, at: position, effectiveRange: &effectiveRange) != nil {
                     // Font exists at this position, skip to end of this font range
                     position = effectiveRange.location + effectiveRange.length
                 } else {
