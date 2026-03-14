@@ -57,6 +57,47 @@ class VectorSearchService: ObservableObject {
     private var interactiveRequestCount = 0
     private var pendingFullSyncRequested = false
     private let gmailAPIClient = GmailAPIClient.shared
+    private let keywordStopWords: Set<String> = [
+        "a", "an", "all", "am", "and", "any", "are", "as", "at",
+        "be", "been", "being", "both", "but", "by",
+        "can", "count",
+        "did", "do", "does", "done",
+        "each", "ever",
+        "for", "from",
+        "give", "had", "has", "have", "having", "how",
+        "i", "id", "if", "in", "into", "is", "it", "its", "ive",
+        "just",
+        "list",
+        "me", "more", "most", "my",
+        "of", "on", "or", "our", "out", "over",
+        "please",
+        "show",
+        "tell", "than", "that", "the", "their", "them", "then", "there", "these", "they", "this", "those", "to",
+        "up",
+        "was", "we", "were", "what", "when", "where", "which", "who", "with",
+        "you", "your"
+    ]
+
+    enum RetrievalMode: String {
+        case topK = "top_k"
+        case exhaustive = "exhaustive"
+    }
+
+    enum ContextPresentation: Equatable {
+        case detailed
+        case compactTimeline
+        case latestOnly
+    }
+
+    struct RetrievalAdmission {
+        let maxSearchQueries: Int
+        let maxMergedResults: Int
+        let maxPreviewCharacters: Int
+        let maxCanonicalRecords: Int
+        let maxEvidenceItems: Int
+        let minimumAnchorMatches: Int
+        let perTypeCaps: [DocumentType: Int]
+    }
     
     // MARK: - Initialization
     
@@ -76,50 +117,75 @@ class VectorSearchService: ObservableObject {
         documentTypes: [DocumentType]? = nil,
         limit: Int = 15,
         dateRange: (start: Date, end: Date)? = nil,
-        preferHistorical: Bool = false
+        preferHistorical: Bool = false,
+        retrievalMode: RetrievalMode = .topK,
+        admission: RetrievalAdmission? = nil
     ) async throws -> [SearchResult] {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let normalizedQuery = normalizeWhitespace(query)
+        guard !normalizedQuery.isEmpty else {
             return []
         }
 
-        let candidateMultiplier = preferHistorical ? historicalSearchCandidateMultiplier : searchCandidateMultiplier
-        var requestBody: [String: Any] = [
-            "action": "search",
-            "query": query,
-            "document_types": documentTypes?.map { $0.rawValue } ?? NSNull(),
-            "limit": limit * candidateMultiplier,
-            "similarity_threshold": similarityThreshold
-        ]
+        let candidateMultiplier = candidateMultiplier(
+            for: retrievalMode,
+            preferHistorical: preferHistorical
+        )
+        let expandedQueries = await expandedSearchQueries(
+            for: normalizedQuery,
+            retrievalMode: retrievalMode
+        )
+        let searchQueries = Array(
+            expandedQueries.prefix(
+                max(1, admission?.maxSearchQueries ?? defaultSearchQueryLimit(for: retrievalMode))
+            )
+        )
+        let computedServerResultLimit = serverResultLimit(
+            for: limit,
+            candidateMultiplier: candidateMultiplier,
+            retrievalMode: retrievalMode,
+            preferHistorical: preferHistorical
+        )
+        let serverResultLimit = min(
+            computedServerResultLimit,
+            max(limit, (admission?.maxMergedResults ?? computedServerResultLimit) * 2)
+        )
 
-        if let dateRange {
-            let iso = ISO8601DateFormatter()
-            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            requestBody["date_range_start"] = iso.string(from: dateRange.start)
-            requestBody["date_range_end"] = iso.string(from: dateRange.end)
-        }
+        var mergedRawResults: [String: SearchResponse.SearchResultItem] = [:]
+        for searchQuery in searchQueries {
+            let rawResults = try await semanticSearchResults(
+                query: searchQuery,
+                documentTypes: documentTypes,
+                limit: serverResultLimit,
+                dateRange: dateRange
+            )
 
-        let response: SearchResponse = try await makeRequest(body: requestBody)
-
-        // Filter by date range client-side (Swift date handling is more reliable than JavaScript)
-        var rawResults = response.results
-        let beforeFilterCount = rawResults.count
-        if let dateRange = dateRange {
-            rawResults = rawResults.filter { result in
-                matchesDateRange(metadata: result.metadata, dateRange: dateRange)
+            for result in rawResults {
+                let key = "\(result.document_type)::\(result.document_id)"
+                if let existing = mergedRawResults[key] {
+                    if result.similarity > existing.similarity {
+                        mergedRawResults[key] = result
+                    }
+                } else {
+                    mergedRawResults[key] = result
+                }
             }
         }
-        
-        // Debug logging for filtering
-        if dateRange != nil {
-            print("🔍 Vector search: \(beforeFilterCount) raw results, \(rawResults.count) after date filter")
-            if beforeFilterCount > 0 && rawResults.count == 0 {
-                print("⚠️ ALL results filtered by date - metadata may be missing date fields")
-            }
-        }
 
-        // Limit candidates before additional boosting/merging.
-        let effectiveResultCap = preferHistorical ? (limit * 2) : limit
-        rawResults = Array(rawResults.prefix(effectiveResultCap))
+        let effectiveCap = effectiveResultCap(
+            for: limit,
+            retrievalMode: retrievalMode,
+            preferHistorical: preferHistorical
+        )
+        let resultCap: Int = {
+            guard let admission else { return effectiveCap }
+            if admission.minimumAnchorMatches > 0 {
+                return min(effectiveCap, max(admission.maxMergedResults * 3, admission.maxMergedResults))
+            }
+            return min(effectiveCap, max(1, admission.maxMergedResults))
+        }()
+
+        var rawResults = mergedRawResults.values.sorted { $0.similarity > $1.similarity }
+        rawResults = Array(rawResults.prefix(resultCap))
 
         // Log search results and similarity scores
         if !rawResults.isEmpty {
@@ -136,7 +202,12 @@ class VectorSearchService: ObservableObject {
         }
 
         // Apply query-aware recency boost to vector results
-        let recencyWeight = recencyWeight(for: query, dateRange: dateRange, preferHistorical: preferHistorical)
+        let recencyWeight = recencyWeight(
+            for: normalizedQuery,
+            dateRange: dateRange,
+            preferHistorical: preferHistorical,
+            retrievalMode: retrievalMode
+        )
         let vectorResults = rawResults.map { result -> SearchResult in
             let baseScore = result.similarity
             let recencyScore = calculateRecencyScore(metadata: result.metadata)
@@ -154,10 +225,11 @@ class VectorSearchService: ObservableObject {
 
         // Hybrid keyword search (in-memory) for better recall
         let keywordResults = await keywordSearch(
-            query: query,
+            queries: searchQueries,
             dateRange: dateRange,
             documentTypes: documentTypes,
-            recencyWeight: recencyWeight
+            recencyWeight: recencyWeight,
+            retrievalMode: retrievalMode
         )
 
         // Merge results (dedupe by type + id, keep highest score)
@@ -173,12 +245,41 @@ class VectorSearchService: ObservableObject {
             }
         }
 
-        let mergedResults = merged.values.sorted { $0.similarity > $1.similarity }
+        var rankedResults = merged.values.sorted { $0.similarity > $1.similarity }
+        if let admission, admission.minimumAnchorMatches > 0 {
+            let anchorTokens = anchorTokens(from: searchQueries)
+            if !anchorTokens.isEmpty {
+                let filteredResults = rankedResults
+                    .compactMap { result -> (SearchResult, Int)? in
+                        let matchCount = anchorMatchCount(for: result, anchorTokens: anchorTokens)
+                        guard matchCount >= admission.minimumAnchorMatches else { return nil }
+                        return (result, matchCount)
+                    }
+                    .sorted { lhs, rhs in
+                        if lhs.1 == rhs.1 {
+                            return lhs.0.similarity > rhs.0.similarity
+                        }
+                        return lhs.1 > rhs.1
+                    }
+                    .map(\.0)
+
+                if !filteredResults.isEmpty {
+                    rankedResults = filteredResults
+                }
+            }
+        }
+
+        let mergedResults = Array(
+            rankedResults
+                .prefix(max(1, admission?.maxMergedResults ?? Int.max))
+        )
         logSearchDiagnostics(
-            query: query,
+            query: normalizedQuery,
             preferHistorical: preferHistorical,
             dateRange: dateRange,
-            results: mergedResults
+            results: mergedResults,
+            retrievalMode: retrievalMode,
+            searchQueries: searchQueries
         )
         return mergedResults
     }
@@ -189,32 +290,69 @@ class VectorSearchService: ObservableObject {
         limit: Int = 50,  // Increased from 15 to 50 for better historical data retrieval
         documentTypes: [DocumentType]? = nil,
         dateRange: (start: Date, end: Date)? = nil,
-        preferHistorical: Bool = false
+        preferHistorical: Bool = false,
+        retrievalMode: RetrievalMode = .topK,
+        presentation: ContextPresentation = .detailed,
+        admission: RetrievalAdmission? = nil
     ) async throws -> RelevantContextResult {
         let results = try await search(
             query: query,
             documentTypes: documentTypes,
             limit: limit,
             dateRange: dateRange,
-            preferHistorical: preferHistorical
+            preferHistorical: preferHistorical,
+            retrievalMode: retrievalMode,
+            admission: admission
         )
 
-        guard !results.isEmpty else {
+        let admittedResults = admitResults(results, admission: admission)
+        guard !admittedResults.isEmpty else {
             return RelevantContextResult(context: "", evidence: [])
         }
 
-        var context = "=== RELEVANT DATA (Semantic Search) ===\n"
-        context += "Query matched \(results.count) items by semantic similarity:\n\n"
+        let memories = await fetchAllMemories()
+        if presentation != .detailed {
+            return buildCompactTimelineContext(
+                from: admittedResults,
+                preferHistorical: preferHistorical,
+                presentation: presentation,
+                admission: admission,
+                memories: memories
+            )
+        }
+
+        let contextLabel = retrievalMode == .exhaustive ? "Exhaustive Retrieval" : "Semantic Search"
+        var context = "=== RELEVANT DATA (\(contextLabel)) ===\n"
+        context += "Query matched \(admittedResults.count) items after retrieval and ranking:\n\n"
         var evidence: [RelevantContentInfo] = []
         var seenEvidenceKeys = Set<String>()
 
-        // Fetch all memories once for batch annotation (performance optimization)
-        let memories = await fetchAllMemories()
-
         // Group by document type with per-type caps
-        let grouped = Dictionary(grouping: results) { $0.documentType }
-        let perTypeCaps: [DocumentType: Int] = preferHistorical
-            ? [
+        let grouped = Dictionary(grouping: admittedResults) { $0.documentType }
+        var perTypeCaps: [DocumentType: Int]
+        switch (retrievalMode, preferHistorical) {
+        case (.exhaustive, true):
+            perTypeCaps = [
+                .email: 24,
+                .task: 22,
+                .visit: 22,
+                .receipt: 20,
+                .note: 18,
+                .location: 12,
+                .person: 12
+            ]
+        case (.exhaustive, false):
+            perTypeCaps = [
+                .email: 16,
+                .task: 18,
+                .visit: 18,
+                .receipt: 16,
+                .note: 14,
+                .location: 10,
+                .person: 10
+            ]
+        case (.topK, true):
+            perTypeCaps = [
                 .email: 18,
                 .task: 16,
                 .visit: 16,
@@ -223,7 +361,8 @@ class VectorSearchService: ObservableObject {
                 .location: 10,
                 .person: 10
             ]
-            : [
+        case (.topK, false):
+            perTypeCaps = [
                 .email: 8,
                 .task: 10,
                 .visit: 10,
@@ -232,6 +371,13 @@ class VectorSearchService: ObservableObject {
                 .location: 6,
                 .person: 6
             ]
+        }
+
+        if let admission {
+            for (type, cap) in admission.perTypeCaps {
+                perTypeCaps[type] = cap
+            }
+        }
 
         for (type, items) in grouped.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
             let cap = perTypeCaps[type] ?? 6
@@ -248,10 +394,13 @@ class VectorSearchService: ObservableObject {
                     context += "**\(annotatedTitle)**\n"
                 }
 
-                // Add relevant content preview (increased from 300 to 800 for full email AI summaries)
-                let preview = item.content.prefix(800)
+                let previewLength = min(
+                    retrievalMode == .exhaustive ? 220 : 800,
+                    max(80, admission?.maxPreviewCharacters ?? Int.max)
+                )
+                let preview = item.content.prefix(previewLength)
                 context += "  \(preview)"
-                if item.content.count > 800 {
+                if item.content.count > previewLength {
                     context += "..."
                 }
                 context += "\n"
@@ -272,7 +421,8 @@ class VectorSearchService: ObservableObject {
 
                 if let mappedEvidence = mapResultToEvidence(item) {
                     let evidenceKey = evidenceDedupKey(for: mappedEvidence)
-                    if !seenEvidenceKeys.contains(evidenceKey) {
+                    if !seenEvidenceKeys.contains(evidenceKey),
+                       evidence.count < max(1, admission?.maxEvidenceItems ?? Int.max) {
                         seenEvidenceKeys.insert(evidenceKey)
                         evidence.append(mappedEvidence)
                     }
@@ -281,6 +431,428 @@ class VectorSearchService: ObservableObject {
         }
 
         return RelevantContextResult(context: context, evidence: evidence)
+    }
+
+    private struct CompactTimelineRecord {
+        let day: Date?
+        let label: String
+        var sourceTypes: Set<DocumentType>
+        var bestScore: Float
+        var sourceCount: Int
+        var totalSpend: Double
+        var receiptCount: Int
+        var evidence: [RelevantContentInfo]
+    }
+
+    private func buildCompactTimelineContext(
+        from results: [SearchResult],
+        preferHistorical: Bool,
+        presentation: ContextPresentation,
+        admission: RetrievalAdmission?,
+        memories: [MemorySupabaseData]
+    ) -> RelevantContextResult {
+        let calendar = Calendar.current
+        var groupedRecords: [String: CompactTimelineRecord] = [:]
+
+        for result in results {
+            let day = extractDateForRecency(from: result.metadata ?? [:]).map { calendar.startOfDay(for: $0) }
+            if day == nil && (result.documentType == .location || result.documentType == .person) {
+                continue
+            }
+
+            let label = compactTimelineLabel(for: result, memories: memories)
+            guard !label.isEmpty else { continue }
+
+            let normalizedLabel = normalizeAliasText(label)
+            guard !normalizedLabel.isEmpty else { continue }
+
+            let dayKey = day.map { String(Int($0.timeIntervalSince1970)) } ?? "undated"
+            let key = "\(dayKey)::\(normalizedLabel)"
+            let mappedEvidence = mapResultToEvidence(result)
+            let spendAmount = mappedEvidence?.receiptAmount ?? metadataDouble(result.metadata?["amount"]) ?? extractCurrencyAmount(from: result.content) ?? 0
+
+            if var existing = groupedRecords[key] {
+                existing.sourceTypes.insert(result.documentType)
+                existing.bestScore = max(existing.bestScore, result.similarity)
+                existing.sourceCount += 1
+                existing.totalSpend += spendAmount
+                if result.documentType == .receipt {
+                    existing.receiptCount += 1
+                }
+                if let mappedEvidence,
+                   existing.evidence.count < 3,
+                   !existing.evidence.contains(where: { evidenceDedupKey(for: $0) == evidenceDedupKey(for: mappedEvidence) }) {
+                    existing.evidence.append(mappedEvidence)
+                }
+                groupedRecords[key] = existing
+            } else {
+                groupedRecords[key] = CompactTimelineRecord(
+                    day: day,
+                    label: label,
+                    sourceTypes: [result.documentType],
+                    bestScore: result.similarity,
+                    sourceCount: 1,
+                    totalSpend: spendAmount,
+                    receiptCount: result.documentType == .receipt ? 1 : 0,
+                    evidence: mappedEvidence.map { [$0] } ?? []
+                )
+            }
+        }
+
+        var compactRecords = groupedRecords.values
+            .filter { record in
+                if record.day == nil && record.sourceTypes == Set([.location]) {
+                    return false
+                }
+                return true
+            }
+            .sorted { lhs, rhs in
+                switch (lhs.day, rhs.day) {
+                case let (leftDate?, rightDate?):
+                    if leftDate == rightDate {
+                        return lhs.bestScore > rhs.bestScore
+                    }
+                    return preferHistorical ? (leftDate < rightDate) : (leftDate > rightDate)
+                case (_?, nil):
+                    return true
+                case (nil, _?):
+                    return false
+                case (nil, nil):
+                    return lhs.bestScore > rhs.bestScore
+                }
+            }
+
+        if presentation == .latestOnly, let latestRecord = compactRecords.first {
+            compactRecords = [latestRecord]
+        }
+
+        let defaultMaxRecords = presentation == .latestOnly ? 1 : (preferHistorical ? 60 : 40)
+        let maxRecords = min(defaultMaxRecords, max(1, admission?.maxCanonicalRecords ?? defaultMaxRecords))
+        let totalCanonicalRecords = compactRecords.count
+        let displayedRecords = Array(compactRecords.prefix(maxRecords))
+        let isTruncated = totalCanonicalRecords > displayedRecords.count
+
+        var context = "=== CANONICAL MATCHES ===\n"
+        context += "Canonical records found: \(totalCanonicalRecords)\n"
+        context += "Each line merges duplicate notes, receipts, visits, emails, and tasks for the same day/topic.\n"
+        if isTruncated {
+            context += "Showing the first \(displayedRecords.count) canonical records within the context budget.\n"
+        }
+        context += "\n"
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+
+        var evidence: [RelevantContentInfo] = []
+        var seenEvidenceKeys = Set<String>()
+        let evidenceLimit = max(1, admission?.maxEvidenceItems ?? Int.max)
+
+        for record in displayedRecords {
+            let dateLabel = record.day.map { formatter.string(from: $0) } ?? "Undated"
+            let typesLabel = record.sourceTypes
+                .sorted(by: { $0.rawValue < $1.rawValue })
+                .map(\.displayName)
+                .joined(separator: ", ")
+            context += "- \(dateLabel): \(record.label)"
+            if !typesLabel.isEmpty {
+                context += " [\(typesLabel)]"
+            }
+            if record.sourceCount > 1 {
+                context += " (\(record.sourceCount) sources)"
+            }
+            if record.totalSpend > 0 {
+                if record.receiptCount <= 1 {
+                    context += " - $\(String(format: "%.2f", record.totalSpend))"
+                } else {
+                    context += " - total $\(String(format: "%.2f", record.totalSpend))"
+                }
+            }
+            context += "\n"
+
+            for item in record.evidence {
+                let key = evidenceDedupKey(for: item)
+                if !seenEvidenceKeys.contains(key), evidence.count < evidenceLimit {
+                    seenEvidenceKeys.insert(key)
+                    evidence.append(item)
+                }
+            }
+        }
+
+        return RelevantContextResult(context: context, evidence: evidence)
+    }
+
+    private func candidateMultiplier(
+        for retrievalMode: RetrievalMode,
+        preferHistorical: Bool
+    ) -> Int {
+        let baseMultiplier = preferHistorical ? historicalSearchCandidateMultiplier : searchCandidateMultiplier
+
+        switch retrievalMode {
+        case .topK:
+            return baseMultiplier
+        case .exhaustive:
+            return max(baseMultiplier, preferHistorical ? 9 : 5)
+        }
+    }
+
+    private func defaultSearchQueryLimit(for retrievalMode: RetrievalMode) -> Int {
+        switch retrievalMode {
+        case .topK:
+            return 2
+        case .exhaustive:
+            return 3
+        }
+    }
+
+    private func admitResults(
+        _ results: [SearchResult],
+        admission: RetrievalAdmission?
+    ) -> [SearchResult] {
+        guard let admission else { return results }
+        return Array(results.prefix(max(1, admission.maxMergedResults)))
+    }
+
+    private func anchorTokens(from queries: [String]) -> [String] {
+        keywordTokens(from: queries).filter { token in
+            token.count >= 3
+        }
+    }
+
+    private func anchorMatchCount(for result: SearchResult, anchorTokens: [String]) -> Int {
+        let searchable = searchableAnchorText(for: result)
+        guard !searchable.isEmpty else { return 0 }
+        return anchorTokens.reduce(into: 0) { count, token in
+            if searchable.contains(token) {
+                count += 1
+            }
+        }
+    }
+
+    private func searchableAnchorText(for result: SearchResult) -> String {
+        var fragments: [String] = []
+        if let title = result.title, !title.isEmpty {
+            fragments.append(title)
+        }
+        fragments.append(result.content)
+
+        if let metadata = result.metadata {
+            for key in [
+                "merchant",
+                "place_name",
+                "location",
+                "address",
+                "sender",
+                "subject",
+                "category",
+                "aliases"
+            ] {
+                if let value = metadata[key] as? String, !value.isEmpty {
+                    fragments.append(value)
+                } else if let values = metadata[key] as? [String], !values.isEmpty {
+                    fragments.append(values.joined(separator: " "))
+                }
+            }
+        }
+
+        return normalizeWhitespace(fragments.joined(separator: " ").lowercased())
+    }
+
+    private func serverResultLimit(
+        for limit: Int,
+        candidateMultiplier: Int,
+        retrievalMode: RetrievalMode,
+        preferHistorical: Bool
+    ) -> Int {
+        let proposedLimit = max(limit, 1) * max(candidateMultiplier, 1)
+
+        switch (retrievalMode, preferHistorical) {
+        case (.exhaustive, true):
+            return min(proposedLimit, 160)
+        case (.exhaustive, false):
+            return min(proposedLimit, 120)
+        case (.topK, true):
+            return min(proposedLimit, 180)
+        case (.topK, false):
+            return min(proposedLimit, 60)
+        }
+    }
+
+    private func effectiveResultCap(
+        for limit: Int,
+        retrievalMode: RetrievalMode,
+        preferHistorical: Bool
+    ) -> Int {
+        switch (retrievalMode, preferHistorical) {
+        case (.exhaustive, true):
+            return min(max(limit * 2, limit + 24), 140)
+        case (.exhaustive, false):
+            return min(max(limit * 2, limit + 16), 90)
+        case (.topK, true):
+            return limit * 2
+        case (.topK, false):
+            return limit
+        }
+    }
+
+    private func semanticSearchResults(
+        query: String,
+        documentTypes: [DocumentType]?,
+        limit: Int,
+        dateRange: (start: Date, end: Date)?
+    ) async throws -> [SearchResponse.SearchResultItem] {
+        var requestBody: [String: Any] = [
+            "action": "search",
+            "query": query,
+            "document_types": documentTypes?.map { $0.rawValue } ?? NSNull(),
+            "limit": limit,
+            "similarity_threshold": similarityThreshold
+        ]
+
+        if let dateRange {
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            requestBody["date_range_start"] = iso.string(from: dateRange.start)
+            requestBody["date_range_end"] = iso.string(from: dateRange.end)
+        }
+
+        let response: SearchResponse = try await makeRequest(body: requestBody)
+
+        var rawResults = response.results
+        let beforeFilterCount = rawResults.count
+        if let dateRange {
+            rawResults = rawResults.filter { result in
+                matchesDateRange(metadata: result.metadata, dateRange: dateRange)
+            }
+        }
+
+        if dateRange != nil {
+            print("🔍 Vector search[\(query.prefix(48))]: \(beforeFilterCount) raw results, \(rawResults.count) after date filter")
+            if beforeFilterCount > 0 && rawResults.count == 0 {
+                print("⚠️ ALL results filtered by date - metadata may be missing date fields")
+            }
+        }
+
+        return rawResults
+    }
+
+    private func expandedSearchQueries(
+        for query: String,
+        retrievalMode: RetrievalMode
+    ) async -> [String] {
+        let normalizedQuery = normalizeWhitespace(query)
+        guard !normalizedQuery.isEmpty else { return [] }
+
+        var orderedQueries = [normalizedQuery]
+        var seenQueries = Set([normalizedQuery.lowercased()])
+        let maxExpansionCount = retrievalMode == .exhaustive ? 2 : 1
+        let expansions = await UserMemoryService.shared.expandQuery(normalizedQuery)
+        let normalizedExpansions = expansions
+            .prefix(maxExpansionCount)
+            .map { normalizeWhitespace($0) }
+            .filter { isMeaningfulAliasPhrase($0) }
+
+        if retrievalMode == .exhaustive {
+            if let firstExpansion = normalizedExpansions.first {
+                let combinedVariant = normalizeWhitespace(
+                    "\(normalizedQuery) \(normalizedExpansions.joined(separator: " "))"
+                )
+                let variants = [combinedVariant, firstExpansion]
+                for variant in variants {
+                    let key = variant.lowercased()
+                    guard !variant.isEmpty, !seenQueries.contains(key) else { continue }
+                    seenQueries.insert(key)
+                    orderedQueries.append(variant)
+                }
+            }
+        } else {
+            for normalizedExpansion in normalizedExpansions {
+                let variant = normalizeWhitespace("\(normalizedQuery) \(normalizedExpansion)")
+                let key = variant.lowercased()
+                guard !variant.isEmpty, !seenQueries.contains(key) else { continue }
+                seenQueries.insert(key)
+                orderedQueries.append(variant)
+            }
+        }
+
+        if orderedQueries.count > 1 {
+            print("🧠 Expanded semantic queries: \(orderedQueries)")
+        }
+
+        return orderedQueries
+    }
+
+    private func compactTimelineLabel(for result: SearchResult, memories: [MemorySupabaseData]) -> String {
+        let candidateTexts: [String] = [
+            result.title ?? "",
+            result.metadata?["merchant"] as? String ?? "",
+            result.metadata?["place_name"] as? String ?? "",
+            result.metadata?["location"] as? String ?? "",
+            result.metadata?["sender"] as? String ?? ""
+        ].filter { !$0.isEmpty }
+
+        if let memoryLabel = memoryCanonicalLabel(for: candidateTexts + [String(result.content.prefix(120))], memories: memories) {
+            return memoryLabel
+        }
+
+        if let title = result.title, !title.isEmpty {
+            return simplifyTimelineLabel(title, fallbackType: result.documentType)
+        }
+
+        if let merchant = result.metadata?["merchant"] as? String, !merchant.isEmpty {
+            return simplifyTimelineLabel(merchant, fallbackType: result.documentType)
+        }
+
+        if let placeName = result.metadata?["place_name"] as? String, !placeName.isEmpty {
+            return simplifyTimelineLabel(placeName, fallbackType: result.documentType)
+        }
+
+        return result.documentType.displayName
+    }
+
+    private func memoryCanonicalLabel(for seedTexts: [String], memories: [MemorySupabaseData]) -> String? {
+        let normalizedSeeds = seedTexts
+            .map(normalizeAliasText)
+            .filter { !$0.isEmpty }
+        guard !normalizedSeeds.isEmpty else { return nil }
+
+        let sortedMemories = memories.sorted { $0.confidence > $1.confidence }
+        for memory in sortedMemories where memory.confidence >= 0.7 {
+            let normalizedKey = normalizeAliasText(memory.key)
+            let normalizedValue = normalizeAliasText(memory.value)
+            guard !normalizedKey.isEmpty, !normalizedValue.isEmpty else { continue }
+
+            for seed in normalizedSeeds {
+                if seed.contains(normalizedKey) || seed.contains(normalizedValue) {
+                    let cleanedValue = simplifyTimelineLabel(memory.value, fallbackType: nil)
+                    if !cleanedValue.isEmpty {
+                        return cleanedValue
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func simplifyTimelineLabel(_ text: String, fallbackType: DocumentType?) -> String {
+        var cleaned = text
+            .replacingOccurrences(of: #"^(Receipt|Visit|Subject|Note|Event):\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s*-\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let normalized = normalizeAliasText(cleaned)
+        let looksEncoded = cleaned.count > 72 && !normalized.contains(" ")
+        if cleaned.isEmpty || looksEncoded {
+            return fallbackType?.displayName ?? ""
+        }
+
+        if cleaned.count > 48 {
+            cleaned = String(cleaned.prefix(48)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return cleaned
     }
 
     /// Refresh journal-specific note embeddings on demand so historical journal queries
@@ -396,7 +968,7 @@ class VectorSearchService: ObservableObject {
         case .receipt:
             guard let noteId = UUID(uuidString: result.documentId) else { return nil }
             let title = result.title?.replacingOccurrences(of: "Receipt: ", with: "") ?? "Receipt"
-            let amount = metadataDouble(result.metadata?["amount"])
+            let amount = metadataDouble(result.metadata?["amount"]) ?? extractCurrencyAmount(from: result.content)
             let date = parseISODate(result.metadata?["date"])
             let category = result.metadata?["category"] as? String
             return .receipt(id: noteId, title: title, amount: amount, date: date, category: category)
@@ -528,17 +1100,14 @@ class VectorSearchService: ObservableObject {
     // MARK: - Hybrid Keyword Search
 
     private func keywordSearch(
-        query: String,
+        queries: [String],
         dateRange: (start: Date, end: Date)?,
         documentTypes: [DocumentType]?,
-        recencyWeight: Float
+        recencyWeight: Float,
+        retrievalMode: RetrievalMode
     ) async -> [SearchResult] {
-        let normalizedQuery = normalizeWhitespace(query.lowercased())
-        guard !normalizedQuery.isEmpty else { return [] }
-
-        let tokens = normalizedQuery
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.count >= 2 }
+        let tokens = keywordTokens(from: queries)
+        let minimumHitCount = tokens.count <= 1 ? 1 : 2
 
         guard !tokens.isEmpty else { return [] }
 
@@ -555,8 +1124,10 @@ class VectorSearchService: ObservableObject {
                     hits += 1
                 }
             }
-            if hits == 0 { return 0 }
-            let base = min(0.85, 0.55 + (0.05 * Float(hits)))
+            if hits < minimumHitCount { return 0 }
+            let baseFloor: Float = retrievalMode == .exhaustive ? 0.50 : 0.55
+            let hitWeight: Float = retrievalMode == .exhaustive ? 0.06 : 0.05
+            let base = min(0.90, baseFloor + (hitWeight * Float(hits)))
             return base
         }
 
@@ -860,13 +1431,87 @@ class VectorSearchService: ObservableObject {
         return results
     }
 
+    private func keywordTokens(from queries: [String]) -> [String] {
+        var seenTokens = Set<String>()
+        var orderedTokens: [String] = []
+
+        for query in queries {
+            let normalizedQuery = normalizeWhitespace(query.lowercased())
+            guard !normalizedQuery.isEmpty else { continue }
+
+            let rawTokens = normalizedQuery.components(separatedBy: CharacterSet.alphanumerics.inverted)
+            for rawToken in rawTokens {
+                for token in normalizedTokenVariants(for: rawToken) {
+                    guard !seenTokens.contains(token) else { continue }
+                    seenTokens.insert(token)
+                    orderedTokens.append(token)
+                }
+            }
+        }
+
+        return orderedTokens
+    }
+
+    private func normalizedTokenVariants(for rawToken: String) -> [String] {
+        let token = rawToken.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !token.isEmpty else { return [] }
+        guard token.count >= 3 || Int(token) != nil else { return [] }
+        guard !keywordStopWords.contains(token) else { return [] }
+
+        var orderedVariants: [String] = [token]
+
+        if token.hasSuffix("ies"), token.count > 4 {
+            orderedVariants.append(String(token.dropLast(3)) + "y")
+        } else if token.hasSuffix("es"), token.count > 4, !token.hasSuffix("sses") {
+            orderedVariants.append(String(token.dropLast(2)))
+        } else if token.hasSuffix("s"), token.count > 4, !token.hasSuffix("ss") {
+            orderedVariants.append(String(token.dropLast()))
+        }
+
+        var uniqueVariants: [String] = []
+        var seen = Set<String>()
+        for variant in orderedVariants where !seen.contains(variant) {
+            seen.insert(variant)
+            uniqueVariants.append(variant)
+        }
+
+        return uniqueVariants
+    }
+
+    private func extractCurrencyAmount(from text: String) -> Double? {
+        let patterns = [
+            #"(?i)\btotal\s*:\s*\$?\s*([0-9]+(?:\.[0-9]{2})?)"#,
+            #"\$\s*([0-9]+(?:\.[0-9]{2})?)"#
+        ]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            guard
+                let match = regex.firstMatch(in: text, range: range),
+                let amountRange = Range(match.range(at: 1), in: text),
+                let amount = Double(text[amountRange])
+            else {
+                continue
+            }
+            return amount
+        }
+
+        return nil
+    }
+
     private func recencyWeight(
         for query: String,
         dateRange: (start: Date, end: Date)?,
-        preferHistorical: Bool
+        preferHistorical: Bool,
+        retrievalMode: RetrievalMode
     ) -> Float {
         if preferHistorical {
             return 0.0
+        }
+
+        if retrievalMode == .exhaustive {
+            return 0.05
         }
 
         let lower = query.lowercased()
@@ -975,10 +1620,12 @@ class VectorSearchService: ObservableObject {
         query: String,
         preferHistorical: Bool,
         dateRange: (start: Date, end: Date)?,
-        results: [SearchResult]
+        results: [SearchResult],
+        retrievalMode: RetrievalMode,
+        searchQueries: [String]
     ) {
         guard !results.isEmpty else {
-            print("📊 Search diagnostics | mode=\(preferHistorical ? "historical" : "default") | results=0")
+            print("📊 Search diagnostics | mode=\(preferHistorical ? "historical" : "default") | retrieval=\(retrievalMode.rawValue) | results=0")
             return
         }
 
@@ -1002,7 +1649,7 @@ class VectorSearchService: ObservableObject {
         }()
 
         print(
-            "📊 Search diagnostics | mode=\(preferHistorical ? "historical" : "default") | query=\"\(query.prefix(80))\" | results=\(results.count) | range=\(rangeLabel) | oldest=\(oldestLabel) | newest=\(newestLabel) | distribution=\(distribution)"
+            "📊 Search diagnostics | mode=\(preferHistorical ? "historical" : "default") | retrieval=\(retrievalMode.rawValue) | query=\"\(query.prefix(80))\" | queries=\(searchQueries.count) | results=\(results.count) | range=\(rangeLabel) | oldest=\(oldestLabel) | newest=\(newestLabel) | distribution=\(distribution)"
         )
     }
 

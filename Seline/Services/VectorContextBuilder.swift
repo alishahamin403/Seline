@@ -4,18 +4,38 @@ import CoreLocation
 /**
  * VectorContextBuilder - LLM Context using Vector Search
  *
- * Simplified approach: Let vector search do the work, only add date completeness guarantees.
- * No hardcoded intent detection or routing - the LLM and embeddings figure it out.
+ * Simplified approach: Let vector search do the work, add date completeness guarantees,
+ * and use a small generic retrieval plan to distinguish top-K relevance from exhaustive list/count queries.
+ * Avoid domain-specific routing; rely on generic query semantics instead.
  *
  * Benefits:
  * - Much simpler codebase (~80% less code)
  * - More flexible (adapts to new query types automatically)
  * - Still guarantees completeness for date-specific queries
- * - Better semantic matching (no brittle keyword matching)
+ * - Better semantic matching with broader recall for exhaustive questions
  */
 @MainActor
 class VectorContextBuilder {
     static let shared = VectorContextBuilder()
+
+    private enum AnswerOperation: String {
+        case answer
+        case list
+        case count
+        case latest
+        case summarize
+        case compare
+    }
+
+    private struct QueryPlan {
+        let operation: AnswerOperation
+        let retrievalMode: VectorSearchService.RetrievalMode
+        let preferHistorical: Bool
+        let shouldRunSecondPass: Bool
+        let allowWidening: Bool
+        let documentTypes: [VectorSearchService.DocumentType]?
+        let admission: VectorSearchService.RetrievalAdmission
+    }
 
     private let vectorSearch = VectorSearchService.shared
     private let monthNameToNumber: [String: Int] = [
@@ -39,15 +59,17 @@ class VectorContextBuilder {
     // MARK: - Configuration
 
     /// Determine dynamic search limit based on query complexity and temporal intent.
-    private func determineSearchLimit(forQuery query: String, preferHistorical: Bool = false) -> Int {
+    private func determineSearchLimit(forQuery query: String, plan: QueryPlan) -> Int {
         let lowercased = query.lowercased()
+        let baselineLimit: Int
 
-        if preferHistorical || isHistoricalQuery(query: query) {
-            return 140
-        }
-
-        // Broad semantic queries - need comprehensive results
-        if lowercased.contains("all ")
+        if plan.retrievalMode == .exhaustive && plan.preferHistorical {
+            baselineLimit = 70
+        } else if plan.retrievalMode == .exhaustive {
+            baselineLimit = 50
+        } else if plan.preferHistorical || isHistoricalQuery(query: query) {
+            baselineLimit = 90
+        } else if lowercased.contains("all ")
             || lowercased.contains("every ")
             || lowercased.contains("total ")
             || lowercased.contains("history ")
@@ -55,17 +77,344 @@ class VectorContextBuilder {
             || lowercased.contains("how much")
             || lowercased.contains("paid")
             || lowercased.contains("spent") {
-            return 140
+            baselineLimit = 70
+        } else if lowercased.contains("yesterday") || lowercased.contains("today") ||
+                    lowercased.contains("week") || lowercased.contains("month") {
+            baselineLimit = 30
+        } else {
+            baselineLimit = 18
         }
 
-        // Date-specific queries - moderate limit (dates narrow scope)
-        if lowercased.contains("yesterday") || lowercased.contains("today") ||
-           lowercased.contains("week") || lowercased.contains("month") {
-            return 50
+        let wideningMultiplier = plan.allowWidening ? 3 : 2
+        let budgetDrivenLimit = max(
+            12,
+            max(
+                plan.admission.maxMergedResults + 6,
+                plan.admission.maxMergedResults * wideningMultiplier
+            )
+        )
+
+        return min(baselineLimit, budgetDrivenLimit)
+    }
+
+    private func shouldRunExpandedSecondPass(forQuery query: String, plan: QueryPlan) -> Bool {
+        let lowercased = query.lowercased()
+
+        if plan.shouldRunSecondPass || plan.preferHistorical || isHistoricalQuery(query: query) {
+            return true
         }
 
-        // Focused semantic queries - smaller limit for precision
-        return 30
+        return lowercased.contains("all ")
+            || lowercased.contains("every ")
+            || lowercased.contains("history ")
+            || lowercased.contains("summary")
+            || lowercased.contains("summarize")
+            || lowercased.contains("compare")
+    }
+
+    private func buildQueryPlan(
+        for query: String,
+        dateRange: (start: Date, end: Date)? = nil
+    ) -> QueryPlan {
+        let padded = " " + query.lowercased() + " "
+        let isShortTopicalQuery = looksLikeShortTopicalQuery(query)
+
+        let operation: AnswerOperation
+        if containsAnySignal([" how many ", " count ", " number of "], in: padded) {
+            operation = .count
+        } else if containsAnySignal([" compare ", " versus ", " vs "], in: padded) {
+            operation = .compare
+        } else if containsAnySignal([" summary ", " summarize ", " recap ", " overview "], in: padded) {
+            operation = .summarize
+        } else if containsAnySignal([" latest ", " most recent ", " newest "], in: padded) {
+            operation = .latest
+        } else if containsAnySignal(
+            [
+                " all ",
+                " every ",
+                " list ",
+                " show me all ",
+                " tell me all ",
+                " all my ",
+                " i've had ",
+                " i have had ",
+                " ever had ",
+                " ever went ",
+                " ever visited "
+            ],
+            in: padded
+        ) {
+            operation = .list
+        } else {
+            operation = .answer
+        }
+
+        let exhaustiveSignals = containsAnySignal(
+            [
+                " all ",
+                " every ",
+                " list ",
+                " show me all ",
+                " tell me all ",
+                " all my ",
+                " i've had ",
+                " i have had ",
+                " ever had ",
+                " how many ",
+                " number of "
+            ],
+            in: padded
+        )
+        let retrievalMode: VectorSearchService.RetrievalMode = (operation == .count || operation == .list || exhaustiveSignals) ? .exhaustive : .topK
+
+        let baseHistorical = isHistoricalQuery(query: query, dateRange: dateRange)
+        let historicalBiasSignals = containsAnySignal(
+            [
+                " had ",
+                " ever ",
+                " history ",
+                " over time ",
+                " total ",
+                " times ",
+                " been "
+            ],
+            in: padded
+        )
+        let preferHistorical = baseHistorical || (retrievalMode == .exhaustive && historicalBiasSignals)
+        let documentTypes = inferredDocumentTypes(for: query)
+            ?? (isShortTopicalQuery ? [.visit, .location, .receipt, .note, .email] : nil)
+        let allowWidening = shouldAllowWidening(
+            operation: operation,
+            retrievalMode: retrievalMode,
+            preferHistorical: preferHistorical,
+            documentTypes: documentTypes
+        )
+        let shouldRunSecondPass = allowWidening && (
+            preferHistorical
+            || retrievalMode == .exhaustive
+            || operation == .summarize
+            || operation == .compare
+        )
+        let admission = buildRetrievalAdmission(
+            operation: operation,
+            retrievalMode: retrievalMode,
+            preferHistorical: preferHistorical,
+            documentTypes: documentTypes,
+            allowWidening: allowWidening,
+            minimumAnchorMatches: (documentTypes != nil || isShortTopicalQuery) ? 1 : 0
+        )
+
+        return QueryPlan(
+            operation: operation,
+            retrievalMode: retrievalMode,
+            preferHistorical: preferHistorical,
+            shouldRunSecondPass: shouldRunSecondPass,
+            allowWidening: allowWidening,
+            documentTypes: documentTypes,
+            admission: admission
+        )
+    }
+
+    private func containsAnySignal(_ signals: [String], in text: String) -> Bool {
+        signals.contains { text.contains($0) }
+    }
+
+    private func inferredDocumentTypes(for query: String) -> [VectorSearchService.DocumentType]? {
+        let padded = " " + query.lowercased() + " "
+        var types = Set<VectorSearchService.DocumentType>()
+
+        if containsAnySignal(
+            [" spend ", " spent ", " pay ", " paid ", " cost ", " costs ", " amount ", " total ", " receipt ", " receipts ", " purchase ", " purchases ", " price ", "$"],
+            in: padded
+        ) {
+            types.insert(.receipt)
+        }
+
+        if containsAnySignal(
+            [" where ", " place ", " places ", " location ", " locations ", " visit ", " visited ", " went ", " go to ", " been to ", " near "],
+            in: padded
+        ) {
+            types.insert(.visit)
+            types.insert(.location)
+        }
+
+        if containsAnySignal(
+            [" email ", " emails ", " inbox ", " unread ", " sender ", " subject ", " message ", " messages ", " thread "],
+            in: padded
+        ) {
+            types.insert(.email)
+        }
+
+        if containsAnySignal(
+            [" task ", " tasks ", " todo ", " to do ", " event ", " events ", " calendar ", " meeting ", " meetings ", " appointment ", " appointments ", " scheduled ", " schedule "],
+            in: padded
+        ) {
+            types.insert(.task)
+        }
+
+        if containsAnySignal(
+            [" note ", " notes ", " journal ", " diary ", " recap ", " reflection ", " wrote ", " writing "],
+            in: padded
+        ) {
+            types.insert(.note)
+        }
+
+        if containsAnySignal(
+            [" person ", " people ", " contact ", " contacts ", " friend ", " friends ", " family ", " birthday ", " birthdays ", " relationship ", " relationships ", " who is ", " who s ", " whose "],
+            in: padded
+        ) {
+            types.insert(.person)
+        }
+
+        return types.isEmpty ? nil : Array(types)
+    }
+
+    private func shouldAllowWidening(
+        operation: AnswerOperation,
+        retrievalMode: VectorSearchService.RetrievalMode,
+        preferHistorical: Bool,
+        documentTypes: [VectorSearchService.DocumentType]?
+    ) -> Bool {
+        if operation == .summarize || operation == .compare {
+            return true
+        }
+
+        if documentTypes == nil {
+            return retrievalMode == .exhaustive || preferHistorical
+        }
+
+        return false
+    }
+
+    private func buildRetrievalAdmission(
+        operation: AnswerOperation,
+        retrievalMode: VectorSearchService.RetrievalMode,
+        preferHistorical: Bool,
+        documentTypes: [VectorSearchService.DocumentType]?,
+        allowWidening: Bool,
+        minimumAnchorMatches: Int
+    ) -> VectorSearchService.RetrievalAdmission {
+        let focusedTypes = Set(documentTypes ?? [])
+        var perTypeCaps = Dictionary(
+            uniqueKeysWithValues: VectorSearchService.DocumentType.allCases.map { ($0, 2) }
+        )
+
+        let defaults: (searchQueries: Int, mergedResults: Int, previewChars: Int, canonicalRecords: Int, evidenceItems: Int, focusedCap: Int, broadCap: Int) = {
+            switch operation {
+            case .latest:
+                return (1, 8, 120, 1, 4, 3, 2)
+            case .list, .count:
+                return (3, preferHistorical ? 28 : 20, 120, preferHistorical ? 18 : 12, preferHistorical ? 14 : 10, 6, 3)
+            case .answer:
+                return (allowWidening ? 2 : 1, preferHistorical ? 18 : 12, 180, 0, preferHistorical ? 10 : 8, 5, 3)
+            case .summarize, .compare:
+                return (3, preferHistorical ? 26 : 20, 180, 0, preferHistorical ? 12 : 10, 6, 4)
+            }
+        }()
+
+        if focusedTypes.isEmpty {
+            for type in VectorSearchService.DocumentType.allCases {
+                perTypeCaps[type] = defaults.broadCap
+            }
+        } else {
+            for type in VectorSearchService.DocumentType.allCases {
+                perTypeCaps[type] = focusedTypes.contains(type) ? defaults.focusedCap : 1
+            }
+        }
+
+        if retrievalMode == .exhaustive {
+            for type in focusedTypes {
+                perTypeCaps[type] = max(perTypeCaps[type] ?? defaults.focusedCap, defaults.focusedCap + 1)
+            }
+        }
+
+        return VectorSearchService.RetrievalAdmission(
+            maxSearchQueries: defaults.searchQueries,
+            maxMergedResults: defaults.mergedResults,
+            maxPreviewCharacters: defaults.previewChars,
+            maxCanonicalRecords: defaults.canonicalRecords,
+            maxEvidenceItems: defaults.evidenceItems,
+            minimumAnchorMatches: minimumAnchorMatches,
+            perTypeCaps: perTypeCaps
+        )
+    }
+
+    private func looksLikeShortTopicalQuery(_ query: String) -> Bool {
+        let normalized = query
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalized.isEmpty else { return false }
+
+        let excludedSignals = [
+            "today", "yesterday", "tomorrow", "week", "weekend", "month", "year",
+            "compare", "summary", "summarize", "recap", "overview", "count",
+            "how many", "latest", "most recent", "newest", "birthday", "birthdays",
+            "weather", "temperature", "eta", "traffic", "schedule", "scheduled"
+        ]
+        if excludedSignals.contains(where: { normalized.contains($0) }) {
+            return false
+        }
+
+        let fillerWords: Set<String> = [
+            "show", "tell", "me", "for", "about", "find", "look", "up", "the",
+            "a", "an", "my", "all", "any", "and", "or", "please"
+        ]
+
+        let tokens = normalized.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+        let meaningfulTokens = tokens.filter { !$0.allSatisfy(\.isNumber) && !fillerWords.contains($0) }
+        return !meaningfulTokens.isEmpty && meaningfulTokens.count <= 4
+    }
+
+    private func contextPresentation(for plan: QueryPlan) -> VectorSearchService.ContextPresentation {
+        switch plan.operation {
+        case .latest:
+            return .latestOnly
+        case .list, .count:
+            return .compactTimeline
+        case .answer, .summarize, .compare:
+            return .detailed
+        }
+    }
+
+    private func shouldIncludeMemoryContext(for plan: QueryPlan) -> Bool {
+        switch plan.operation {
+        case .list, .count, .latest:
+            return false
+        case .answer, .summarize, .compare:
+            return true
+        }
+    }
+
+    private func shouldIncludePeopleContext(forQuery query: String) -> Bool {
+        let lower = query.lowercased()
+        let peopleSignals = [
+            "birthday", "birthdays", "person", "people", "contact", "contacts",
+            "friend", "friends", "family", "relationship", "relationships",
+            "who is", "who's", "whose", "upcoming birthdays"
+        ]
+        return peopleSignals.contains(where: { lower.contains($0) })
+    }
+
+    private func shouldIncludeAmbientContext(forQuery query: String) -> Bool {
+        let lower = query.lowercased()
+        let ambientSignals = [
+            "weather", "temperature", "rain", "snow", "outside",
+            "eta", "traffic", "drive", "commute", "current location",
+            "where am i", "near me", "nearby"
+        ]
+        return ambientSignals.contains(where: { lower.contains($0) })
+    }
+
+    private func shouldIncludeDataAvailabilitySummary(for plan: QueryPlan) -> Bool {
+        switch plan.operation {
+        case .summarize, .compare, .answer:
+            return true
+        case .list, .count, .latest:
+            return false
+        }
     }
 
     private func isStructuredHistoricalFactQuery(_ query: String) -> Bool {
@@ -692,7 +1041,9 @@ class VectorContextBuilder {
         query: String,
         conversationHistory: [(role: String, content: String)],
         dateRange: (start: Date, end: Date)?,
-        documentTypes: [VectorSearchService.DocumentType]? = nil
+        documentTypes: [VectorSearchService.DocumentType]? = nil,
+        retrievalMode: VectorSearchService.RetrievalMode = .topK,
+        admission: VectorSearchService.RetrievalAdmission
     ) async -> (context: String, evidence: [RelevantContentInfo]) {
         let stopWords: Set<String> = [
             "what", "when", "where", "who", "how", "show", "me", "the", "a", "an", "is", "it", "was",
@@ -723,8 +1074,10 @@ class VectorContextBuilder {
             let candidates = try await vectorSearch.search(
                 query: query,
                 documentTypes: documentTypes,
-                limit: 45,
-                dateRange: dateRange
+                limit: min(max(admission.maxMergedResults, 12), 30),
+                dateRange: dateRange,
+                retrievalMode: retrievalMode,
+                admission: admission
             )
             guard !candidates.isEmpty else { return ("", []) }
 
@@ -756,7 +1109,7 @@ class VectorContextBuilder {
             let df = DateFormatter()
             df.dateStyle = .medium
             df.timeStyle = .short
-            let limited = Array(matched.prefix(12))
+            let limited = Array(matched.prefix(max(4, admission.maxEvidenceItems)))
 
             var context = "=== QUERY-FOCUSED MATCHES (ENTITY-CONSTRAINED) ===\n"
             context += "Anchors: \(anchors.joined(separator: ", "))\n"
@@ -777,12 +1130,12 @@ class VectorContextBuilder {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 context += "- [\(similarity)%] \(item.result.documentType.displayName): \(title) • \(dateLabel) • matched: \(item.matchedTokens.joined(separator: ", "))\n"
                 if !snippet.isEmpty {
-                    context += "  - \(snippet.prefix(180))\n"
+                    context += "  - \(snippet.prefix(admission.maxPreviewCharacters))\n"
                 }
 
                 if let mapped = vectorSearch.evidenceItem(from: item.result) {
                     let key = dedupKey(for: mapped)
-                    if !seenEvidenceKeys.contains(key) {
+                    if !seenEvidenceKeys.contains(key), evidence.count < admission.maxEvidenceItems {
                         seenEvidenceKeys.insert(key)
                         evidence.append(mapped)
                     }
@@ -986,11 +1339,9 @@ class VectorContextBuilder {
         }
     }
 
-    // MARK: - REMOVED: Old Query Planning System (~600 lines deleted)
-    // The complex QueryPlan system tried to categorize queries into "receipt vs email vs visit"
-    // This was fragile and over-engineered. Replaced with unified semantic search below.
-    // Vector similarity naturally finds the right documents regardless of type.
     // MARK: - Main Context Building
+    // Uses a small generic retrieval plan for query semantics (top-K vs exhaustive) while
+    // still relying on semantic search instead of domain-specific routing tables.
 
     /// Build optimized context for LLM using vector search
     /// This is the main replacement for buildContextPrompt(forQuery:)
@@ -1004,15 +1355,17 @@ class VectorContextBuilder {
         var context = ""
         var metadata = ContextMetadata()
         var evidence: [RelevantContentInfo] = []
-        let preferredDocumentTypes = preferredDocumentTypes(for: query)
+        let initialQueryPlan = buildQueryPlan(for: query)
 
         // 1. STATIC: Essential context (optimized for caching - date only, no time)
-        context += buildEssentialContext()
+        context += buildEssentialContext(forQuery: query, plan: initialQueryPlan)
         
         // 2. Add user memory context (learned preferences, entity relationships, etc.)
-        let memoryContext = await UserMemoryService.shared.getMemoryContext()
-        if !memoryContext.isEmpty {
-            context += memoryContext
+        if shouldIncludeMemoryContext(for: initialQueryPlan) {
+            let memoryContext = await UserMemoryService.shared.getMemoryContext()
+            if !memoryContext.isEmpty {
+                context += memoryContext
+            }
         }
 
         // 3. Query routing: deterministic temporal parsing first, then LLM understanding.
@@ -1058,7 +1411,10 @@ class VectorContextBuilder {
             let dateRange = (start: start, end: end)
             let queryLower = query.lowercased()
             let isComparison = queryLower.contains("compare") || queryLower.contains(" vs ") || queryLower.contains(" versus ") || queryLower.contains("compared to")
-            let isHistoricalMode = isHistoricalQuery(query: query, dateRange: dateRange)
+            let queryPlan = buildQueryPlan(for: query, dateRange: dateRange)
+            let presentation = contextPresentation(for: queryPlan)
+            let domainLabel = queryPlan.documentTypes?.map(\.rawValue).sorted().joined(separator: ",") ?? "all"
+            print("🧭 Query plan: operation=\(queryPlan.operation.rawValue) retrieval=\(queryPlan.retrievalMode.rawValue) historical=\(queryPlan.preferHistorical) domains=\(domainLabel) widen=\(queryPlan.allowWidening)")
             let daySpan = Calendar.current.dateComponents([.day], from: start, to: end).day ?? 0
             let shouldUseCompleteDayData = daySpan > 0 && daySpan <= 45
 
@@ -1103,12 +1459,14 @@ class VectorContextBuilder {
                         metadata.usedCompleteDayData = true
                         print("✅ Found complete day data via direct DB query")
 
-                        if !isStructuredHistoricalFactQuery(query) {
+                        if queryPlan.allowWidening && presentation == .detailed && !isStructuredHistoricalFactQuery(query) {
                             let constrainedSemantic = await buildEntityConstrainedSemanticContext(
                                 query: query,
                                 conversationHistory: conversationHistory,
                                 dateRange: dateRange,
-                                documentTypes: preferredDocumentTypes
+                                documentTypes: queryPlan.documentTypes,
+                                retrievalMode: queryPlan.retrievalMode,
+                                admission: queryPlan.admission
                             )
                             if !constrainedSemantic.context.isEmpty {
                                 context += "\n" + constrainedSemantic.context
@@ -1121,26 +1479,32 @@ class VectorContextBuilder {
                         }
                     } else {
                         print("⚠️ Direct DB query returned nothing, falling back to vector search")
-                        let limit = determineSearchLimit(forQuery: query, preferHistorical: isHistoricalMode)
+                        let limit = determineSearchLimit(forQuery: query, plan: queryPlan)
                         let relevantContext = try await vectorSearch.getRelevantContext(
                             forQuery: query,
                             limit: limit,
-                            documentTypes: preferredDocumentTypes,
+                            documentTypes: queryPlan.documentTypes,
                             dateRange: dateRange,
-                            preferHistorical: isHistoricalMode
+                            preferHistorical: queryPlan.preferHistorical,
+                            retrievalMode: queryPlan.retrievalMode,
+                            presentation: presentation,
+                            admission: queryPlan.admission
                         )
                         context += "\n" + relevantContext.context
                         evidence.append(contentsOf: relevantContext.evidence)
                         metadata.usedVectorSearch = true
                     }
                 } else {
-                    let limit = determineSearchLimit(forQuery: query, preferHistorical: true)
+                    let limit = determineSearchLimit(forQuery: query, plan: queryPlan)
                     let relevantContext = try await vectorSearch.getRelevantContext(
                         forQuery: query,
                         limit: limit,
-                        documentTypes: preferredDocumentTypes,
+                        documentTypes: queryPlan.documentTypes,
                         dateRange: dateRange,
-                        preferHistorical: true
+                        preferHistorical: queryPlan.preferHistorical,
+                        retrievalMode: queryPlan.retrievalMode,
+                        presentation: presentation,
+                        admission: queryPlan.admission
                     )
                     context += "\n" + relevantContext.context
                     evidence.append(contentsOf: relevantContext.evidence)
@@ -1153,28 +1517,52 @@ class VectorContextBuilder {
 
         case .vectorSearch:
             do {
-                let isHistoricalMode = isHistoricalQuery(query: query)
-                let limit = determineSearchLimit(forQuery: query, preferHistorical: isHistoricalMode)
+                let queryPlan = buildQueryPlan(for: query)
+                let presentation = contextPresentation(for: queryPlan)
+                let domainLabel = queryPlan.documentTypes?.map(\.rawValue).sorted().joined(separator: ",") ?? "all"
+                print("🧭 Query plan: operation=\(queryPlan.operation.rawValue) retrieval=\(queryPlan.retrievalMode.rawValue) historical=\(queryPlan.preferHistorical) domains=\(domainLabel) widen=\(queryPlan.allowWidening)")
+                let limit = determineSearchLimit(forQuery: query, plan: queryPlan)
                 let relevantContext = try await vectorSearch.getRelevantContext(
                     forQuery: query,
                     limit: limit,
-                    documentTypes: preferredDocumentTypes,
+                    documentTypes: queryPlan.documentTypes,
                     dateRange: nil,
-                    preferHistorical: isHistoricalMode
+                    preferHistorical: queryPlan.preferHistorical,
+                    retrievalMode: queryPlan.retrievalMode,
+                    presentation: presentation,
+                    admission: queryPlan.admission
                 )
                 if !relevantContext.context.isEmpty {
                     context += "\n" + relevantContext.context
                     evidence.append(contentsOf: relevantContext.evidence)
                     metadata.usedVectorSearch = true
-                    // Second pass: if first result is thin, fetch more with expanded limit
-                    if relevantContext.context.count < 2500 {
-                        let secondLimit = isHistoricalMode ? min(limit + 40, 180) : min(limit + 25, 80)
+                    // Only broaden retrieval for explicitly broad or historical queries.
+                    let shouldRunCompactSecondPass = queryPlan.allowWidening && presentation != .detailed && relevantContext.evidence.count < min(4, queryPlan.admission.maxEvidenceItems)
+                    if queryPlan.allowWidening
+                        && (((presentation == .detailed && shouldRunExpandedSecondPass(forQuery: query, plan: queryPlan))
+                            || shouldRunCompactSecondPass))
+                        && relevantContext.context.count < 1800 {
+                        let secondLimit: Int = {
+                            switch (queryPlan.retrievalMode, queryPlan.preferHistorical) {
+                            case (.exhaustive, true):
+                                return min(limit + 20, 90)
+                            case (.exhaustive, false):
+                                return min(limit + 15, 70)
+                            case (.topK, true):
+                                return min(limit + 25, 120)
+                            case (.topK, false):
+                                return min(limit + 15, 50)
+                            }
+                        }()
                         let secondContext = try await vectorSearch.getRelevantContext(
                             forQuery: query,
                             limit: secondLimit,
-                            documentTypes: preferredDocumentTypes,
+                            documentTypes: queryPlan.documentTypes,
                             dateRange: nil,
-                            preferHistorical: isHistoricalMode
+                            preferHistorical: queryPlan.preferHistorical,
+                            retrievalMode: queryPlan.retrievalMode,
+                            presentation: presentation,
+                            admission: queryPlan.admission
                         )
                         if !secondContext.context.isEmpty && secondContext.context != relevantContext.context {
                             context += "\n\n=== ADDITIONAL RELEVANT DATA (second pass) ===\n"
@@ -1183,15 +1571,19 @@ class VectorContextBuilder {
                         }
                     }
 
-                    let constrainedSemantic = await buildEntityConstrainedSemanticContext(
-                        query: query,
-                        conversationHistory: conversationHistory,
-                        dateRange: nil,
-                        documentTypes: preferredDocumentTypes
-                    )
-                    if !constrainedSemantic.context.isEmpty {
-                        context += "\n" + constrainedSemantic.context
-                        evidence.append(contentsOf: constrainedSemantic.evidence)
+                    if queryPlan.allowWidening && presentation == .detailed {
+                        let constrainedSemantic = await buildEntityConstrainedSemanticContext(
+                            query: query,
+                            conversationHistory: conversationHistory,
+                            dateRange: nil,
+                            documentTypes: queryPlan.documentTypes,
+                            retrievalMode: queryPlan.retrievalMode,
+                            admission: queryPlan.admission
+                        )
+                        if !constrainedSemantic.context.isEmpty {
+                            context += "\n" + constrainedSemantic.context
+                            evidence.append(contentsOf: constrainedSemantic.evidence)
+                        }
                     }
                 } else {
                     context += "\n[No relevant data found for this query]\n"
@@ -1222,24 +1614,6 @@ class VectorContextBuilder {
         return ContextResult(context: context, metadata: metadata, evidence: dedupedEvidence)
     }
 
-    private func preferredDocumentTypes(for query: String) -> [VectorSearchService.DocumentType]? {
-        let lowercased = query.lowercased()
-        let journalSignals = [
-            "journal",
-            "diary",
-            "weekly recap",
-            "weekly summary",
-            "journal recap",
-            "journal summary"
-        ]
-
-        if journalSignals.contains(where: { lowercased.contains($0) }) {
-            return [.note]
-        }
-
-        return nil
-    }
-    
     /// Build compact context for voice mode (even smaller)
     func buildVoiceContext(forQuery query: String, conversationHistory: [(role: String, content: String)] = []) async -> String {
         // Backwards-compatible API: voice mode now uses the SAME context as chat mode.
@@ -1253,8 +1627,11 @@ class VectorContextBuilder {
     /// Build essential context that's always included
     /// OPTIMIZATION: This is structured for Gemini 2.5 implicit caching (75% discount on cached tokens)
     /// Keep this stable across requests - avoid including frequently changing data like current time
-    private func buildEssentialContext() -> String {
+    private func buildEssentialContext(forQuery query: String, plan: QueryPlan) -> String {
         var context = ""
+        let includeAmbientContext = shouldIncludeAmbientContext(forQuery: query)
+        let includePeopleContext = shouldIncludePeopleContext(forQuery: query)
+        let includeDataSummary = shouldIncludeDataAvailabilitySummary(for: plan)
 
         // Current date (NO TIME - for cache stability)
         let dateFormatter = DateFormatter()
@@ -1273,34 +1650,35 @@ class VectorContextBuilder {
         let utcSign = utcOffset >= 0 ? "+" : ""
         context += "Timezone: \(TimeZone.current.identifier) (UTC\(utcSign)\(utcOffset))\n\n"
         
-        // Current location
-        let locationService = LocationService.shared
-        if let currentLocation = locationService.currentLocation {
-            context += "=== CURRENT LOCATION ===\n"
-            context += "Location: \(locationService.locationName)\n"
-            context += "Coordinates: \(String(format: "%.4f", currentLocation.coordinate.latitude)), \(String(format: "%.4f", currentLocation.coordinate.longitude))\n\n"
+        if includeAmbientContext {
+            let locationService = LocationService.shared
+            if let currentLocation = locationService.currentLocation {
+                context += "=== CURRENT LOCATION ===\n"
+                context += "Location: \(locationService.locationName)\n"
+                context += "Coordinates: \(String(format: "%.4f", currentLocation.coordinate.latitude)), \(String(format: "%.4f", currentLocation.coordinate.longitude))\n\n"
+            }
+
+            let weatherService = WeatherService.shared
+            if let weather = weatherService.weatherData {
+                context += "=== CURRENT WEATHER ===\n"
+                context += "Temperature: \(weather.temperature)°C\n"
+                context += "Conditions: \(weather.description)\n"
+                context += "Location: \(weather.locationName)\n\n"
+            }
         }
 
-        // Current weather
-        let weatherService = WeatherService.shared
-        if let weather = weatherService.weatherData {
-            context += "=== CURRENT WEATHER ===\n"
-            context += "Temperature: \(weather.temperature)°C\n"
-            context += "Conditions: \(weather.description)\n"
-            context += "Location: \(weather.locationName)\n\n"
-        }
-
-        // Data summary (quick counts)
-        context += "=== DATA AVAILABLE ===\n"
-        context += "Events: \(TaskManager.shared.getAllTasksIncludingArchived().count)\n"
-        context += "Notes: \(NotesManager.shared.notes.count)\n"
-        context += "Emails: \(EmailService.shared.inboxEmails.count + EmailService.shared.sentEmails.count)\n"
-        context += "Locations: \(LocationsManager.shared.savedPlaces.count)\n"
         let peopleCount = PeopleManager.shared.people.count
-        context += "People: \(peopleCount)\n\n"
+        if includeDataSummary {
+            context += "=== DATA AVAILABLE ===\n"
+            context += "Events: \(TaskManager.shared.getAllTasksIncludingArchived().count)\n"
+            context += "Notes: \(NotesManager.shared.notes.count)\n"
+            context += "Emails: \(EmailService.shared.inboxEmails.count + EmailService.shared.sentEmails.count)\n"
+            context += "Locations: \(LocationsManager.shared.savedPlaces.count)\n"
+            context += "People: \(peopleCount)\n\n"
+        }
 
         // IMPORTANT: Include complete people list with birthdays for easy lookup
-        if peopleCount > 0 {
+        if includePeopleContext && peopleCount > 0 {
             context += "=== YOUR PEOPLE (Complete List) ===\n"
             context += "IMPORTANT: This is the ONLY source of truth for people in the app. Do NOT search the web for random people.\n\n"
 

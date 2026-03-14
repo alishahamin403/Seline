@@ -121,7 +121,7 @@ class UserMemoryService {
 
         // Find memories where the query matches the VALUE (e.g., "haircut")
         // and return the KEYS (e.g., "jvmesmrvo", "JVM")
-        for memory in memories where memory.confidence >= 0.5 {
+        for memory in memories where isSearchExpansionMemory(memory) {
             let value = memory.value.lowercased()
             let key = memory.key.lowercased()
 
@@ -152,6 +152,46 @@ class UserMemoryService {
 
         print("🧠 Query expansion result: \(expansions.count) expansions: \(expansions)")
         return expansions
+    }
+
+    private func isSearchExpansionMemory(_ memory: Memory) -> Bool {
+        guard memory.memoryType == .entityRelationship else { return false }
+        guard memory.confidence >= 0.75 else { return false }
+        guard memory.source != .conversation else { return false }
+        guard isMeaningfulExpansionTerm(memory.key), isMeaningfulExpansionTerm(memory.value) else { return false }
+        return true
+    }
+
+    private func isMeaningfulExpansionTerm(_ value: String) -> Bool {
+        let normalized = value
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalized.isEmpty else { return false }
+        guard normalized.count >= 3 else { return false }
+
+        let blockedTerms: Set<String> = [
+            "what", "when", "where", "who", "why", "how", "this", "that", "these", "those",
+            "yes", "no", "okay", "ok", "please", "show", "tell", "give", "need",
+            "my", "me", "your", "you", "our", "their", "the", "a", "an"
+        ]
+
+        if blockedTerms.contains(normalized) {
+            return false
+        }
+
+        let tokens = normalized.split(separator: " ")
+        guard !tokens.isEmpty else { return false }
+        if tokens.count == 1 {
+            return !blockedTerms.contains(String(tokens[0]))
+        }
+
+        return tokens.contains { token in
+            let piece = String(token)
+            return piece.count >= 3 && !blockedTerms.contains(piece)
+        }
     }
 
     /// FIX: Delete garbage memories and create correct one
