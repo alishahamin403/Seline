@@ -14,8 +14,8 @@ class GeminiService: ObservableObject {
     static let shared = GeminiService()
     nonisolated private static let defaultModelName = "gemini-2.0-flash"
     nonisolated private static let fallbackModelName = "gemini-2.0-flash-lite"
-    nonisolated private static let defaultMaxOutputTokens = 1200
-    nonisolated private static let defaultStreamingOutputTokens = 1200
+    nonisolated private static let defaultMaxOutputTokens = 900
+    nonisolated private static let defaultStreamingOutputTokens = 900
 
     // Published properties for UI
     @Published var quotaUsed: Int = 0

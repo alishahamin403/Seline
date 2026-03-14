@@ -27,13 +27,11 @@ struct SpendingAndETAWidget: View {
     @Environment(\.colorScheme) var colorScheme
 
     var isVisible: Bool = true
-    var onAddReceiptTapped: (() -> Void)? = nil
     var onAddReceipt: (() -> Void)? = nil
     var onAddReceiptFromGallery: (() -> Void)? = nil
     var onReceiptSelected: ((ReceiptStat) -> Void)? = nil
 
     @State private var showReceiptStats = false
-    @State private var showLegacyReceiptAddOptions = false
     @State private var spendingInsights: [SpendingInsightsService.SpendingInsight] = []
     @State private var selectedInsight: SpendingInsightsService.SpendingInsight?
     @State private var selectedCategory: SelectedCategory?
@@ -488,17 +486,6 @@ struct SpendingAndETAWidget: View {
                 ReceiptStatsView(isPopup: true)
                     .presentationDetents([.large])
             }
-            .confirmationDialog("Add Receipt", isPresented: $showLegacyReceiptAddOptions, titleVisibility: .visible) {
-                Button("Take Picture") {
-                    HapticManager.shared.buttonTap()
-                    onAddReceipt?()
-                }
-                Button("Upload Images") {
-                    HapticManager.shared.buttonTap()
-                    onAddReceiptFromGallery?()
-                }
-                Button("Cancel", role: .cancel) {}
-            }
             .sheet(item: $selectedInsight) { insight in
                 if insight.hasDetails {
                     InsightDetailSheet(insight: insight)
@@ -634,41 +621,43 @@ struct SpendingAndETAWidget: View {
     }
 
     private var addReceiptPillButton: some View {
-        Button(action: {
-            HapticManager.shared.buttonTap()
-
-            if let onAddReceiptTapped {
-                onAddReceiptTapped()
-            } else if onAddReceipt != nil || onAddReceiptFromGallery != nil {
-                showLegacyReceiptAddOptions = true
+        Group {
+            if onAddReceipt != nil || onAddReceiptFromGallery != nil {
+                Menu {
+                    receiptAddMenuContent
+                } label: {
+                    addReceiptPillLabel
+                }
+            } else {
+                Button(action: {
+                    HapticManager.shared.buttonTap()
+                }) {
+                    addReceiptPillLabel
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(true)
             }
-        }) {
-            Text("ADD RECEIPT")
-                .font(FontManager.geist(size: 13, weight: .semibold))
-                .foregroundColor(.black)
-                .padding(.horizontal, 18)
-                .frame(height: 36)
-                .background(
-                    Capsule()
-                        .fill(homeAccentColor)
-                )
         }
-        .buttonStyle(PlainButtonStyle())
     }
 
     private var addReceiptMenuButton: some View {
-        Button(action: {
-            HapticManager.shared.buttonTap()
-
-            if let onAddReceiptTapped {
-                onAddReceiptTapped()
-            } else if onAddReceipt != nil || onAddReceiptFromGallery != nil {
-                showLegacyReceiptAddOptions = true
+        Group {
+            if onAddReceipt != nil || onAddReceiptFromGallery != nil {
+                Menu {
+                    receiptAddMenuContent
+                } label: {
+                    addReceiptButtonLabel
+                }
+            } else {
+                Button(action: {
+                    HapticManager.shared.buttonTap()
+                }) {
+                    addReceiptButtonLabel
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(true)
             }
-        }) {
-            addReceiptButtonLabel
         }
-        .buttonStyle(PlainButtonStyle())
         .contentShape(Circle())
     }
 
@@ -681,6 +670,39 @@ struct SpendingAndETAWidget: View {
                 Circle()
                     .fill(homeAccentColor)
             )
+    }
+
+    private var addReceiptPillLabel: some View {
+        Text("ADD RECEIPT")
+            .font(FontManager.geist(size: 13, weight: .semibold))
+            .foregroundColor(.black)
+            .padding(.horizontal, 18)
+            .frame(height: 36)
+            .background(
+                Capsule()
+                    .fill(homeAccentColor)
+            )
+    }
+
+    @ViewBuilder
+    private var receiptAddMenuContent: some View {
+        if let onAddReceipt {
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddReceipt()
+            }) {
+                Label("Take Picture", systemImage: "camera.fill")
+            }
+        }
+
+        if let onAddReceiptFromGallery {
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddReceiptFromGallery()
+            }) {
+                Label("Upload Images", systemImage: "photo.on.rectangle")
+            }
+        }
     }
 
     private var spendingSignalsOverview: some View {

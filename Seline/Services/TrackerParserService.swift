@@ -382,7 +382,9 @@ final class TrackerParserService {
         - Normalize the rules into concise plain text in rulesText.
         - Preserve concrete numbers, names, dates, caps, turns, and carryover rules exactly when the user provides them.
         - Summarize the starting state in currentSummary.
-        - quickFacts should be short bullets that help the UI.
+        - quickFacts should be 2-4 short current-state facts optimized for compact UI cards.
+        - Prefer facts that capture the latest status, such as balances, amounts left, counts completed or remaining, next due item, active owner, or current totals when relevant.
+        - Do not repeat the tracker title inside quickFacts.
         - If the request does not actually define tracker rules, return clarification.
 
         JSON shape:
@@ -503,6 +505,8 @@ final class TrackerParserService {
         - Direct factual statements such as "Suju bought underwear for 20 dollars", "log 3 workouts", or "Ali spent 15" are update_state, not clarification.
         - For edit_rules, update_state, and what_if, return the FULL updated rulesText and currentSummary after applying the message.
         - For edit_rules, update_state, and what_if, quickFacts should reflect the updated tracker if they need to change.
+        - Keep quickFacts UI-friendly: 2-4 short current-state facts, not a paragraph.
+        - Prefer the latest values the user would care about now, such as what remains, what is due next, who is up, what changed most recently, or the current running total.
         - If RULES and CURRENT SUMMARY conflict, prefer RULES plus RECENT CHANGES and the latest user message, and correct the summary.
         - If the tracker rules imply calculations such as remaining budget, points left, counts completed, or turn rotation, update currentSummary and quickFacts with the recalculated state.
         - If the latest message only asks a question, do not rewrite rulesText or currentSummary.
@@ -572,6 +576,8 @@ final class TrackerParserService {
         - Update rulesText only if the user changed the rules.
         - Always return the FULL updated currentSummary after applying the latest change.
         - Update quickFacts if the tracked state changed.
+        - Keep quickFacts UI-friendly: 2-4 short current-state facts, not a paragraph.
+        - Prefer the latest values the user would care about now, such as what remains, what is due next, who is up, what changed most recently, or the current running total.
         - If RULES and CURRENT SUMMARY conflict, follow RULES and correct the summary.
         - If the rules imply numeric calculations, compute them. Examples include remaining budget, amount left this month, points remaining, counts completed, or quotas left.
         - For expense or budget trackers, subtract the reported spend from the relevant allowance when the rules provide enough information.
@@ -659,6 +665,8 @@ final class TrackerParserService {
         - Return the FULL updated rulesText only if the target change altered the rules and you can confidently restore the previous rules.
         - Always return the FULL updated currentSummary after removing the target change's effect.
         - Update quickFacts if the tracked state changes.
+        - Keep quickFacts UI-friendly: 2-4 short current-state facts, not a paragraph.
+        - Prefer the latest values the user would care about now, such as what remains, what is due next, who is up, what changed most recently, or the current running total.
         - Set intent to update_state for normal state reversals, or edit_rules if undoing a rule change requires restoring prior rules.
         - Set changeType to correction.
         - changeTitle should be "Undo last change".

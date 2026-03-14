@@ -326,9 +326,13 @@ struct NotesView: View, Searchable {
                 ReceiptStatsView(
                     searchText: nil,
                     initialMonthDate: selectedReceiptDrilldownMonth,
-                    onAddReceipt: {
-                        HapticManager.shared.buttonTap()
-                        showingReceiptAddOptions = true
+                    onAddReceiptFromCamera: {
+                        HapticManager.shared.selection()
+                        showingReceiptCameraPicker = true
+                    },
+                    onAddReceiptFromGallery: {
+                        HapticManager.shared.selection()
+                        showingReceiptImagePicker = true
                     }
                 )
                     .navigationTitle("Receipts")
@@ -1782,9 +1786,13 @@ struct NotesView: View, Searchable {
     private var receiptsTabContent: some View {
         ReceiptStatsView(
             searchText: searchText.isEmpty ? nil : searchText,
-            onAddReceipt: {
-                HapticManager.shared.buttonTap()
-                showingReceiptAddOptions = true
+            onAddReceiptFromCamera: {
+                HapticManager.shared.selection()
+                showingReceiptCameraPicker = true
+            },
+            onAddReceiptFromGallery: {
+                HapticManager.shared.selection()
+                showingReceiptImagePicker = true
             }
         )
             .padding(.horizontal, -8) // Remove padding since content has its own
@@ -1907,6 +1915,13 @@ struct NotesView: View, Searchable {
                 mainPageAddButtonLabel
             }
             .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
+        } else if selectedMainPage == .receipts {
+            Menu {
+                receiptAddMenuItems
+            } label: {
+                mainPageAddButtonLabel
+            }
+            .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
         } else {
             Button(action: performMainPageAddAction) {
                 mainPageAddButtonLabel
@@ -1965,26 +1980,56 @@ struct NotesView: View, Searchable {
         HStack {
             Spacer()
 
-            Button(action: {
-                performMainPageAddAction()
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .semibold))
-
-                    Text(mainPageAddButtonTitle)
-                        .font(FontManager.geist(size: 12, weight: .semibold))
+            if selectedMainPage == .receipts {
+                Menu {
+                    receiptAddMenuItems
+                } label: {
+                    mainPageBodyAddActionLabel
                 }
-                .foregroundColor(hubAccentButtonTextColor)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 8)
-                .background(
-                    Capsule()
-                        .fill(hubAccentColor)
-                )
+                .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
+            } else {
+                Button(action: {
+                    performMainPageAddAction()
+                }) {
+                    mainPageBodyAddActionLabel
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
             }
-            .buttonStyle(PlainButtonStyle())
-            .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
+        }
+    }
+
+    private var mainPageBodyAddActionLabel: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "plus")
+                .font(.system(size: 11, weight: .semibold))
+
+            Text(mainPageAddButtonTitle)
+                .font(FontManager.geist(size: 12, weight: .semibold))
+        }
+        .foregroundColor(hubAccentButtonTextColor)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .fill(hubAccentColor)
+        )
+    }
+
+    @ViewBuilder
+    private var receiptAddMenuItems: some View {
+        Button(action: {
+            HapticManager.shared.selection()
+            showingReceiptCameraPicker = true
+        }) {
+            Label("Take Picture", systemImage: "camera.fill")
+        }
+
+        Button(action: {
+            HapticManager.shared.selection()
+            showingReceiptImagePicker = true
+        }) {
+            Label("Upload Images", systemImage: "photo.on.rectangle")
         }
     }
 

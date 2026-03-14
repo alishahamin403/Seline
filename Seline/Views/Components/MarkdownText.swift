@@ -1,181 +1,5 @@
 import SwiftUI
 
-enum ChatMarkdownDisplayFormatter {
-    static func normalize(_ text: String) -> String {
-        var normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let lines = normalized.components(separatedBy: "\n")
-        let normalizedBullets = normalizeBullets(in: lines)
-        let groupedBullets = normalizeHierarchicalBullets(in: normalizedBullets)
-        let formattedHeadings = normalizeStandaloneHeadings(in: groupedBullets)
-
-        normalized = formattedHeadings.joined(separator: "\n")
-        normalized = normalized.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
-        normalized = normalized.replacingOccurrences(of: "\\n(?=\\*\\*[^\\n]+\\*\\*)", with: "\n\n", options: .regularExpression)
-
-        return normalized
-    }
-
-    private static func normalizeBullets(in lines: [String]) -> [String] {
-        lines.map { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { return "" }
-
-            let leadingSpaces = line.prefix { $0 == " " || $0 == "\t" }
-                .reduce(into: "") { partial, character in
-                    partial.append(contentsOf: character == "\t" ? "  " : String(character))
-                }
-
-            if trimmed.hasPrefix("• ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("– ") || trimmed.hasPrefix("— ") {
-                return "\(leadingSpaces)- \(trimmed.dropFirst(2))"
-            }
-
-            return line.replacingOccurrences(of: "\t", with: "  ")
-        }
-    }
-
-    private static func normalizeHierarchicalBullets(in lines: [String]) -> [String] {
-        var rebuilt: [String] = []
-        var activeParentLevel: Int?
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            guard !trimmed.isEmpty else {
-                activeParentLevel = nil
-                rebuilt.append("")
-                continue
-            }
-
-            guard let bullet = parseBulletMetadata(from: line) else {
-                activeParentLevel = nil
-                rebuilt.append(line)
-                continue
-            }
-
-            if bullet.level == 0, isSectionParentBullet(bullet.content) {
-                rebuilt.append("- **\(bullet.content)**")
-                activeParentLevel = 0
-                continue
-            }
-
-            if let activeParentLevel, bullet.level == activeParentLevel {
-                rebuilt.append(formattedBulletLine(level: activeParentLevel + 1, content: bullet.content))
-                continue
-            }
-
-            rebuilt.append(formattedBulletLine(level: bullet.level, content: bullet.content))
-        }
-
-        return rebuilt
-    }
-
-    private static func normalizeStandaloneHeadings(in lines: [String]) -> [String] {
-        var rebuilt: [String] = []
-
-        for index in lines.indices {
-            let line = lines[index]
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            guard !trimmed.isEmpty else {
-                rebuilt.append(line)
-                continue
-            }
-
-            if shouldPromoteToHeading(trimmed, nextNonEmptyLine: nextNonEmptyLine(after: index, in: lines)) {
-                rebuilt.append("**\(trimmed)**")
-            } else {
-                rebuilt.append(line)
-            }
-        }
-
-        return rebuilt
-    }
-
-    private static func nextNonEmptyLine(after index: Int, in lines: [String]) -> String? {
-        guard index + 1 < lines.count else { return nil }
-
-        for candidate in lines[(index + 1)...] {
-            let trimmed = candidate.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-
-        return nil
-    }
-
-    private static func shouldPromoteToHeading(_ trimmed: String, nextNonEmptyLine: String?) -> Bool {
-        guard
-            !trimmed.hasPrefix("- "),
-            !trimmed.hasPrefix("**"),
-            !trimmed.hasPrefix("#"),
-            !trimmed.hasPrefix(">"),
-            !trimmed.hasPrefix("|"),
-            !trimmed.hasPrefix("```")
-        else {
-            return false
-        }
-
-        if isLikelyDateHeading(trimmed) {
-            return true
-        }
-
-        if trimmed.hasSuffix(":"),
-           trimmed.count <= 48,
-           trimmed.split(whereSeparator: \.isWhitespace).count <= 6,
-           let nextNonEmptyLine,
-           nextNonEmptyLine.hasPrefix("- ") {
-            return true
-        }
-
-        return false
-    }
-
-    private static func isLikelyDateHeading(_ trimmed: String) -> Bool {
-        let weekdays = [
-            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
-        ]
-        let months = [
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ]
-
-        let hasDigit = trimmed.rangeOfCharacter(from: .decimalDigits) != nil
-        return hasDigit && (
-            weekdays.contains { trimmed.hasPrefix($0) }
-                || months.contains { trimmed.hasPrefix($0) }
-        )
-    }
-
-    private static func isSectionParentBullet(_ content: String) -> Bool {
-        let normalized = content
-            .replacingOccurrences(of: "*", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        guard normalized.hasSuffix(":") else { return false }
-        guard normalized.count <= 48 else { return false }
-        guard !normalized.contains(".") else { return false }
-        return normalized.split(whereSeparator: \.isWhitespace).count <= 6
-    }
-
-    private static func formattedBulletLine(level: Int, content: String) -> String {
-        let indent = String(repeating: "  ", count: max(0, level))
-        return "\(indent)- \(content)"
-    }
-
-    private static func parseBulletMetadata(from line: String) -> (level: Int, content: String)? {
-        let leadingSpaces = line.prefix { $0 == " " }.count
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("- ") else { return nil }
-
-        let level = max(0, leadingSpaces / 2)
-        let content = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-        guard !content.isEmpty else { return nil }
-        return (level, content)
-    }
-}
-
 /// Renders markdown text with proper formatting
 /// Converts # headings, bold, italics, tables, etc. into styled text
 struct MarkdownText: View {
@@ -184,7 +8,7 @@ struct MarkdownText: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            let parsedElements = parseMarkdown(ChatMarkdownDisplayFormatter.normalize(markdown))
+            let parsedElements = parseMarkdown(markdown)
             ForEach(Array(parsedElements.enumerated()), id: \.offset) { _, element in
                 renderElement(element)
                     .padding(.top, topPadding(for: element))
@@ -659,12 +483,14 @@ struct MarkdownText: View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
         var i = 0
+        var activeParentBulletLevel: Int?
         while i < lines.count {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             // Skip empty lines
             if trimmed.isEmpty {
+                activeParentBulletLevel = nil
                 elements.append(.empty)
                 i += 1
                 continue
@@ -672,6 +498,7 @@ struct MarkdownText: View {
 
             // Fenced code blocks
             if trimmed.hasPrefix("```") {
+                activeParentBulletLevel = nil
                 var codeLines: [String] = []
                 i += 1
                 while i < lines.count {
@@ -689,6 +516,7 @@ struct MarkdownText: View {
 
             // Block quotes
             if trimmed.hasPrefix(">") {
+                activeParentBulletLevel = nil
                 var quoteLines: [String] = []
                 while i < lines.count {
                     let quoteTrimmed = lines[i].trimmingCharacters(in: .whitespaces)
@@ -702,6 +530,7 @@ struct MarkdownText: View {
             
             // Horizontal rule
             if trimmed.count >= 3 && (trimmed.allSatisfy { $0 == "-" } || trimmed.allSatisfy { $0 == "*" } || trimmed.allSatisfy { $0 == "_" }) {
+                activeParentBulletLevel = nil
                 elements.append(.horizontalRule)
                 i += 1
                 continue
@@ -709,18 +538,22 @@ struct MarkdownText: View {
 
             // Headings
             if trimmed.hasPrefix("# ") {
+                activeParentBulletLevel = nil
                 elements.append(.heading1(String(trimmed.dropFirst(2))))
                 i += 1; continue
             }
             if trimmed.hasPrefix("## ") {
+                activeParentBulletLevel = nil
                 elements.append(.heading2(String(trimmed.dropFirst(3))))
                 i += 1; continue
             }
             if trimmed.hasPrefix("### ") {
+                activeParentBulletLevel = nil
                 elements.append(.heading3(String(trimmed.dropFirst(4))))
                 i += 1; continue
             }
             if trimmed.hasPrefix("#### ") {
+                activeParentBulletLevel = nil
                 elements.append(.heading4(String(trimmed.dropFirst(5))))
                 i += 1; continue
             }
@@ -737,6 +570,7 @@ struct MarkdownText: View {
                     label = nil
                 }
                 if let label = label, !label.isEmpty {
+                    activeParentBulletLevel = nil
                     elements.append(.heading2(label))
                     i += 1
                     continue
@@ -747,6 +581,7 @@ struct MarkdownText: View {
             if looksLikeTableStart(trimmed, at: i, in: lines) {
                 let tableResult = parseTable(startingAt: i, in: lines)
                 if let table = tableResult.table {
+                    activeParentBulletLevel = nil
                     elements.append(table)
                     i = tableResult.nextIndex
                     continue
@@ -757,17 +592,31 @@ struct MarkdownText: View {
             }
             
             // Bullets: sub-bullets need 2+ leading spaces (2 or 3 = level 1, 4 or 5 = level 2, etc.)
-            let leadingSpaces = line.prefix(while: { $0 == " " }).count
+            let leadingSpaces = indentationWidth(of: line)
             let bulletLevel: Int = leadingSpaces >= 2 ? min(1 + (leadingSpaces - 2) / 2, 4) : 0
             if trimmed.hasPrefix("- ") || trimmed.hasPrefix("• ") || trimmed.hasPrefix("* ") {
                 let text = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-                elements.append(.bulletPoint(level: bulletLevel, text: text))
+                let isSectionParent = isSectionParentBullet(text)
+                let effectiveLevel: Int
+
+                if isSectionParent {
+                    effectiveLevel = bulletLevel
+                    activeParentBulletLevel = bulletLevel
+                } else if let activeParentBulletLevel, bulletLevel == activeParentBulletLevel {
+                    effectiveLevel = min(activeParentBulletLevel + 1, 4)
+                } else {
+                    effectiveLevel = bulletLevel
+                    activeParentBulletLevel = nil
+                }
+
+                elements.append(.bulletPoint(level: effectiveLevel, text: text))
                 i += 1
                 continue
             }
             
             // Numbered list
             if let match = trimmed.range(of: #"^(\d+)\.\s+(.*)$"#, options: .regularExpression) {
+                activeParentBulletLevel = nil
                 // ... same logic as before ...
                 let content = String(trimmed[match])
                 if let dotIndex = content.firstIndex(of: ".") {
@@ -794,6 +643,7 @@ struct MarkdownText: View {
                 paragraphLines.append(candidate)
                 cursor += 1
             }
+            activeParentBulletLevel = nil
             elements.append(.paragraph(paragraphLines.joined(separator: "\n")))
             i = cursor
         }
@@ -811,6 +661,22 @@ struct MarkdownText: View {
         }
         if trimmed.filter({ $0 == "|" }).count >= 2 { return true }
         return false
+    }
+
+    private func indentationWidth(of line: String) -> Int {
+        line.prefix(while: { $0 == " " || $0 == "\t" }).reduce(into: 0) { total, character in
+            total += character == "\t" ? 2 : 1
+        }
+    }
+
+    private func isSectionParentBullet(_ content: String) -> Bool {
+        let normalized = content
+            .replacingOccurrences(of: "*", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard normalized.hasSuffix(":") else { return false }
+        guard normalized.count <= 48 else { return false }
+        guard !normalized.contains(".") else { return false }
+        return normalized.split(whereSeparator: \.isWhitespace).count <= 6
     }
     
     // MARK: - Table Parsing Helpers

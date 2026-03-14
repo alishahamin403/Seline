@@ -124,7 +124,6 @@ struct MainAppView: View {
     @State private var showAllLocationsSheet = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast
     @State private var selectedLocationPlace: SavedPlace? = nil
-    @State private var showingReceiptAddOptions = false
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
@@ -1339,9 +1338,13 @@ struct MainAppView: View {
                 }
                 .sheet(isPresented: $showReceiptStats) {
                     ReceiptStatsView(
-                        onAddReceipt: {
-                            HapticManager.shared.buttonTap()
-                            showingReceiptAddOptions = true
+                        onAddReceiptFromCamera: {
+                            HapticManager.shared.selection()
+                            showingReceiptCameraPicker = true
+                        },
+                        onAddReceiptFromGallery: {
+                            HapticManager.shared.selection()
+                            showingReceiptImagePicker = true
                         },
                         isPopup: true
                     )
@@ -1395,17 +1398,6 @@ struct MainAppView: View {
                             }
                         }
                     ))
-                }
-                .confirmationDialog("Add Receipt", isPresented: $showingReceiptAddOptions, titleVisibility: .visible) {
-                    Button("Take Picture") {
-                        HapticManager.shared.buttonTap()
-                        showingReceiptCameraPicker = true
-                    }
-                    Button("Upload Images") {
-                        HapticManager.shared.buttonTap()
-                        showingReceiptImagePicker = true
-                    }
-                    Button("Cancel", role: .cancel) {}
                 }
                 .overlay(alignment: .top) {
                     if receiptProcessingState != .idle {
@@ -2301,8 +2293,13 @@ struct MainAppView: View {
             onAddNote: {
                 showingNewNoteSheet = true
             },
-            onAddReceiptTapped: {
-                showingReceiptAddOptions = true
+            onAddReceiptFromCamera: {
+                HapticManager.shared.selection()
+                showingReceiptCameraPicker = true
+            },
+            onAddReceiptFromGallery: {
+                HapticManager.shared.selection()
+                showingReceiptImagePicker = true
             },
             onReceiptSelected: { receipt in
                 handleSpendingReceiptSelection(receipt)
@@ -2380,8 +2377,13 @@ struct MainAppView: View {
             ReorderableWidgetContainer(widgetManager: widgetManager, type: .spending) {
                 SpendingAndETAWidget(
                     isVisible: selectedTab == .home,
-                    onAddReceiptTapped: {
-                        showingReceiptAddOptions = true
+                    onAddReceipt: {
+                        HapticManager.shared.selection()
+                        showingReceiptCameraPicker = true
+                    },
+                    onAddReceiptFromGallery: {
+                        HapticManager.shared.selection()
+                        showingReceiptImagePicker = true
                     },
                     onReceiptSelected: { receipt in
                         handleSpendingReceiptSelection(receipt)

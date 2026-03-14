@@ -824,6 +824,10 @@ class VectorContextBuilder {
     ) -> Bool {
         let lower = query.lowercased()
 
+        if shouldPreferAnchorResolution(for: lower) {
+            return false
+        }
+
         // Entity-grounded "when did I go X with Y" is better served by semantic retrieval than date parsing.
         if lower.contains("when did i go") {
             let hasExplicitYear = lower.range(of: #"\b(19\d{2}|20\d{2})\b"#, options: .regularExpression) != nil
@@ -876,6 +880,63 @@ class VectorContextBuilder {
         return false
     }
 
+    private func shouldPreferAnchorResolution(for lowerQuery: String) -> Bool {
+        guard !hasExplicitTemporalReference(in: lowerQuery) else { return false }
+
+        let implicitTemporalSignals = [
+            " that day ",
+            " whole day ",
+            " that whole day ",
+            " same day ",
+            " that weekend ",
+            " whole weekend ",
+            " when i went ",
+            " when did i ",
+            " when was "
+        ]
+        let padded = " " + lowerQuery + " "
+        guard implicitTemporalSignals.contains(where: { padded.contains($0) }) else {
+            return false
+        }
+
+        let stopWords: Set<String> = [
+            "what", "when", "where", "who", "how", "show", "tell", "give", "me", "the", "a", "an",
+            "is", "it", "was", "i", "we", "you", "my", "our", "with", "at", "in", "on", "of", "for",
+            "to", "and", "or", "that", "this", "same", "whole", "went", "go", "visit", "visited",
+            "day", "week", "weekend", "month", "year", "today", "yesterday", "tomorrow", "before",
+            "after", "during", "around", "summarize", "summary"
+        ]
+        return !uniqueTokens(in: lowerQuery, stopWords: stopWords).isEmpty
+    }
+
+    private func hasExplicitTemporalReference(in lowerQuery: String) -> Bool {
+        let relativeTerms = [
+            "today", "yesterday", "tomorrow", "this week", "last week", "next week",
+            "this month", "last month", "next month", "this year", "last year", "next year",
+            "last weekend", "this weekend", "next weekend", "day before yesterday"
+        ]
+        if relativeTerms.contains(where: { lowerQuery.contains($0) }) {
+            return true
+        }
+
+        if lowerQuery.range(
+            of: #"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\b"#,
+            options: .regularExpression
+        ) != nil {
+            return true
+        }
+
+        if lowerQuery.range(of: #"\b(19\d{2}|20\d{2})\b"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        if lowerQuery.range(of: #"\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        return false
+    }
+
     private struct DeterministicTemporalRange {
         let start: Date
         let end: Date
@@ -888,6 +949,9 @@ class VectorContextBuilder {
         calendar: Calendar
     ) -> DeterministicTemporalRange? {
         let lower = query.lowercased()
+        if shouldPreferAnchorResolution(for: lower) {
+            return nil
+        }
         guard let extracted = TemporalUnderstandingService.shared.extractTemporalRange(from: query) else {
             return nil
         }

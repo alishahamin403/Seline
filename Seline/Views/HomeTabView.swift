@@ -27,7 +27,8 @@ struct HomeWidgetStackView: View {
     let onAddTask: () -> Void
     let onAddTaskFromPhoto: () -> Void
     let onAddNote: () -> Void
-    let onAddReceiptTapped: () -> Void
+    let onAddReceiptFromCamera: () -> Void
+    let onAddReceiptFromGallery: () -> Void
     let onReceiptSelected: (ReceiptStat) -> Void
     let onRefresh: () -> Void
 
@@ -60,7 +61,8 @@ struct HomeWidgetStackView: View {
 
                 SpendingAndETAWidget(
                     isVisible: isVisible,
-                    onAddReceiptTapped: onAddReceiptTapped,
+                    onAddReceipt: onAddReceiptFromCamera,
+                    onAddReceiptFromGallery: onAddReceiptFromGallery,
                     onReceiptSelected: onReceiptSelected
                 )
                 .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)

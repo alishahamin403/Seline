@@ -246,7 +246,8 @@ class TemporalUnderstandingService {
         let quarters = ["q1": 1, "q2": 2, "q3": 3, "q4": 4]
 
         for (quarterStr, quarterNum) in quarters {
-            if query.contains(quarterStr) {
+            let pattern = "\\b" + NSRegularExpression.escapedPattern(for: quarterStr) + "\\b"
+            if query.range(of: pattern, options: .regularExpression) != nil {
                 let year = extractYear(from: query) ?? currentYear
                 let monthStart = (quarterNum - 1) * 3 + 1
                 let monthEnd = quarterNum * 3
@@ -276,16 +277,30 @@ class TemporalUnderstandingService {
         ]
 
         let lowerQuery = query.lowercased()
-        var foundMonths: [Int] = []
-
-        // Find ALL months mentioned in the query (handles "oct and nov", "nov and oct", etc)
-        for (monthName, monthNum) in monthNames {
-            if lowerQuery.contains(monthName) {
-                foundMonths.append(monthNum)
-            }
+        let monthPattern = #"\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\b"#
+        guard let regex = try? NSRegularExpression(pattern: monthPattern, options: [.caseInsensitive]) else {
+            return nil
         }
 
-        guard !foundMonths.isEmpty else { return nil }
+        let nsRange = NSRange(lowerQuery.startIndex..<lowerQuery.endIndex, in: lowerQuery)
+        let matches = regex.matches(in: lowerQuery, range: nsRange)
+        guard !matches.isEmpty else { return nil }
+
+        var foundMonths: [Int] = []
+        var seenMonths = Set<Int>()
+
+        for match in matches {
+            guard
+                let matchRange = Range(match.range(at: 1), in: lowerQuery),
+                let monthNum = monthNames[String(lowerQuery[matchRange])],
+                !seenMonths.contains(monthNum)
+            else {
+                continue
+            }
+
+            seenMonths.insert(monthNum)
+            foundMonths.append(monthNum)
+        }
 
         let year = extractYear(from: query) ?? currentYear
         let calendar = Calendar.current

@@ -746,9 +746,8 @@ class SearchService: ObservableObject {
                 // Update final message with completion time and fetch related data
                 if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
                     let rawResponseText = self.conversationHistory[lastIndex].text
-                    let normalizedResponseText = self.normalizeAssistantResponse(rawResponseText)
                     let aligned = self.alignCitationsWithRelevantContent(
-                        in: normalizedResponseText,
+                        in: rawResponseText,
                         relevantContent: chat.appContext.lastRelevantContent
                     )
                     let responseText = aligned.text
@@ -834,9 +833,8 @@ class SearchService: ObservableObject {
     }
     
     private func handleNonStreamingResponse(response: String, thinkStartTime: Date) {
-        let normalizedResponse = normalizeAssistantResponse(response)
         let aligned = alignCitationsWithRelevantContent(
-            in: normalizedResponse,
+            in: response,
             relevantContent: selineChat?.appContext.lastRelevantContent
         )
         let finalResponse = aligned.text
@@ -868,181 +866,6 @@ class SearchService: ObservableObject {
                 }
             }
         }
-    }
-
-    private func normalizeAssistantResponse(_ text: String) -> String {
-        var normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let lines = normalized.components(separatedBy: "\n")
-        let normalizedBullets = normalizeMarkdownBullets(in: lines)
-        let groupedBullets = normalizeHierarchicalBulletSections(in: normalizedBullets)
-        let formattedHeadings = normalizeStandaloneHeadings(in: groupedBullets)
-
-        normalized = formattedHeadings.joined(separator: "\n")
-        normalized = normalized.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
-
-        // Ensure blank line before section headers
-        let headerPattern = "\\n(?=\\*\\*[^\\n]+\\*\\*)"
-        normalized = normalized.replacingOccurrences(of: headerPattern, with: "\n\n", options: .regularExpression)
-
-        return normalized
-    }
-
-    private func normalizeMarkdownBullets(in lines: [String]) -> [String] {
-        lines.map { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { return "" }
-
-            let leadingSpaces = line.prefix { $0 == " " || $0 == "\t" }
-                .reduce(into: "") { partial, character in
-                    partial.append(contentsOf: character == "\t" ? "  " : String(character))
-                }
-
-            if trimmed.hasPrefix("• ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("– ") || trimmed.hasPrefix("— ") {
-                return "\(leadingSpaces)- \(trimmed.dropFirst(2))"
-            }
-            return line.replacingOccurrences(of: "\t", with: "  ")
-        }
-    }
-
-    private func normalizeHierarchicalBulletSections(in lines: [String]) -> [String] {
-        var rebuilt: [String] = []
-        var activeParentLevel: Int?
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            guard !trimmed.isEmpty else {
-                activeParentLevel = nil
-                rebuilt.append("")
-                continue
-            }
-
-            guard let bullet = parseBulletMetadata(from: line) else {
-                activeParentLevel = nil
-                rebuilt.append(line)
-                continue
-            }
-
-            if bullet.level == 0, isSectionParentBullet(bullet.content) {
-                rebuilt.append("- **\(bullet.content)**")
-                activeParentLevel = bullet.level
-                continue
-            }
-
-            if let activeParentLevel, bullet.level == activeParentLevel {
-                rebuilt.append(formattedBulletLine(level: activeParentLevel + 1, content: bullet.content))
-                continue
-            }
-
-            rebuilt.append(formattedBulletLine(level: bullet.level, content: bullet.content))
-        }
-
-        return rebuilt
-    }
-
-    private func normalizeStandaloneHeadings(in lines: [String]) -> [String] {
-        var rebuilt: [String] = []
-
-        for index in lines.indices {
-            let line = lines[index]
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            guard !trimmed.isEmpty else {
-                rebuilt.append(line)
-                continue
-            }
-
-            if shouldPromoteToHeading(trimmed, nextNonEmptyLine: nextNonEmptyLine(after: index, in: lines)) {
-                rebuilt.append("**\(trimmed)**")
-            } else {
-                rebuilt.append(line)
-            }
-        }
-
-        return rebuilt
-    }
-
-    private func nextNonEmptyLine(after index: Int, in lines: [String]) -> String? {
-        guard index + 1 < lines.count else { return nil }
-
-        for candidate in lines[(index + 1)...] {
-            let trimmed = candidate.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-
-        return nil
-    }
-
-    private func shouldPromoteToHeading(_ trimmed: String, nextNonEmptyLine: String?) -> Bool {
-        guard
-            !trimmed.hasPrefix("- "),
-            !trimmed.hasPrefix("**"),
-            !trimmed.hasPrefix("#"),
-            !trimmed.hasPrefix(">"),
-            !trimmed.hasPrefix("|"),
-            !trimmed.hasPrefix("```")
-        else {
-            return false
-        }
-
-        if isLikelyDateHeading(trimmed) {
-            return true
-        }
-
-        if trimmed.hasSuffix(":"),
-           trimmed.count <= 48,
-           trimmed.split(whereSeparator: \.isWhitespace).count <= 6,
-           let nextNonEmptyLine,
-           nextNonEmptyLine.hasPrefix("- ") {
-            return true
-        }
-
-        return false
-    }
-
-    private func isLikelyDateHeading(_ trimmed: String) -> Bool {
-        let weekdays = [
-            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
-        ]
-        let months = [
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ]
-
-        let startsWithWeekday = weekdays.contains { trimmed.hasPrefix($0) }
-        let startsWithMonth = months.contains { trimmed.hasPrefix($0) }
-        let hasDigit = trimmed.rangeOfCharacter(from: .decimalDigits) != nil
-
-        return hasDigit && (startsWithWeekday || startsWithMonth)
-    }
-
-    private func isSectionParentBullet(_ content: String) -> Bool {
-        let trimmed = content.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasSuffix(":") else { return false }
-        guard trimmed.count <= 48 else { return false }
-        guard !trimmed.contains(".") else { return false }
-        return trimmed.split(whereSeparator: \.isWhitespace).count <= 6
-    }
-
-    private func formattedBulletLine(level: Int, content: String) -> String {
-        let indent = String(repeating: "  ", count: max(0, level))
-        return "\(indent)- \(content)"
-    }
-
-    private func parseBulletMetadata(from line: String) -> (level: Int, content: String)? {
-        let leadingSpaces = line.prefix { $0 == " " }.count
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("- ") else { return nil }
-
-        let level = max(0, leadingSpaces / 2)
-        let content = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-        guard !content.isEmpty else { return nil }
-
-        return (level, content)
     }
 
     private func alignCitationsWithRelevantContent(

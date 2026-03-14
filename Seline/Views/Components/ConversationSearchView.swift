@@ -48,6 +48,18 @@ struct ConversationSearchView: View {
         pageState.isTrackerConversation
     }
 
+    private var trackerHeaderTitle: String {
+        guard isTrackerConversation else { return "Chat" }
+        guard
+            let title = pageState.currentTrackerThread?.title.trackerNonEmpty,
+            title != "Tracker",
+            title != "New Tracker"
+        else {
+            return "Tracker"
+        }
+        return title
+    }
+
     var body: some View {
         ZStack {
             AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .centerRight)
@@ -321,7 +333,6 @@ struct ConversationSearchView: View {
             if let thread = pageState.currentTrackerThread,
                let state = thread.cachedState {
                 TrackerSummaryCard(
-                    thread: thread,
                     state: state,
                     colorScheme: colorScheme,
                     canUndo: !state.recentChanges.isEmpty,
@@ -601,9 +612,12 @@ struct ConversationSearchView: View {
             }
             
             // Center: Title
-            Text(isTrackerConversation ? "Tracker" : "Chat")
+            Text(trackerHeaderTitle)
                 .font(FontManager.geist(size: 16, weight: .semibold))
                 .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .padding(.horizontal, 56)
             
             // Right side: New chat
             HStack(spacing: 8) {
@@ -1820,9 +1834,7 @@ struct ConversationMessageView: View {
     }
 
     private func buildRenderCache() -> MessageRenderCache {
-        let displayedText = message.isUser
-            ? message.text
-            : ChatMarkdownDisplayFormatter.normalize(message.text)
+        let displayedText = message.text
         let hasComplexFormatting = message.text.contains("**")
             || message.text.contains("*")
             || message.text.contains("`")
@@ -2709,8 +2721,123 @@ private enum TrackerTheme {
     }
 }
 
+private func parsedRuleHighlights(from text: String) -> [String] {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed != "No rules saved yet." else { return [] }
+
+    let lineItems = trimmed
+        .components(separatedBy: .newlines)
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+    if lineItems.count > 1 {
+        return Array(lineItems.prefix(6))
+    }
+
+    let sentenceItems = trimmed
+        .split(whereSeparator: { ".!?".contains($0) })
+        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+    return Array(sentenceItems.prefix(6))
+}
+
+private func trackerStateHighlights(from state: TrackerDerivedState, limit: Int) -> [String] {
+    var highlights: [String] = []
+    var seen = Set<String>()
+
+    for fact in extractTrackerSummaryFacts(from: state.currentSummary) {
+        let key = fact.lowercased()
+        guard !seen.contains(key) else { continue }
+        seen.insert(key)
+        highlights.append(fact)
+        if highlights.count == limit {
+            return highlights
+        }
+    }
+
+    for fact in state.quickFacts.compactMap(cleanTrackerHighlight) {
+        let key = fact.lowercased()
+        guard !seen.contains(key) else { continue }
+        seen.insert(key)
+        highlights.append(fact)
+        if highlights.count == limit {
+            break
+        }
+    }
+
+    return highlights
+}
+
+private func extractTrackerSummaryFacts(from text: String) -> [String] {
+    let normalized = text
+        .replacingOccurrences(of: "•", with: "\n")
+        .replacingOccurrences(of: "\u{2022}", with: "\n")
+        .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    guard !normalized.isEmpty else { return [] }
+
+    let lineCandidates = normalized
+        .components(separatedBy: .newlines)
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+    let sourceSegments = lineCandidates.isEmpty ? [normalized] : lineCandidates
+    var facts: [String] = []
+    var seen = Set<String>()
+
+    for segment in sourceSegments {
+        let sentenceNormalized = segment
+            .replacingOccurrences(of: ". ", with: ".\n")
+            .replacingOccurrences(of: "? ", with: "?\n")
+            .replacingOccurrences(of: "! ", with: "!\n")
+            .replacingOccurrences(of: "; ", with: ";\n")
+        let sentenceCandidates = sentenceNormalized
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let clauses = sentenceCandidates.isEmpty ? [segment] : sentenceCandidates
+        for clause in clauses {
+            let fragments = splitTrackerClauseIfNeeded(clause)
+            for fragment in fragments {
+                guard let cleaned = cleanTrackerHighlight(fragment) else { continue }
+                let dedupeKey = cleaned.lowercased()
+                guard !seen.contains(dedupeKey) else { continue }
+                seen.insert(dedupeKey)
+                facts.append(cleaned)
+            }
+        }
+    }
+
+    return facts
+}
+
+private func splitTrackerClauseIfNeeded(_ text: String) -> [String] {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.count > 72, trimmed.contains(",") else {
+        return [trimmed]
+    }
+
+    let commaParts = trimmed
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+    return commaParts.count > 1 && commaParts.count <= 4 ? commaParts : [trimmed]
+}
+
+private func cleanTrackerHighlight(_ text: String) -> String? {
+    let cleaned = text
+        .replacingOccurrences(of: #"^\s*[-•]\s*"#, with: "", options: .regularExpression)
+        .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    return cleaned.isEmpty ? nil : cleaned
+}
+
 struct TrackerSummaryCard: View {
-    let thread: TrackerThread
     let state: TrackerDerivedState
     let colorScheme: ColorScheme
     let canUndo: Bool
@@ -2735,9 +2862,12 @@ struct TrackerSummaryCard: View {
         Array(state.recentChanges.prefix(isRecentExpanded ? 6 : 2))
     }
 
-    private var detailSummary: String {
-        let trimmedSummary = state.currentSummary.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedSummary.isEmpty ? state.summaryLine : trimmedSummary
+    private var latestStateHighlights: [String] {
+        trackerStateHighlights(from: state, limit: isExpanded ? 6 : 4)
+    }
+
+    private var currentStateTimestamp: Date? {
+        state.lastUpdatedAt ?? state.asOf
     }
 
     var body: some View {
@@ -2757,65 +2887,59 @@ struct TrackerSummaryCard: View {
                 }
             }
 
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 14) {
-                    Divider()
-                        .overlay(TrackerTheme.pinnedCardBorder(colorScheme))
+            VStack(alignment: .leading, spacing: 14) {
+                Divider()
+                    .overlay(TrackerTheme.pinnedCardBorder(colorScheme))
 
-                    Text(detailSummary)
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.78) : Color.black.opacity(0.74))
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                currentStateSection
 
-                    if !ruleHighlights.isEmpty {
-                        disclosureSection(
-                            title: "Key Rules",
-                            count: ruleHighlights.count,
-                            isExpanded: isRulesExpanded,
-                            onToggle: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    isRulesExpanded.toggle()
-                                }
+                if isExpanded, !ruleHighlights.isEmpty {
+                    disclosureSection(
+                        title: "Key Rules",
+                        count: ruleHighlights.count,
+                        isExpanded: isRulesExpanded,
+                        onToggle: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isRulesExpanded.toggle()
                             }
-                        ) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(visibleRuleHighlights, id: \.self) { rule in
-                                    bulletRow(rule)
-                                }
+                        }
+                    ) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(visibleRuleHighlights, id: \.self) { rule in
+                                bulletRow(rule)
                             }
                         }
                     }
+                }
 
-                    if !state.recentChanges.isEmpty {
-                        disclosureSection(
-                            title: "Recent Changes",
-                            count: state.recentChanges.count,
-                            isExpanded: isRecentExpanded,
-                            onToggle: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    isRecentExpanded.toggle()
-                                }
+                if isExpanded, !state.recentChanges.isEmpty {
+                    disclosureSection(
+                        title: "Recent Changes",
+                        count: state.recentChanges.count,
+                        isExpanded: isRecentExpanded,
+                        onToggle: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isRecentExpanded.toggle()
                             }
-                        ) {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(visibleRecentChanges) { change in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(change.title?.trackerNonEmpty ?? change.content)
-                                            .font(FontManager.geist(size: 13, weight: .medium))
-                                            .foregroundColor(Color.appTextPrimary(colorScheme))
-                                            .lineLimit(2)
-                                        Text(compactTrackerDate(change.effectiveAt))
-                                            .font(FontManager.geist(size: 11, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.45))
-                                    }
+                        }
+                    ) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(visibleRecentChanges) { change in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(change.title?.trackerNonEmpty ?? change.content)
+                                        .font(FontManager.geist(size: 13, weight: .medium))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .lineLimit(2)
+                                    Text(compactTrackerDate(change.effectiveAt))
+                                        .font(FontManager.geist(size: 11, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.45))
                                 }
                             }
                         }
                     }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .padding(16)
         .background(
@@ -2832,10 +2956,16 @@ struct TrackerSummaryCard: View {
     private var headerRow: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(thread.title)
-                    .font(FontManager.geist(size: 17, weight: .semibold))
-                    .foregroundColor(Color.appTextPrimary(colorScheme))
-                    .lineLimit(2)
+                Text("Latest state")
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.5))
+                    .textCase(.uppercase)
+
+                if let currentStateTimestamp {
+                    Text("Updated \(compactTrackerDate(currentStateTimestamp))")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                }
             }
 
             Spacer()
@@ -2881,6 +3011,39 @@ struct TrackerSummaryCard: View {
                         )
                 }
                 .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var currentStateSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Current Snapshot")
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.5))
+                    .textCase(.uppercase)
+
+                Spacer()
+
+                if !state.warnings.isEmpty {
+                    Text("\(state.warnings.count) warning\(state.warnings.count == 1 ? "" : "s")")
+                        .font(FontManager.geist(size: 11, weight: .medium))
+                        .foregroundColor(TrackerTheme.accent(colorScheme))
+                }
+            }
+
+            if latestStateHighlights.isEmpty {
+                Text(state.summaryLine)
+                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.78) : Color.black.opacity(0.74))
+                    .lineLimit(isExpanded ? 4 : 3)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(latestStateHighlights, id: \.self) { highlight in
+                        bulletRow(highlight)
+                    }
+                }
             }
         }
     }
@@ -2959,27 +3122,6 @@ struct TrackerSummaryCard: View {
                 .font(FontManager.geist(size: 13, weight: .medium))
                 .foregroundColor(Color.appTextPrimary(colorScheme))
         }
-    }
-
-    private func parsedRuleHighlights(from text: String) -> [String] {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != "No rules saved yet." else { return [] }
-
-        let lineItems = trimmed
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        if lineItems.count > 1 {
-            return Array(lineItems.prefix(6))
-        }
-
-        let sentenceItems = trimmed
-            .split(whereSeparator: { ".!?".contains($0) })
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        return Array(sentenceItems.prefix(6))
     }
 
     private func compactTrackerDate(_ date: Date) -> String {
@@ -3330,7 +3472,7 @@ struct TrackerInlineStateCard: View {
     }
 
     private var visibleFacts: [String] {
-        Array(state.quickFacts.prefix(2))
+        trackerStateHighlights(from: state, limit: 3)
     }
 
     private var latestChange: TrackerChange? {
@@ -3363,20 +3505,20 @@ struct TrackerInlineStateCard: View {
                 .foregroundColor(Color.appTextPrimary(colorScheme))
                 .lineLimit(2)
 
-            Text(state.summaryLine)
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(secondaryTextColor)
-                .lineLimit(3)
-
             if !visibleFacts.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(visibleFacts, id: \.self) { fact in
                         Text("• \(fact)")
                             .font(FontManager.geist(size: 12, weight: .medium))
                             .foregroundColor(secondaryTextColor)
-                            .lineLimit(1)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            } else {
+                Text(state.summaryLine)
+                    .font(FontManager.geist(size: 12, weight: .regular))
+                    .foregroundColor(secondaryTextColor)
+                    .lineLimit(3)
             }
         }
         .padding(12)

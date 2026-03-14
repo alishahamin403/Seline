@@ -29,7 +29,8 @@ struct ReceiptStatsView: View {
 
     var searchText: String? = nil
     var initialMonthDate: Date? = nil
-    var onAddReceipt: (() -> Void)? = nil
+    var onAddReceiptFromCamera: (() -> Void)? = nil
+    var onAddReceiptFromGallery: (() -> Void)? = nil
     var onActivateSearch: (() -> Void)? = nil
 
     var isPopup: Bool = false
@@ -221,6 +222,10 @@ struct ReceiptStatsView: View {
         let days = completedDayCount(for: selectedMonthlySummary.monthDate)
         guard days > 0 else { return selectedMonthlySummary.monthlyTotal }
         return selectedMonthlySummary.monthlyTotal / Double(days)
+    }
+
+    private var hasReceiptAddActions: Bool {
+        onAddReceiptFromCamera != nil || onAddReceiptFromGallery != nil
     }
 
     var body: some View {
@@ -863,7 +868,7 @@ struct ReceiptStatsView: View {
                     .buttonStyle(PlainButtonStyle())
                     .disabled(selectedMonthCategorizedReceipts.isEmpty)
 
-                    if onAddReceipt != nil {
+                    if hasReceiptAddActions {
                         addReceiptCircleButton
                     }
                 }
@@ -1024,11 +1029,6 @@ struct ReceiptStatsView: View {
                         selectNextYear()
                     }
 
-                    if onAddReceipt != nil {
-                        receiptHeroPrimaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add receipt") {
-                            onAddReceipt?()
-                        }
-                    }
                 }
             }
 
@@ -1097,9 +1097,9 @@ struct ReceiptStatsView: View {
     }
 
     private var addReceiptCircleButton: some View {
-        Button(action: {
-            onAddReceipt?()
-        }) {
+        Menu {
+            receiptAddMenuContent
+        } label: {
             Image(systemName: "plus")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(primaryTextColor)
@@ -1109,8 +1109,28 @@ struct ReceiptStatsView: View {
                         .fill(mutedFillColor)
                 )
         }
-        .buttonStyle(PlainButtonStyle())
         .accessibilityLabel("Add receipt")
+    }
+
+    @ViewBuilder
+    private var receiptAddMenuContent: some View {
+        if let onAddReceiptFromCamera {
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddReceiptFromCamera()
+            }) {
+                Label("Take Picture", systemImage: "camera.fill")
+            }
+        }
+
+        if let onAddReceiptFromGallery {
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddReceiptFromGallery()
+            }) {
+                Label("Upload Images", systemImage: "photo.on.rectangle")
+            }
+        }
     }
 
     private var emptyReceiptsCard: some View {
