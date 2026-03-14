@@ -71,6 +71,7 @@ class EmailService: ObservableObject {
     let notificationService = NotificationService.shared // Made public for access from EmailView
     private let openAIService = GeminiService.shared
     private let emailIntelligence = EmailNotificationIntelligence.shared
+    private let persistenceCoordinator = DeferredPersistenceCoordinator.shared
 
     private init() {
         // Clear old cached data on app startup to prevent showing yesterday's emails
@@ -1285,8 +1286,11 @@ class EmailService: ObservableObject {
     }
 
     private func persistEmailsToCache(_ emails: [Email], key: String) {
-        if let encoded = try? JSONEncoder().encode(emails) {
-            UserDefaults.standard.set(encoded, forKey: key)
+        let snapshot = emails
+        persistenceCoordinator.schedule(id: "EmailService.persistedEmails.\(key)") {
+            if let encoded = try? JSONEncoder().encode(snapshot) {
+                UserDefaults.standard.set(encoded, forKey: key)
+            }
         }
     }
 
@@ -1339,20 +1343,22 @@ class EmailService: ObservableObject {
         let emails = getEmails(for: folder)
         let encoder = JSONEncoder()
 
-        do {
-            let data = try encoder.encode(emails)
-            switch folder {
-            case .inbox:
-                UserDefaults.standard.set(data, forKey: CacheKeys.inboxEmails)
-                UserDefaults.standard.set(Date(), forKey: CacheKeys.inboxTimestamp)
-            case .sent:
-                UserDefaults.standard.set(data, forKey: CacheKeys.sentEmails)
-                UserDefaults.standard.set(Date(), forKey: CacheKeys.sentTimestamp)
-            default:
-                break
+        persistenceCoordinator.schedule(id: "EmailService.cachedData.\(folder.rawValue)") {
+            do {
+                let data = try encoder.encode(emails)
+                switch folder {
+                case .inbox:
+                    UserDefaults.standard.set(data, forKey: CacheKeys.inboxEmails)
+                    UserDefaults.standard.set(Date(), forKey: CacheKeys.inboxTimestamp)
+                case .sent:
+                    UserDefaults.standard.set(data, forKey: CacheKeys.sentEmails)
+                    UserDefaults.standard.set(Date(), forKey: CacheKeys.sentTimestamp)
+                default:
+                    break
+                }
+            } catch {
+                print("❌ Failed to save cached emails for \(folder.displayName): \(error)")
             }
-        } catch {
-            print("❌ Failed to save cached emails for \(folder.displayName): \(error)")
         }
     }
 
@@ -1367,16 +1373,6 @@ class EmailService: ObservableObject {
 
     private func updateCacheTimestamp(for folder: EmailFolder) {
         cacheTimestamps[folder] = Date()
-
-        // Also update persistent timestamp
-        switch folder {
-        case .inbox:
-            UserDefaults.standard.set(Date(), forKey: CacheKeys.inboxTimestamp)
-        case .sent:
-            UserDefaults.standard.set(Date(), forKey: CacheKeys.sentTimestamp)
-        default:
-            break
-        }
     }
 
     func clearCache(for folder: EmailFolder? = nil) {
@@ -1757,13 +1753,16 @@ class EmailService: ObservableObject {
 
     /// Save custom folders to cache
     private func saveCachedFolders(_ folders: [CustomEmailFolder]) {
-        do {
-            let data = try JSONEncoder().encode(folders)
-            UserDefaults.standard.set(data, forKey: CacheKeys.customFolders)
-            UserDefaults.standard.set(Date(), forKey: CacheKeys.customFoldersTimestamp)
-            print("✅ Saved \(folders.count) folders to cache")
-        } catch {
-            print("❌ Failed to cache folders: \(error)")
+        let snapshot = folders
+        persistenceCoordinator.schedule(id: "EmailService.customFolders") {
+            do {
+                let data = try JSONEncoder().encode(snapshot)
+                UserDefaults.standard.set(data, forKey: CacheKeys.customFolders)
+                UserDefaults.standard.set(Date(), forKey: CacheKeys.customFoldersTimestamp)
+                print("✅ Saved \(snapshot.count) folders to cache")
+            } catch {
+                print("❌ Failed to cache folders: \(error)")
+            }
         }
     }
 
@@ -1790,12 +1789,15 @@ class EmailService: ObservableObject {
 
     /// Save folder emails to cache
     private func saveCachedFolderEmails(_ emails: [SavedEmail], for folderId: UUID) {
-        do {
-            let data = try JSONEncoder().encode(emails)
-            UserDefaults.standard.set(data, forKey: CacheKeys.emailsInFolder(folderId))
-            UserDefaults.standard.set(Date(), forKey: CacheKeys.emailsInFolderTimestamp(folderId))
-        } catch {
-            print("❌ Failed to cache emails for folder \(folderId): \(error)")
+        let snapshot = emails
+        persistenceCoordinator.schedule(id: "EmailService.folderEmails.\(folderId.uuidString)") {
+            do {
+                let data = try JSONEncoder().encode(snapshot)
+                UserDefaults.standard.set(data, forKey: CacheKeys.emailsInFolder(folderId))
+                UserDefaults.standard.set(Date(), forKey: CacheKeys.emailsInFolderTimestamp(folderId))
+            } catch {
+                print("❌ Failed to cache emails for folder \(folderId): \(error)")
+            }
         }
     }
 

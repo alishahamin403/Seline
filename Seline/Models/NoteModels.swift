@@ -520,9 +520,6 @@ class NotesManager: ObservableObject {
         notes.append(note)
         saveNotes()
 
-        // Notify observers of change
-        objectWillChange.send()
-
         // Invalidate receipt cache if this is a receipt note
         invalidateReceiptCache()
 
@@ -544,9 +541,6 @@ class NotesManager: ObservableObject {
         if !notes.contains(where: { $0.id == note.id }) {
             notes.append(note)
             saveNotes()
-
-            // Notify observers of change
-            objectWillChange.send()
 
             // Invalidate receipt cache if this is a receipt note
             invalidateReceiptCache()
@@ -964,9 +958,6 @@ class NotesManager: ObservableObject {
         notes.append(note)
         deletedNotes.removeAll { $0.id == deletedNote.id }
         saveNotes()
-
-        // Notify observers of change
-        objectWillChange.send()
 
         Task {
             await restoreNoteFromTrash(note)

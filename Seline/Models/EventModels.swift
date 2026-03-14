@@ -539,6 +539,7 @@ class TaskManager: ObservableObject {
     private let supabaseManager = SupabaseManager.shared
     private let authManager = AuthenticationManager.shared
     private let cacheManager = CacheManager.shared
+    private let persistenceCoordinator = DeferredPersistenceCoordinator.shared
 
     private init() {
         // CRITICAL: Clear corrupted cache BEFORE loading tasks to prevent slowdown
@@ -2070,14 +2071,19 @@ class TaskManager: ObservableObject {
             // Removed excessive logging
         }
 
-        if let encoded = try? JSONEncoder().encode(allTasks) {
-            userDefaults.set(encoded, forKey: tasksKey)
-
-            // Sync today's tasks to widget after saving
-            syncTodaysTasksToWidget(tags: TagManager.shared.tags)
-        } else {
-            print("❌ Failed to encode tasks for local storage")
+        let tasksSnapshot = allTasks
+        let storageKey = tasksKey
+        let defaults = userDefaults
+        persistenceCoordinator.schedule(id: "TaskManager.tasksStorage") {
+            if let encoded = try? JSONEncoder().encode(tasksSnapshot) {
+                defaults.set(encoded, forKey: storageKey)
+            } else {
+                print("❌ Failed to encode tasks for local storage")
+            }
         }
+
+        // Sync today's tasks to widget after saving
+        syncTodaysTasksToWidget(tags: TagManager.shared.tags)
     }
 
     /// Clear all cached tasks and force a fresh sync from Supabase

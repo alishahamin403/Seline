@@ -13,7 +13,7 @@ private extension NSLock {
 
 // MARK: - LocationVisitRecord Model
 
-struct LocationVisitRecord: Codable, Identifiable {
+struct LocationVisitRecord: Codable, Identifiable, Equatable {
     var id: UUID
     let userId: UUID
     let savedPlaceId: UUID

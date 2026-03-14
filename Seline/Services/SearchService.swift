@@ -39,8 +39,11 @@ class SearchService: ObservableObject {
     @Published var lastMessageContentVersion: Int = 0
     @Published var isInConversationMode: Bool = false
     @Published var conversationTitle: String = "New Conversation"
+    @Published var conversationKind: ConversationKind = .standard
     @Published var savedConversations: [SavedConversation] = []
     @Published var isNewConversation: Bool = false  // Track if this is a new conversation (not loaded from history)
+    @Published var currentTrackerThread: TrackerThread? = nil
+    @Published var pendingTrackerDraft: TrackerOperationDraft? = nil
     private var currentlyLoadedConversationId: UUID? = nil
     private var lastGeneratedTitleMessageCount: Int = 0
 
@@ -89,9 +92,15 @@ class SearchService: ObservableObject {
     private let queryRouter = QueryRouter.shared
     private let conversationActionHandler = ConversationActionHandler.shared
     private let infoExtractor = InformationExtractor.shared
+    private let trackerStore = TrackerStore.shared
+    private let trackerParserService = TrackerParserService.shared
 
     var chatLoadingStatusLabel: String {
         chatLoadingPhase.statusLabel
+    }
+
+    var isTrackerConversation: Bool {
+        conversationKind == .tracker
     }
 
     private init() {
@@ -100,6 +109,7 @@ class SearchService: ObservableObject {
 
         // Load saved conversations from local storage
         loadConversationHistoryLocally()
+        trackerStore.loadLocalThreads()
 
         // Auto-refresh search when query changes with debounce
         $searchQuery
@@ -110,6 +120,10 @@ class SearchService: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        Task {
+            await refreshTrackerThreadsFromSupabase()
+        }
 
     }
 
@@ -516,6 +530,11 @@ class SearchService: ObservableObject {
             isInConversationMode = true
         }
 
+        if conversationKind == .tracker {
+            await addTrackerConversationMessage(trimmed)
+            return
+        }
+
         // Check if the last message is already this user message (prevents duplicates on regeneration)
         let shouldAddUserMessage: Bool
         if let lastMessage = conversationHistory.last, lastMessage.isUser && lastMessage.text == trimmed {
@@ -542,6 +561,65 @@ class SearchService: ObservableObject {
 
         // Always use SelineChat - legacy path removed
         await addConversationMessageWithSelineChat(trimmed, thinkStartTime: thinkStartTime)
+    }
+
+    private func addTrackerConversationMessage(_ userMessage: String) async {
+        let lower = userMessage.lowercased()
+
+        if pendingTrackerDraft != nil {
+            if isTrackerConfirmationMessage(lower) {
+                applyPendingTrackerDraft()
+                return
+            }
+            if isTrackerCancellationMessage(lower) {
+                cancelPendingTrackerDraft()
+                return
+            }
+        }
+
+        let shouldAddUserMessage = !(conversationHistory.last?.isUser == true && conversationHistory.last?.text == userMessage)
+        if shouldAddUserMessage {
+            let userMessageRecord = ConversationMessage(
+                isUser: true,
+                text: userMessage,
+                intent: .general,
+                trackerThreadId: currentTrackerThread?.id
+            )
+            conversationHistory.append(userMessageRecord)
+        }
+
+        isLoadingQuestionResponse = true
+        chatLoadingPhase = .generating
+
+        let outcome = await trackerParserService.handleMessage(
+            userMessage,
+            in: currentTrackerThread,
+            conversationHistory: conversationHistory
+        )
+
+        pendingTrackerDraft = outcome.draft
+
+        if outcome.shouldPersistAssistantMessage {
+            let assistantMessage = ConversationMessage(
+                isUser: false,
+                text: outcome.responseText,
+                intent: .general,
+                trackerThreadId: currentTrackerThread?.id,
+                trackerOperationDraft: outcome.draft,
+                trackerStateSnapshot: outcome.derivedState
+            )
+            conversationHistory.append(assistantMessage)
+        }
+
+        if outcome.commitsProjectedStateToThread,
+           let projectedState = outcome.derivedState {
+            updateTrackerSubtitle(from: projectedState)
+        }
+
+        isLoadingQuestionResponse = false
+        chatLoadingPhase = .idle
+        saveConversationLocally()
+        _ = upsertCurrentConversationInHistory()
     }
     
     // MARK: - SelineChat Implementation (Phase 2)
@@ -1465,45 +1543,51 @@ class SearchService: ObservableObject {
     }
     */
 
+    private func persistCurrentConversationIfNeeded() {
+        guard !conversationHistory.isEmpty else { return }
+        _ = upsertCurrentConversationInHistory()
+
+        if conversationKind == .tracker, let currentTrackerThread {
+            Task {
+                await trackerStore.syncThread(currentTrackerThread, messages: conversationHistory)
+            }
+        }
+    }
+
     /// Generate quick reply suggestions for follow-up questions
     /// Clear conversation state completely (called when user dismisses conversation modal)
     func clearConversation() {
-        // Save to history before clearing (if there's content)
-        if !conversationHistory.isEmpty {
-            // Check if this is an existing conversation being updated
-            if let loadedId = currentlyLoadedConversationId,
-               let index = savedConversations.firstIndex(where: { $0.id == loadedId }) {
-                // Update existing conversation
-                savedConversations[index] = SavedConversation(
-                    id: loadedId,
-                    title: conversationTitle,
-                    messages: conversationHistory,
-                    createdAt: savedConversations[index].createdAt
-                )
-                saveConversationHistoryLocally()
-            } else {
-                // Create new conversation only if it's not an existing one
-                saveConversationToHistory()
-            }
-        }
+        persistCurrentConversationIfNeeded()
 
         conversationHistory = []
         isInConversationMode = false
         isLoadingQuestionResponse = false
         questionResponse = nil
         conversationTitle = "New Conversation"
+        conversationKind = .standard
+        currentTrackerThread = nil
+        pendingTrackerDraft = nil
         currentlyLoadedConversationId = nil
         lastGeneratedTitleMessageCount = 0
         isNewConversation = false
     }
 
     /// Start a new blank conversation (user will type first message)
-    func startNewConversation() {
+    func startNewConversation(kind: ConversationKind = .standard) {
         clearConversation()
         currentlyLoadedConversationId = nil  // Ensure we're not treating this as an existing conversation
         isInConversationMode = true
         isNewConversation = true  // Mark as new conversation (will hide title until finalized)
-        updateConversationTitle()
+        conversationKind = kind
+        if kind == .tracker {
+            conversationTitle = "New Tracker"
+        } else {
+            updateConversationTitle()
+        }
+    }
+
+    func startNewTrackerConversation() {
+        startNewConversation(kind: .tracker)
     }
 
     /// Stop/cancel the currently streaming response
@@ -1518,6 +1602,11 @@ class SearchService: ObservableObject {
     func regenerateResponse(for assistantMessageId: UUID) async {
         guard !ChatUsageTracker.shared.isLimitReached else {
             print("🚫 Daily chat limit reached; regeneration blocked")
+            return
+        }
+
+        if conversationKind == .tracker {
+            print("ℹ️ Tracker responses are deterministic; regeneration is not supported.")
             return
         }
 
@@ -1573,7 +1662,7 @@ class SearchService: ObservableObject {
             return
         }
 
-        startNewConversation()
+        startNewConversation(kind: .standard)
         await addConversationMessage(initialQuestion)
     }
 
@@ -1681,6 +1770,10 @@ class SearchService: ObservableObject {
     /// Updates as conversation progresses to better reflect the topic
     /// NOTE: Currently set to blank - titles are not helpful
     private func updateConversationTitle() {
+        if conversationKind == .tracker {
+            conversationTitle = currentTrackerThread?.title ?? "New Tracker"
+            return
+        }
         // Keep title blank - user finds truncated titles unhelpful
         conversationTitle = ""
     }
@@ -1689,6 +1782,15 @@ class SearchService: ObservableObject {
     /// Called when user exits the conversation
     func generateFinalConversationTitle() async {
         guard !conversationHistory.isEmpty else { return }
+
+        if conversationKind == .tracker {
+            conversationTitle = currentTrackerThread?.title ?? conversationTitle
+            _ = upsertCurrentConversationInHistory()
+            if let currentTrackerThread {
+                await trackerStore.syncThread(currentTrackerThread, messages: conversationHistory)
+            }
+            return
+        }
 
         let currentMessageCount = conversationHistory.count
         let shouldRegenerateTitle =
@@ -1754,6 +1856,9 @@ class SearchService: ObservableObject {
     }
 
     private func provisionalConversationTitle(from messages: [ConversationMessage]) -> String {
+        if conversationKind == .tracker {
+            return currentTrackerThread?.title ?? "Tracker"
+        }
         if let firstUserMessage = messages.first(where: { $0.isUser }) {
             let compact = firstUserMessage.text
                 .replacingOccurrences(of: "\n", with: " ")
@@ -1777,6 +1882,9 @@ class SearchService: ObservableObject {
     }
 
     private func isWeakConversationTitle(_ title: String) -> Bool {
+        if conversationKind == .tracker {
+            return title.isEmpty || title == "New Tracker" || title == "Tracker"
+        }
         let lower = title.lowercased()
         if title.isEmpty || title == "New Conversation" || title == "New chat" { return true }
         if lower.hasPrefix("tell me") || lower.hasPrefix("what did i do") || lower.hasPrefix("can you") { return true }
@@ -1789,14 +1897,20 @@ class SearchService: ObservableObject {
         let finalTitle = isWeakConversationTitle(conversationTitle)
             ? provisionalConversationTitle(from: conversationHistory)
             : conversationTitle
+        let subtitle = currentConversationSubtitle()
+        let updatedAt = Date()
 
         if let loadedId = currentlyLoadedConversationId,
            let index = savedConversations.firstIndex(where: { $0.id == loadedId }) {
             savedConversations[index] = SavedConversation(
                 id: loadedId,
                 title: finalTitle,
+                kind: conversationKind,
+                trackerThreadId: currentTrackerThread?.id,
+                subtitle: subtitle,
                 messages: conversationHistory,
-                createdAt: savedConversations[index].createdAt
+                createdAt: savedConversations[index].createdAt,
+                updatedAt: updatedAt
             )
             saveConversationHistoryLocally()
             return loadedId
@@ -1808,8 +1922,12 @@ class SearchService: ObservableObject {
             savedConversations[existingIndex] = SavedConversation(
                 id: existingId,
                 title: finalTitle,
+                kind: conversationKind,
+                trackerThreadId: currentTrackerThread?.id,
+                subtitle: subtitle,
                 messages: conversationHistory,
-                createdAt: savedConversations[existingIndex].createdAt
+                createdAt: savedConversations[existingIndex].createdAt,
+                updatedAt: updatedAt
             )
             currentlyLoadedConversationId = existingId
             saveConversationHistoryLocally()
@@ -1820,8 +1938,12 @@ class SearchService: ObservableObject {
         let saved = SavedConversation(
             id: newId,
             title: finalTitle,
+            kind: conversationKind,
+            trackerThreadId: currentTrackerThread?.id,
+            subtitle: subtitle,
             messages: conversationHistory,
-            createdAt: Date()
+            createdAt: Date(),
+            updatedAt: updatedAt
         )
         savedConversations.insert(saved, at: 0)
         currentlyLoadedConversationId = newId
@@ -1864,6 +1986,12 @@ class SearchService: ObservableObject {
     /// Save conversation to Supabase
     func saveConversationToSupabase() async {
         guard !conversationHistory.isEmpty else { return }
+
+        if conversationKind == .tracker, let currentTrackerThread {
+            await trackerStore.syncThread(currentTrackerThread, messages: conversationHistory)
+            return
+        }
+
         let titleToSave = isWeakConversationTitle(conversationTitle)
             ? provisionalConversationTitle(from: conversationHistory)
             : conversationTitle
@@ -1944,6 +2072,7 @@ class SearchService: ObservableObject {
 
         do {
             savedConversations = try JSONDecoder().decode([SavedConversation].self, from: data)
+                .sorted { $0.updatedAt > $1.updatedAt }
         } catch {
             print("❌ Error loading conversation history: \(error)")
         }
@@ -1957,8 +2086,12 @@ class SearchService: ObservableObject {
                 SavedConversation(
                     id: conversation.id,
                     title: conversation.title,
+                    kind: conversation.kind,
+                    trackerThreadId: conversation.trackerThreadId,
+                    subtitle: conversation.subtitle,
                     messages: Array(conversation.messages.suffix(80)),
-                    createdAt: conversation.createdAt
+                    createdAt: conversation.createdAt,
+                    updatedAt: conversation.updatedAt
                 )
             }
             let encoded = try JSONEncoder().encode(compact)
@@ -1968,26 +2101,240 @@ class SearchService: ObservableObject {
         }
     }
 
+    private func currentConversationSubtitle() -> String? {
+        if conversationKind == .tracker {
+            return currentTrackerThread?.subtitle ?? currentTrackerThread?.cachedState?.summaryLine
+        }
+        return nil
+    }
+
+    private func updateTrackerSubtitle(from state: TrackerDerivedState) {
+        guard conversationKind == .tracker else { return }
+        if var thread = currentTrackerThread {
+            thread.cachedState = state
+            thread.subtitle = state.summaryLine
+            currentTrackerThread = thread
+            trackerStore.upsertThread(thread)
+        }
+    }
+
+    private func isTrackerConfirmationMessage(_ lower: String) -> Bool {
+        ["confirm", "yes", "looks good", "save it", "apply it"].contains(lower)
+    }
+
+    private func isTrackerCancellationMessage(_ lower: String) -> Bool {
+        ["cancel", "never mind", "stop", "discard"].contains(lower)
+    }
+
+    func draftUndoLastTrackerChange() async {
+        guard conversationKind == .tracker, let currentTrackerThread else { return }
+
+        if pendingTrackerDraft != nil {
+            appendTrackerAssistantMessage(
+                "Confirm or cancel the current tracker draft before undoing another change."
+            )
+            saveConversationLocally()
+            _ = upsertCurrentConversationInHistory()
+            return
+        }
+
+        let userMessage = ConversationMessage(
+            isUser: true,
+            text: "Undo the last change.",
+            intent: .general,
+            trackerThreadId: currentTrackerThread.id
+        )
+        conversationHistory.append(userMessage)
+
+        isLoadingQuestionResponse = true
+        chatLoadingPhase = .generating
+
+        let outcome = await trackerParserService.draftUndoLastChange(
+            in: currentTrackerThread,
+            conversationHistory: conversationHistory
+        )
+
+        pendingTrackerDraft = outcome.draft
+
+        if outcome.shouldPersistAssistantMessage {
+            appendTrackerAssistantMessage(
+                outcome.responseText,
+                draft: outcome.draft,
+                stateSnapshot: outcome.derivedState
+            )
+        }
+
+        if outcome.commitsProjectedStateToThread,
+           let projectedState = outcome.derivedState {
+            updateTrackerSubtitle(from: projectedState)
+        }
+
+        isLoadingQuestionResponse = false
+        chatLoadingPhase = .idle
+        saveConversationLocally()
+        _ = upsertCurrentConversationInHistory()
+    }
+
+    func applyPendingTrackerDraft() {
+        guard let pendingTrackerDraft else { return }
+
+        let applyResult = trackerParserService.applyDraft(pendingTrackerDraft, to: currentTrackerThread)
+        self.pendingTrackerDraft = nil
+
+        if let thread = applyResult.thread {
+            conversationKind = .tracker
+            conversationTitle = thread.title
+            currentTrackerThread = thread
+            trackerStore.upsertThread(thread)
+            conversationHistory = conversationHistory.map { message in
+                ConversationMessage(
+                    id: message.id,
+                    isUser: message.isUser,
+                    text: message.text,
+                    timestamp: message.timestamp,
+                    intent: message.intent,
+                    relatedData: message.relatedData,
+                    timeStarted: message.timeStarted,
+                    timeFinished: message.timeFinished,
+                    followUpSuggestions: message.followUpSuggestions,
+                    locationInfo: message.locationInfo,
+                    eventCreationInfo: message.eventCreationInfo,
+                    relevantContent: message.relevantContent,
+                    proactiveQuestion: message.proactiveQuestion,
+                    trackerThreadId: thread.id,
+                    trackerOperationDraft: message.trackerOperationDraft,
+                    trackerStateSnapshot: message.trackerStateSnapshot
+                )
+            }
+        }
+
+        let assistantMessage = ConversationMessage(
+            isUser: false,
+            text: applyResult.message,
+            intent: .general,
+            trackerThreadId: currentTrackerThread?.id,
+            trackerStateSnapshot: currentTrackerThread?.cachedState
+        )
+        conversationHistory.append(assistantMessage)
+        saveConversationLocally()
+        _ = upsertCurrentConversationInHistory()
+
+        if let currentTrackerThread {
+            Task {
+                await trackerStore.syncThread(currentTrackerThread, messages: conversationHistory)
+            }
+        }
+    }
+
+    func cancelPendingTrackerDraft() {
+        guard pendingTrackerDraft != nil else { return }
+        pendingTrackerDraft = nil
+        let assistantMessage = ConversationMessage(
+            isUser: false,
+            text: "Tracker draft cancelled.",
+            intent: .general,
+            trackerThreadId: currentTrackerThread?.id,
+            trackerStateSnapshot: currentTrackerThread?.cachedState
+        )
+        conversationHistory.append(assistantMessage)
+        saveConversationLocally()
+        _ = upsertCurrentConversationInHistory()
+    }
+
+    private func appendTrackerAssistantMessage(
+        _ text: String,
+        draft: TrackerOperationDraft? = nil,
+        stateSnapshot: TrackerDerivedState? = nil
+    ) {
+        let assistantMessage = ConversationMessage(
+            isUser: false,
+            text: text,
+            intent: .general,
+            trackerThreadId: currentTrackerThread?.id,
+            trackerOperationDraft: draft,
+            trackerStateSnapshot: stateSnapshot ?? currentTrackerThread?.cachedState
+        )
+        conversationHistory.append(assistantMessage)
+    }
+
+    func refreshTrackerThreadsFromSupabase() async {
+        let bundles = await trackerStore.refreshFromSupabase()
+        guard !bundles.isEmpty else { return }
+
+        for bundle in bundles {
+            let existingIndex = savedConversations.firstIndex(where: { $0.trackerThreadId == bundle.thread.id })
+            let resolvedMessages: [ConversationMessage]
+            if !bundle.messages.isEmpty {
+                resolvedMessages = bundle.messages
+            } else {
+                resolvedMessages = existingIndex.flatMap { savedConversations[$0].messages } ?? []
+            }
+
+            let saved = SavedConversation(
+                id: existingIndex.map { savedConversations[$0].id } ?? UUID(),
+                title: bundle.thread.title,
+                kind: .tracker,
+                trackerThreadId: bundle.thread.id,
+                subtitle: bundle.thread.cachedState?.summaryLine ?? bundle.thread.subtitle,
+                messages: resolvedMessages,
+                createdAt: existingIndex.map { savedConversations[$0].createdAt } ?? bundle.thread.createdAt,
+                updatedAt: bundle.thread.updatedAt
+            )
+
+            let shouldApplyRemote: Bool
+            if let existingIndex {
+                if saved.updatedAt >= savedConversations[existingIndex].updatedAt {
+                    savedConversations[existingIndex] = saved
+                    shouldApplyRemote = true
+                } else {
+                    shouldApplyRemote = false
+                }
+            } else {
+                savedConversations.append(saved)
+                shouldApplyRemote = true
+            }
+
+            if shouldApplyRemote,
+               currentTrackerThread?.id == bundle.thread.id {
+                currentTrackerThread = bundle.thread
+                if conversationKind == .tracker,
+                   currentlyLoadedConversationId == saved.id {
+                    conversationHistory = resolvedMessages
+                    pendingTrackerDraft = resolvedMessages.last(where: { !$0.isUser })?.trackerOperationDraft
+                    conversationTitle = bundle.thread.title
+                }
+            }
+        }
+
+        savedConversations.sort { $0.updatedAt > $1.updatedAt }
+        saveConversationHistoryLocally()
+    }
+
     /// Load specific conversation by ID
     func loadConversation(withId id: UUID) {
         if let saved = savedConversations.first(where: { $0.id == id }) {
             conversationHistory = saved.messages
             conversationTitle = saved.title
+            conversationKind = saved.kind
             isInConversationMode = true
             isNewConversation = false  // This is a loaded conversation, show title immediately
             currentlyLoadedConversationId = id  // Track which conversation is loaded
             lastGeneratedTitleMessageCount = conversationHistory.count
+            pendingTrackerDraft = saved.messages.last(where: { !$0.isUser })?.trackerOperationDraft
+            currentTrackerThread = trackerStore.thread(id: saved.trackerThreadId)
 
             // Reset SelineChat so the next follow-up message re-initializes with this conversation's history.
             // Otherwise SelineChat keeps stale context and follow-ups get wrong/empty responses.
             selineChat = nil
 
-            // Restore the note being edited from conversation context
-            restoreNoteContextFromConversation()
+            if saved.kind == .standard {
+                // Restore the note being edited from conversation context
+                restoreNoteContextFromConversation()
 
-            // Process any pending note updates from historical conversations
-            Task {
-                await processPendingNoteUpdatesInHistory()
+                // Process any pending note updates from historical conversations
+                Task {
+                    await processPendingNoteUpdatesInHistory()
+                }
             }
         }
     }
@@ -2364,19 +2711,48 @@ class SearchService: ObservableObject {
 
     /// Delete conversation from history
     func deleteConversation(withId id: UUID) {
+        let isCurrentlyLoaded = currentlyLoadedConversationId == id
+
+        if let conversation = savedConversations.first(where: { $0.id == id }),
+           conversation.kind == .tracker,
+           let trackerThreadId = conversation.trackerThreadId {
+            trackerStore.deleteThread(id: trackerThreadId)
+        }
         savedConversations.removeAll { $0.id == id }
+
+        if isCurrentlyLoaded {
+            resetDeletedConversationState()
+        }
+
         saveConversationHistoryLocally()
     }
     
     /// Delete all conversations from history
     func deleteAllConversations() {
+        let trackerIds = savedConversations.compactMap(\.trackerThreadId)
+        trackerIds.forEach { trackerStore.deleteThread(id: $0) }
         savedConversations.removeAll()
+
+        if currentlyLoadedConversationId != nil {
+            resetDeletedConversationState()
+        }
+
         saveConversationHistoryLocally()
     }
     
     /// Delete multiple conversations by their IDs
     func deleteConversations(withIds ids: Set<UUID>) {
+        let shouldResetLoadedConversation = currentlyLoadedConversationId.map(ids.contains) ?? false
+        let trackerIds = savedConversations
+            .filter { ids.contains($0.id) }
+            .compactMap(\.trackerThreadId)
+        trackerIds.forEach { trackerStore.deleteThread(id: $0) }
         savedConversations.removeAll { ids.contains($0.id) }
+
+        if shouldResetLoadedConversation {
+            resetDeletedConversationState()
+        }
+
         saveConversationHistoryLocally()
     }
 
@@ -2395,14 +2771,34 @@ class SearchService: ObservableObject {
         cachedContent = []
         isInConversationMode = false
         conversationTitle = "New Conversation"
+        conversationKind = .standard
+        currentTrackerThread = nil
+        pendingTrackerDraft = nil
         isNewConversation = false
         currentlyLoadedConversationId = nil
         cancellables.removeAll()
+        trackerStore.clearLocalData()
 
         // Clear conversation storage from UserDefaults
         UserDefaults.standard.removeObject(forKey: "SavedConversations")
 
         print("🗑️ Cleared all search and conversation data on logout")
+    }
+
+    private func resetDeletedConversationState() {
+        conversationHistory = []
+        isInConversationMode = false
+        isLoadingQuestionResponse = false
+        questionResponse = nil
+        conversationTitle = "New Conversation"
+        conversationKind = .standard
+        currentTrackerThread = nil
+        pendingTrackerDraft = nil
+        isNewConversation = false
+        currentlyLoadedConversationId = nil
+        lastGeneratedTitleMessageCount = 0
+        selineChat = nil
+        UserDefaults.standard.removeObject(forKey: "lastConversation")
     }
 }
 
@@ -2411,13 +2807,60 @@ class SearchService: ObservableObject {
 struct SavedConversation: Identifiable, Codable {
     let id: UUID
     let title: String
+    let kind: ConversationKind
+    let trackerThreadId: UUID?
+    let subtitle: String?
     let messages: [ConversationMessage]
     let createdAt: Date
+    let updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case kind
+        case trackerThreadId
+        case subtitle
+        case messages
+        case createdAt
+        case updatedAt
+    }
+
+    init(
+        id: UUID,
+        title: String,
+        kind: ConversationKind = .standard,
+        trackerThreadId: UUID? = nil,
+        subtitle: String? = nil,
+        messages: [ConversationMessage],
+        createdAt: Date,
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.trackerThreadId = trackerThreadId
+        self.subtitle = subtitle
+        self.messages = messages
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        kind = try container.decodeIfPresent(ConversationKind.self, forKey: .kind) ?? .standard
+        trackerThreadId = try container.decodeIfPresent(UUID.self, forKey: .trackerThreadId)
+        subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
+        messages = try container.decode([ConversationMessage].self, forKey: .messages)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+    }
 
     var formattedDate: String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
-        return formatter.string(from: createdAt)
+        return formatter.string(from: updatedAt)
     }
 }

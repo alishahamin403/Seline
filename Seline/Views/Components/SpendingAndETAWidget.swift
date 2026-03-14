@@ -228,14 +228,8 @@ struct SpendingAndETAWidget: View {
         return weekSpendSummaries.reversed().first(where: { !$0.isFuture }) ?? weekSpendSummaries.first
     }
 
-    private var expandedTopCategory: (category: String, amount: Double, percentage: Double)? {
-        guard let expandedTopCategoryName else { return nil }
-        return topSpendingCategories.first(where: { $0.category == expandedTopCategoryName })
-    }
-
-    private var expandedTopCategoryReceipts: [ReceiptStat] {
-        guard let expandedTopCategoryName else { return [] }
-        return (categoryReceiptsMapCache[expandedTopCategoryName] ?? [])
+    private func receiptsForExpandedCategory(_ categoryName: String) -> [ReceiptStat] {
+        (categoryReceiptsMapCache[categoryName] ?? [])
             .sorted { $0.date > $1.date }
     }
 
@@ -325,7 +319,7 @@ struct SpendingAndETAWidget: View {
         }
         
         // Reload widget timelines to pick up new data
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "spending_widget_update")
     }
     
     /// Static method to refresh widget spending data from NotesManager
@@ -476,10 +470,17 @@ struct SpendingAndETAWidget: View {
     var body: some View {
         spendingCard()
             .onAppear {
+                guard isVisible else { return }
+                updateCategoryBreakdown()
+                selectedWeekSpendDate = mondayFirstCalendar.startOfDay(for: Date())
+            }
+            .onChange(of: isVisible) { newValue in
+                guard newValue else { return }
                 updateCategoryBreakdown()
                 selectedWeekSpendDate = mondayFirstCalendar.startOfDay(for: Date())
             }
             .onChange(of: notesManager.notes.count) { _ in
+                guard isVisible else { return }
                 updateCategoryBreakdown()
                 selectedWeekSpendDate = mondayFirstCalendar.startOfDay(for: Date())
             }
@@ -620,10 +621,6 @@ struct SpendingAndETAWidget: View {
                     ForEach(topSpendingCategories, id: \.category) { category in
                         topCategoryButtonRow(category)
                     }
-                }
-
-                if let expandedTopCategory {
-                    topCategoryDetailCard(expandedTopCategory)
                 }
             }
         }
@@ -1033,110 +1030,95 @@ struct SpendingAndETAWidget: View {
 
     private func topCategoryButtonRow(_ category: (category: String, amount: Double, percentage: Double)) -> some View {
         let isExpanded = expandedTopCategoryName == category.category
+        let receipts = receiptsForExpandedCategory(category.category)
 
-        return Button(action: {
-            HapticManager.shared.selection()
-            withAnimation(.easeInOut(duration: 0.18)) {
-                if isExpanded {
-                    expandedTopCategoryName = nil
-                } else {
-                    expandedTopCategoryName = category.category
+        return VStack(alignment: .leading, spacing: 10) {
+            Button(action: {
+                HapticManager.shared.selection()
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    if isExpanded {
+                        expandedTopCategoryName = nil
+                    } else {
+                        expandedTopCategoryName = category.category
+                    }
                 }
-            }
-        }) {
-            HStack(alignment: .center, spacing: 12) {
-                spendingCategoryRow(category)
+            }) {
+                HStack(alignment: .center, spacing: 12) {
+                    spendingCategoryRow(category)
 
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(FontManager.geist(size: 11, weight: .semibold))
-                    .foregroundColor(Color.appTextSecondary(colorScheme))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-
-    private func topCategoryDetailCard(_ category: (category: String, amount: Double, percentage: Double)) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(category.category)
-                        .font(FontManager.geist(size: 15, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                    Text("\(expandedTopCategoryReceipts.count) receipts")
-                        .font(FontManager.geist(size: 11, weight: .medium))
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(FontManager.geist(size: 11, weight: .semibold))
                         .foregroundColor(Color.appTextSecondary(colorScheme))
                 }
-
-                Spacer(minLength: 10)
-
-                Text(CurrencyParser.formatAmountNoDecimals(category.amount))
-                    .font(FontManager.geist(size: 16, weight: .semibold))
-                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(PlainButtonStyle())
 
-            if expandedTopCategoryReceipts.isEmpty {
-                Text("No receipt details available for this category.")
-                    .font(FontManager.geist(size: 12, weight: .medium))
-                    .foregroundColor(Color.appTextSecondary(colorScheme))
-            } else {
-                ForEach(Array(expandedTopCategoryReceipts.prefix(3).enumerated()), id: \.offset) { index, receipt in
-                    HStack(alignment: .center, spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(receipt.title)
-                                .font(FontManager.geist(size: 12, weight: .semibold))
-                                .foregroundColor(Color.appTextPrimary(colorScheme))
-                                .lineLimit(1)
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    if receipts.isEmpty {
+                        Text("No receipt details available for this category.")
+                            .font(FontManager.geist(size: 12, weight: .medium))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                    } else {
+                        ForEach(Array(receipts.prefix(3).enumerated()), id: \.offset) { index, receipt in
+                            HStack(alignment: .center, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(receipt.title)
+                                        .font(FontManager.geist(size: 12, weight: .semibold))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .lineLimit(1)
 
-                            Text(FormatterCache.weekdayShortMonthDay.string(from: receipt.date))
-                                .font(FontManager.geist(size: 11, weight: .medium))
-                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                    Text(FormatterCache.weekdayShortMonthDay.string(from: receipt.date))
+                                        .font(FontManager.geist(size: 11, weight: .medium))
+                                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                                }
+
+                                Spacer(minLength: 10)
+
+                                Text(CurrencyParser.formatAmountNoDecimals(receipt.amount))
+                                    .font(FontManager.geist(size: 12, weight: .semibold))
+                                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                            }
+
+                            if index < min(receipts.count, 3) - 1 {
+                                Divider()
+                                    .overlay(Color.homeGlassInnerBorder(colorScheme))
+                            }
                         }
 
-                        Spacer(minLength: 10)
-
-                        Text(CurrencyParser.formatAmountNoDecimals(receipt.amount))
-                            .font(FontManager.geist(size: 12, weight: .semibold))
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-                    }
-
-                    if index < min(expandedTopCategoryReceipts.count, 3) - 1 {
-                        Divider()
-                            .overlay(Color.homeGlassInnerBorder(colorScheme))
+                        if receipts.count > 3 {
+                            Button(action: {
+                                openCategoryExpenses(for: category.category)
+                            }) {
+                                Text("View all")
+                                    .font(FontManager.geist(size: 12, weight: .semibold))
+                                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.homeGlassInnerTint(colorScheme))
+                                    )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
                     }
                 }
-
-                if expandedTopCategoryReceipts.count > 3 {
-                    Button(action: {
-                        openCategoryExpenses(for: category.category)
-                    }) {
-                        Text("View all")
-                            .font(FontManager.geist(size: 12, weight: .semibold))
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                Capsule()
-                                    .fill(Color.homeGlassInnerTint(colorScheme))
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color.homeGlassInnerTint(colorScheme))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
+                )
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color.homeGlassInnerTint(colorScheme))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
-        )
     }
 
     private var monthlyForecastText: String {

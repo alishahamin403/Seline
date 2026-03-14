@@ -2,7 +2,7 @@ import SwiftUI
 import CoreLocation
 
 struct DailyOverviewWidget: View {
-    @StateObject private var homeState = HomeDashboardState()
+    @ObservedObject var homeState: HomeDashboardState
     @StateObject private var weatherService = WeatherService.shared
     @StateObject private var locationService = LocationService.shared
     @StateObject private var quickNoteManager = QuickNoteManager.shared
@@ -11,6 +11,7 @@ struct DailyOverviewWidget: View {
     private let tagManager = TagManager.shared
 
     @Binding var isExpanded: Bool
+    var isVisible: Bool = true
 
     var onNoteSelected: ((Note) -> Void)?
     var onEmailSelected: ((Email) -> Void)?
@@ -24,6 +25,7 @@ struct DailyOverviewWidget: View {
     @State private var expandedSection: ExpandedSection? = nil
     @State private var quickNoteInput: String = ""
     @State private var editingQuickNote: QuickNote? = nil
+    @State private var hasPerformedInitialRefresh = false
     
     private enum TodoRowMode {
         case today
@@ -53,6 +55,7 @@ struct DailyOverviewWidget: View {
 
     private struct HomeHeroAction: Identifiable {
         let title: String
+        let systemImage: String
         let section: ExpandedSection
         var id: String { "\(section)-\(title)" }
     }
@@ -212,10 +215,10 @@ struct DailyOverviewWidget: View {
 
     private var heroActions: [HomeHeroAction] {
         [
-            HomeHeroAction(title: "Todo", section: .date),
-            HomeHeroAction(title: "Weather", section: .weather),
-            HomeHeroAction(title: "Note", section: .quickNotes),
-            HomeHeroAction(title: "Expense", section: .expense)
+            HomeHeroAction(title: "Todo", systemImage: "checklist", section: .date),
+            HomeHeroAction(title: "Weather", systemImage: "cloud.sun", section: .weather),
+            HomeHeroAction(title: "Note", systemImage: "note.text", section: .quickNotes),
+            HomeHeroAction(title: "Expense", systemImage: "receipt", section: .expense)
         ]
     }
 
@@ -223,14 +226,7 @@ struct DailyOverviewWidget: View {
         VStack(alignment: .leading, spacing: 14) {
             header
 
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), spacing: 8),
-                    GridItem(.flexible(), spacing: 8)
-                ],
-                alignment: .leading,
-                spacing: 8
-            ) {
+            HStack(spacing: 8) {
                 ForEach(heroActions) { item in
                     heroSignalChip(item)
                 }
@@ -250,25 +246,38 @@ struct DailyOverviewWidget: View {
             usesPureLightFill: true
         )
         .onAppear {
-            if isExpanded {
-                isExpanded = false
-            }
-            expandedSection = nil
-            homeState.refreshAll()
-            loadQuickNotes()
-            locationService.requestLocationPermission()
-            if let location = locationService.currentLocation {
-                refreshWeatherIfNeeded(location: location)
-            }
+            handleVisibilityChange(isVisible)
         }
         .onChange(of: locationService.currentLocation) { location in
+            guard isVisible else { return }
             guard let location else { return }
             refreshWeatherIfNeeded(location: location)
+        }
+        .onChange(of: isVisible) { newValue in
+            handleVisibilityChange(newValue)
         }
         .onChange(of: isExpanded) { expanded in
             if !expanded {
                 expandedSection = nil
             }
+        }
+    }
+
+    private func handleVisibilityChange(_ visible: Bool) {
+        guard visible else { return }
+
+        if isExpanded {
+            isExpanded = false
+        }
+        expandedSection = nil
+        if !hasPerformedInitialRefresh {
+            homeState.refreshAll()
+            hasPerformedInitialRefresh = true
+        }
+        loadQuickNotes()
+        locationService.requestLocationPermission()
+        if let location = locationService.currentLocation {
+            refreshWeatherIfNeeded(location: location)
         }
     }
 
@@ -310,10 +319,6 @@ struct DailyOverviewWidget: View {
                         .foregroundColor(Color.appTextPrimary(colorScheme))
                         .lineLimit(1)
 
-                    Text("deg")
-                        .font(FontManager.geist(size: 14, weight: .medium))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-
                     Text(weatherDetailLine)
                         .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(Color.appTextPrimary(colorScheme))
@@ -326,7 +331,7 @@ struct DailyOverviewWidget: View {
 
     private var weatherValueText: String {
         if let weather = weatherService.weatherData {
-            return "\(weather.temperature)"
+            return "\(weather.temperature)°"
         }
         return "--"
     }
@@ -341,30 +346,29 @@ struct DailyOverviewWidget: View {
     private func heroSignalChip(_ item: HomeHeroAction) -> some View {
         let isActive = expandedSection == item.section
 
-        return HStack(spacing: 0) {
-            Text(item.title)
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(
-                    isActive
-                    ? (colorScheme == .dark ? .black : .white)
-                    : Color.appTextPrimary(colorScheme)
-                )
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Capsule().fill(isActive ? homeAccentColor : Color.appChip(colorScheme)))
+        return Image(systemName: item.systemImage)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundColor(
+                isActive
+                ? (colorScheme == .dark ? .black : .white)
+                : Color.appTextPrimary(colorScheme)
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(isActive ? homeAccentColor : Color.appChip(colorScheme))
+            )
         .overlay(
-            Capsule()
+            RoundedRectangle(cornerRadius: 14)
                 .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
         )
-        .contentShape(Capsule())
+        .contentShape(RoundedRectangle(cornerRadius: 14))
         .scrollSafeTapAction(minimumDragDistance: 10) {
             HapticManager.shared.selection()
             toggleSection(item.section)
         }
+        .accessibilityLabel(item.title)
         .accessibilityAddTraits(.isButton)
     }
 
@@ -1210,7 +1214,10 @@ struct DailyOverviewWidget: View {
 struct DailyOverviewWidget_Previews: PreviewProvider {
     static var previews: some View {
         VStack {
-            DailyOverviewWidget(isExpanded: .constant(true))
+            DailyOverviewWidget(
+                homeState: HomeDashboardState(),
+                isExpanded: .constant(true)
+            )
                 .padding()
             Spacer()
         }

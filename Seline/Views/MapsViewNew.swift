@@ -3,6 +3,8 @@ import CoreLocation
 import MapKit
 
 struct MapsViewNew: View, Searchable {
+    var isVisible: Bool = true
+
     private enum HubPeriod: String, CaseIterable {
         case today = "Today"
         case thisWeek = "This Week"
@@ -41,13 +43,14 @@ struct MapsViewNew: View, Searchable {
         case map
         case visits
         case saved
-        case timeline
     }
 
     @StateObject private var locationsManager = LocationsManager.shared
-    @StateObject private var locationService = LocationService.shared
-    @StateObject private var supabaseManager = SupabaseManager.shared
-    @StateObject private var peopleManager = PeopleManager.shared
+    @StateObject private var pageState = MapsPageState()
+    private let locationService = LocationService.shared
+    private let supabaseManager = SupabaseManager.shared
+    private let peopleManager = PeopleManager.shared
+    private let pageRefreshCoordinator = PageRefreshCoordinator.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
 
@@ -55,6 +58,7 @@ struct MapsViewNew: View, Searchable {
     @State private var hubPeriod: HubPeriod = .thisMonth
     @State private var hubPeriodVisits: [LocationVisitRecord] = []
     @State private var isLoadingHubPeriodVisits = false
+    @State private var hasResolvedHubPeriodVisits = false
     @State private var selectedCategory: String? = nil
     @State private var showSearchModal = false
     @State private var selectedPlace: SavedPlace? = nil
@@ -67,8 +71,7 @@ struct MapsViewNew: View, Searchable {
     @State private var nearbyLocationFolder: String? = nil
     @State private var nearbyLocationPlace: SavedPlace? = nil
     @State private var distanceToNearest: Double? = nil
-    @State private var elapsedTimeString: String = ""
-    @State private var locationTickTask: Task<Void, Never>?
+    @State private var currentMapLocation: CLLocation? = nil
     @State private var lastLocationCheckCoordinate: CLLocationCoordinate2D?
     @State private var hasLoadedIncompleteVisits = false  // Prevents race condition on app launch
     @StateObject private var geofenceManager = GeofenceManager.shared
@@ -76,6 +79,8 @@ struct MapsViewNew: View, Searchable {
     @State private var topLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
     @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
     @State private var showAllLocationsSheet = false
+    @State private var showActivePlacesSheet = false
+    @State private var showAllHeroFavourites = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast  // Time debounce for location updates
     @State private var recentlyVisitedPlaces: [SavedPlace] = []
     @State private var expandedCategories: Set<String> = []  // Track which categories are expanded
@@ -90,7 +95,8 @@ struct MapsViewNew: View, Searchable {
     @FocusState private var isSearchFocused: Bool  // For search bar focus
     @Namespace private var mapsTabAnimation
 
-    init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
+    init(isVisible: Bool = true, externalSelectedFolder: Binding<String?> = .constant(nil)) {
+        self.isVisible = isVisible
         self._externalSelectedFolder = externalSelectedFolder
     }
 
@@ -137,10 +143,26 @@ struct MapsViewNew: View, Searchable {
                 )
                 .presentationBg()
             }
+            .sheet(isPresented: $showActivePlacesSheet) {
+                ActivePlacesSheet(
+                    colorScheme: colorScheme,
+                    title: locationsHeroHeadline,
+                    subtitle: hubPeriodDisplayText,
+                    places: hubActivePlaces,
+                    onPlaceTap: { place in
+                        showActivePlacesSheet = false
+                        selectedPlace = place
+                    },
+                    onDismiss: {
+                        showActivePlacesSheet = false
+                    }
+                )
+                .presentationBg()
+            }
             .sheet(isPresented: $showFullMapView) {
                 FullMapView(
                     places: getFilteredPlaces(),
-                    currentLocation: locationService.currentLocation,
+                    currentLocation: currentMapLocation,
                     colorScheme: colorScheme,
                     onPlaceTap: { place in
                         showFullMapView = false
@@ -189,22 +211,44 @@ struct MapsViewNew: View, Searchable {
             .task {
                 // Use .task for async setup - only runs once per view lifecycle
                 await setupOnAppear()
+                await MainActor.run {
+                    syncPageStateInputs()
+                    pageRefreshCoordinator.pageBecameVisible(.maps)
+                    pageRefreshCoordinator.markValidated(.maps)
+                }
             }
-            .onReceive(locationService.$currentLocation) { _ in
+            .onChange(of: isVisible) { newValue in
+                handleVisibilityChange(newValue, reason: "visibility")
+            }
+            .onReceive(locationService.$currentLocation) { location in
+                currentMapLocation = location
+                guard isVisible else { return }
                 handleLocationUpdate()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
+                guard isVisible else {
+                    pageRefreshCoordinator.markDirty([.home, .maps], reason: .visitHistoryChanged)
+                    return
+                }
                 updateCurrentLocation()
-                updateElapsedTime()
                 Task {
                     await loadHubPeriodVisits()
+                    await MainActor.run {
+                        pageRefreshCoordinator.markValidated(.maps)
+                    }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
+                guard isVisible else {
+                    pageRefreshCoordinator.markDirty([.home, .maps], reason: .visitHistoryChanged)
+                    return
+                }
                 updateCurrentLocation()
-                updateElapsedTime()
                 Task {
                     await loadHubPeriodVisits()
+                    await MainActor.run {
+                        pageRefreshCoordinator.markValidated(.maps)
+                    }
                 }
             }
             .onChange(of: externalSelectedFolder) { newFolder in
@@ -214,6 +258,10 @@ struct MapsViewNew: View, Searchable {
                 handleScenePhaseChange(newPhase)
             }
             .onChange(of: locationsManager.savedPlaces) { _ in
+                guard isVisible else {
+                    pageRefreshCoordinator.markDirty(.maps, reason: .locationDataChanged)
+                    return
+                }
                 // Only reload if we have no data yet, or debounce to avoid excessive reloads
                 if topLocations.isEmpty {
                     loadTopLocations()
@@ -226,30 +274,26 @@ struct MapsViewNew: View, Searchable {
                 }
             }
             .onChange(of: hubPeriod) { _ in
+                syncPageStateInputs()
+                guard isVisible else {
+                    pageRefreshCoordinator.markDirty(.maps, reason: .manualRefresh)
+                    return
+                }
                 Task {
                     await loadHubPeriodVisits()
+                    await MainActor.run {
+                        pageRefreshCoordinator.markValidated(.maps)
+                    }
                 }
+            }
+            .onChange(of: locationSearchText) { _ in
+                syncPageStateInputs()
+            }
+            .onChange(of: hubPeriodVisits) { _ in
+                syncPageStateInputs()
             }
             .onChange(of: colorScheme) { _ in
                 // Force view refresh when system theme changes
-            }
-            .swipeUpToDismissSearch(
-                enabled: (selectedHubDetail == .places
-                    && isLocationSearchActive
-                    && locationSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    || (selectedHubDetail == .people && isPeopleSearchActive),
-                topRegion: UIScreen.main.bounds.height * 0.28,
-                minimumDistance: 54
-            ) {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    if selectedHubDetail == .places {
-                        locationSearchText = ""
-                        isLocationSearchActive = false
-                        isSearchFocused = false
-                    } else if selectedHubDetail == .people {
-                        isPeopleSearchActive = false
-                    }
-                }
             }
     }
     
@@ -303,7 +347,7 @@ struct MapsViewNew: View, Searchable {
             } else {
                 HStack(spacing: 10) {
                     Color.clear
-                        .frame(width: 40, height: 36)
+                        .frame(width: 42, height: 42)
 
                     hubMainPagePicker
                         .frame(maxWidth: .infinity)
@@ -313,22 +357,23 @@ struct MapsViewNew: View, Searchable {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.black)
-                                .frame(width: 40, height: 36)
+                                .frame(width: 34, height: 34)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 10)
+                                    RoundedRectangle(cornerRadius: 14)
                                         .fill(Color.appMonochromeAccentFill(colorScheme))
                                 )
                         }
+                        .frame(width: 42, height: 42)
                         .buttonStyle(PlainButtonStyle())
                         .accessibilityLabel(selectedHubDetail == .places ? "Search locations" : "Search people")
                     } else {
                         Color.clear
-                            .frame(width: 40, height: 36)
+                            .frame(width: 42, height: 42)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .padding(.top, 4)
+                .padding(.top, -4)
                 .padding(.bottom, 10)
             }
         }
@@ -336,23 +381,26 @@ struct MapsViewNew: View, Searchable {
 
     private var locationsHubHeader: some View {
         HStack(spacing: 10) {
-            overviewIconActionPill(systemImage: "magnifyingglass", accessibilityLabel: "Search locations") {
-                activateLocationSearch()
+            overviewIconActionPill(systemImage: "folder.badge.plus", accessibilityLabel: "Create folder") {
+                newFolderName = ""
+                showNewFolderAlert = true
             }
+            .frame(width: 42, height: 42)
 
             hubMainPagePicker
 
             overviewPrimaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add location") {
                 showSearchModal = true
             }
+            .frame(width: 42, height: 42)
 
-            overviewIconActionPill(systemImage: "folder.badge.plus", accessibilityLabel: "Create folder") {
-                newFolderName = ""
-                showNewFolderAlert = true
+            overviewIconActionPill(systemImage: "magnifyingglass", accessibilityLabel: "Search locations") {
+                activateLocationSearch()
             }
+            .frame(width: 42, height: 42)
         }
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.top, 4)
+        .padding(.top, -4)
         .padding(.bottom, 10)
     }
 
@@ -361,19 +409,22 @@ struct MapsViewNew: View, Searchable {
             overviewIconActionPill(systemImage: "magnifyingglass", accessibilityLabel: "Search people") {
                 activatePeopleSearch()
             }
+            .frame(width: 42, height: 42)
 
             hubMainPagePicker
 
             overviewPrimaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add person") {
                 NotificationCenter.default.post(name: .peopleHubAddRequested, object: nil)
             }
+            .frame(width: 42, height: 42)
 
             overviewIconActionPill(systemImage: "person.crop.rectangle.stack", accessibilityLabel: "Import contacts") {
                 NotificationCenter.default.post(name: .peopleHubImportRequested, object: nil)
             }
+            .frame(width: 42, height: 42)
         }
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.top, 4)
+        .padding(.top, -4)
         .padding(.bottom, 10)
     }
 
@@ -424,6 +475,10 @@ struct MapsViewNew: View, Searchable {
         .background(
             Capsule()
                 .fill(Color.appChip(colorScheme))
+                .overlay(
+                    Capsule()
+                        .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+                )
         )
         .frame(maxWidth: .infinity)
     }
@@ -601,10 +656,9 @@ struct MapsViewNew: View, Searchable {
                     .font(FontManager.geist(size: 11, weight: .semibold))
                     .foregroundColor(hubSecondaryTextColor)
 
-                Text(hubCurrentLocationSummary)
+                hubCurrentLocationSummaryView(lineLimit: 1)
                     .font(FontManager.geist(size: 13, weight: .medium))
                     .foregroundColor(hubPrimaryTextColor)
-                    .lineLimit(1)
 
                 Spacer()
             }
@@ -680,12 +734,13 @@ struct MapsViewNew: View, Searchable {
     }
 
     private var hubPeopleSection: some View {
-        let people = peopleManager.people
+        let peopleCount = pageState.peopleCount
+        let favouritePeopleCount = pageState.favouritePeopleCount
 
         return VStack(spacing: 0) {
-            hubCardHeader(title: "PEOPLE", count: people.count)
+            hubCardHeader(title: "PEOPLE", count: peopleCount)
 
-            if people.isEmpty {
+            if peopleCount == 0 {
                 hubEmptyState(
                     icon: "person.2.slash",
                     title: "No people saved",
@@ -695,8 +750,8 @@ struct MapsViewNew: View, Searchable {
                 .padding(.bottom, 12)
             } else {
                 HStack(spacing: 8) {
-                    hubStatPill(label: "Total", value: "\(people.count)")
-                    hubStatPill(label: "Favorites", value: "\(people.filter { $0.isFavourite }.count)")
+                    hubStatPill(label: "Total", value: "\(peopleCount)")
+                    hubStatPill(label: "Favorites", value: "\(favouritePeopleCount)")
                     hubStatPill(label: hubPeriodDisplayText, value: "\(hubPeopleUpdatedInPeriodCount) updated")
                 }
                 .padding(.horizontal, 10)
@@ -1028,80 +1083,42 @@ struct MapsViewNew: View, Searchable {
     }
 
     private var hubSavedPlaces: [SavedPlace] {
-        getFilteredPlaces()
+        filteredSavedPlacesForQuery
     }
 
     private var hubVisitedPlacesByCount: [(place: SavedPlace, count: Int)] {
-        var counts: [UUID: Int] = [:]
-        for visit in hubPeriodVisits {
-            counts[visit.savedPlaceId, default: 0] += 1
-        }
-
-        return counts
-            .compactMap { entry in
-                let place = locationsManager.savedPlaces.first(where: { $0.id == entry.key })
-                return place.map { (place: $0, count: entry.value) }
-            }
-            .sorted { lhs, rhs in
-                if lhs.count == rhs.count {
-                    return lhs.place.displayName < rhs.place.displayName
-                }
-                return lhs.count > rhs.count
-            }
+        pageState.hubVisitedPlacesByCount
     }
 
     private var hubPlaceCategoryBreakdown: [(name: String, count: Int)] {
-        var counts: [String: Int] = [:]
-
-        for visit in hubPeriodVisits {
-            if let place = locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) {
-                counts[place.category, default: 0] += 1
-            }
-        }
-
-        if counts.isEmpty {
-            for place in hubSavedPlaces {
-                counts[place.category, default: 0] += 1
-            }
-        }
-
-        return counts
-            .map { (name: $0.key, count: $0.value) }
-            .sorted { lhs, rhs in
-                if lhs.count == rhs.count {
-                    return lhs.name < rhs.name
-                }
-                return lhs.count > rhs.count
-            }
+        pageState.hubPlaceCategoryBreakdown
     }
 
     private var hubPeopleRelationshipBreakdown: [(name: String, count: Int)] {
-        var counts: [String: Int] = [:]
-        for person in peopleManager.people {
-            counts[person.relationshipDisplayText, default: 0] += 1
-        }
-
-        return counts
-            .map { (name: $0.key, count: $0.value) }
-            .sorted { lhs, rhs in
-                if lhs.count == rhs.count {
-                    return lhs.name < rhs.name
-                }
-                return lhs.count > rhs.count
-            }
+        pageState.hubPeopleRelationshipBreakdown
     }
 
     private var hubPeopleUpdatedInPeriodCount: Int {
-        let range = hubDateRange
-        return peopleManager.people.filter { $0.dateModified >= range.start && $0.dateModified <= range.end }.count
+        pageState.hubPeopleUpdatedInRangeCount
     }
 
     private var hubRecentPeople: [Person] {
-        peopleManager.people.sorted { $0.dateModified > $1.dateModified }
+        pageState.hubRecentPeople
     }
 
     private var hubUniqueVisitedPlacesCount: Int {
         Set(hubPeriodVisits.map { $0.savedPlaceId }).count
+    }
+
+    private var hubRevisitedPlacesCount: Int {
+        Dictionary(grouping: hubPeriodVisits, by: \.savedPlaceId)
+            .values
+            .filter { $0.count > 1 }
+            .count
+    }
+
+    private var hubActivePlaces: [(place: SavedPlace, count: Int)] {
+        hubVisitedPlacesByCount
     }
 
     private var hubTotalVisitMinutes: Int {
@@ -1111,10 +1128,21 @@ struct MapsViewNew: View, Searchable {
         }
     }
 
-    private var hubCurrentLocationSummary: String {
+    private var activeNearbyVisitEntryTime: Date? {
+        guard let place = nearbyLocationPlace ?? nearbyLocation.flatMap({ nearbyName in
+            locationsManager.savedPlaces.first(where: { $0.displayName == nearbyName })
+        }) else {
+            return nil
+        }
+
+        return geofenceManager.activeVisits[place.id]?.entryTime
+    }
+
+    private func hubCurrentLocationSummary(at referenceDate: Date = Date()) -> String {
         if let nearbyLocation {
-            if !elapsedTimeString.isEmpty {
-                return "At \(nearbyLocation) · \(elapsedTimeString)"
+            if let entryTime = activeNearbyVisitEntryTime {
+                let elapsed = max(referenceDate.timeIntervalSince(entryTime), 0)
+                return "At \(nearbyLocation) · \(FormatterCache.formatElapsedTime(elapsed))"
             }
             return "At \(nearbyLocation)"
         }
@@ -1124,6 +1152,19 @@ struct MapsViewNew: View, Searchable {
         }
 
         return currentLocationName
+    }
+
+    @ViewBuilder
+    private func hubCurrentLocationSummaryView(lineLimit: Int) -> some View {
+        if nearbyLocation != nil, activeNearbyVisitEntryTime != nil {
+            SwiftUI.TimelineView(.periodic(from: Date.now, by: 1)) { context in
+                Text(hubCurrentLocationSummary(at: context.date))
+                    .lineLimit(lineLimit)
+            }
+        } else {
+            Text(hubCurrentLocationSummary())
+                .lineLimit(lineLimit)
+        }
     }
 
     private var hubCardBackground: some View {
@@ -1177,33 +1218,11 @@ struct MapsViewNew: View, Searchable {
     }
 
     private var filteredSavedPlacesForQuery: [SavedPlace] {
-        let base = getFilteredPlaces()
-        let query = locationSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return base }
-
-        return base.filter { place in
-            place.displayName.lowercased().contains(query)
-                || place.address.lowercased().contains(query)
-                || place.category.lowercased().contains(query)
-                || (place.city?.lowercased().contains(query) ?? false)
-                || (place.province?.lowercased().contains(query) ?? false)
-                || (place.country?.lowercased().contains(query) ?? false)
-        }
+        pageState.filteredSavedPlaces
     }
 
     private var filteredFavouritePlacesForQuery: [SavedPlace] {
-        let query = locationSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let favourites = locationsManager.getFavourites()
-        guard !query.isEmpty else { return favourites }
-
-        return favourites.filter { place in
-            place.displayName.lowercased().contains(query)
-                || place.address.lowercased().contains(query)
-                || place.category.lowercased().contains(query)
-                || (place.city?.lowercased().contains(query) ?? false)
-                || (place.province?.lowercased().contains(query) ?? false)
-                || (place.country?.lowercased().contains(query) ?? false)
-        }
+        pageState.filteredFavouritePlaces
     }
 
     private var savedFolderRows: [(name: String, count: Int)] {
@@ -1211,30 +1230,7 @@ struct MapsViewNew: View, Searchable {
     }
 
     private var savedFolderBreakdownRows: [(name: String, places: [SavedPlace], favourites: Int)] {
-        let grouped = Dictionary(grouping: filteredSavedPlacesForQuery, by: { $0.category })
-        let folderNames = Set(grouped.keys).union(locationsManager.userFolders)
-
-        return folderNames
-            .map { folderName in
-                let places = (grouped[folderName] ?? []).sorted { lhs, rhs in
-                    if lhs.isFavourite != rhs.isFavourite {
-                        return lhs.isFavourite && !rhs.isFavourite
-                    }
-                    return lhs.displayName < rhs.displayName
-                }
-
-                return (
-                    name: folderName,
-                    places: places,
-                    favourites: places.filter(\.isFavourite).count
-                )
-            }
-            .sorted { lhs, rhs in
-                if lhs.places.count == rhs.places.count {
-                    return lhs.name < rhs.name
-                }
-                return lhs.places.count > rhs.places.count
-            }
+        pageState.savedFolderBreakdownRows
     }
 
     private var todayVisitCount: Int {
@@ -1252,11 +1248,7 @@ struct MapsViewNew: View, Searchable {
     }
 
     private var peopleAddedThisMonth: Int {
-        let calendar = Calendar.current
-        let now = Date()
-        return peopleManager.people.filter {
-            calendar.isDate($0.dateModified, equalTo: now, toGranularity: .month)
-        }.count
+        pageState.peopleAddedThisMonthCount
     }
 
     private func mapsSectionCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -1400,6 +1392,7 @@ struct MapsViewNew: View, Searchable {
         guard let userId = supabaseManager.getCurrentUser()?.id else {
             hubPeriodVisits = []
             isLoadingHubPeriodVisits = false
+            hasResolvedHubPeriodVisits = true
             return
         }
 
@@ -1418,6 +1411,7 @@ struct MapsViewNew: View, Searchable {
 
         hubPeriodVisits = filtered
         isLoadingHubPeriodVisits = false
+        hasResolvedHubPeriodVisits = true
     }
     
     // MARK: - Floating Add Button
@@ -1480,6 +1474,14 @@ struct MapsViewNew: View, Searchable {
     private func getAllCategories() -> [String] {
         return locationsManager.categories
     }
+
+    private func syncPageStateInputs() {
+        pageState.updateInputs(
+            searchText: locationSearchText,
+            hubPeriodVisits: hubPeriodVisits,
+            hubDateRange: hubDateRange
+        )
+    }
     
     private func setupOnAppear() async {
         SearchService.shared.registerSearchableProvider(self, for: .maps)
@@ -1507,6 +1509,10 @@ struct MapsViewNew: View, Searchable {
         
         locationService.requestLocationPermission()
         await loadHubPeriodVisits()
+        await MainActor.run {
+            currentMapLocation = locationService.currentLocation
+            syncPageStateInputs()
+        }
     }
     
     private func handleLocationUpdate() {
@@ -1531,14 +1537,25 @@ struct MapsViewNew: View, Searchable {
         }
     }
     
+    @MainActor
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        guard isVisible else {
+            return
+        }
+
         if newPhase == .active {
+            pageRefreshCoordinator.pageBecameVisible(.maps)
             updateCurrentLocation()
             Task {
-                await loadHubPeriodVisits()
-            }
-            if nearbyLocation != nil {
-                startLocationTimer()
+                if pageRefreshCoordinator.shouldRevalidate(
+                    .maps,
+                    maxAge: pageRefreshCoordinator.defaultMaxAge(for: .maps)
+                ) {
+                    await refreshHubData()
+                    await MainActor.run {
+                        pageRefreshCoordinator.markValidated(.maps)
+                    }
+                }
             }
             if let currentLoc = locationService.currentLocation {
                 Task {
@@ -1548,8 +1565,28 @@ struct MapsViewNew: View, Searchable {
                     )
                 }
             }
-        } else {
-            stopLocationTimer()
+        }
+    }
+
+    @MainActor
+    private func handleVisibilityChange(_ visible: Bool, reason: String) {
+        guard visible else {
+            return
+        }
+
+        syncPageStateInputs()
+        pageRefreshCoordinator.pageBecameVisible(.maps)
+
+        Task {
+            if pageRefreshCoordinator.shouldRevalidate(
+                .maps,
+                maxAge: pageRefreshCoordinator.defaultMaxAge(for: .maps)
+            ) {
+                await refreshHubData()
+                await MainActor.run {
+                    pageRefreshCoordinator.markValidated(.maps)
+                }
+            }
         }
     }
 
@@ -1581,15 +1618,9 @@ struct MapsViewNew: View, Searchable {
                 locationsMapCutoutSection
                     .id(LocationsSectionAnchor.map.rawValue)
 
-                locationsTopPlacesSection
-                    .id(LocationsSectionAnchor.visits.rawValue)
-
                 locationsSavedPlacesSection
                     .id(LocationsSectionAnchor.saved.rawValue)
             }
-
-            locationsTimelineEntrySection
-                .id(LocationsSectionAnchor.timeline.rawValue)
 
             Spacer().frame(height: 100)
         }
@@ -1634,34 +1665,114 @@ struct MapsViewNew: View, Searchable {
         }
     }
 
-    private var locationsHeroPlaceCount: Int {
-        let revisitedCount = locationVisitCountsByPlaceId.values.filter { $0 > 1 }.count
-        if revisitedCount > 0 {
-            return revisitedCount
+    private var locationsHeroPeriodPhrase: String {
+        hubPeriodDisplayText.lowercased()
+    }
+
+    private var locationsHeroPeriodLeadIn: String {
+        switch hubPeriod {
+        case .today:
+            return "Today"
+        case .thisWeek:
+            return "This week"
+        case .thisMonth:
+            return "This month"
         }
-        return filteredSavedPlacesForQuery.count
     }
 
     private var locationsHeroHeadline: String {
-        let count = max(locationsHeroPlaceCount, 0)
-        guard count > 0 else { return "Build your places hub" }
-        return "\(count) place\(count == 1 ? "" : "s") you return to"
+        guard hasResolvedHubPeriodVisits else {
+            return "Your movement \(locationsHeroPeriodPhrase)"
+        }
+
+        let count = max(hubUniqueVisitedPlacesCount, 0)
+        guard count > 0 else {
+            return "No saved-place visits \(locationsHeroPeriodPhrase)"
+        }
+
+        return "\(count) active place\(count == 1 ? "" : "s") \(locationsHeroPeriodPhrase)"
+    }
+
+    private var locationsHeroDominantTimeWindow: String? {
+        guard !hubPeriodVisits.isEmpty else { return nil }
+
+        var buckets: [String: Int] = [:]
+        let calendar = Calendar.current
+
+        for visit in hubPeriodVisits {
+            let hour = calendar.component(.hour, from: visit.entryTime)
+            let bucket: String
+            switch hour {
+            case 5..<12:
+                bucket = "morning"
+            case 12..<17:
+                bucket = "afternoon"
+            case 17..<22:
+                bucket = "evening"
+            default:
+                bucket = "late hours"
+            }
+            buckets[bucket, default: 0] += 1
+        }
+
+        guard let dominant = buckets.max(by: { $0.value < $1.value }) else { return nil }
+        return dominant.value >= max(2, hubPeriodVisits.count / 3) ? dominant.key : nil
     }
 
     private var locationsHeroSupportingText: String {
+        guard hasResolvedHubPeriodVisits else {
+            return "Pulling together your visit patterns for \(locationsHeroPeriodPhrase)."
+        }
+
         guard !filteredSavedPlacesForQuery.isEmpty else {
             return "Add places to build a cleaner map, movement history, and timeline."
         }
 
-        if let currentPlace = nearbyLocationPlace?.displayName {
-            return "Most of your recent movement is concentrated around \(currentPlace) and a small set of familiar anchors."
+        guard !hubPeriodVisits.isEmpty else {
+            return "No saved-place visits have landed for \(locationsHeroPeriodPhrase) yet, so your map is ready for the next stop."
         }
 
-        if let topCategory = hubPlaceCategoryBreakdown.first?.name, !topCategory.isEmpty {
-            return "Your recent movement is concentrated between \(topCategory.lowercased()) stops and a small set of anchor places."
+        let uniqueText = "\(hubUniqueVisitedPlacesCount) unique stop\(hubUniqueVisitedPlacesCount == 1 ? "" : "s")"
+        let commonNames = hubVisitedPlacesByCount.prefix(3).map(\.place.displayName)
+        let commonText = commonNames.isEmpty ? nil : "Most common: \(commonNames.joined(separator: ", "))."
+        let revisitText = hubRevisitedPlacesCount > 0
+            ? "\(hubRevisitedPlacesCount) revisited."
+            : nil
+        let timeText = locationsHeroDominantTimeWindow.map { "Mostly \($0)." }
+
+        return [uniqueText + ".", commonText, revisitText, timeText]
+            .compactMap { $0 }
+            .joined(separator: " ")
+    }
+
+    private var locationsHeroFavouritePlaces: [SavedPlace] {
+        filteredFavouritePlacesForQuery
+            .sorted { lhs, rhs in
+                let lhsCount = hubVisitedPlacesByCount.first(where: { $0.place.id == lhs.id })?.count ?? locationVisitCountsByPlaceId[lhs.id] ?? 0
+                let rhsCount = hubVisitedPlacesByCount.first(where: { $0.place.id == rhs.id })?.count ?? locationVisitCountsByPlaceId[rhs.id] ?? 0
+
+                if lhsCount == rhsCount {
+                    return lhs.displayName < rhs.displayName
+                }
+
+                return lhsCount > rhsCount
+            }
+    }
+
+    private var displayedHeroFavouritePlaces: [SavedPlace] {
+        if showAllHeroFavourites {
+            return locationsHeroFavouritePlaces
         }
 
-        return "Most of your recent movement is concentrated between work, home, and a small set of anchor stops."
+        return Array(locationsHeroFavouritePlaces.prefix(2))
+    }
+
+    private func locationsHeroFavouriteSubtitle(for place: SavedPlace) -> String {
+        let periodCount = hubVisitedPlacesByCount.first(where: { $0.place.id == place.id })?.count ?? 0
+        if periodCount > 0 {
+            return "\(periodCount) visit\(periodCount == 1 ? "" : "s") \(locationsHeroPeriodPhrase)"
+        }
+        return place.category
     }
 
     private func locationsHeroCard() -> some View {
@@ -1673,10 +1784,19 @@ struct MapsViewNew: View, Searchable {
                         .foregroundColor(Color.appTextSecondary(colorScheme))
                         .tracking(1.1)
 
-                    Text(locationsHeroHeadline)
-                        .font(FontManager.geist(size: 29, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                        .lineLimit(2)
+                    Button(action: {
+                        guard hasResolvedHubPeriodVisits, !hubActivePlaces.isEmpty else { return }
+                        HapticManager.shared.selection()
+                        showActivePlacesSheet = true
+                    }) {
+                        Text(locationsHeroHeadline)
+                            .font(FontManager.geist(size: 29, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                            .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
 
                     Text(locationsHeroSupportingText)
                         .font(FontManager.geist(size: 13, weight: .regular))
@@ -1706,7 +1826,7 @@ struct MapsViewNew: View, Searchable {
                 }
             }
 
-            if !filteredFavouritePlacesForQuery.isEmpty {
+            if !locationsHeroFavouritePlaces.isEmpty {
                 embeddedFavouritesOverview
             }
         }
@@ -1732,7 +1852,7 @@ struct MapsViewNew: View, Searchable {
 
             MiniMapView(
                 places: filteredSavedPlacesForQuery,
-                currentLocation: locationService.currentLocation,
+                currentLocation: currentMapLocation,
                 colorScheme: colorScheme,
                 showsExpandControl: false,
                 onPlaceTap: { place in
@@ -1980,37 +2100,6 @@ struct MapsViewNew: View, Searchable {
         return names
     }
 
-    private var locationsTimelineEntrySection: some View {
-        mapsSectionCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("TIMELINE")
-                    .font(FontManager.geist(size: 11, weight: .semibold))
-                    .foregroundColor(Color.appTextSecondary(colorScheme))
-                    .tracking(1.0)
-
-                Text("Open your day-by-day movement history, visit notes, receipts, and people connections.")
-                    .font(FontManager.geist(size: 13, weight: .regular))
-                    .foregroundColor(Color.appTextSecondary(colorScheme))
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button(action: {
-                    openHubDetail(.timeline)
-                }) {
-                    Text("Open timeline")
-                        .font(FontManager.geist(size: 13, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 42)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(hubAccentColor)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-        }
-    }
-
     private var savedOverviewCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
@@ -2019,10 +2108,9 @@ struct MapsViewNew: View, Searchable {
                         .font(FontManager.geist(size: 28, weight: .semibold))
                         .foregroundColor(Color.appTextPrimary(colorScheme))
 
-                    Text(hubCurrentLocationSummary)
+                    hubCurrentLocationSummaryView(lineLimit: 2)
                         .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(Color.appTextSecondary(colorScheme))
-                        .lineLimit(2)
                 }
 
                 Spacer(minLength: 12)
@@ -2159,53 +2247,98 @@ struct MapsViewNew: View, Searchable {
 
     private var embeddedFavouritesOverview: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Favourites")
-                .font(FontManager.geist(size: 13, weight: .semibold))
-                .foregroundColor(Color.appTextPrimary(colorScheme))
+            HStack(alignment: .center, spacing: 8) {
+                Label("Favourites", systemImage: "star.fill")
+                    .font(FontManager.geist(size: 13, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 14) {
-                    ForEach(filteredFavouritePlacesForQuery, id: \.id) { place in
-                        Button(action: {
-                            selectedPlace = place
-                        }) {
-                            HStack(spacing: 9) {
-                                PlaceImageView(place: place, size: 38, cornerRadius: 10)
+                Spacer(minLength: 8)
 
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(place.displayName)
-                                        .font(FontManager.geist(size: 12, weight: .semibold))
-                                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                                        .lineLimit(1)
+                Text("\(filteredFavouritePlacesForQuery.count)")
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .padding(.horizontal, 10)
+                    .frame(height: 26)
+                    .background(
+                        Capsule()
+                            .fill(Color.appChip(colorScheme))
+                    )
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+                    )
 
-                                    Text(place.category)
-                                        .font(FontManager.geist(size: 10, weight: .regular))
-                                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                                        .lineLimit(1)
-                                }
-                            }
-                            .padding(.vertical, 2)
-                            .contentShape(Rectangle())
+                if locationsHeroFavouritePlaces.count > 2 {
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            showAllHeroFavourites.toggle()
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .contextMenu {
-                            Button(action: {
-                                placeToRename = place
-                                newPlaceName = place.customName ?? place.name
-                                showingRenameAlert = true
-                            }) {
-                                Label("Rename", systemImage: "pencil")
+                    }) {
+                        Image(systemName: showAllHeroFavourites ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                            .frame(width: 26, height: 26)
+                            .background(
+                                Circle()
+                                    .fill(Color.appChip(colorScheme))
+                            )
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+
+            VStack(spacing: 8) {
+                ForEach(displayedHeroFavouritePlaces, id: \.id) { place in
+                    Button(action: {
+                        selectedPlace = place
+                    }) {
+                        HStack(spacing: 10) {
+                            PlaceImageView(place: place, size: 40, cornerRadius: 12)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(place.displayName)
+                                    .font(FontManager.geist(size: 12, weight: .semibold))
+                                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                                    .lineLimit(1)
+
+                                Text(locationsHeroFavouriteSubtitle(for: place))
+                                    .font(FontManager.geist(size: 10, weight: .medium))
+                                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                                    .lineLimit(1)
                             }
 
-                            Button(role: .destructive, action: { locationsManager.deletePlace(place) }) {
-                                Label("Delete", systemImage: "trash")
-                            }
+                            Spacer(minLength: 0)
+
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(Color.homeGlassAccent)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 14)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .contextMenu {
+                        Button(action: {
+                            placeToRename = place
+                            newPlaceName = place.customName ?? place.name
+                            showingRenameAlert = true
+                        }) {
+                            Label("Rename", systemImage: "pencil")
+                        }
+
+                        Button(role: .destructive, action: { locationsManager.deletePlace(place) }) {
+                            Label("Delete", systemImage: "trash")
                         }
                     }
                 }
-                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, -16)
         }
     }
 
@@ -2213,7 +2346,7 @@ struct MapsViewNew: View, Searchable {
     private var miniMapSection: some View {
         MiniMapView(
             places: filteredSavedPlacesForQuery,
-            currentLocation: locationService.currentLocation,
+            currentLocation: currentMapLocation,
             colorScheme: colorScheme,
             showsExpandControl: true,
             onPlaceTap: { place in
@@ -2307,7 +2440,7 @@ struct MapsViewNew: View, Searchable {
                         groupedPlaces: groupedPlaces,
                         expandedCategories: $expandedCategories,
                         colorScheme: colorScheme,
-                        currentLocation: locationService.currentLocation,
+                        currentLocation: currentMapLocation,
                         onPlaceTap: { place in
                             selectedPlace = place
                         },
@@ -2347,8 +2480,8 @@ struct MapsViewNew: View, Searchable {
                     .foregroundColor(hubPrimaryTextColor)
 
                 HStack(spacing: 10) {
-                    mapsMiniMetric(title: "People", value: "\(peopleManager.people.count)")
-                    mapsMiniMetric(title: "Favorites", value: "\(peopleManager.people.filter(\.isFavourite).count)")
+                    mapsMiniMetric(title: "People", value: "\(pageState.peopleCount)")
+                    mapsMiniMetric(title: "Favorites", value: "\(pageState.favouritePeopleCount)")
                     mapsMiniMetric(title: "New month", value: "\(peopleAddedThisMonth)")
                 }
             }
@@ -2379,6 +2512,7 @@ struct MapsViewNew: View, Searchable {
 
     private func updateCurrentLocation() {
         // Get current location from LocationService
+        currentMapLocation = locationService.currentLocation
         if let currentLoc = locationService.currentLocation {
             // OPTIMIZATION: Debounce location updates - only process if moved 50m+
             let debounceThreshold: CLLocationDistance = 50.0 // 50 meters
@@ -2413,7 +2547,6 @@ struct MapsViewNew: View, Searchable {
                         nearbyLocation = place.displayName
                         nearbyLocationFolder = place.category
                         nearbyLocationPlace = place
-                        startLocationTimer()
                         print("✅ Entered geofence: \(place.displayName) (Folder: \(place.category))")
                     }
 
@@ -2469,10 +2602,6 @@ struct MapsViewNew: View, Searchable {
                     distanceToNearest = nil
                 }
 
-                // Clear elapsed time when not in any geofence
-                elapsedTimeString = ""
-                stopLocationTimer()
-
                 // Auto-complete any active visits if user has moved outside geofences
                 Task {
                     await geofenceManager.autoCompleteVisitsIfOutOfRange(
@@ -2487,8 +2616,6 @@ struct MapsViewNew: View, Searchable {
             nearbyLocationFolder = nil
             nearbyLocationPlace = nil
             distanceToNearest = nil
-            elapsedTimeString = ""
-            stopLocationTimer()
         }
     }
 
@@ -2635,36 +2762,11 @@ struct MapsViewNew: View, Searchable {
 
     // Filter places based on location search text
     private func getFilteredPlaces() -> [SavedPlace] {
-        if locationSearchText.isEmpty {
-            return locationsManager.savedPlaces
-        }
-
-        let searchLower = locationSearchText.lowercased()
-        return locationsManager.savedPlaces.filter { place in
-            let countryMatch = place.country?.lowercased().contains(searchLower) ?? false
-            let provinceMatch = place.province?.lowercased().contains(searchLower) ?? false
-            let cityMatch = place.city?.lowercased().contains(searchLower) ?? false
-            let addressMatch = place.address.lowercased().contains(searchLower)
-            let nameMatch = place.displayName.lowercased().contains(searchLower)
-            return countryMatch || provinceMatch || cityMatch || addressMatch || nameMatch
-        }
+        pageState.filteredSavedPlaces
     }
     
     private func getPlacesForSuperCategory(_ superCategory: LocationSuperCategory) -> [String: [SavedPlace]] {
-        let filtered = getFilteredPlaces()
-        var result: [String: [SavedPlace]] = [:]
-
-        for category in locationsManager.categories {
-            if locationsManager.getSuperCategory(for: category) == superCategory {
-                let categoryPlaces = filtered.filter { $0.category == category }
-                // Always include user-created folders (even if empty); skip others when empty
-                if !categoryPlaces.isEmpty || locationsManager.userFolders.contains(category) {
-                    result[category] = categoryPlaces
-                }
-            }
-        }
-
-        return result
+        pageState.groupedPlaces(for: superCategory)
     }
 
     /// Get filtered places for a super-category with cuisine filtering applied
@@ -2686,52 +2788,7 @@ struct MapsViewNew: View, Searchable {
         return groupedPlaces
     }
 
-    private func updateElapsedTime() {
-        // Get the active visit entry time for the current location from GeofenceManager
-        // This uses REAL geofence entry time, not artificial tracking
-        if let nearbyLoc = nearbyLocation {
-            // Find the place by display name
-            if let place = locationsManager.savedPlaces.first(where: { $0.displayName == nearbyLoc }) {
-                // Only show elapsed time if geofence manager has recorded an entry
-                if let activeVisit = geofenceManager.activeVisits[place.id] {
-                    let elapsed = Date().timeIntervalSince(activeVisit.entryTime)
-                    elapsedTimeString = FormatterCache.formatElapsedTime(elapsed)
-                    // Debug: Verify we're using real geofence data
-                    // print("⏱️ Timer using REAL geofence data: \(place.displayName) - Entry: \(activeVisit.entryTime)")
-                } else {
-                    // No active visit record from geofence - don't show time
-                    // Debug: Track when timer can't show because geofence event hasn't fired
-                    // print("⚠️ No geofence entry recorded yet for: \(nearbyLoc) (proximity detected but geofence event pending)")
-                    elapsedTimeString = ""
-                }
-            } else {
-                print("⚠️ Location '\(nearbyLoc)' not found in saved places")
-                elapsedTimeString = ""
-            }
-        } else {
-            elapsedTimeString = ""
-        }
-    }
-
     // OPTIMIZATION: Cache sorted categories to avoid re-sorting on every render
-
-    private func startLocationTimer() {
-        stopLocationTimer()
-        locationTickTask = Task { @MainActor in
-            updateElapsedTime()
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled else { return }
-                updateElapsedTime()
-            }
-        }
-    }
-
-    private func stopLocationTimer() {
-        locationTickTask?.cancel()
-        locationTickTask = nil
-    }
-
 
     // MARK: - Searchable Protocol
 
@@ -3401,9 +3458,7 @@ struct MiniMapView: View {
             }
             .disabled(false)
 
-            // Overlay button to open full map
             VStack {
-                Spacer()
                 HStack {
                     Button(action: {
                         centerOnCurrentLocation()
@@ -3439,20 +3494,13 @@ struct MiniMapView: View {
                             .padding(8)
                     }
                 }
+                Spacer()
             }
         }
         .onAppear {
             if !hasInitialized {
                 updateRegion()
                 hasInitialized = true
-            }
-            
-            // Configure UIScrollView for smooth scrolling (same as home page)
-            DispatchQueue.main.async {
-                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let window = windowScene.windows.first {
-                    configureScrollViewsForSmoothScrolling(in: window)
-                }
             }
         }
     }
@@ -3495,18 +3543,6 @@ struct MiniMapView: View {
         withAnimation(.easeInOut(duration: 0.25)) {
             region.center = currentLoc.coordinate
             region.span = MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
-        }
-    }
-    
-    // Configure all UIScrollViews to delay content touches for smoother scrolling
-    // Same implementation as MainAppView for consistent behavior
-    private func configureScrollViewsForSmoothScrolling(in view: UIView) {
-        if let scrollView = view as? UIScrollView {
-            scrollView.delaysContentTouches = true
-            scrollView.canCancelContentTouches = true
-        }
-        for subview in view.subviews {
-            configureScrollViewsForSmoothScrolling(in: subview)
         }
     }
 }
@@ -3748,14 +3784,6 @@ struct FullMapView: View {
         }
         .onAppear {
             initializeRegion()
-            
-            // Configure UIScrollView for smooth scrolling (same as home page)
-            DispatchQueue.main.async {
-                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let window = windowScene.windows.first {
-                    configureScrollViewsForSmoothScrolling(in: window)
-                }
-            }
         }
     }
 
@@ -3802,18 +3830,6 @@ struct FullMapView: View {
                 center: currentLoc.coordinate,
                 span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
             )
-        }
-    }
-    
-    // Configure all UIScrollViews to delay content touches for smoother scrolling
-    // Same implementation as MainAppView for consistent behavior
-    private func configureScrollViewsForSmoothScrolling(in view: UIView) {
-        if let scrollView = view as? UIScrollView {
-            scrollView.delaysContentTouches = true
-            scrollView.canCancelContentTouches = true
-        }
-        for subview in view.subviews {
-            configureScrollViewsForSmoothScrolling(in: subview)
         }
     }
 }
@@ -4208,6 +4224,140 @@ struct FolderBreakdownSheet: View {
         let placesText = "\(placeCount) place\(placeCount == 1 ? "" : "s")"
         guard folder.favourites > 0 else { return placesText }
         return "\(placesText) • \(folder.favourites) favourite\(folder.favourites == 1 ? "" : "s")"
+    }
+
+    private func close() {
+        onDismiss()
+        dismiss()
+    }
+}
+
+struct ActivePlacesSheet: View {
+    let colorScheme: ColorScheme
+    let title: String
+    let subtitle: String
+    let places: [(place: SavedPlace, count: Int)]
+    let onPlaceTap: (SavedPlace) -> Void
+    let onDismiss: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title)
+                            .font(FontManager.geist(size: 16, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                        Text(subtitle)
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                    }
+
+                    Spacer()
+
+                    Button(action: close) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(FontManager.geist(size: 18, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(Color.appSurface(colorScheme))
+
+                if places.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "mappin.and.ellipse")
+                            .font(FontManager.geist(size: 40, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+
+                        Text("No active places yet")
+                            .font(FontManager.geist(size: 14, weight: .medium))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            let maxCount = places.first?.count ?? 1
+
+                            ForEach(Array(places.enumerated()), id: \.element.place.id) { index, item in
+                                Button(action: {
+                                    onPlaceTap(item.place)
+                                    close()
+                                }) {
+                                    HStack(spacing: 12) {
+                                        Text(String(format: "%02d", index + 1))
+                                            .font(FontManager.geist(size: 18, weight: .semibold))
+                                            .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.7))
+                                            .frame(width: 28, alignment: .leading)
+
+                                        PlaceImageView(place: item.place, size: 38, cornerRadius: 12)
+
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(item.place.displayName)
+                                                .font(FontManager.geist(size: 14, weight: .semibold))
+                                                .foregroundColor(Color.appTextPrimary(colorScheme))
+                                                .lineLimit(1)
+
+                                            Text(item.place.category)
+                                                .font(FontManager.geist(size: 11, weight: .regular))
+                                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                                .lineLimit(1)
+                                        }
+
+                                        Spacer(minLength: 12)
+
+                                        VStack(alignment: .trailing, spacing: 5) {
+                                            Text("\(item.count)")
+                                                .font(FontManager.geist(size: 18, weight: .semibold))
+                                                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                                            GeometryReader { geometry in
+                                                ZStack(alignment: .leading) {
+                                                    Capsule()
+                                                        .fill(Color.appChip(colorScheme))
+
+                                                    Capsule()
+                                                        .fill(Color.appTextPrimary(colorScheme).opacity(colorScheme == .dark ? 0.4 : 0.18))
+                                                        .frame(width: max(10, geometry.size.width * (CGFloat(item.count) / CGFloat(max(maxCount, 1)))))
+                                                }
+                                            }
+                                            .frame(width: 58, height: 6)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 14)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+
+                                if index < places.count - 1 {
+                                    Divider()
+                                        .overlay(Color.appBorder(colorScheme))
+                                        .padding(.leading, 70)
+                                }
+                            }
+                        }
+                        .background(
+                            RoundedRectangle(cornerRadius: 18)
+                                .fill(Color.appSectionCard(colorScheme))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 16)
+                    }
+                }
+            }
+            .background(Color.appBackground(colorScheme))
+            .navigationBarHidden(true)
+        }
     }
 
     private func close() {

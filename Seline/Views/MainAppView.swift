@@ -1,17 +1,81 @@
 import SwiftUI
+import Combine
 import CoreLocation
 import WidgetKit
 import UIKit
+import GoogleSignIn
 
 struct MainAppView: View {
+    private struct HomeSearchIndex {
+        struct TaskEntry {
+            let task: TaskItem
+            let titleLower: String
+            let taskDate: Date
+            let isRecurring: Bool
+        }
+
+        struct EmailEntry {
+            let email: Email
+            let subjectLower: String
+            let senderLower: String
+            let snippetLower: String
+        }
+
+        struct ReceiptEntry {
+            let receipt: ReceiptStat
+            let note: Note?
+            let titleLower: String
+            let categoryLower: String
+            let noteTextLower: String
+        }
+
+        struct NoteEntry {
+            let note: Note
+            let titleLower: String
+            let contentLower: String
+            let isSearchable: Bool
+        }
+
+        struct LocationEntry {
+            let place: SavedPlace
+            let nameLower: String
+            let addressLower: String
+            let customNameLower: String
+        }
+
+        struct ExpenseEntry {
+            let expense: RecurringExpense
+            let titleLower: String
+            let categoryLower: String
+            let descriptionLower: String
+        }
+
+        static let empty = HomeSearchIndex(
+            tasks: [],
+            emails: [],
+            receipts: [],
+            notes: [],
+            locations: [],
+            expenses: []
+        )
+
+        let tasks: [TaskEntry]
+        let emails: [EmailEntry]
+        let receipts: [ReceiptEntry]
+        let notes: [NoteEntry]
+        let locations: [LocationEntry]
+        let expenses: [ExpenseEntry]
+    }
+
     @EnvironmentObject var authManager: AuthenticationManager
     @EnvironmentObject var deepLinkHandler: DeepLinkHandler
-    @StateObject private var homeState = HomeDashboardState()
+    private let pageRefreshCoordinator = PageRefreshCoordinator.shared
+    @State private var homeState = HomeDashboardState()
     @StateObject private var locationsManager = LocationsManager.shared
-    @StateObject private var locationService = LocationService.shared
+    private let locationService = LocationService.shared
     @StateObject private var geofenceManager = GeofenceManager.shared
-    @StateObject private var searchService = SearchService.shared
-    @StateObject private var widgetManager = WidgetManager.shared
+    private let searchService = SearchService.shared
+    private let widgetManager = WidgetManager.shared
     private let emailService = EmailService.shared
     private let taskManager = TaskManager.shared
     private let notesManager = NotesManager.shared
@@ -44,6 +108,8 @@ struct MainAppView: View {
     @Namespace private var noteTransitionNamespace
     @State private var showReceiptStats = false
     @State private var searchDebounceTask: Task<Void, Never>? = nil  // Track debounce task
+    @State private var homeSearchIndexRefreshTask: Task<Void, Never>? = nil
+    @State private var homeSearchIndex: HomeSearchIndex = .empty
     // OPTIMIZATION: Cache flattened tasks to avoid recomputing on every search
     @State private var cachedFlattenedTasks: [TaskItem] = []
     @State private var lastCacheUpdate: Date = .distantPast
@@ -52,8 +118,6 @@ struct MainAppView: View {
     @State private var nearbyLocationFolder: String? = nil
     @State private var nearbyLocationPlace: SavedPlace? = nil
     @State private var distanceToNearest: Double? = nil
-    @State private var elapsedTimeString: String = ""
-    @State private var locationTickTask: Task<Void, Never>?
     @State private var lastLocationCheckCoordinate: CLLocationCoordinate2D?
     @State private var hasLoadedIncompleteVisits = false
     @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
@@ -74,6 +138,11 @@ struct MainAppView: View {
     @State private var isSidebarOverlayVisible = false
     @State private var isEmailDetailOpen = false
     @State private var syncedWidgetVisitId: UUID? = nil
+    @State private var loadTodaysVisitsTask: Task<Void, Never>?
+    @State private var allLocationsRefreshTask: Task<Void, Never>?
+    @State private var lastAllLocationsRefreshAt: Date = .distantPast
+    @State private var isFetchingProfilePicture = false
+    @State private var isViewingNoteInNavigation = false
 
     /// Returns the current active visit and place if user is at a saved location and should see the visit reason popup
     private var currentActiveVisitForReasonPopup: (visit: LocationVisitRecord, place: SavedPlace)? {
@@ -86,13 +155,6 @@ struct MainAppView: View {
             return nil
         }
         return (visit, place)
-    }
-
-    private var isAnySheetPresented: Bool {
-        showingNewNoteSheet || searchSelectedNote != nil || authManager.showLocationSetup ||
-        searchSelectedEmail != nil || searchSelectedTask != nil ||
-        showingAddEventPopup || showReceiptStats || showAllLocationsSheet ||
-        selectedLocationPlace != nil || showingTodoPhotoImportSheet
     }
 
     private func formatTime(_ date: Date) -> String {
@@ -125,30 +187,33 @@ struct MainAppView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var resolvedProfilePictureURL: String? {
+        if let profilePictureUrl, !profilePictureUrl.isEmpty {
+            return profilePictureUrl
+        }
+
+        if let googleProfileURL = GIDSignIn.sharedInstance.currentUser?.profile?.imageURL(withDimension: 128)?.absoluteString,
+           !googleProfileURL.isEmpty {
+            return googleProfileURL
+        }
+
+        return authManager.currentUser?.profile?.imageURL(withDimension: 128)?.absoluteString
+    }
+
     private var isHomeSearchPresented: Bool {
         isSearchFocused || !trimmedHomeSearchText.isEmpty
+    }
+
+    private var shouldSuppressHomeSearchResults: Bool {
+        searchService.pendingEventCreation != nil ||
+        searchService.pendingNoteCreation != nil ||
+        searchService.pendingNoteUpdate != nil
     }
 
     private func clearHomeSearch() {
         searchText = ""
         searchResults = []
         isSearchFocused = false
-    }
-
-    private func isNoteInFolderHierarchy(_ note: Note, named folderName: String) -> Bool {
-        guard let rootFolderId = notesManager.folders.first(where: { $0.name == folderName })?.id,
-              let folderId = note.folderId else {
-            return false
-        }
-
-        var currentFolderId: UUID? = folderId
-        while let currentId = currentFolderId {
-            if currentId == rootFolderId {
-                return true
-            }
-            currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
-        }
-        return false
     }
 
     private func homeSearchBadgeLabel(for type: OverlaySearchResultType) -> String {
@@ -170,61 +235,38 @@ struct MainAppView: View {
         }
     }
 
-    /// Compute search results (called with debounce, not on every render)
-    private func performSearchComputation() -> [OverlaySearchResult] {
-        let query = trimmedHomeSearchText
+    /// Compute search results against a prebuilt search index.
+    private func performSearchComputation(query: String, index: HomeSearchIndex) -> [OverlaySearchResult] {
         guard !query.isEmpty else {
-            return []
-        }
-
-        // If there's a pending action (event or note creation), show action UI instead
-        if searchService.pendingEventCreation != nil {
-            return []
-        }
-        if searchService.pendingNoteCreation != nil {
-            return []
-        }
-        if searchService.pendingNoteUpdate != nil {
             return []
         }
 
         var results: [OverlaySearchResult] = []
         let lowercasedSearch = query.lowercased()
 
-        // OPTIMIZATION: Use cached flattened tasks, refresh every 30 seconds
-        let cacheAge = Date().timeIntervalSince(lastCacheUpdate)
-        let allTasks: [TaskItem]
-        if cacheAge > 30 || cachedFlattenedTasks.isEmpty {
-            allTasks = taskManager.getAllFlattenedTasks()
-            cachedFlattenedTasks = allTasks
-            lastCacheUpdate = Date()
-        } else {
-            allTasks = cachedFlattenedTasks
-        }
-        let matchingTasks = allTasks.filter {
-            $0.title.lowercased().contains(lowercasedSearch)
+        let matchingTasks = index.tasks.filter {
+            $0.titleLower.contains(lowercasedSearch)
         }
 
         // Deduplicate: for each unique title, keep only ONE result
-        var tasksByTitle: [String: [TaskItem]] = [:]
+        var tasksByTitle: [String: [HomeSearchIndex.TaskEntry]] = [:]
 
         for task in matchingTasks {
-            let titleLower = task.title.lowercased()
-            if tasksByTitle[titleLower] == nil {
-                tasksByTitle[titleLower] = []
+            if tasksByTitle[task.titleLower] == nil {
+                tasksByTitle[task.titleLower] = []
             }
-            tasksByTitle[titleLower]?.append(task)
+            tasksByTitle[task.titleLower]?.append(task)
         }
 
-        var deduplicatedTasks: [TaskItem] = []
+        var deduplicatedTasks: [HomeSearchIndex.TaskEntry] = []
         let today = Calendar.current.startOfDay(for: Date())
 
         for (_, tasks) in tasksByTitle {
-            var bestTask: TaskItem?
+            var bestTask: HomeSearchIndex.TaskEntry?
             var bestTaskDate: Date?
 
             for task in tasks {
-                let taskDate = task.targetDate ?? task.createdAt
+                let taskDate = task.taskDate
 
                 if task.isRecurring {
                     let taskStartDate = Calendar.current.startOfDay(for: taskDate)
@@ -251,10 +293,10 @@ struct MainAppView: View {
         for task in deduplicatedTasks.prefix(3) {
             results.append(OverlaySearchResult(
                 type: .event,
-                title: task.title,
-                subtitle: formatEventDateAndTime(targetDate: task.targetDate, scheduledTime: task.scheduledTime),
+                title: task.task.title,
+                subtitle: formatEventDateAndTime(targetDate: task.task.targetDate, scheduledTime: task.task.scheduledTime),
                 icon: "calendar",
-                task: task,
+                task: task.task,
                 email: nil,
                 note: nil,
                 location: nil,
@@ -262,137 +304,247 @@ struct MainAppView: View {
             ))
         }
 
-        // Search emails
-        let allEmails = emailService.inboxEmails + emailService.sentEmails
-        let matchingEmails = allEmails.filter {
-            $0.subject.lowercased().contains(lowercasedSearch) ||
-            $0.sender.displayName.lowercased().contains(lowercasedSearch) ||
-            $0.snippet.lowercased().contains(lowercasedSearch)
+        let matchingEmails = index.emails.filter {
+            $0.subjectLower.contains(lowercasedSearch) ||
+            $0.senderLower.contains(lowercasedSearch) ||
+            $0.snippetLower.contains(lowercasedSearch)
         }
 
         // Limit to 3 most relevant emails for faster search
         for email in matchingEmails.prefix(3) {
             results.append(OverlaySearchResult(
                 type: .email,
-                title: email.subject,
-                subtitle: "from \(email.sender.displayName)",
+                title: email.email.subject,
+                subtitle: "from \(email.email.sender.displayName)",
                 icon: "envelope",
                 task: nil,
-                email: email,
+                email: email.email,
                 note: nil,
                 location: nil,
                 category: nil
             ))
         }
 
-        // Search receipts (from Receipts folder notes)
-        let receiptStatistics = notesManager.getReceiptStatistics()
-        let allReceipts = receiptStatistics.flatMap { yearSummary in
-            yearSummary.monthlySummaries.flatMap { $0.receipts }
+        let matchingReceipts = index.receipts.filter {
+            $0.titleLower.contains(lowercasedSearch) ||
+                $0.categoryLower.contains(lowercasedSearch) ||
+                $0.noteTextLower.contains(lowercasedSearch)
         }
-        let notesById = Dictionary(uniqueKeysWithValues: notesManager.notes.map { ($0.id, $0) })
-        let receiptNoteIds = Set(allReceipts.map(\.noteId))
 
-        let matchingReceipts = allReceipts.filter {
-            let receiptNoteText = notesById[$0.noteId]?.displayContent.lowercased() ?? ""
-            return $0.title.lowercased().contains(lowercasedSearch) ||
-                $0.category.lowercased().contains(lowercasedSearch) ||
-                receiptNoteText.contains(lowercasedSearch)
-        }
-        
         // Limit to 3 most relevant receipts for faster search
         for receipt in matchingReceipts.prefix(3) {
-            // Find the note for this receipt
-            if let note = notesManager.notes.first(where: { $0.id == receipt.noteId }) {
-                let dateString = FormatterCache.shortDate.string(from: receipt.date)
-                
+            if let note = receipt.note {
+                let dateString = FormatterCache.shortDate.string(from: receipt.receipt.date)
+
                 results.append(OverlaySearchResult(
                     type: .receipt,
-                    title: receipt.title,
-                    subtitle: "\(CurrencyParser.formatAmount(receipt.amount)) • \(dateString)",
+                    title: receipt.receipt.title,
+                    subtitle: "\(CurrencyParser.formatAmount(receipt.receipt.amount)) • \(dateString)",
                     icon: "doc.text",
                     task: nil,
                     email: nil,
                     note: note,
                     location: nil,
-                    category: receipt.category
+                    category: receipt.receipt.category
                 ))
             }
         }
 
-        // Search notes, excluding receipt-backed notes so receipts only appear once
-        let matchingNotes = notesManager.notes.filter {
-            !receiptNoteIds.contains($0.id) &&
-            !isNoteInFolderHierarchy($0, named: "Receipts") &&
-            ($0.title.lowercased().contains(lowercasedSearch) ||
-             $0.displayContent.lowercased().contains(lowercasedSearch))
+        let matchingNotes = index.notes.filter {
+            $0.isSearchable &&
+                ($0.titleLower.contains(lowercasedSearch) ||
+                 $0.contentLower.contains(lowercasedSearch))
         }
 
         // Limit to 3 most relevant notes for faster search
         for note in matchingNotes.prefix(3) {
             results.append(OverlaySearchResult(
                 type: .note,
-                title: note.title,
-                subtitle: note.formattedDateModified,
-                icon: note.isJournalWeeklyRecap ? "book.closed.fill" : (note.isJournalEntry ? "square.and.pencil" : "note.text"),
+                title: note.note.title,
+                subtitle: note.note.formattedDateModified,
+                icon: note.note.isJournalWeeklyRecap ? "book.closed.fill" : (note.note.isJournalEntry ? "square.and.pencil" : "note.text"),
                 task: nil,
                 email: nil,
-                note: note,
+                note: note.note,
                 location: nil,
                 category: nil
             ))
         }
 
-        // Search locations
-        let locationsManager = LocationsManager.shared
-        let matchingLocations = locationsManager.savedPlaces.filter {
-            $0.name.lowercased().contains(lowercasedSearch) ||
-            $0.address.lowercased().contains(lowercasedSearch) ||
-            ($0.customName?.lowercased().contains(lowercasedSearch) ?? false)
+        let matchingLocations = index.locations.filter {
+            $0.nameLower.contains(lowercasedSearch) ||
+            $0.addressLower.contains(lowercasedSearch) ||
+            $0.customNameLower.contains(lowercasedSearch)
         }
 
         // Limit to 3 most relevant locations for faster search
         for location in matchingLocations.prefix(3) {
             results.append(OverlaySearchResult(
                 type: .location,
-                title: location.displayName,
-                subtitle: location.address,
+                title: location.place.displayName,
+                subtitle: location.place.address,
                 icon: "mappin.circle.fill",
                 task: nil,
                 email: nil,
                 note: nil,
-                location: location,
+                location: location.place,
                 category: nil
             ))
         }
-        
-        // Search recurring expenses (from cache - will be empty if not loaded yet)
-        if let cachedExpenses: [RecurringExpense] = CacheManager.shared.get(forKey: CacheManager.CacheKey.allRecurringExpenses) {
-            let matchingExpenses = cachedExpenses.filter {
-                $0.title.lowercased().contains(lowercasedSearch) ||
-                ($0.category?.lowercased().contains(lowercasedSearch) ?? false) ||
-                ($0.description?.lowercased().contains(lowercasedSearch) ?? false)
-            }
-            
-            // Limit to 3 most relevant expenses for faster search
-            for expense in matchingExpenses.prefix(3) {
-                let nextDateString = FormatterCache.shortDate.string(from: expense.nextOccurrence)
-                
-                results.append(OverlaySearchResult(
-                    type: .recurringExpense,
-                    title: expense.title,
-                    subtitle: "\(expense.formattedAmount) • Next: \(nextDateString)",
-                    icon: "repeat.circle",
-                    task: nil,
-                    email: nil,
-                    note: nil,
-                    location: nil,
-                    category: expense.category
-                ))
-            }
+
+        let matchingExpenses = index.expenses.filter {
+            $0.titleLower.contains(lowercasedSearch) ||
+                $0.categoryLower.contains(lowercasedSearch) ||
+                $0.descriptionLower.contains(lowercasedSearch)
+        }
+
+        // Limit to 3 most relevant expenses for faster search
+        for expense in matchingExpenses.prefix(3) {
+            let nextDateString = FormatterCache.shortDate.string(from: expense.expense.nextOccurrence)
+
+            results.append(OverlaySearchResult(
+                type: .recurringExpense,
+                title: expense.expense.title,
+                subtitle: "\(expense.expense.formattedAmount) • Next: \(nextDateString)",
+                icon: "repeat.circle",
+                task: nil,
+                email: nil,
+                note: nil,
+                location: nil,
+                category: expense.expense.category
+            ))
         }
 
         return results
+    }
+
+    private func buildHomeSearchIndex() -> HomeSearchIndex {
+        let tasksSnapshot: [TaskItem]
+        let cacheAge = Date().timeIntervalSince(lastCacheUpdate)
+        if cacheAge > 30 || cachedFlattenedTasks.isEmpty {
+            tasksSnapshot = taskManager.getAllFlattenedTasks()
+            cachedFlattenedTasks = tasksSnapshot
+            lastCacheUpdate = Date()
+        } else {
+            tasksSnapshot = cachedFlattenedTasks
+        }
+
+        let emailsSnapshot = emailService.inboxEmails + emailService.sentEmails
+        let notesSnapshot = notesManager.notes
+        let foldersSnapshot = notesManager.folders
+        let savedPlacesSnapshot = locationsManager.savedPlaces
+        let recurringExpensesSnapshot: [RecurringExpense] =
+            CacheManager.shared.get(forKey: CacheManager.CacheKey.allRecurringExpenses) ?? []
+        let receiptSummaries = notesManager.getReceiptStatistics()
+        let receiptsSnapshot = receiptSummaries.flatMap { yearSummary in
+            yearSummary.monthlySummaries.flatMap { $0.receipts }
+        }
+
+        let folderParentById = Dictionary(uniqueKeysWithValues: foldersSnapshot.map { ($0.id, $0.parentFolderId) })
+        let receiptFolderIds = Set(
+            foldersSnapshot
+                .filter { $0.name.caseInsensitiveCompare("Receipts") == .orderedSame }
+                .map(\.id)
+        )
+        let notesById = Dictionary(uniqueKeysWithValues: notesSnapshot.map { ($0.id, $0) })
+        let receiptNoteIds = Set(receiptsSnapshot.map(\.noteId))
+
+        func isDescendantOfReceiptsFolder(note: Note) -> Bool {
+            guard let folderId = note.folderId else { return false }
+            var currentFolderId: UUID? = folderId
+
+            while let currentId = currentFolderId {
+                if receiptFolderIds.contains(currentId) {
+                    return true
+                }
+                currentFolderId = folderParentById[currentId] ?? nil
+            }
+            return false
+        }
+
+        return HomeSearchIndex(
+            tasks: tasksSnapshot.map { task in
+                HomeSearchIndex.TaskEntry(
+                    task: task,
+                    titleLower: task.title.lowercased(),
+                    taskDate: task.targetDate ?? task.createdAt,
+                    isRecurring: task.isRecurring
+                )
+            },
+            emails: emailsSnapshot.map { email in
+                HomeSearchIndex.EmailEntry(
+                    email: email,
+                    subjectLower: email.subject.lowercased(),
+                    senderLower: email.sender.displayName.lowercased(),
+                    snippetLower: email.snippet.lowercased()
+                )
+            },
+            receipts: receiptsSnapshot.map { receipt in
+                let note = notesById[receipt.noteId]
+                return HomeSearchIndex.ReceiptEntry(
+                    receipt: receipt,
+                    note: note,
+                    titleLower: receipt.title.lowercased(),
+                    categoryLower: receipt.category.lowercased(),
+                    noteTextLower: note?.displayContent.lowercased() ?? ""
+                )
+            },
+            notes: notesSnapshot.map { note in
+                let isSearchable = !receiptNoteIds.contains(note.id) && !isDescendantOfReceiptsFolder(note: note)
+                return HomeSearchIndex.NoteEntry(
+                    note: note,
+                    titleLower: note.title.lowercased(),
+                    contentLower: note.displayContent.lowercased(),
+                    isSearchable: isSearchable
+                )
+            },
+            locations: savedPlacesSnapshot.map { place in
+                HomeSearchIndex.LocationEntry(
+                    place: place,
+                    nameLower: place.name.lowercased(),
+                    addressLower: place.address.lowercased(),
+                    customNameLower: place.customName?.lowercased() ?? ""
+                )
+            },
+            expenses: recurringExpensesSnapshot.map { expense in
+                HomeSearchIndex.ExpenseEntry(
+                    expense: expense,
+                    titleLower: expense.title.lowercased(),
+                    categoryLower: expense.category?.lowercased() ?? "",
+                    descriptionLower: expense.description?.lowercased() ?? ""
+                )
+            }
+        )
+    }
+
+    private func scheduleHomeSearchIndexRefresh() {
+        homeSearchIndexRefreshTask?.cancel()
+        homeSearchIndexRefreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard !Task.isCancelled else { return }
+
+            let nextIndex = buildHomeSearchIndex()
+            guard !Task.isCancelled else { return }
+
+            homeSearchIndex = nextIndex
+
+            let query = trimmedHomeSearchText
+            guard !query.isEmpty, !shouldSuppressHomeSearchResults else { return }
+
+            searchDebounceTask?.cancel()
+            searchDebounceTask = Task {
+                let capturedQuery = query
+                let capturedIndex = nextIndex
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let results = performSearchComputation(query: capturedQuery, index: capturedIndex)
+                    DispatchQueue.main.async {
+                        if trimmedHomeSearchText == capturedQuery {
+                            searchResults = results
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Helper Methods for onChange Consolidation
@@ -462,10 +614,6 @@ struct MainAppView: View {
         }
     }
 
-    private func computeSearchResults() {
-        searchResults = performSearchComputation()
-    }
-
     private func updateCurrentLocation() {
         // Get current location from LocationService
         if let currentLoc = locationService.currentLocation {
@@ -502,8 +650,6 @@ struct MainAppView: View {
                         nearbyLocation = place.displayName
                         nearbyLocationFolder = place.category
                         nearbyLocationPlace = place
-                        startLocationTimer()
-                        updateElapsedTime() // Immediately update widget data
                         print("✅ Entered geofence: \(place.displayName) (Folder: \(place.category))")
                     }
 
@@ -526,9 +672,6 @@ struct MainAppView: View {
                         print("📝 Auto-created visit for already-present location: \(place.displayName)")
                         print("📍 Visit details - ID: \(visit.id.uuidString), UserID: \(visit.userId.uuidString), PlaceID: \(visit.savedPlaceId.uuidString)")
 
-                        // Immediately update widget data
-                        updateElapsedTime()
-
                         // Save to Supabase immediately
                         Task {
                             print("🔄 Starting Supabase save task for \(place.displayName)")
@@ -538,6 +681,7 @@ struct MainAppView: View {
                     }
 
                     distanceToNearest = nil
+                    refreshActiveVisitContext(preferredPlace: place)
                     foundNearby = true
                     break
                 }
@@ -563,9 +707,6 @@ struct MainAppView: View {
                     distanceToNearest = nil
                 }
 
-                // Clear elapsed time when not in any geofence
-                elapsedTimeString = ""
-                stopLocationTimer()
                 clearCurrentLocationWidgetIfNeeded()
 
                 // Auto-complete any active visits if user has moved outside geofences
@@ -586,56 +727,91 @@ struct MainAppView: View {
             nearbyLocationFolder = nil
             nearbyLocationPlace = nil
             distanceToNearest = nil
-            elapsedTimeString = ""
-            stopLocationTimer()
             clearCurrentLocationWidgetIfNeeded()
         }
     }
 
     private func loadTodaysVisits() {
-        Task {
-            // Use centralized state manager to load today's visits
+        loadTodaysVisitsTask?.cancel()
+        loadTodaysVisitsTask = Task {
             await visitState.fetchTodaysVisits()
+            guard !Task.isCancelled else { return }
+
             await MainActor.run {
-                homeState.refreshAll()
-            }
-
-            // Also load all locations with visit counts for "See All" feature
-            var placesWithCounts: [(id: UUID, displayName: String, visitCount: Int)] = []
-
-            for place in locationsManager.savedPlaces {
-                await LocationVisitAnalytics.shared.fetchStats(for: place.id)
-
-                if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
-                    placesWithCounts.append((
-                        id: place.id,
-                        displayName: place.displayName,
-                        visitCount: stats.totalVisits
-                    ))
+                if selectedTab == .home {
+                    pageRefreshCoordinator.markValidated(.home)
                 }
-            }
-
-            let allSorted = placesWithCounts.sorted { $0.visitCount > $1.visitCount }
-
-            await MainActor.run {
-                allLocations = allSorted  // Store all locations for "See All" feature
             }
         }
     }
 
-    private func updateElapsedTime() {
+    private func refreshAllLocationRankingsIfNeeded(force: Bool = false) {
+        let shouldRefresh = force ||
+            allLocations.isEmpty ||
+            Date().timeIntervalSince(lastAllLocationsRefreshAt) >= 300
+
+        guard shouldRefresh else { return }
+        let places = locationsManager.savedPlaces
+
+        allLocationsRefreshTask?.cancel()
+        allLocationsRefreshTask = Task {
+            guard !places.isEmpty else {
+                await MainActor.run {
+                    allLocations = []
+                    lastAllLocationsRefreshAt = Date()
+                }
+                return
+            }
+
+            await LocationVisitAnalytics.shared.fetchAllStats(for: places)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                let visitStats = LocationVisitAnalytics.shared.visitStats
+                allLocations = places
+                    .map { place in
+                        (
+                            id: place.id,
+                            displayName: place.displayName,
+                            visitCount: visitStats[place.id]?.totalVisits ?? 0
+                        )
+                    }
+                    .sorted { $0.visitCount > $1.visitCount }
+                lastAllLocationsRefreshAt = Date()
+            }
+        }
+    }
+
+    @MainActor
+    private func revalidateHomeIfNeeded(reason: RefreshReason) {
+        pageRefreshCoordinator.pageBecameVisible(.home)
+
+        guard pageRefreshCoordinator.shouldRevalidate(
+            .home,
+            maxAge: pageRefreshCoordinator.defaultMaxAge(for: .home)
+        ) else {
+            return
+        }
+
+        pageRefreshCoordinator.markDirty(.home, reason: reason)
+        homeState.refreshAll()
+        loadTodaysVisits()
+    }
+
+    private func refreshActiveVisitContext(preferredPlace: SavedPlace? = nil) {
         // Get the active visit entry time for the current location from GeofenceManager
         // This uses REAL geofence entry time, not artificial tracking
         // CRITICAL: Check geofenceManager.activeVisits FIRST (most accurate, real-time)
         // This ensures widget updates match calendar view accuracy
-        
+
         // Find any active visit from geofence manager
         var activePlace: SavedPlace? = nil
         var activeVisit: LocationVisitRecord? = nil
-        
+
         // First try to find from nearbyLocation if set
-        if let nearbyLoc = nearbyLocation,
-           let place = locationsManager.savedPlaces.first(where: { $0.displayName == nearbyLoc }),
+        if let place = preferredPlace ?? nearbyLocationPlace ?? nearbyLocation.flatMap({ nearbyLoc in
+            locationsManager.savedPlaces.first(where: { $0.displayName == nearbyLoc })
+        }),
            let visit = geofenceManager.activeVisits[place.id] {
             activePlace = place
             activeVisit = visit
@@ -646,7 +822,7 @@ struct MainAppView: View {
                 if let place = locationsManager.savedPlaces.first(where: { $0.id == placeId }) {
                     activePlace = place
                     activeVisit = visit
-                    
+
                     // Update nearbyLocation to match active visit
                     if nearbyLocation != place.displayName {
                         nearbyLocation = place.displayName
@@ -657,33 +833,12 @@ struct MainAppView: View {
                 }
             }
         }
-        
+
         if let place = activePlace, let visit = activeVisit {
-            let elapsed = Date().timeIntervalSince(visit.entryTime)
-            elapsedTimeString = FormatterCache.formatElapsedTime(elapsed)
             syncCurrentLocationWidgetIfNeeded(place: place, visit: visit)
         } else {
-            // No active visit - clear elapsed time
-            elapsedTimeString = ""
             clearCurrentLocationWidgetIfNeeded()
         }
-    }
-
-    private func startLocationTimer() {
-        stopLocationTimer()
-        locationTickTask = Task { @MainActor in
-            updateElapsedTime()
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled else { return }
-                updateElapsedTime()
-            }
-        }
-    }
-
-    private func stopLocationTimer() {
-        locationTickTask?.cancel()
-        locationTickTask = nil
     }
 
     private func syncCurrentLocationWidgetIfNeeded(place: SavedPlace, visit: LocationVisitRecord) {
@@ -696,7 +851,7 @@ struct MainAppView: View {
         }
 
         syncedWidgetVisitId = visit.id
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "current_location_sync")
     }
 
     private func clearCurrentLocationWidgetIfNeeded() {
@@ -709,7 +864,7 @@ struct MainAppView: View {
         }
 
         syncedWidgetVisitId = nil
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "current_location_clear")
     }
 
     private func handleSearchResultTap(_ result: OverlaySearchResult) {
@@ -794,35 +949,39 @@ struct MainAppView: View {
     var body: some View {
         mainContent
             .onChange(of: searchText) { newValue in
-                // OPTIMIZATION: Debounce search computation with 300ms delay
-                // Cancel previous debounce task if any
                 searchDebounceTask?.cancel()
 
-                if newValue.isEmpty {
+                let trimmedQuery = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedQuery.isEmpty {
                     searchService.cancelAction()
                     searchResults = []
+                } else if shouldSuppressHomeSearchResults {
+                    searchResults = []
                 } else {
-                    // Create a new debounced task on background thread
                     searchDebounceTask = Task {
-                        try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
-                        if !Task.isCancelled {
-                            DispatchQueue.global(qos: .userInitiated).async {
-                                let results = self.performSearchComputation()
-                                DispatchQueue.main.async {
-                                    self.searchResults = results
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        guard !Task.isCancelled else { return }
+
+                        let query = trimmedQuery
+                        let index = homeSearchIndex
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            let results = performSearchComputation(query: query, index: index)
+                            DispatchQueue.main.async {
+                                if trimmedHomeSearchText == query {
+                                    searchResults = results
                                 }
                             }
                         }
                     }
                 }
             }
-            .onChange(of: searchService.pendingEventCreation) { _ in
+            .onReceive(searchService.$pendingEventCreation.dropFirst()) { _ in
                 activateConversationModalIfNeeded()
             }
-            .onChange(of: searchService.pendingNoteCreation) { _ in
+            .onReceive(searchService.$pendingNoteCreation.dropFirst()) { _ in
                 activateConversationModalIfNeeded()
             }
-            .onChange(of: searchService.pendingNoteUpdate) { _ in
+            .onReceive(searchService.$pendingNoteUpdate.dropFirst()) { _ in
                 activateConversationModalIfNeeded()
             }
             .onChange(of: deepLinkHandler.shouldShowNoteCreation) { newValue in
@@ -869,9 +1028,16 @@ struct MainAppView: View {
                 .onAppear {
                     guard !hasAppeared else { return }
                     hasAppeared = true
+                    isViewingNoteInNavigation = notesManager.isViewingNoteInNavigation
+                    pageRefreshCoordinator.markDirty(TabSelection.allCases, reason: .initialLoad)
+                    pageRefreshCoordinator.pageBecameVisible(selectedTab)
 
                     taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
                     deepLinkHandler.processPendingAction()
+                    Task {
+                        await fetchUserProfilePicture()
+                    }
+                    scheduleHomeSearchIndexRefresh()
 
                     Task {
                         let (mergedCount, deletedCount) = await LocationVisitAnalytics.shared.mergeAndCleanupVisits()
@@ -905,8 +1071,8 @@ struct MainAppView: View {
                     if newPhase == .active {
                         updateCurrentLocation()
 
-                        if nearbyLocation != nil {
-                            startLocationTimer()
+                        if selectedTab == .home {
+                            revalidateHomeIfNeeded(reason: .appBecameActive)
                         }
 
                         locationSuggestionService.startMonitoring()
@@ -920,28 +1086,60 @@ struct MainAppView: View {
                             }
                         }
                     } else {
-                        stopLocationTimer()
                         locationSuggestionService.stopMonitoring()
                     }
                 }
                 .onChange(of: locationsManager.savedPlaces) { _ in
+                    pageRefreshCoordinator.markDirty([.home, .maps], reason: .locationDataChanged)
                     loadTodaysVisits()
+                    scheduleHomeSearchIndexRefresh()
+                }
+                .onReceive(notesManager.$notes) { _ in
+                    scheduleHomeSearchIndexRefresh()
+                }
+                .onReceive(notesManager.$folders) { _ in
+                    scheduleHomeSearchIndexRefresh()
+                }
+                .onReceive(notesManager.$isViewingNoteInNavigation.removeDuplicates()) { isViewing in
+                    isViewingNoteInNavigation = isViewing
+                }
+                .onChange(of: showAllLocationsSheet) { isPresented in
+                    guard isPresented else { return }
+                    refreshAllLocationRankingsIfNeeded(force: allLocations.isEmpty)
+                }
+                .onReceive(taskManager.$tasks) { _ in
+                    pageRefreshCoordinator.markDirty([.home, .email], reason: .taskDataChanged)
+                    taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
+                    scheduleHomeSearchIndexRefresh()
+                }
+                .onReceive(emailService.$inboxEmails) { _ in
+                    scheduleHomeSearchIndexRefresh()
+                }
+                .onReceive(emailService.$sentEmails) { _ in
+                    scheduleHomeSearchIndexRefresh()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
+                    pageRefreshCoordinator.markDirty([.home, .maps], reason: .visitHistoryChanged)
                     loadTodaysVisits()
                     updateCurrentLocation()
-                    updateElapsedTime()
-                    WidgetCenter.shared.reloadAllTimelines()
+                    WidgetInvalidationCoordinator.shared.requestReload(reason: "geofence_visit_created")
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
+                    pageRefreshCoordinator.markDirty([.home, .maps], reason: .visitHistoryChanged)
                     loadTodaysVisits()
                     updateCurrentLocation()
-                    updateElapsedTime()
-                    WidgetCenter.shared.reloadAllTimelines()
+                    WidgetInvalidationCoordinator.shared.requestReload(reason: "visit_history_updated")
                 }
-                .onChange(of: locationService.locationName) { _ in
-                    if locationService.locationName != "Unknown Location" {
+                .onReceive(locationService.$locationName.dropFirst()) { locationName in
+                    if locationName != "Unknown Location" {
                         updateCurrentLocation()
+                    }
+                }
+                .onChange(of: selectedTab) { newTab in
+                    pageRefreshCoordinator.pageBecameVisible(newTab)
+
+                    if newTab == .home {
+                        revalidateHomeIfNeeded(reason: .initialLoad)
                     }
                 }
                 .onChange(of: nearbyLocationPlace) { newPlace in
@@ -950,7 +1148,10 @@ struct MainAppView: View {
                     }
                 }
                 .onDisappear {
-                    stopLocationTimer()
+                    loadTodaysVisitsTask?.cancel()
+                    allLocationsRefreshTask?.cancel()
+                    searchDebounceTask?.cancel()
+                    homeSearchIndexRefreshTask?.cancel()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                     if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
@@ -1226,8 +1427,6 @@ struct MainAppView: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(Color.appBackground(colorScheme))
-            .blur(radius: isAnySheetPresented ? 5 : 0)
-            .animation(.gentleFade, value: isAnySheetPresented)
         }
     }
 
@@ -1239,7 +1438,7 @@ struct MainAppView: View {
         searchSelectedEmail == nil &&
         searchSelectedTask == nil &&
         !authManager.showLocationSetup &&
-        !notesManager.isViewingNoteInNavigation &&
+        !isViewingNoteInNavigation &&
         !isSidebarOverlayVisible &&
         !isEmailDetailOpen
     }
@@ -1250,26 +1449,8 @@ struct MainAppView: View {
 
     private func mainContentVStack(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            ZStack {
-                if selectedTab == .home {
-                    homeContentWithoutHeader
-                }
-                if selectedTab == .email {
-                    EmailView(onDetailNavigationChanged: { isShowingDetail in
-                        isEmailDetailOpen = isShowingDetail
-                    })
-                }
-                if selectedTab == .events {
-                    EventsView()
-                }
-                if selectedTab == .notes {
-                    NotesView()
-                }
-                if selectedTab == .maps {
-                    MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
-                }
-            }
-            .frame(maxHeight: .infinity)
+            activeTabContent
+                .frame(maxHeight: .infinity)
 
             if shouldShowFloatingTabBar {
                 BottomTabBar(selectedTab: $selectedTab)
@@ -1280,6 +1461,29 @@ struct MainAppView: View {
         .frame(width: geometry.size.width, height: geometry.size.height)
         .background(Color.appBackground(colorScheme))
         // Swipe gestures disabled - user requested removal of left/right swipe navigation
+    }
+
+    @ViewBuilder
+    private var activeTabContent: some View {
+        switch selectedTab {
+        case .home:
+            HomeTabView(isVisible: true) {
+                homeContentWithoutHeader
+            }
+        case .email:
+            EmailView(
+                isVisible: true,
+                onDetailNavigationChanged: { isShowingDetail in
+                    isEmailDetailOpen = isShowingDetail
+                }
+            )
+        case .events:
+            EventsView(isVisible: true)
+        case .notes:
+            NotesView(isVisible: true)
+        case .maps:
+            MapsViewNew(isVisible: true, externalSelectedFolder: $searchSelectedFolder)
+        }
     }
 
     // Detail Content Removal - mainContentHeader is no longer used
@@ -1736,21 +1940,15 @@ struct MainAppView: View {
             showingSettings = true
         }) {
             Group {
-                if let profilePictureUrl = profilePictureUrl, let url = URL(string: profilePictureUrl) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                        case .failure(_), .empty:
-                            // Fallback to initials or default icon
-                            Image(systemName: "person.circle.fill")
-                                .font(FontManager.geist(size: 36, weight: .medium))
-                        @unknown default:
-                            Image(systemName: "person.circle.fill")
-                                .font(FontManager.geist(size: 36, weight: .medium))
-                        }
+                if let resolvedProfilePictureURL,
+                   let url = URL(string: resolvedProfilePictureURL) {
+                    CachedAsyncImage(url: url.absoluteString) { image in
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } placeholder: {
+                        Image(systemName: "person.circle.fill")
+                            .font(FontManager.geist(size: 36, weight: .medium))
                     }
                     .frame(width: 36, height: 36)
                     .clipShape(Circle())
@@ -1941,7 +2139,6 @@ struct MainAppView: View {
             homeProfileButton
         }
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.top, 4)
     }
 
     private var homeQuickAddButton: some View {
@@ -1986,19 +2183,14 @@ struct MainAppView: View {
             showingSettings = true
         }) {
             Group {
-                if let profilePictureUrl = profilePictureUrl,
-                   let url = URL(string: profilePictureUrl) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                        case .failure(_), .empty:
-                            homeProfileFallbackAvatar
-                        @unknown default:
-                            homeProfileFallbackAvatar
-                        }
+                if let resolvedProfilePictureURL,
+                   let url = URL(string: resolvedProfilePictureURL) {
+                    CachedAsyncImage(url: url.absoluteString) { image in
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } placeholder: {
+                        homeProfileFallbackAvatar
                     }
                 } else {
                     homeProfileFallbackAvatar
@@ -2044,11 +2236,14 @@ struct MainAppView: View {
         VStack(spacing: 0) {
             Color.clear.frame(height: 92)
 
-            ZStack {
-                Color.black.opacity(colorScheme == .dark ? 0.18 : 0.05)
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-            }
+            LinearGradient(
+                colors: [
+                    Color.appBackground(colorScheme).opacity(colorScheme == .dark ? 0.76 : 0.62),
+                    Color.appBackground(colorScheme).opacity(colorScheme == .dark ? 0.92 : 0.84)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
             .contentShape(Rectangle())
             .onTapGesture {
                 clearHomeSearch()
@@ -2073,84 +2268,55 @@ struct MainAppView: View {
     }
 
     private var mainContentWidgets: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 8) {
-                if homeState.hasPendingLocationSuggestion {
-                    NewLocationSuggestionCard()
-                        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .top).combined(with: .opacity),
-                            removal: .move(edge: .top).combined(with: .opacity)
-                        ))
+        HomeWidgetStackView(
+            homeState: homeState,
+            isVisible: selectedTab == .home,
+            isDailyOverviewExpanded: $isDailyOverviewExpanded,
+            currentLocationName: currentLocationName,
+            nearbyLocation: nearbyLocation,
+            nearbyLocationFolder: nearbyLocationFolder,
+            nearbyLocationPlace: nearbyLocationPlace,
+            distanceToNearest: distanceToNearest,
+            selectedPlace: $selectedLocationPlace,
+            showAllLocationsSheet: $showAllLocationsSheet,
+            onNoteSelected: { note in
+                selectedNoteToOpen = note
+            },
+            onEmailSelected: { email in
+                searchSelectedEmail = email
+            },
+            onTaskSelected: { task in
+                searchSelectedTask = task
+            },
+            onPersonSelected: { person in
+                selectedPersonForDetail = person
+            },
+            onAddTask: {
+                showingAddEventPopup = true
+            },
+            onAddTaskFromPhoto: {
+                todoImportSourceType = .camera
+                showingTodoPhotoImportSheet = true
+            },
+            onAddNote: {
+                showingNewNoteSheet = true
+            },
+            onAddReceiptTapped: {
+                showingReceiptAddOptions = true
+            },
+            onReceiptSelected: { receipt in
+                handleSpendingReceiptSelection(receipt)
+            },
+            onRefresh: {
+                Task {
+                    pageRefreshCoordinator.markDirty(.home, reason: .manualRefresh)
+                    await refreshAllData()
+                    await MainActor.run {
+                        homeState.refreshAll()
+                    }
                 }
-
-                DailyOverviewWidget(
-                    isExpanded: $isDailyOverviewExpanded,
-                    onNoteSelected: { note in
-                        selectedNoteToOpen = note
-                    },
-                    onEmailSelected: { email in
-                        searchSelectedEmail = email
-                    },
-                    onTaskSelected: { task in
-                        searchSelectedTask = task
-                    },
-                    onPersonSelected: { person in
-                        selectedPersonForDetail = person
-                    },
-                    onAddTask: {
-                        showingAddEventPopup = true
-                    },
-                    onAddTaskFromPhoto: {
-                        todoImportSourceType = .camera
-                        showingTodoPhotoImportSheet = true
-                    },
-                    onAddNote: {
-                        showingNewNoteSheet = true
-                    }
-                )
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .zIndex(isDailyOverviewExpanded ? 10 : 1)
-
-                SpendingAndETAWidget(
-                    isVisible: selectedTab == .home,
-                    onAddReceiptTapped: {
-                        showingReceiptAddOptions = true
-                    },
-                    onReceiptSelected: { receipt in
-                        handleSpendingReceiptSelection(receipt)
-                    }
-                )
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .padding(.top, 4)
-                .padding(.bottom, 6)
-
-                CurrentLocationCardWidget(
-                    currentLocationName: currentLocationName,
-                    nearbyLocation: nearbyLocation,
-                    nearbyLocationFolder: nearbyLocationFolder,
-                    nearbyLocationPlace: nearbyLocationPlace,
-                    distanceToNearest: distanceToNearest,
-                    elapsedTimeString: elapsedTimeString,
-                    todaysVisits: homeState.todaysVisits,
-                    selectedPlace: $selectedLocationPlace,
-                    showAllLocationsSheet: $showAllLocationsSheet
-                )
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .allowsHitTesting(!isDailyOverviewExpanded)
-
             }
-            .padding(.top, 12)
-            .padding(.bottom, 20)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .scrollDismissesKeyboard(.interactively)
-        .scrollContentBackground(.hidden)
-        .refreshable {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isSearchFocused = true
-            }
-        }
+        )
     }
     
     // MARK: - Refresh Helper
@@ -2180,7 +2346,9 @@ struct MainAppView: View {
         case .dailyOverview:
             ReorderableWidgetContainer(widgetManager: widgetManager, type: .dailyOverview) {
                 DailyOverviewWidget(
+                    homeState: homeState,
                     isExpanded: $isDailyOverviewExpanded,
+                    isVisible: selectedTab == .home,
                     onNoteSelected: { note in
                         selectedNoteToOpen = note
                     },
@@ -2232,8 +2400,8 @@ struct MainAppView: View {
                     nearbyLocationFolder: nearbyLocationFolder,
                     nearbyLocationPlace: nearbyLocationPlace,
                     distanceToNearest: distanceToNearest,
-                    elapsedTimeString: elapsedTimeString,
                     todaysVisits: homeState.todaysVisits,
+                    isVisible: selectedTab == .home,
                     selectedPlace: $selectedLocationPlace,
                     showAllLocationsSheet: $showAllLocationsSheet
                 )
@@ -2326,14 +2494,13 @@ struct MainAppView: View {
             
             VStack(spacing: 0) {
                 searchBarContainer
-                    .padding(.top, -4)
+                    .padding(.top, -8)
                     .zIndex(120)
 
                 VStack(spacing: 0) {
                     visitReasonPopupSection
                     mainContentWidgets
                 }
-                .blur(radius: isHomeSearchPresented ? 8 : 0)
                 .allowsHitTesting(!isHomeSearchPresented)
             }
             .background(Color.clear)
@@ -2626,6 +2793,22 @@ struct MainAppView: View {
     // MARK: - User Profile
 
     private func fetchUserProfilePicture() async {
+        let shouldFetch = await MainActor.run { () -> Bool in
+            if profilePictureUrl != nil || isFetchingProfilePicture {
+                return false
+            }
+
+            isFetchingProfilePicture = true
+            return true
+        }
+
+        guard shouldFetch else { return }
+        defer {
+            Task { @MainActor in
+                isFetchingProfilePicture = false
+            }
+        }
+
         do {
             if let picUrl = try await GmailAPIClient.shared.fetchCurrentUserProfilePicture() {
                 await MainActor.run {

@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 import PDFKit
 
 struct NotesView: View, Searchable {
+    var isVisible: Bool = true
+
     private enum HubPeriod: String, CaseIterable {
         case thisMonth = "This Month"
         case thisYear = "This Year"
@@ -17,7 +19,9 @@ struct NotesView: View, Searchable {
 
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var journalService = JournalService.shared
+    private let pageRefreshCoordinator = PageRefreshCoordinator.shared
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.scenePhase) var scenePhase
     @State private var searchText = ""
     @State private var isSearchActive = false
     @FocusState private var isSearchFocused: Bool
@@ -66,7 +70,8 @@ struct NotesView: View, Searchable {
         hubState.updateInputs(
             searchText: searchText,
             selectedFolderId: selectedFolderId,
-            showUnfiledNotesOnly: showUnfiledNotesOnly
+            showUnfiledNotesOnly: showUnfiledNotesOnly,
+            showsCurrentMonthOnly: hubPeriod == .thisMonth
         )
     }
 
@@ -86,99 +91,32 @@ struct NotesView: View, Searchable {
         }
     }
 
-    private var hubReceiptYear: Int {
-        let calendar = Calendar.current
-        switch hubPeriod {
-        case .thisMonth, .thisYear:
-            return calendar.component(.year, from: Date())
-        }
-    }
-
-    private var hubReceiptSummary: YearlyReceiptSummary? {
-        notesManager.getReceiptStatistics(year: hubReceiptYear).first
-            ?? notesManager.getReceiptStatistics().first
-    }
-
     private var hubReceiptMonthlySummaries: [MonthlyReceiptSummary] {
-        guard let hubReceiptSummary else { return [] }
-        switch hubPeriod {
-        case .thisMonth:
-            return Array(hubReceiptSummary.monthlySummaries.prefix(1))
-        case .thisYear:
-            return hubReceiptSummary.monthlySummaries
-        }
+        hubState.hubReceiptMonthlySummaries
     }
 
     private var hubReceiptTotal: Double {
-        hubReceiptMonthlySummaries.reduce(0) { $0 + $1.monthlyTotal }
+        hubState.hubReceiptTotal
     }
 
     private var hubReceiptCount: Int {
-        hubReceiptMonthlySummaries.reduce(0) { $0 + $1.receipts.count }
+        hubState.hubReceiptCount
     }
 
     private var hubTopReceiptCategories: [(category: String, total: Double)] {
-        let receipts = hubReceiptMonthlySummaries.flatMap { $0.receipts }
-        guard !receipts.isEmpty else { return [] }
-
-        var totals: [String: Double] = [:]
-        for receipt in receipts {
-            let inferredCategory = ReceiptCategorizationService.shared.quickCategorizeReceipt(
-                title: receipt.title,
-                content: nil
-            ) ?? "Other"
-            totals[inferredCategory, default: 0] += receipt.amount
-        }
-
-        return totals
-            .map { (category: $0.key, total: $0.value) }
-            .sorted { $0.total > $1.total }
-    }
-
-    private var activeRecurringExpenses: [RecurringExpense] {
-        recurringExpenses
-            .filter { $0.isActive }
-            .sorted { $0.nextOccurrence < $1.nextOccurrence }
+        hubState.hubTopReceiptCategories
     }
 
     private var hubRecurringExpenses: [RecurringExpense] {
-        let calendar = Calendar.current
-        let now = Date()
-
-        switch hubPeriod {
-        case .thisMonth:
-            return activeRecurringExpenses.filter {
-                calendar.isDate($0.nextOccurrence, equalTo: now, toGranularity: .month)
-            }
-        case .thisYear:
-            return activeRecurringExpenses
-        }
+        hubState.hubRecurringExpenses
     }
 
     private var recurringHubTotal: Double {
-        switch hubPeriod {
-        case .thisMonth:
-            return hubRecurringExpenses.reduce(0) { total, expense in
-                total + Double(truncating: expense.amount as NSDecimalNumber)
-            }
-        case .thisYear:
-            return hubRecurringExpenses.reduce(0) { total, expense in
-                total + Double(truncating: expense.yearlyAmount as NSDecimalNumber)
-            }
-        }
+        hubState.recurringHubTotal
     }
 
     private var upcomingRecurringCount: Int {
-        let calendar = Calendar.current
-        let now = Date()
-        switch hubPeriod {
-        case .thisMonth:
-            return hubRecurringExpenses.filter {
-                calendar.isDate($0.nextOccurrence, equalTo: now, toGranularity: .month)
-            }.count
-        case .thisYear:
-            return hubRecurringExpenses.count
-        }
+        hubState.upcomingRecurringCount
     }
 
     private var hubPinnedNotes: [Note] {
@@ -296,42 +234,37 @@ struct NotesView: View, Searchable {
                                     showingFolderSidebar = true
                                 }) {
                                     Image(systemName: "line.3.horizontal")
-                                        .font(.system(size: 14, weight: .semibold))
+                                        .font(.system(size: 13, weight: .semibold))
                                         .foregroundColor(Color.appTextPrimary(colorScheme))
-                                        .frame(width: 40, height: 36)
+                                        .frame(width: 34, height: 34)
                                         .background(
-                                            RoundedRectangle(cornerRadius: 10)
+                                            Circle()
                                                 .fill(Color.appChip(colorScheme))
                                         )
                                 }
                                 .buttonStyle(PlainButtonStyle())
+                                .frame(width: 42, height: 42)
 
                                 notesPageTabSelector
                                     .frame(maxWidth: .infinity)
 
+                                mainPageAddButton
+                                .frame(width: 42, height: 42)
+
                                 Button(action: activateNotesSearch) {
                                     Image(systemName: "magnifyingglass")
                                         .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(.black)
-                                        .frame(width: 40, height: 36)
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .frame(width: 34, height: 34)
                                         .background(
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .fill(Color.appMonochromeAccentFill(colorScheme))
+                                            Circle()
+                                                .fill(Color.appChip(colorScheme))
                                         )
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .accessibilityLabel("Search")
+                                .frame(width: 42, height: 42)
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 18)
-                                    .fill(Color.appSurface(colorScheme))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 18)
-                                            .stroke(Color.appBorder(colorScheme), lineWidth: 1)
-                                    )
-                            )
                             .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                             .padding(.top, -4)
                             .padding(.bottom, 10)
@@ -440,18 +373,27 @@ struct NotesView: View, Searchable {
             }
         }
         .onAppear {
-            refreshNoteCaches()
-            loadRecurringHubDataIfNeeded()
-            Task {
-                await journalService.ensureWeeklyRecapIfNeeded()
-                if journalService.isPromptEnabled {
-                    await journalService.scheduleDailyPromptIfNeeded()
-                }
-            }
+            handleVisibilityChange(isVisible, reason: "appear")
+        }
+        .onChange(of: isVisible) { newValue in
+            handleVisibilityChange(newValue, reason: "visibility")
+        }
+        .onChange(of: scenePhase) { newPhase in
+            guard newPhase == .active else { return }
+            handleVisibilityChange(isVisible, reason: "scene_active")
         }
         .onChange(of: searchText) { _ in refreshNoteCaches() }
         .onChange(of: selectedFolderId) { _ in refreshNoteCaches() }
         .onChange(of: showUnfiledNotesOnly) { _ in refreshNoteCaches() }
+        .onChange(of: hubPeriod) { _ in refreshNoteCaches() }
+        .onChange(of: notesManager.notes.count) { _ in
+            guard !isVisible else { return }
+            pageRefreshCoordinator.markDirty([.home, .notes], reason: .noteDataChanged)
+        }
+        .onChange(of: notesManager.folders.count) { _ in
+            guard !isVisible else { return }
+            pageRefreshCoordinator.markDirty(.notes, reason: .noteDataChanged)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openJournalFromMainApp)) { notification in
             selectedMainPage = .notes
             selectedFolderId = nil
@@ -459,27 +401,6 @@ struct NotesView: View, Searchable {
             journalOpenTodayOnHubAppear = (notification.userInfo?["openToday"] as? Bool) ?? false
             journalScrollToHistoryOnHubAppear = false
             showJournalHub = true
-        }
-        .swipeDownToRevealSearch(
-            enabled: !isSearchActive,
-            topRegion: UIScreen.main.bounds.height * 0.22,
-            minimumDistance: 70
-        ) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isSearchActive = true
-                isSearchFocused = true
-            }
-        }
-        .swipeUpToDismissSearch(
-            enabled: isSearchActive && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            topRegion: UIScreen.main.bounds.height * 0.28,
-            minimumDistance: 54
-        ) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isSearchActive = false
-                isSearchFocused = false
-                searchText = ""
-            }
         }
         .fullScreenCover(isPresented: $showingNewNoteSheet, onDismiss: {
             notesManager.isViewingNoteInNavigation = false
@@ -675,6 +596,37 @@ struct NotesView: View, Searchable {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    @MainActor
+    private func handleVisibilityChange(_ visible: Bool, reason: String) {
+        guard visible else { return }
+
+        pageRefreshCoordinator.pageBecameVisible(.notes)
+
+        guard pageRefreshCoordinator.shouldRevalidate(
+            .notes,
+            maxAge: pageRefreshCoordinator.defaultMaxAge(for: .notes)
+        ) else {
+            return
+        }
+
+        refreshNoteCaches()
+
+        Task {
+            if !didLoadRecurringHubData || selectedMainPage == .recurring {
+                await refreshRecurringHubData()
+            }
+
+            await journalService.ensureWeeklyRecapIfNeeded()
+            if journalService.isPromptEnabled {
+                await journalService.scheduleDailyPromptIfNeeded()
+            }
+
+            await MainActor.run {
+                pageRefreshCoordinator.markValidated(.notes)
             }
         }
     }
@@ -1247,6 +1199,7 @@ struct NotesView: View, Searchable {
     private func refreshRecurringHubData() async {
         do {
             recurringExpenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
+            hubState.updateRecurringExpenses(recurringExpenses)
             didLoadRecurringHubData = true
         } catch {
             didLoadRecurringHubData = false
@@ -1298,39 +1251,21 @@ struct NotesView: View, Searchable {
 
                 Spacer(minLength: 12)
 
-                HStack(spacing: 8) {
-                    Button(action: {
-                        HapticManager.shared.buttonTap()
-                        openNewNoteEditor()
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .foregroundColor(.black)
-                            .background(
-                                Circle()
-                                    .fill(Color(red: 0.98, green: 0.64, blue: 0.41))
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .accessibilityLabel("New note")
-
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        showAllNotesArchive = true
-                    }) {
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-                            .background(
-                                Circle()
-                                    .fill(Color.appChip(colorScheme).opacity(colorScheme == .dark ? 0.72 : 0.88))
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .accessibilityLabel("Open all notes")
+                Button(action: {
+                    HapticManager.shared.selection()
+                    showAllNotesArchive = true
+                }) {
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .background(
+                            Circle()
+                                .fill(Color.appChip(colorScheme).opacity(colorScheme == .dark ? 0.72 : 0.88))
+                        )
                 }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("Open all notes")
             }
 
             HStack(spacing: 10) {
@@ -1369,39 +1304,21 @@ struct NotesView: View, Searchable {
 
                 Spacer(minLength: 12)
 
-                HStack(spacing: 8) {
-                    Button(action: {
-                        HapticManager.shared.buttonTap()
-                        openTodayJournalEntry()
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .foregroundColor(.black)
-                            .background(
-                                Circle()
-                                    .fill(Color(red: 0.98, green: 0.64, blue: 0.41))
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .accessibilityLabel("Open today journal")
-
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        openJournalHub(openToday: false)
-                    }) {
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-                            .background(
-                                Circle()
-                                    .fill(Color.appChip(colorScheme).opacity(colorScheme == .dark ? 0.72 : 0.88))
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .accessibilityLabel("Open journal details")
+                Button(action: {
+                    HapticManager.shared.selection()
+                    openJournalHub(openToday: false)
+                }) {
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .background(
+                            Circle()
+                                .fill(Color.appChip(colorScheme).opacity(colorScheme == .dark ? 0.72 : 0.88))
+                        )
                 }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("Open journal details")
             }
 
             HStack(spacing: 10) {
@@ -1786,6 +1703,7 @@ struct NotesView: View, Searchable {
             Task {
                 do {
                     recurringExpenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
+                    hubState.updateRecurringExpenses(recurringExpenses)
                 } catch {
                     print("Failed to load recurring expenses: \(error)")
                 }
@@ -1968,6 +1886,47 @@ struct NotesView: View, Searchable {
         return formatter.string(from: date)
     }
 
+    @ViewBuilder
+    private var mainPageAddButton: some View {
+        if selectedMainPage == .notes {
+            Menu {
+                Button(action: {
+                    HapticManager.shared.selection()
+                    openNewNoteEditor()
+                }) {
+                    Label("New Note", systemImage: "note.text.badge.plus")
+                }
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    openTodayJournalEntry()
+                }) {
+                    Label("New Journal", systemImage: "book.closed")
+                }
+            } label: {
+                mainPageAddButtonLabel
+            }
+            .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
+        } else {
+            Button(action: performMainPageAddAction) {
+                mainPageAddButtonLabel
+            }
+            .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
+        }
+    }
+
+    private var mainPageAddButtonLabel: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.black)
+            .frame(width: 34, height: 34)
+            .background(
+                Circle()
+                    .fill(Color.homeGlassAccent)
+            )
+    }
+
     private func performMainPageAddAction() {
         HapticManager.shared.buttonTap()
         switch selectedMainPage {
@@ -1983,7 +1942,7 @@ struct NotesView: View, Searchable {
     private var mainPageAddButtonAccessibilityLabel: String {
         switch selectedMainPage {
         case .notes:
-            return "New note"
+            return "New note or journal"
         case .receipts:
             return "Add receipt"
         case .recurring:
@@ -2216,6 +2175,8 @@ struct NoteEditView: View {
     @State private var journalMood: JournalMood? = nil
     @State private var journalHeaderAISummary: String? = nil
     @State private var journalHeaderSummaryTask: Task<Void, Never>? = nil
+    @State private var weeklyRecapMoodSummaries: [UUID: String] = [:]
+    @State private var weeklyRecapMoodSummaryTask: Task<Void, Never>? = nil
     @State private var showingFolderPicker = false
     @State private var showingNewFolderAlert = false
     @State private var newFolderName = ""
@@ -2359,6 +2320,9 @@ struct NoteEditView: View {
         .interactiveDismissDisabled()
         .onAppear(perform: onAppearAction)
         .onDisappear(perform: onDisappearAction)
+        .onChange(of: weeklyRecapMoodEntriesFingerprint) { _ in
+            refreshWeeklyRecapMoodSummaries()
+        }
         .sheet(isPresented: $showingFolderPicker) {
             FolderPickerView(
                 selectedFolderId: $selectedFolderId,
@@ -2751,14 +2715,22 @@ struct NoteEditView: View {
         return "\(formatter.string(from: weekStart)) - \(formatter.string(from: weekEnd))"
     }
 
-    private var weeklyRecapMoodEntries: [(date: Date, mood: JournalMood)] {
+    private struct WeeklyRecapMoodEntry: Identifiable {
+        let note: Note
+        let date: Date
+        let mood: JournalMood
+
+        var id: UUID { note.id }
+    }
+
+    private var weeklyRecapMoodEntries: [WeeklyRecapMoodEntry] {
         guard let weekStart = journalWeekStartDate else { return [] }
         let calendar = Calendar.current
         let normalizedWeekStart = calendar.startOfDay(for: weekStart)
         guard let weekEnd = calendar.date(byAdding: .day, value: 7, to: normalizedWeekStart) else { return [] }
 
         return notesManager.journalEntries
-            .compactMap { entry -> (date: Date, mood: JournalMood)? in
+            .compactMap { entry -> WeeklyRecapMoodEntry? in
                 guard let entryDate = entry.journalDate,
                       let mood = entry.journalMood else {
                     return nil
@@ -2769,9 +2741,17 @@ struct NoteEditView: View {
                     return nil
                 }
 
-                return (normalizedEntryDate, mood)
+                return WeeklyRecapMoodEntry(note: entry, date: normalizedEntryDate, mood: mood)
             }
             .sorted { $0.date < $1.date }
+    }
+
+    private var weeklyRecapMoodEntriesFingerprint: String {
+        weeklyRecapMoodEntries.map { entry in
+            let sourceText = entry.note.displayContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "\(entry.note.id.uuidString)|\(entry.date.timeIntervalSince1970)|\(entry.mood.rawValue)|\(sourceText)"
+        }
+        .joined(separator: "\n")
     }
 
     private var backgroundColor: some View {
@@ -3222,27 +3202,37 @@ struct NoteEditView: View {
                 .tracking(0.4)
 
             VStack(spacing: 8) {
-                ForEach(Array(weeklyRecapMoodEntries.enumerated()), id: \.offset) { item in
-                    HStack(spacing: 10) {
-                        Text(FormatterCache.weekdayShortMonthDay.string(from: item.element.date))
-                            .font(FontManager.geist(size: 13, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.74) : Color.black.opacity(0.64))
+                ForEach(weeklyRecapMoodEntries) { entry in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 10) {
+                            Text(FormatterCache.weekdayShortMonthDay.string(from: entry.date))
+                                .font(FontManager.geist(size: 13, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.74) : Color.black.opacity(0.64))
 
-                        Spacer()
+                            Spacer()
 
-                        HStack(spacing: 6) {
-                            Image(systemName: item.element.mood.iconName)
-                                .font(.system(size: 11, weight: .semibold))
-                            Text(item.element.mood.title)
-                                .font(FontManager.geist(size: 12, weight: .semibold))
+                            HStack(spacing: 6) {
+                                Image(systemName: entry.mood.iconName)
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text(entry.mood.title)
+                                    .font(FontManager.geist(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(
+                                Capsule()
+                                    .fill(journalAccentColor)
+                            )
                         }
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(
-                            Capsule()
-                                .fill(journalAccentColor)
-                        )
+
+                        if let summaryText = weeklyRecapMoodSummaryText(for: entry), !summaryText.isEmpty {
+                            Text(summaryText)
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.68) : Color.black.opacity(0.62))
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }
@@ -4147,11 +4137,14 @@ struct NoteEditView: View {
         saveToUndoHistory()
 
         refreshJournalHeaderSummary()
+        refreshWeeklyRecapMoodSummaries()
     }
 
     private func onDisappearAction() {
         journalHeaderSummaryTask?.cancel()
         journalHeaderSummaryTask = nil
+        weeklyRecapMoodSummaryTask?.cancel()
+        weeklyRecapMoodSummaryTask = nil
         // Clear the flag when note view disappears
         notesManager.isViewingNoteInNavigation = false
         cancelPendingTitleFocusRequests()
@@ -4220,6 +4213,83 @@ struct NoteEditView: View {
 
         guard !cleaned.isEmpty else { return "" }
         return cleaned.count > 130 ? String(cleaned.prefix(130)).trimmingCharacters(in: .whitespacesAndNewlines) + "..." : cleaned
+    }
+
+    private func refreshWeeklyRecapMoodSummaries() {
+        weeklyRecapMoodSummaryTask?.cancel()
+        weeklyRecapMoodSummaryTask = nil
+
+        guard isWeeklyRecapEditor, !weeklyRecapMoodEntries.isEmpty else {
+            weeklyRecapMoodSummaries = [:]
+            return
+        }
+
+        var initialSummaries: [UUID: String] = [:]
+        var pendingGeneration: [(noteId: UUID, sourceText: String)] = []
+
+        for entry in weeklyRecapMoodEntries {
+            let sourceText = entry.note.displayContent.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if let cachedSummary = JournalHeaderSummaryCache.summary(for: entry.note.id, text: sourceText) {
+                initialSummaries[entry.note.id] = cachedSummary
+                continue
+            }
+
+            if let fallbackSummary = weeklyRecapFallbackSummary(for: entry.note) {
+                initialSummaries[entry.note.id] = fallbackSummary
+            }
+
+            guard sourceText.count >= 80 else { continue }
+            pendingGeneration.append((noteId: entry.note.id, sourceText: sourceText))
+        }
+
+        weeklyRecapMoodSummaries = initialSummaries
+
+        guard !pendingGeneration.isEmpty else { return }
+
+        weeklyRecapMoodSummaryTask = Task {
+            for item in pendingGeneration {
+                guard !Task.isCancelled else { return }
+
+                do {
+                    let summary = try await openAIService.summarizeJournalHeaderText(item.sourceText)
+                    guard !Task.isCancelled else { return }
+
+                    let cleanedSummary = sanitizeJournalHeaderSummary(summary)
+                    guard !cleanedSummary.isEmpty else { continue }
+
+                    JournalHeaderSummaryCache.store(cleanedSummary, for: item.noteId, text: item.sourceText)
+
+                    await MainActor.run {
+                        weeklyRecapMoodSummaries[item.noteId] = cleanedSummary
+                    }
+                } catch {
+                    continue
+                }
+            }
+        }
+    }
+
+    private func weeklyRecapMoodSummaryText(for entry: WeeklyRecapMoodEntry) -> String? {
+        if let summary = weeklyRecapMoodSummaries[entry.note.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !summary.isEmpty {
+            return summary
+        }
+
+        return weeklyRecapFallbackSummary(for: entry.note)
+    }
+
+    private func weeklyRecapFallbackSummary(for note: Note) -> String? {
+        let preview = note.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preview.isEmpty, preview != "No additional text" {
+            return preview
+        }
+
+        if note.journalMood != nil {
+            return "Mood check-in without extra written notes."
+        }
+
+        return nil
     }
 
     private func scheduleInitialTitleFocus() {

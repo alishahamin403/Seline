@@ -2,9 +2,12 @@ import SwiftUI
 import UIKit
 
 struct ConversationSearchView: View {
+    var isVisible: Bool = true
+
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
     @StateObject private var searchService = SearchService.shared
+    @StateObject private var pageState = ConversationPageState()
     @StateObject private var authManager = AuthenticationManager.shared
     @StateObject private var chatUsageTracker = ChatUsageTracker.shared
     @State private var messageText = ""
@@ -18,9 +21,10 @@ struct ConversationSearchView: View {
     @State private var showingSettings = false
     @State private var showingHistorySheet = false
     @State private var showingHistorySidebar = false
+    @State private var showingTrackerRulesSheet = false
+    @State private var showingTrackerActivitySheet = false
     @StateObject private var speechService = SpeechRecognitionService.shared
     @StateObject private var ttsService = TextToSpeechService.shared
-    @StateObject private var emailService = EmailService.shared
     @State private var selectedEmail: Email? = nil
     @State private var selectedNote: Note? = nil
     @State private var selectedTask: TaskItem? = nil
@@ -33,11 +37,15 @@ struct ConversationSearchView: View {
     }
 
     private var isAssistantStreamingActive: Bool {
-        searchService.isLoadingQuestionResponse || isStreamingResponse
+        pageState.isLoadingQuestionResponse || isStreamingResponse
     }
 
     private var isChatUsageCapped: Bool {
         chatUsageTracker.isLimitReached
+    }
+
+    private var isTrackerConversation: Bool {
+        pageState.isTrackerConversation
     }
 
     var body: some View {
@@ -46,6 +54,9 @@ struct ConversationSearchView: View {
 
             VStack(spacing: 0) {
                 headerView
+                if isTrackerConversation {
+                    trackerPinnedSummaryCard
+                }
                 conversationScrollView
                 inputAreaView
             }
@@ -53,7 +64,7 @@ struct ConversationSearchView: View {
         .background(chatBackgroundColor)
         .contentShape(Rectangle())
         .simultaneousGesture(keyboardDismissDragGesture, including: .subviews)
-        .onChange(of: searchService.isLoadingQuestionResponse) { newValue in
+        .onChange(of: pageState.isLoadingQuestionResponse) { newValue in
             if newValue {
                 // Started streaming
                 isStreamingResponse = true
@@ -87,10 +98,13 @@ struct ConversationSearchView: View {
             // Auto-send on silence disabled (speak mode removed); user sends with button
             speechService.onAutoSend = { }
 
-            if searchService.isLoadingQuestionResponse {
+            if pageState.isLoadingQuestionResponse {
                 isStreamingResponse = true
                 streamingStartTime = streamingStartTime ?? Date()
             }
+        }
+        .onChange(of: isVisible) { newValue in
+            handleVisibilityChange(newValue)
         }
         .onChange(of: isChatUsageCapped) { newValue in
             if newValue {
@@ -117,6 +131,7 @@ struct ConversationSearchView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
+            guard isVisible else { return }
             // Trigger proactive question for new location visits
             Task {
                 await showProactiveQuestionIfNeeded()
@@ -140,6 +155,18 @@ struct ConversationSearchView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .presentationBg()
+        }
+        .sheet(isPresented: $showingTrackerRulesSheet) {
+            TrackerRulesSheet(thread: pageState.currentTrackerThread)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBg()
+        }
+        .sheet(isPresented: $showingTrackerActivitySheet) {
+            TrackerActivitySheet(thread: pageState.currentTrackerThread)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBg()
         }
         .overlay(alignment: .leading) {
             historySidebarOverlay
@@ -185,6 +212,26 @@ struct ConversationSearchView: View {
         shouldAutoScrollConversation = false
     }
 
+    @MainActor
+    private func handleVisibilityChange(_ visible: Bool) {
+        if visible {
+            if !isProcessingResponse {
+                speechService.shouldIgnoreTranscriptionUpdates = false
+            }
+            if pageState.isLoadingQuestionResponse {
+                isStreamingResponse = true
+                streamingStartTime = streamingStartTime ?? Date()
+            }
+            return
+        }
+
+        shouldAutoScrollConversation = false
+        speechService.stopRecording()
+        speechService.shouldIgnoreTranscriptionUpdates = true
+        ttsService.stopSpeaking()
+        dismissKeyboard()
+    }
+
     private func resumeConversationAutoscroll() {
         shouldAutoScrollConversation = true
         scrollToBottom = UUID()
@@ -203,6 +250,22 @@ struct ConversationSearchView: View {
     private func dismissKeyboard() {
         isInputFocused = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    private func startTrackerRuleEdit() {
+        HapticManager.shared.selection()
+        messageText = "Update the tracker rules: "
+        isInputFocused = true
+        scrollToBottom = UUID()
+    }
+
+    private func draftUndoLastTrackerChange() {
+        HapticManager.shared.selection()
+        dismissKeyboard()
+        Task {
+            await searchService.draftUndoLastTrackerChange()
+            scrollToBottom = UUID()
+        }
     }
 
     private func startNewChat() {
@@ -240,7 +303,7 @@ struct ConversationSearchView: View {
                     )
                 
                 // Single line greeting matching Claude's style
-                Text(claudeGreetingText)
+                Text(isTrackerConversation ? "Describe what to track" : claudeGreetingText)
                     .font(FontManager.geist(size: 26, weight: .semibold))
                     .foregroundColor(Color.appTextPrimary(colorScheme))
                     .multilineTextAlignment(.center)
@@ -251,6 +314,40 @@ struct ConversationSearchView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var trackerPinnedSummaryCard: some View {
+        Group {
+            if let thread = pageState.currentTrackerThread,
+               let state = thread.cachedState {
+                TrackerSummaryCard(
+                    thread: thread,
+                    state: state,
+                    colorScheme: colorScheme,
+                    canUndo: !state.recentChanges.isEmpty,
+                    onShowRules: {
+                        showingTrackerRulesSheet = true
+                    },
+                    onShowActivity: {
+                        showingTrackerActivitySheet = true
+                    },
+                    onEditRules: {
+                        startTrackerRuleEdit()
+                    },
+                    onUndoLastChange: {
+                        draftUndoLastTrackerChange()
+                    }
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+            } else {
+                TrackerEmptyHeaderCard(colorScheme: colorScheme)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+            }
+        }
     }
     
     private var greetingText: String {
@@ -504,7 +601,7 @@ struct ConversationSearchView: View {
             }
             
             // Center: Title
-            Text("Chat")
+            Text(isTrackerConversation ? "Tracker" : "Chat")
                 .font(FontManager.geist(size: 16, weight: .semibold))
                 .foregroundColor(Color.appTextPrimary(colorScheme))
             
@@ -563,21 +660,29 @@ struct ConversationSearchView: View {
         ZStack(alignment: .bottomTrailing) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    if searchService.conversationHistory.isEmpty {
+                    if pageState.conversationHistory.isEmpty {
                         // Empty state - ensure it's visible
                         emptyStateView
                             .frame(minHeight: UIScreen.main.bounds.height * 0.6)
                             .padding(.top, 60)
                     } else {
                         LazyVStack(alignment: .leading, spacing: 20) {
-                            ForEach(searchService.conversationHistory) { message in
+                            ForEach(pageState.conversationHistory) { message in
                                 ConversationMessageView(
                                     message: message,
+                                    isStreaming: pageState.isStreaming(message),
+                                    isPendingTrackerDraft: pageState.isPendingTrackerDraft(message),
                                     onSendMessage: { text in
                                         await searchService.addConversationMessage(text)
                                     },
                                     onRegenerate: { messageId in
                                         await searchService.regenerateResponse(for: messageId)
+                                    },
+                                    onApplyTrackerDraft: {
+                                        searchService.applyPendingTrackerDraft()
+                                    },
+                                    onCancelTrackerDraft: {
+                                        searchService.cancelPendingTrackerDraft()
                                     },
                                     selectedEmail: $selectedEmail,
                                     selectedNote: $selectedNote,
@@ -595,7 +700,7 @@ struct ConversationSearchView: View {
                             if isAssistantStreamingActive {
                                 ModernLoadingIndicator(
                                     colorScheme: colorScheme,
-                                    label: searchService.chatLoadingStatusLabel
+                                    label: pageState.chatLoadingStatusLabel
                                 )
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                                 .id("assistant-status-row")
@@ -618,13 +723,13 @@ struct ConversationSearchView: View {
                         endPoint: .bottom
                     )
                 )
-                .onChange(of: searchService.conversationHistory.count) { _ in
+                .onChange(of: pageState.conversationHistory.count) { _ in
                     guard shouldAutoScrollConversation else { return }
                     withAnimation(.easeInOut(duration: 0.3)) {
                         if isAssistantStreamingActive {
                             guard !isInputFocused else { return }
                             proxy.scrollTo("assistant-status-row", anchor: .bottom)
-                        } else if let lastMessage = searchService.conversationHistory.last {
+                        } else if let lastMessage = pageState.conversationHistory.last {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
@@ -641,7 +746,7 @@ struct ConversationSearchView: View {
                     // Scroll to bottom when user returns to LLM chat from another tab
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         guard shouldAutoScrollConversation else { return }
-                        if let lastMessage = searchService.conversationHistory.last {
+                        if let lastMessage = pageState.conversationHistory.last {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
@@ -650,12 +755,12 @@ struct ConversationSearchView: View {
                     withAnimation(.easeOut(duration: 0.22)) {
                         if isAssistantStreamingActive {
                             proxy.scrollTo("assistant-status-row", anchor: .bottom)
-                        } else if let lastMessage = searchService.conversationHistory.last {
+                        } else if let lastMessage = pageState.conversationHistory.last {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
                 }
-                .onChange(of: searchService.lastMessageContentVersion) { _ in
+                .onChange(of: pageState.lastMessageContentVersion) { _ in
                     guard shouldAutoScrollConversation else { return }
                     // Re-scroll when last message gains event card or sources so they stay visible
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
@@ -663,7 +768,7 @@ struct ConversationSearchView: View {
                             if isAssistantStreamingActive {
                                 guard !isInputFocused else { return }
                                 proxy.scrollTo("assistant-status-row", anchor: .bottom)
-                            } else if let lastMessage = searchService.conversationHistory.last {
+                            } else if let lastMessage = pageState.conversationHistory.last {
                                 proxy.scrollTo(lastMessage.id, anchor: .bottom)
                             }
                         }
@@ -711,7 +816,7 @@ struct ConversationSearchView: View {
     private var inputAreaView: some View {
         VStack(spacing: 0) {
             // Smart suggestions bar above input (only when typing in empty state)
-            if isInputFocused && !messageText.isEmpty && searchService.conversationHistory.isEmpty && !isChatUsageCapped {
+            if isInputFocused && !messageText.isEmpty && pageState.conversationHistory.isEmpty && !isChatUsageCapped {
                 smartSuggestionsBar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .padding(.horizontal, 12)
@@ -737,7 +842,7 @@ struct ConversationSearchView: View {
         .background(chatBackgroundColor)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isInputFocused)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: messageText.isEmpty)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: searchService.conversationHistory.count)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: pageState.conversationHistory.count)
     }
 
     private var smartSuggestionsBar: some View {
@@ -809,7 +914,13 @@ struct ConversationSearchView: View {
             // Claude-style placeholder - only show when not focused and text is empty
             if messageText.isEmpty && !isInputFocused {
                 HStack {
-                    Text(isChatUsageCapped ? "Daily chat limit reached for today" : "Message Seline")
+                    Text(
+                        isChatUsageCapped
+                            ? "Daily chat limit reached for today"
+                            : isTrackerConversation
+                            ? "Describe rules or add a tracked update"
+                            : "Message Seline"
+                    )
                         .font(FontManager.geist(size: 14, weight: .regular))
                         .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)))
                     Spacer()
@@ -1132,16 +1243,37 @@ struct ConversationSearchView: View {
 }
 
 struct ConversationMessageView: View {
+    private struct MessageRenderCache {
+        let version: Int
+        let displayedText: String
+        let segments: [MessageSegment]
+        let hasWidgets: Bool
+        let hasInlineCitations: Bool
+        let hasComplexFormatting: Bool
+
+        static let empty = MessageRenderCache(
+            version: 0,
+            displayedText: "",
+            segments: [],
+            hasWidgets: false,
+            hasInlineCitations: false,
+            hasComplexFormatting: false
+        )
+    }
+
     let message: ConversationMessage
+    let isStreaming: Bool
+    let isPendingTrackerDraft: Bool
     let onSendMessage: (String) async -> Void
     let onRegenerate: ((UUID) async -> Void)?
+    let onApplyTrackerDraft: () -> Void
+    let onCancelTrackerDraft: () -> Void
     @Environment(\.colorScheme) var colorScheme
     @State private var showContextMenu = false
-    @StateObject private var searchService = SearchService.shared
-    @StateObject private var emailService = EmailService.shared
-    @StateObject private var notesManager = NotesManager.shared
-    @StateObject private var taskManager = TaskManager.shared
-    @StateObject private var locationsManager = LocationsManager.shared
+    private let emailService = EmailService.shared
+    private let notesManager = NotesManager.shared
+    private let taskManager = TaskManager.shared
+    private let locationsManager = LocationsManager.shared
     @Binding var selectedEmail: Email?
     @Binding var selectedNote: Note?
     @Binding var selectedTask: TaskItem?
@@ -1149,54 +1281,22 @@ struct ConversationMessageView: View {
     @State private var showingEventCreationResult = false
     @State private var eventCreationMessage = ""
     @State private var eventCreationIsError = false
+    @State private var renderCache: MessageRenderCache = .empty
 
-    // Determine if message has complex formatting
-    private var hasComplexFormatting: Bool {
-        message.text.contains("**") || message.text.contains("*") ||
-            message.text.contains("`") || message.text.contains("- ") ||
-            message.text.contains("• ") || message.text.contains("\n")
+    private var messageRenderVersion: Int {
+        var hasher = Hasher()
+        hasher.combine(message.id)
+        hasher.combine(message.isUser)
+        hasher.combine(message.text)
+        hasher.combine(message.relevantContent?.count ?? 0)
+        return hasher.finalize()
     }
 
-    // Check if this message is currently being streamed
-    private var isStreaming: Bool {
-        guard !message.isUser else { return false }
-
-        // Check if this is the last message and we're loading
-        if let lastMessage = searchService.conversationHistory.last,
-           lastMessage.id == message.id,
-           searchService.isLoadingQuestionResponse {
-            return true
+    private var activeRenderCache: MessageRenderCache {
+        if renderCache.version == messageRenderVersion {
+            return renderCache
         }
-        return false
-    }
-
-    // Check if this is the last assistant message (for typewriter animation)
-    private var isLastAssistantMessage: Bool {
-        guard !message.isUser else { return false }
-        if let lastMessage = searchService.conversationHistory.last,
-           lastMessage.id == message.id {
-            return true
-        }
-        return false
-    }
-
-
-    private var previousUserMessage: String? {
-        guard let index = searchService.conversationHistory.firstIndex(where: { $0.id == message.id }) else {
-            return nil
-        }
-        for idx in stride(from: index - 1, through: 0, by: -1) {
-            let msg = searchService.conversationHistory[idx]
-            if msg.isUser {
-                return msg.text
-            }
-        }
-        return nil
-    }
-
-    private var displayedMessageText: String {
-        guard !message.isUser else { return message.text }
-        return ChatMarkdownDisplayFormatter.normalize(message.text)
+        return buildRenderCache()
     }
 
     var body: some View {
@@ -1255,6 +1355,12 @@ struct ConversationMessageView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .task(id: messageRenderVersion) {
+            let nextCache = buildRenderCache()
+            await MainActor.run {
+                renderCache = nextCache
+            }
+        }
     }
 
     private var messageContent: some View {
@@ -1299,6 +1405,25 @@ struct ConversationMessageView: View {
                             isFirstVisit: questionInfo.isFirstVisit
                         )
                     }
+                )
+                .padding(.top, 4)
+            }
+
+            if let draft = message.trackerOperationDraft {
+                TrackerDraftCard(
+                    draft: draft,
+                    colorScheme: colorScheme,
+                    isPending: isPendingTrackerDraft,
+                    onConfirm: onApplyTrackerDraft,
+                    onCancel: onCancelTrackerDraft
+                )
+                .padding(.top, 4)
+            }
+
+            if let trackerStateSnapshot = message.trackerStateSnapshot, !message.isUser {
+                TrackerInlineStateCard(
+                    state: trackerStateSnapshot,
+                    colorScheme: colorScheme
                 )
                 .padding(.top, 4)
             }
@@ -1642,36 +1767,19 @@ struct ConversationMessageView: View {
         sourcePill(sourceLabel: title, title: "", icon: icon, action: action)
     }
 
-    private var hasInlineCitationSegments: Bool {
-        let maxCitationIndex = (message.relevantContent?.count ?? 0) - 1
-        return parseMessageSegments(displayedMessageText, maxCitationIndex: maxCitationIndex).contains {
-            if case .citation = $0.type { return true }
-            return false
-        }
-    }
-
     private var messageText: some View {
-        let maxCitationIndex = (message.relevantContent?.count ?? 0) - 1
-        let segments = parseMessageSegments(displayedMessageText, maxCitationIndex: maxCitationIndex)
-        let hasWidgets = segments.contains {
-            if case .widget = $0.type { return true }
-            return false
-        }
-        let hasInlineCitations = segments.contains {
-            if case .citation = $0.type { return true }
-            return false
-        }
+        let renderCache = activeRenderCache
 
         return VStack(alignment: .leading, spacing: 12) {
-            if !message.isUser && !hasWidgets {
-                if hasInlineCitations {
-                    inlineCitationTextContent(segments: segments)
+            if !message.isUser && !renderCache.hasWidgets {
+                if renderCache.hasInlineCitations {
+                    inlineCitationTextContent(segments: renderCache.segments)
                 } else {
-                    MarkdownText(markdown: displayedMessageText, colorScheme: colorScheme)
+                    MarkdownText(markdown: renderCache.displayedText, colorScheme: colorScheme)
                 }
             } else {
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                    segmentView(segment)
+                ForEach(Array(renderCache.segments.enumerated()), id: \.offset) { _, segment in
+                    segmentView(segment, hasComplexFormatting: renderCache.hasComplexFormatting)
                 }
             }
 
@@ -1679,11 +1787,11 @@ struct ConversationMessageView: View {
                 StreamingCursor(colorScheme: colorScheme)
             }
         }
-        .animation(.easeOut(duration: 0.12), value: displayedMessageText)
+        .animation(.easeOut(duration: 0.12), value: renderCache.displayedText)
     }
 
     @ViewBuilder
-    private func segmentView(_ segment: MessageSegment) -> some View {
+    private func segmentView(_ segment: MessageSegment, hasComplexFormatting: Bool) -> some View {
         switch segment.type {
         case .text(let content):
             Group {
@@ -1709,6 +1817,46 @@ struct ConversationMessageView: View {
             renderWidget(type)
                 .transition(.scale.combined(with: .opacity))
         }
+    }
+
+    private func buildRenderCache() -> MessageRenderCache {
+        let displayedText = message.isUser
+            ? message.text
+            : ChatMarkdownDisplayFormatter.normalize(message.text)
+        let hasComplexFormatting = message.text.contains("**")
+            || message.text.contains("*")
+            || message.text.contains("`")
+            || message.text.contains("- ")
+            || message.text.contains("• ")
+            || message.text.contains("\n")
+        let maxCitationIndex = (message.relevantContent?.count ?? 0) - 1
+        let segments = parseMessageSegments(displayedText, maxCitationIndex: maxCitationIndex)
+
+        var hasWidgets = false
+        var hasInlineCitations = false
+        for segment in segments {
+            switch segment.type {
+            case .widget:
+                hasWidgets = true
+            case .citation:
+                hasInlineCitations = true
+            case .text:
+                break
+            }
+
+            if hasWidgets && hasInlineCitations {
+                break
+            }
+        }
+
+        return MessageRenderCache(
+            version: messageRenderVersion,
+            displayedText: displayedText,
+            segments: segments,
+            hasWidgets: hasWidgets,
+            hasInlineCitations: hasInlineCitations,
+            hasComplexFormatting: hasComplexFormatting
+        )
     }
 
     private enum InlineRun {
@@ -2496,6 +2644,763 @@ struct ConversationMessageView: View {
                     )
             }
         }
+    }
+}
+
+private enum TrackerTheme {
+    static func accent(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color(red: 0.98, green: 0.62, blue: 0.34).opacity(0.95)
+            : Color(red: 0.89, green: 0.46, blue: 0.16)
+    }
+
+    static func pinnedCardGradient(_ colorScheme: ColorScheme) -> LinearGradient {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [
+                    accent(colorScheme).opacity(0.14),
+                    Color.white.opacity(0.04)
+                ]
+                : [
+                    Color.white.opacity(0.88),
+                    accent(colorScheme).opacity(0.10)
+                ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    static func pinnedCardBorder(_ colorScheme: ColorScheme) -> Color {
+        accent(colorScheme).opacity(colorScheme == .dark ? 0.24 : 0.16)
+    }
+
+    static func pinnedCardShadow(_ colorScheme: ColorScheme) -> Color {
+        accent(colorScheme).opacity(colorScheme == .dark ? 0.10 : 0.07)
+    }
+
+    static func neutralCardFill(_ colorScheme: ColorScheme) -> Color {
+        Color.appSurface(colorScheme)
+    }
+
+    static func neutralCardBorder(_ colorScheme: ColorScheme) -> Color {
+        Color.appBorder(colorScheme)
+    }
+
+    static func subtleFill(_ colorScheme: ColorScheme) -> Color {
+        Color.appInnerSurface(colorScheme)
+    }
+
+    static func pillFill(_ colorScheme: ColorScheme) -> Color {
+        accent(colorScheme).opacity(colorScheme == .dark ? 0.12 : 0.08)
+    }
+
+    static func pillBorder(_ colorScheme: ColorScheme) -> Color {
+        accent(colorScheme).opacity(colorScheme == .dark ? 0.20 : 0.14)
+    }
+
+    static func border(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.orange.opacity(0.22) : Color.orange.opacity(0.16)
+    }
+
+    static func bullet(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color.orange.opacity(0.72)
+            : Color(red: 0.86, green: 0.44, blue: 0.15)
+    }
+}
+
+struct TrackerSummaryCard: View {
+    let thread: TrackerThread
+    let state: TrackerDerivedState
+    let colorScheme: ColorScheme
+    let canUndo: Bool
+    let onShowRules: () -> Void
+    let onShowActivity: () -> Void
+    let onEditRules: () -> Void
+    let onUndoLastChange: () -> Void
+    @State private var isExpanded = false
+    @State private var isRulesExpanded = false
+    @State private var isRecentExpanded = false
+
+    private var ruleHighlights: [String] {
+        let parsedRules = parsedRuleHighlights(from: state.ruleSummary)
+        return parsedRules.isEmpty ? Array(state.quickFacts.prefix(4)) : parsedRules
+    }
+
+    private var visibleRuleHighlights: [String] {
+        Array(ruleHighlights.prefix(isRulesExpanded ? 6 : 2))
+    }
+
+    private var visibleRecentChanges: [TrackerChange] {
+        Array(state.recentChanges.prefix(isRecentExpanded ? 6 : 2))
+    }
+
+    private var detailSummary: String {
+        let trimmedSummary = state.currentSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedSummary.isEmpty ? state.summaryLine : trimmedSummary
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            headerRow
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    actionPill(icon: "clock.arrow.circlepath", text: "Activity", action: onShowActivity)
+                    actionPill(icon: "slider.horizontal.3", text: "Edit Rules", action: onEditRules)
+                    actionPill(
+                        icon: "arrow.uturn.backward",
+                        text: "Undo Last",
+                        isEnabled: canUndo,
+                        action: onUndoLastChange
+                    )
+                }
+            }
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 14) {
+                    Divider()
+                        .overlay(TrackerTheme.pinnedCardBorder(colorScheme))
+
+                    Text(detailSummary)
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.78) : Color.black.opacity(0.74))
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if !ruleHighlights.isEmpty {
+                        disclosureSection(
+                            title: "Key Rules",
+                            count: ruleHighlights.count,
+                            isExpanded: isRulesExpanded,
+                            onToggle: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isRulesExpanded.toggle()
+                                }
+                            }
+                        ) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(visibleRuleHighlights, id: \.self) { rule in
+                                    bulletRow(rule)
+                                }
+                            }
+                        }
+                    }
+
+                    if !state.recentChanges.isEmpty {
+                        disclosureSection(
+                            title: "Recent Changes",
+                            count: state.recentChanges.count,
+                            isExpanded: isRecentExpanded,
+                            onToggle: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isRecentExpanded.toggle()
+                                }
+                            }
+                        ) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(visibleRecentChanges) { change in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(change.title?.trackerNonEmpty ?? change.content)
+                                            .font(FontManager.geist(size: 13, weight: .medium))
+                                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                                            .lineLimit(2)
+                                        Text(compactTrackerDate(change.effectiveAt))
+                                            .font(FontManager.geist(size: 11, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.45))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(TrackerTheme.pinnedCardGradient(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(TrackerTheme.pinnedCardBorder(colorScheme), lineWidth: 1)
+        )
+        .shadow(color: TrackerTheme.pinnedCardShadow(colorScheme), radius: 18, x: 0, y: 10)
+    }
+
+    private var headerRow: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(thread.title)
+                    .font(FontManager.geist(size: 17, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            HStack(spacing: 8) {
+                Button(action: onShowRules) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Rules")
+                            .font(FontManager.geist(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(
+                        Capsule()
+                            .fill(TrackerTheme.pillFill(colorScheme))
+                    )
+                    .overlay(
+                        Capsule()
+                            .stroke(TrackerTheme.pillBorder(colorScheme), lineWidth: 0.8)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(TrackerTheme.accent(colorScheme))
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Circle()
+                                .fill(TrackerTheme.pillFill(colorScheme))
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(TrackerTheme.pillBorder(colorScheme), lineWidth: 0.8)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func actionPill(
+        icon: String,
+        text: String,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(text)
+                    .font(FontManager.geist(size: 11, weight: .medium))
+            }
+            .foregroundColor(isEnabled ? Color.appTextPrimary(colorScheme) : (colorScheme == .dark ? Color.white.opacity(0.35) : Color.black.opacity(0.28)))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                Capsule()
+                    .fill(TrackerTheme.pillFill(colorScheme))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(TrackerTheme.pillBorder(colorScheme), lineWidth: 0.8)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.65)
+    }
+
+    private func disclosureSection<Content: View>(
+        title: String,
+        count: Int,
+        isExpanded: Bool,
+        onToggle: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: onToggle) {
+                HStack {
+                    Text(title)
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.5))
+                        .textCase(.uppercase)
+
+                    Spacer()
+
+                    Text("\(count)")
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(TrackerTheme.accent(colorScheme))
+
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(TrackerTheme.accent(colorScheme))
+                }
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                content()
+            }
+        }
+    }
+
+    private func bulletRow(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Circle()
+                .fill(TrackerTheme.bullet(colorScheme))
+                .frame(width: 5, height: 5)
+                .padding(.top, 6)
+            Text(text)
+                .font(FontManager.geist(size: 13, weight: .medium))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+        }
+    }
+
+    private func parsedRuleHighlights(from text: String) -> [String] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "No rules saved yet." else { return [] }
+
+        let lineItems = trimmed
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if lineItems.count > 1 {
+            return Array(lineItems.prefix(6))
+        }
+
+        let sentenceItems = trimmed
+            .split(whereSeparator: { ".!?".contains($0) })
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        return Array(sentenceItems.prefix(6))
+    }
+
+    private func compactTrackerDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+
+        if calendar.isDateInToday(date) {
+            formatter.timeStyle = .short
+            return formatter.string(from: date)
+        }
+
+        formatter.dateStyle = .medium
+        return formatter.string(from: date)
+    }
+}
+
+struct TrackerEmptyHeaderCard: View {
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Tracker mode")
+                .font(FontManager.geist(size: 15, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+            Text("Describe what should be tracked and the rules in plain language. I will draft the tracker, show the saved rules and summary, and wait for confirmation before saving anything.")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.68) : Color.black.opacity(0.6))
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(TrackerTheme.pinnedCardGradient(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(TrackerTheme.pinnedCardBorder(colorScheme), lineWidth: 1)
+        )
+        .shadow(color: TrackerTheme.pinnedCardShadow(colorScheme), radius: 18, x: 0, y: 10)
+    }
+}
+
+struct TrackerRulesSheet: View {
+    let thread: TrackerThread?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let thread {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(thread.title)
+                                .font(FontManager.geist(size: 20, weight: .semibold))
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
+                            Text(thread.cachedState?.ruleSummary ?? TrackerRuleSummaryBuilder.summary(for: thread.memorySnapshot))
+                                .font(FontManager.geist(size: 14, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.76) : Color.black.opacity(0.7))
+
+                            if !thread.memorySnapshot.quickFacts.isEmpty {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Key Points")
+                                        .font(FontManager.geist(size: 12, weight: .semibold))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.58) : Color.black.opacity(0.5))
+                                    ForEach(thread.memorySnapshot.quickFacts, id: \.self) { fact in
+                                        HStack(alignment: .top, spacing: 8) {
+                                            Circle()
+                                                .fill(TrackerTheme.bullet(colorScheme))
+                                                .frame(width: 5, height: 5)
+                                                .padding(.top, 6)
+                                            Text(fact)
+                                                .font(FontManager.geist(size: 13, weight: .regular))
+                                                .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        }
+                                    }
+                                }
+                            }
+
+                            if let notes = thread.memorySnapshot.notes?.trimmingCharacters(in: .whitespacesAndNewlines),
+                               !notes.isEmpty {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Notes")
+                                        .font(FontManager.geist(size: 12, weight: .semibold))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.58) : Color.black.opacity(0.5))
+                                    Text(notes)
+                                        .font(FontManager.geist(size: 13, weight: .regular))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                }
+                            }
+                        }
+                    } else {
+                        Text("No tracker rules yet.")
+                            .font(FontManager.geist(size: 15, weight: .medium))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                    }
+                }
+                .padding(20)
+            }
+            .background(Color.appBackground(colorScheme))
+            .navigationTitle("Tracker Rules")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+struct TrackerActivitySheet: View {
+    let thread: TrackerThread?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var sortedChanges: [TrackerChange] {
+        guard let thread else { return [] }
+        return thread.memorySnapshot.changeLog.sorted { lhs, rhs in
+            if lhs.effectiveAt == rhs.effectiveAt {
+                return lhs.createdAt > rhs.createdAt
+            }
+            return lhs.effectiveAt > rhs.effectiveAt
+        }
+    }
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let thread {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(thread.title)
+                                .font(FontManager.geist(size: 20, weight: .semibold))
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
+                            Text("Recent activity")
+                                .font(FontManager.geist(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.66) : Color.black.opacity(0.58))
+                        }
+
+                        if sortedChanges.isEmpty {
+                            trackerEmptyState
+                        } else {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(sortedChanges) { change in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack(alignment: .top, spacing: 10) {
+                                            Circle()
+                                                .fill(activityColor(for: change.type))
+                                                .frame(width: 8, height: 8)
+                                                .padding(.top, 6)
+
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(change.title?.trackerNonEmpty ?? change.content)
+                                                    .font(FontManager.geist(size: 14, weight: .medium))
+                                                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                                                    .fixedSize(horizontal: false, vertical: true)
+
+                                                HStack(spacing: 8) {
+                                                    Text(activityLabel(for: change.type))
+                                                    Text(compactActivityDate(change.effectiveAt))
+                                                }
+                                                .font(FontManager.geist(size: 11, weight: .regular))
+                                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.45))
+                                            }
+                                        }
+
+                                        if let title = change.title?.trackerNonEmpty, title != change.content {
+                                            Text(change.content)
+                                                .font(FontManager.geist(size: 12, weight: .regular))
+                                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.66))
+                                                .padding(.leading, 18)
+                                        }
+                                    }
+                                    .padding(14)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 16)
+                                            .fill(TrackerTheme.neutralCardFill(colorScheme))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 16)
+                                            .stroke(TrackerTheme.neutralCardBorder(colorScheme), lineWidth: 0.8)
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        trackerEmptyState
+                    }
+                }
+                .padding(20)
+            }
+            .background(Color.appBackground(colorScheme))
+            .navigationTitle("Activity")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var trackerEmptyState: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("No tracker changes yet.")
+                .font(FontManager.geist(size: 15, weight: .medium))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+            Text("Confirmed tracker updates will appear here in order.")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.64) : Color.black.opacity(0.56))
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(TrackerTheme.neutralCardFill(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(TrackerTheme.neutralCardBorder(colorScheme), lineWidth: 0.8)
+        )
+    }
+
+    private func activityColor(for type: TrackerChangeType) -> Color {
+        switch type {
+        case .ruleChange:
+            return TrackerTheme.accent(colorScheme)
+        case .correction:
+            return colorScheme == .dark ? Color.orange.opacity(0.85) : Color.orange
+        case .note:
+            return colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.5)
+        case .stateUpdate:
+            return TrackerTheme.bullet(colorScheme)
+        }
+    }
+
+    private func activityLabel(for type: TrackerChangeType) -> String {
+        switch type {
+        case .ruleChange:
+            return "Rule change"
+        case .stateUpdate:
+            return "State update"
+        case .correction:
+            return "Correction"
+        case .note:
+            return "Note"
+        }
+    }
+
+    private func compactActivityDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+struct TrackerDraftCard: View {
+    let draft: TrackerOperationDraft
+    let colorScheme: ColorScheme
+    let isPending: Bool
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Pending change")
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.56))
+                    .textCase(.uppercase)
+                Spacer()
+                if !isPending {
+                    Text("Resolved")
+                        .font(FontManager.geist(size: 11, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.54) : Color.black.opacity(0.5))
+                }
+            }
+
+            Text(draft.summaryText)
+                .font(FontManager.geist(size: 14, weight: .medium))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            if !draft.validationErrors.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(draft.validationErrors, id: \.self) { error in
+                        Text(error)
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.68))
+                    }
+                }
+            }
+
+            if isPending && draft.requiresConfirmation {
+                HStack(spacing: 10) {
+                    Button(action: onConfirm) {
+                        Text("Confirm")
+                            .font(FontManager.geist(size: 13, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.92) : Color.black.opacity(0.88))
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: onCancel) {
+                        Text("Cancel")
+                            .font(FontManager.geist(size: 13, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(TrackerTheme.neutralCardBorder(colorScheme), lineWidth: 0.8)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(TrackerTheme.neutralCardFill(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(TrackerTheme.neutralCardBorder(colorScheme), lineWidth: 0.8)
+        )
+    }
+}
+
+struct TrackerInlineStateCard: View {
+    let state: TrackerDerivedState
+    let colorScheme: ColorScheme
+
+    private var secondaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.78) : Color.black.opacity(0.72)
+    }
+
+    private var visibleFacts: [String] {
+        Array(state.quickFacts.prefix(2))
+    }
+
+    private var latestChange: TrackerChange? {
+        state.recentChanges.first
+    }
+
+    private func changeLabel(for change: TrackerChange) -> String {
+        change.title?.trackerNonEmpty ?? change.content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(latestChange == nil ? "Current state" : "Latest change")
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.58) : Color.black.opacity(0.52))
+                    .textCase(.uppercase)
+
+                Spacer()
+
+                if let latestChange {
+                    Text(compactTrackerDate(latestChange.effectiveAt))
+                        .font(FontManager.geist(size: 11, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.45))
+                }
+            }
+
+            Text(latestChange.map { changeLabel(for: $0) } ?? state.headline)
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(2)
+
+            Text(state.summaryLine)
+                .font(FontManager.geist(size: 12, weight: .regular))
+                .foregroundColor(secondaryTextColor)
+                .lineLimit(3)
+
+            if !visibleFacts.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(visibleFacts, id: \.self) { fact in
+                        Text("• \(fact)")
+                            .font(FontManager.geist(size: 12, weight: .medium))
+                            .foregroundColor(secondaryTextColor)
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(TrackerTheme.neutralCardFill(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(TrackerTheme.neutralCardBorder(colorScheme), lineWidth: 0.8)
+        )
+    }
+
+    private func compactTrackerDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+
+        if calendar.isDateInToday(date) {
+            formatter.timeStyle = .short
+            return formatter.string(from: date)
+        }
+
+        formatter.dateStyle = .medium
+        return formatter.string(from: date)
     }
 }
 
@@ -3447,28 +4352,49 @@ struct ConversationHistorySheet: View {
     private var topControlBorderColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
     }
+
+    private var trackerSectionDividerColor: Color {
+        TrackerTheme.accent(colorScheme).opacity(colorScheme == .dark ? 0.18 : 0.12)
+    }
     
     let onSelectConversation: (SavedConversation) -> Void
     let onDeleteConversation: (SavedConversation) -> Void
     var onDismiss: (() -> Void)? = nil
+
+    private var trackerConversations: [SavedConversation] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let sorted = searchService.savedConversations
+            .filter { $0.kind == .tracker }
+            .sorted { $0.updatedAt > $1.updatedAt }
+
+        guard !query.isEmpty else { return sorted }
+        return sorted.filter { conversation in
+            let title = conversation.title.lowercased()
+            let subtitle = (conversation.subtitle ?? "").lowercased()
+            let firstUser = conversation.messages.first(where: { $0.isUser })?.text.lowercased() ?? ""
+            return title.contains(query) || subtitle.contains(query) || firstUser.contains(query)
+        }
+    }
     
     private var groupedConversations: [(String, [SavedConversation])] {
         let calendar = Calendar.current
         let now = Date()
         var groups: [(String, [SavedConversation])] = []
-        let sorted = searchService.savedConversations.sorted { $0.createdAt > $1.createdAt }
+        let sorted = searchService.savedConversations
+            .filter { $0.kind != .tracker }
+            .sorted { $0.updatedAt > $1.updatedAt }
         
-        let today = sorted.filter { calendar.isDateInToday($0.createdAt) }
+        let today = sorted.filter { calendar.isDateInToday($0.updatedAt) }
         if !today.isEmpty { groups.append(("Today", today)) }
-        
-        let yesterday = sorted.filter { calendar.isDateInYesterday($0.createdAt) }
+
+        let yesterday = sorted.filter { calendar.isDateInYesterday($0.updatedAt) }
         if !yesterday.isEmpty { groups.append(("Yesterday", yesterday)) }
-        
+
         let weekAgo = calendar.date(byAdding: .day, value: -7, to: now)!
-        let last7Days = sorted.filter { $0.createdAt >= weekAgo && !calendar.isDateInToday($0.createdAt) && !calendar.isDateInYesterday($0.createdAt) }
+        let last7Days = sorted.filter { $0.updatedAt >= weekAgo && !calendar.isDateInToday($0.updatedAt) && !calendar.isDateInYesterday($0.updatedAt) }
         if !last7Days.isEmpty { groups.append(("Previous 7 days", last7Days)) }
-        
-        let older = sorted.filter { $0.createdAt < weekAgo }
+
+        let older = sorted.filter { $0.updatedAt < weekAgo }
         if !older.isEmpty { groups.append(("Older", older)) }
         
         return groups
@@ -3560,6 +4486,31 @@ struct ConversationHistorySheet: View {
                 )
             }
             .buttonStyle(PlainButtonStyle())
+
+            Button(action: {
+                HapticManager.shared.selection()
+                searchService.startNewTrackerConversation()
+                if let onDismiss = onDismiss { onDismiss() } else { dismiss() }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("New Tracker")
+                        .font(FontManager.geist(size: 13, weight: .medium))
+                }
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                .padding(.horizontal, 12)
+                .frame(height: 36)
+                .background(
+                    Capsule()
+                        .fill(topControlFillColor)
+                        .overlay(
+                            Capsule()
+                                .stroke(topControlBorderColor, lineWidth: 0.8)
+                        )
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -3572,7 +4523,7 @@ struct ConversationHistorySheet: View {
     }
 
     private var hasAnyVisibleConversations: Bool {
-        !filteredGroupedConversations.isEmpty
+        !trackerConversations.isEmpty || !filteredGroupedConversations.isEmpty
     }
 
     private var noSearchResultsView: some View {
@@ -3594,7 +4545,7 @@ struct ConversationHistorySheet: View {
             Text("No conversations yet")
                 .font(FontManager.geist(size: 15, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.5))
-            Text("Start a new chat and it will appear here")
+            Text("Start a new chat or tracker and it will appear here")
                 .font(FontManager.geist(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
         }
@@ -3604,6 +4555,51 @@ struct ConversationHistorySheet: View {
     private var conversationListView: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
+                if !trackerConversations.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Trackers")
+                            .font(FontManager.geist(size: 11, weight: .medium))
+                            .foregroundColor(TrackerTheme.accent(colorScheme))
+                            .textCase(.uppercase)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 6)
+
+                        ForEach(Array(trackerConversations.enumerated()), id: \.element.id) { index, conversation in
+                            ConversationHistoryRow(conversation: conversation)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    HapticManager.shared.selection()
+                                    onSelectConversation(conversation)
+                                }
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        HapticManager.shared.delete()
+                                        onDeleteConversation(conversation)
+                                    } label: { Label("Delete", systemImage: "trash") }
+                                }
+
+                            if index < trackerConversations.count - 1 {
+                                Rectangle()
+                                    .fill(trackerSectionDividerColor)
+                                    .frame(height: 1)
+                                    .padding(.leading, 20)
+                                    .padding(.trailing, 20)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(TrackerTheme.pinnedCardGradient(colorScheme))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24)
+                            .stroke(TrackerTheme.pinnedCardBorder(colorScheme), lineWidth: 1)
+                    )
+                    .shadow(color: TrackerTheme.pinnedCardShadow(colorScheme), radius: 14, x: 0, y: 8)
+                    .padding(.horizontal, 12)
+                }
+
                 ForEach(filteredGroupedConversations, id: \.0) { sectionTitle, conversations in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(sectionTitle)
@@ -3654,6 +4650,9 @@ struct ConversationHistoryRow: View {
     
     private var displayTitle: String {
         if conversation.title.isEmpty {
+            if conversation.kind == .tracker {
+                return "Tracker"
+            }
             if let firstUserMessage = conversation.messages.first(where: { $0.isUser }) {
                 return firstUserMessage.text
                     .replacingOccurrences(of: "\n", with: " ")
@@ -3668,12 +4667,21 @@ struct ConversationHistoryRow: View {
     
     var body: some View {
         HStack(spacing: 0) {
-            Text(displayTitle)
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(displayTitle)
+                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let subtitle = conversation.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.5))
+                        .lineLimit(2)
+                }
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)

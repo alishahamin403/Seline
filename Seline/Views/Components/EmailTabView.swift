@@ -45,9 +45,7 @@ struct EmailTabView: View {
                     HapticManager.shared.selection()
                     let isReselect = selectedTab == tab
                     onTabTapped?(tab, isReselect)
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        selectedTab = tab
-                    }
+                    selectedTab = tab
                 }) {
                     Text(tab.displayName)
                         .font(FontManager.geist(size: 12, systemWeight: .semibold))
@@ -71,6 +69,7 @@ struct EmailTabView: View {
             Capsule()
                 .stroke(tabContainerStrokeColor(), lineWidth: 1)
         )
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedTab)
     }
 
     // MARK: - Helper Functions for Pill Buttons

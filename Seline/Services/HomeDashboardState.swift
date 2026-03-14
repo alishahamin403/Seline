@@ -78,11 +78,10 @@ final class HomeDashboardState: ObservableObject {
             }
             .store(in: &cancellables)
 
-        taskManager.objectWillChange
+        taskManager.$tasks
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.refreshTasks()
-                }
+                self?.refreshTasks()
             }
             .store(in: &cancellables)
 

@@ -249,6 +249,7 @@ class LocationsManager: ObservableObject {
     private let placesKey = "SavedPlaces"
     private let userFoldersKey = "seline_user_folders"
     private let searchHistoryKey = "MapsSearchHistory"
+    private let persistenceCoordinator = DeferredPersistenceCoordinator.shared
     private init() {
         loadUserFolders()
         loadSavedPlaces()
@@ -286,8 +287,12 @@ class LocationsManager: ObservableObject {
     }
 
     private func saveSearchHistory() {
-        if let encoded = try? JSONEncoder().encode(searchHistory) {
-            UserDefaults.standard.set(encoded, forKey: searchHistoryKey)
+        let snapshot = searchHistory
+        let storageKey = searchHistoryKey
+        persistenceCoordinator.schedule(id: "LocationsManager.searchHistory") {
+            if let encoded = try? JSONEncoder().encode(snapshot) {
+                UserDefaults.standard.set(encoded, forKey: storageKey)
+            }
         }
     }
 
@@ -312,7 +317,6 @@ class LocationsManager: ObservableObject {
         guard !trimmed.isEmpty && !categories.contains(trimmed) else { return }
         userFolders.insert(trimmed)
         savePlacesToStorage()
-        objectWillChange.send()
     }
 
     func removeUserFolder(_ name: String) {
@@ -320,29 +324,47 @@ class LocationsManager: ObservableObject {
         guard !savedPlaces.contains(where: { $0.category == name }) else { return }
         userFolders.remove(name)
         savePlacesToStorage()
-        objectWillChange.send()
     }
 
     // MARK: - Data Persistence
 
     private func savePlacesToStorage() {
-        if let encoded = try? JSONEncoder().encode(savedPlaces) {
-            UserDefaults.standard.set(encoded, forKey: placesKey)
-        }
-
         // Update categories, countries, provinces, and cities
         // Keep categories as sorted array for consistent ordering
         // Include place-derived categories AND user-created folders
         let categoriesWithPlaces = Set(savedPlaces.map { $0.category })
-        categories = Array(categoriesWithPlaces.union(userFolders)).sorted()
+        let nextCategories = Array(categoriesWithPlaces.union(userFolders)).sorted()
+        let nextCountries = Set(savedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
+        let nextProvinces = Set(savedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
+        let nextCities = Set(savedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
 
-        // Persist user folders
-        if let encoded = try? JSONEncoder().encode(Array(userFolders)) {
-            UserDefaults.standard.set(encoded, forKey: userFoldersKey)
+        if categories != nextCategories {
+            categories = nextCategories
         }
-        countries = Set(savedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
-        provinces = Set(savedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
-        cities = Set(savedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
+        if countries != nextCountries {
+            countries = nextCountries
+        }
+        if provinces != nextProvinces {
+            provinces = nextProvinces
+        }
+        if cities != nextCities {
+            cities = nextCities
+        }
+
+        let placesSnapshot = savedPlaces
+        let userFoldersSnapshot = Array(userFolders).sorted()
+        let placesStorageKey = placesKey
+        let foldersStorageKey = userFoldersKey
+
+        persistenceCoordinator.schedule(id: "LocationsManager.placesStorage") {
+            if let encodedPlaces = try? JSONEncoder().encode(placesSnapshot) {
+                UserDefaults.standard.set(encodedPlaces, forKey: placesStorageKey)
+            }
+
+            if let encodedFolders = try? JSONEncoder().encode(userFoldersSnapshot) {
+                UserDefaults.standard.set(encodedFolders, forKey: foldersStorageKey)
+            }
+        }
     }
 
     private func loadSavedPlaces() {
@@ -542,9 +564,6 @@ class LocationsManager: ObservableObject {
             self.savedPlaces.append(placeToAdd)
             self.savePlacesToStorage()
 
-            // Notify observers of change
-            self.objectWillChange.send()
-
             // OPTIMIZATION: Invalidate affected caches
             self.invalidateLocationCaches(for: placeToAdd.id)
 
@@ -647,9 +666,6 @@ class LocationsManager: ObservableObject {
                 self.savedPlaces[index] = updatedPlace
                 self.savePlacesToStorage()
 
-                // Notify observers of change
-                self.objectWillChange.send()
-
                 // OPTIMIZATION: Invalidate affected caches
                 self.invalidateLocationCaches(for: place.id)
             }
@@ -681,7 +697,6 @@ class LocationsManager: ObservableObject {
             }
 
             self.savePlacesToStorage()
-            self.objectWillChange.send()
 
             for place in updatedPlaces {
                 Task {
@@ -697,9 +712,6 @@ class LocationsManager: ObservableObject {
             guard let self = self else { return }
             self.savedPlaces.removeAll { $0.id == place.id }
             self.savePlacesToStorage()
-
-            // Notify observers of change
-            self.objectWillChange.send()
 
             // OPTIMIZATION: Invalidate affected caches
             self.invalidateLocationCaches(for: place.id)
@@ -870,9 +882,6 @@ class LocationsManager: ObservableObject {
             savedPlaces[index].isFavourite.toggle()
             savedPlaces[index].dateModified = Date()
             savePlacesToStorage()
-
-            // Notify observers of change
-            objectWillChange.send()
 
             // Sync with Supabase
             Task {

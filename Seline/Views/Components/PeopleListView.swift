@@ -6,11 +6,6 @@ extension Notification.Name {
 }
 
 struct PeopleListView: View {
-    private struct PeopleActivityItem: Identifiable, Hashable {
-        let id: String
-        let title: String
-    }
-
     @ObservedObject var peopleManager: PeopleManager
     @ObservedObject var locationsManager: LocationsManager
     let colorScheme: ColorScheme
@@ -82,47 +77,6 @@ struct PeopleListView: View {
         let count = peopleManager.people.count
         guard count > 0 else { return "Build your people hub" }
         return "\(count) \(count == 1 ? "person" : "people") in your circle"
-    }
-
-    private var recentActivityItems: [PeopleActivityItem] {
-        var items: [PeopleActivityItem] = []
-        var seenTitles = Set<String>()
-
-        func appendActivity(id: String, title: String?) {
-            guard let title, !title.isEmpty, !seenTitles.contains(title) else { return }
-            seenTitles.insert(title)
-            items.append(PeopleActivityItem(id: id, title: title))
-        }
-
-        if let updatedPerson = peopleManager.people.max(by: { $0.dateModified < $1.dateModified }) {
-            appendActivity(
-                id: "updated-\(updatedPerson.id.uuidString)",
-                title: "\(updatedPerson.displayName) was updated \(peopleRelativeDate(updatedPerson.dateModified))."
-            )
-        }
-
-        if let birthday = upcomingBirthdayPeople.first {
-            appendActivity(
-                id: "birthday-\(birthday.person.id.uuidString)",
-                title: "\(birthday.person.displayName) has a birthday \(birthdayTimingText(birthday.daysUntil))."
-            )
-        }
-
-        if let linkedPerson = peopleManager.people.max(by: { connectionWeight(for: $0) < connectionWeight(for: $1) }) {
-            appendActivity(
-                id: "links-\(linkedPerson.id.uuidString)",
-                title: linkedContextText(for: linkedPerson)
-            )
-        }
-
-        if favouritePeople.count > 0 {
-            appendActivity(
-                id: "favourites-count",
-                title: "\(favouritePeople.count) favourite\(favouritePeople.count == 1 ? "" : "s") are pinned for quick access."
-            )
-        }
-
-        return Array(items.prefix(3))
     }
 
     var body: some View {
@@ -473,10 +427,6 @@ struct PeopleListView: View {
                 emptyDirectoryState
             } else {
                 VStack(spacing: 18) {
-                    if !recentActivityItems.isEmpty && !isEditMode {
-                        recentActivitySection
-                    }
-
                     ForEach(sortedGroupedPeople, id: \.groupKey) { group in
                         relationshipGroupSection(group)
                     }
@@ -490,42 +440,6 @@ struct PeopleListView: View {
             cornerRadius: 24,
             highlightStrength: 0.5
         )
-    }
-
-    private var recentActivitySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Recent activity")
-                .font(FontManager.geist(size: 11, weight: .semibold))
-                .tracking(1.6)
-                .foregroundColor(Color.appTextSecondary(colorScheme))
-
-            VStack(spacing: 0) {
-                ForEach(Array(recentActivityItems.enumerated()), id: \.element.id) { index, item in
-                    HStack(alignment: .top, spacing: 10) {
-                        Circle()
-                            .fill(Color(red: 0.98, green: 0.64, blue: 0.41).opacity(colorScheme == .dark ? 0.95 : 0.9))
-                            .frame(width: 7, height: 7)
-                            .padding(.top, 6)
-
-                        Text(item.title)
-                            .font(FontManager.geist(size: 13, weight: .regular))
-                            .foregroundColor(Color.appTextSecondary(colorScheme))
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, 11)
-
-                    if index < recentActivityItems.count - 1 {
-                        Divider()
-                            .overlay(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.7 : 0.9))
-                            .padding(.leading, 18)
-                    }
-                }
-            }
-            .padding(.horizontal, 14)
-            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
-        }
     }
 
     private var relationshipFilterChips: some View {
@@ -997,40 +911,6 @@ struct PeopleListView: View {
         isEditMode = false
     }
 
-    private func birthdayTimingText(_ daysUntil: Int) -> String {
-        if daysUntil == 0 {
-            return "today"
-        }
-        if daysUntil == 1 {
-            return "tomorrow"
-        }
-        return "in \(daysUntil) days"
-    }
-
-    private func connectionWeight(for person: Person) -> Int {
-        (person.favouritePlaceIds?.count ?? 0) + (person.linkedPeople?.count ?? 0)
-    }
-
-    private func linkedContextText(for person: Person) -> String? {
-        let placeCount = person.favouritePlaceIds?.count ?? 0
-        let relatedPeopleCount = person.linkedPeople?.count ?? 0
-        guard placeCount > 0 || relatedPeopleCount > 0 else { return nil }
-
-        var parts: [String] = []
-        if placeCount > 0 {
-            parts.append("\(placeCount) place\(placeCount == 1 ? "" : "s")")
-        }
-        if relatedPeopleCount > 0 {
-            parts.append("\(relatedPeopleCount) relationship\(relatedPeopleCount == 1 ? "" : "s")")
-        }
-        return "\(person.displayName) is connected across \(parts.joined(separator: " and "))."
-    }
-
-    private func peopleRelativeDate(_ date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
 }
 
 struct PersonRowView: View {

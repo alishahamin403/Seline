@@ -10,6 +10,11 @@ struct ProactiveQuestionInfo: Codable {
     let isFirstVisit: Bool
 }
 
+enum ConversationKind: String, Codable, CaseIterable {
+    case standard
+    case tracker
+}
+
 // MARK: - Conversation Models
 
 struct ConversationMessage: Identifiable, Codable {
@@ -26,8 +31,11 @@ struct ConversationMessage: Identifiable, Codable {
     var eventCreationInfo: [EventCreationInfo]?  // For event creation - shows confirmation card
     var relevantContent: [RelevantContentInfo]?  // For displaying inline email/note/event cards
     var proactiveQuestion: ProactiveQuestionInfo?  // For proactive questions after location visits
+    var trackerThreadId: UUID?
+    var trackerOperationDraft: TrackerOperationDraft?
+    var trackerStateSnapshot: TrackerDerivedState?
 
-    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil, followUpSuggestions: [FollowUpSuggestion]? = nil, locationInfo: ETALocationInfo? = nil, eventCreationInfo: [EventCreationInfo]? = nil, relevantContent: [RelevantContentInfo]? = nil, proactiveQuestion: ProactiveQuestionInfo? = nil) {
+    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil, followUpSuggestions: [FollowUpSuggestion]? = nil, locationInfo: ETALocationInfo? = nil, eventCreationInfo: [EventCreationInfo]? = nil, relevantContent: [RelevantContentInfo]? = nil, proactiveQuestion: ProactiveQuestionInfo? = nil, trackerThreadId: UUID? = nil, trackerOperationDraft: TrackerOperationDraft? = nil, trackerStateSnapshot: TrackerDerivedState? = nil) {
         self.id = id
         self.isUser = isUser
         self.text = text
@@ -41,6 +49,9 @@ struct ConversationMessage: Identifiable, Codable {
         self.eventCreationInfo = eventCreationInfo
         self.relevantContent = relevantContent
         self.proactiveQuestion = proactiveQuestion
+        self.trackerThreadId = trackerThreadId
+        self.trackerOperationDraft = trackerOperationDraft
+        self.trackerStateSnapshot = trackerStateSnapshot
     }
 
     var formattedTime: String {

@@ -111,6 +111,8 @@ struct SelineApp: App {
                         // Perform background refresh check for emails
                         await EmailService.shared.handleBackgroundRefresh()
 
+                        await searchService.refreshTrackerThreadsFromSupabase()
+
                         // Update app badge with current unread count
                         let unreadCount = EmailService.shared.inboxEmails.filter { !$0.isRead }.count
                         notificationService.updateAppBadge(count: unreadCount)
@@ -161,6 +163,9 @@ struct SelineApp: App {
                     if !searchService.conversationHistory.isEmpty {
                         searchService.saveConversationToHistory()
                         print("💾 Current conversation saved to history before background")
+                        Task {
+                            await searchService.saveConversationToSupabase()
+                        }
                     }
                     // Ask iOS for a fresh background sync window as the app backgrounds.
                     scheduleBackgroundRefresh()

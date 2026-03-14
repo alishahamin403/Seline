@@ -10,18 +10,17 @@ struct CurrentLocationCardWidget: View {
     let nearbyLocationFolder: String?
     let nearbyLocationPlace: SavedPlace?
     let distanceToNearest: Double?
-    let elapsedTimeString: String
     let todaysVisits: [VisitSummary]
+    var isVisible: Bool = true
     let onCurrentLocationTap: (() -> Void)? = nil
 
     @Binding var selectedPlace: SavedPlace?
     @Binding var showAllLocationsSheet: Bool
 
     @StateObject private var locationsManager = LocationsManager.shared
-
-    private var activeBadgeColor: Color {
-        colorScheme == .dark ? .white : .black
-    }
+    @State private var aiDaySummary: String?
+    @State private var isGeneratingDaySummary = false
+    @State private var lastGeneratedSummaryKey: String?
 
     private var currentLocationDisplay: String {
         nearbyLocation ?? cityOnlyLocationName
@@ -62,30 +61,69 @@ struct CurrentLocationCardWidget: View {
 
     private var currentTimeLabel: String {
         if let activeVisit {
-            return elapsedTimeString.isEmpty
-                ? durationLabel(for: activeVisit.totalDurationMinutes)
-                : elapsedTimeString
-        }
-        if !elapsedTimeString.isEmpty {
-            return elapsedTimeString
+            return durationLabel(for: activeVisit.totalDurationMinutes)
         }
         return "--"
     }
 
     private var featuredVisits: [VisitSummary] {
-        Array(sortedVisits.prefix(3))
+        Array(sortedVisits.prefix(12))
     }
 
-    private var locationNarrativeText: String {
-        if activeVisit != nil {
-            return "You are currently at \(currentLocationDisplay), and it is acting as the anchor point in today's movement."
+    private var summaryPatternSignature: String {
+        let visitFingerprint = sortedVisits.map { visit in
+            "\(visit.id.uuidString):\(visit.displayName):\(visit.isActive)"
+        }
+        .joined(separator: "|")
+
+        return [
+            Calendar.current.startOfDay(for: Date()).formatted(date: .numeric, time: .omitted),
+            currentLocationDisplay,
+            visitFingerprint
+        ]
+        .joined(separator: "||")
+    }
+
+    private var summaryTaskToken: String {
+        "\(summaryPatternSignature)|visible:\(isVisible)"
+    }
+
+    private var summaryCacheKey: String {
+        "cache.location.daySummary.\(summaryPatternSignature)"
+    }
+
+    private var displayedDaySummary: String {
+        let trimmedSummary = aiDaySummary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedSummary.isEmpty ? fallbackDaySummary : trimmedSummary
+    }
+
+    private var fallbackDaySummary: String {
+        if let activeVisit {
+            let supportingStops = sortedVisits
+                .filter { $0.id != activeVisit.id }
+                .prefix(2)
+                .map(\.displayName)
+
+            if supportingStops.isEmpty {
+                return "The day has stayed centered around \(currentLocationDisplay), with \(currentTimeLabel) spent there so far."
+            }
+
+            return "The day has been anchored by \(currentLocationDisplay) for \(currentTimeLabel), with shorter stops at \(joinedPlaceList(Array(supportingStops)))."
         }
 
-        if distanceToNearest != nil {
-            return "You're nearest to \(currentLocationDisplay), with today's saved stops grouped below for quick context."
+        guard let leadVisit = sortedVisits.first else {
+            if distanceToNearest != nil {
+                return "The day is still taking shape, and the nearest saved place is \(formattedDistanceToNearest) away."
+            }
+            return locationStatusLine
         }
 
-        return locationStatusLine
+        let supportingStops = Array(sortedVisits.dropFirst().prefix(2).map(\.displayName))
+        if supportingStops.isEmpty {
+            return "\(leadVisit.displayName) has been the main stop so far, taking up \(durationLabel(for: leadVisit.totalDurationMinutes))."
+        }
+
+        return "\(leadVisit.displayName) has led the day so far, with time also spent at \(joinedPlaceList(supportingStops))."
     }
 
     var body: some View {
@@ -97,39 +135,31 @@ struct CurrentLocationCardWidget: View {
                     .tracking(0.9)
 
                 Spacer(minLength: 12)
-
-                if activeVisit != nil {
-                    Text("LIVE")
-                        .font(FontManager.geist(size: 11, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .black : .white)
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .background(
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white : Color.black)
-                        )
-                }
             }
 
             currentLocationDisplayCard
 
-            Text(locationNarrativeText)
-                .font(FontManager.geist(size: 15, weight: .medium))
-                .foregroundColor(Color.appTextSecondary(colorScheme))
-                .fixedSize(horizontal: false, vertical: true)
+            locationInsightsSection
 
             if !featuredVisits.isEmpty {
-                HStack(spacing: 10) {
-                    ForEach(featuredVisits, id: \.id) { visit in
-                        featuredVisitCard(visit)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(featuredVisits, id: \.id) { visit in
+                            featuredVisitCard(visit)
+                        }
                     }
                 }
+                .padding(.horizontal, -18)
             }
         }
         .padding(.horizontal, 18)
         .padding(.top, 14)
         .padding(.bottom, 18)
         .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 24)
+        .task(id: summaryTaskToken) {
+            guard isVisible else { return }
+            await refreshDaySummaryIfNeeded()
+        }
     }
 
     private func featuredVisitCard(_ visit: VisitSummary) -> some View {
@@ -144,6 +174,7 @@ struct CurrentLocationCardWidget: View {
                         .font(FontManager.geist(size: 15, weight: .semibold))
                         .foregroundColor(Color.appTextPrimary(colorScheme))
                         .lineLimit(2)
+                        .layoutPriority(1)
 
                     Spacer(minLength: 6)
 
@@ -173,7 +204,7 @@ struct CurrentLocationCardWidget: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 13)
-            .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+            .frame(minWidth: 220, maxWidth: 220, minHeight: 132, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: 18)
                     .fill(
@@ -304,23 +335,19 @@ struct CurrentLocationCardWidget: View {
         }
     }
 
-    private func locationMetricTile(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(FontManager.geist(size: 11, weight: .medium))
+    private var locationInsightsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(displayedDaySummary)
+                .font(FontManager.geist(size: 15, weight: .medium))
                 .foregroundColor(Color.appTextSecondary(colorScheme))
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
 
-            Text(value)
-                .font(FontManager.geist(size: 18, weight: .semibold))
-                .foregroundColor(Color.appTextPrimary(colorScheme))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            if isGeneratingDaySummary && (aiDaySummary?.isEmpty ?? true) {
+                Text("Summarizing day so far...")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.72))
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-        .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
     }
 
     private var homeAccentColor: Color {
@@ -368,7 +395,7 @@ struct CurrentLocationCardWidget: View {
 
     private func isVisitActive(_ visit: VisitSummary) -> Bool {
         if visit.isActive { return true }
-        if let nearbyId = nearbyLocationPlace?.id, !elapsedTimeString.isEmpty {
+        if let nearbyId = nearbyLocationPlace?.id {
             return visit.id == nearbyId
         }
         return false
@@ -401,6 +428,112 @@ struct CurrentLocationCardWidget: View {
             selectPlace(with: activeVisit.id)
         }
     }
+
+    private func refreshDaySummaryIfNeeded() async {
+        if lastGeneratedSummaryKey == summaryPatternSignature, aiDaySummary != nil {
+            return
+        }
+
+        if let cachedSummary: String = CacheManager.shared.get(forKey: summaryCacheKey),
+           !cachedSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await MainActor.run {
+                aiDaySummary = cachedSummary
+                lastGeneratedSummaryKey = summaryPatternSignature
+                isGeneratingDaySummary = false
+            }
+            return
+        }
+
+        await MainActor.run {
+            isGeneratingDaySummary = true
+        }
+
+        let fallbackSummary = fallbackDaySummary
+        let prompt = buildDaySummaryPrompt()
+
+        do {
+            let response = try await GeminiService.shared.generateText(
+                systemPrompt: "You are a concise assistant who summarizes movement patterns from a user's day. Write naturally, avoid generic filler, and output only the summary.",
+                userPrompt: prompt,
+                maxTokens: 90,
+                temperature: 0.45,
+                operationType: "location_day_summary"
+            )
+
+            let sanitizedSummary = sanitizeDaySummary(response)
+            await MainActor.run {
+                let finalSummary = sanitizedSummary.isEmpty ? fallbackSummary : sanitizedSummary
+                aiDaySummary = finalSummary
+                lastGeneratedSummaryKey = summaryPatternSignature
+                isGeneratingDaySummary = false
+                CacheManager.shared.set(finalSummary, forKey: summaryCacheKey, ttl: CacheManager.TTL.persistent)
+            }
+        } catch {
+            await MainActor.run {
+                aiDaySummary = fallbackSummary
+                lastGeneratedSummaryKey = summaryPatternSignature
+                isGeneratingDaySummary = false
+                CacheManager.shared.set(fallbackSummary, forKey: summaryCacheKey, ttl: CacheManager.TTL.persistent)
+            }
+        }
+    }
+
+    private func buildDaySummaryPrompt() -> String {
+        let visitsBlock: String
+        if sortedVisits.isEmpty {
+            visitsBlock = "No saved-place visits have been recorded yet today."
+        } else {
+            visitsBlock = sortedVisits
+                .prefix(6)
+                .enumerated()
+                .map { index, visit in
+                    let activeSuffix = isVisitActive(visit) ? " | active now" : ""
+                    return "\(index + 1). \(visit.displayName) | duration: \(durationLabel(for: visit.totalDurationMinutes))\(activeSuffix)"
+                }
+                .joined(separator: "\n")
+        }
+
+        return """
+        Write a 1-2 sentence summary of the day so far based on the user's saved-place visits.
+
+        Requirements:
+        - Be observant and concise.
+        - Do not use first-person.
+        - Do not say "you are currently at" or "you are at home."
+        - Capture the rhythm or pattern of the day so far.
+        - Mention the current location only if it helps the summary feel grounded.
+        - Output only the summary text.
+
+        Context:
+        Current location label: \(currentLocationDisplay)
+        Current status line: \(locationStatusLine)
+        Active-stop duration: \(currentTimeLabel)
+        Distance to nearest saved place: \(distanceToNearest != nil ? formattedDistanceToNearest : "n/a")
+        Today's visits:
+        \(visitsBlock)
+        """
+    }
+
+    private func sanitizeDaySummary(_ summary: String) -> String {
+        summary
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"(?i)^summary\s*[:#-]*\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\"", with: "")
+    }
+
+    private func joinedPlaceList(_ places: [String]) -> String {
+        switch places.count {
+        case 0:
+            return ""
+        case 1:
+            return places[0]
+        case 2:
+            return "\(places[0]) and \(places[1])"
+        default:
+            let head = places.dropLast().joined(separator: ", ")
+            return "\(head), and \(places.last ?? "")"
+        }
+    }
 }
 
 #Preview {
@@ -411,12 +544,12 @@ struct CurrentLocationCardWidget: View {
             nearbyLocationFolder: nil,
             nearbyLocationPlace: nil,
             distanceToNearest: nil,
-            elapsedTimeString: "1h 57m",
             todaysVisits: [
                 (id: UUID(), displayName: "Home", totalDurationMinutes: 973, isActive: true),
                 (id: UUID(), displayName: "Chipotle Mexican Grill", totalDurationMinutes: 7, isActive: false),
                 (id: UUID(), displayName: "LA Fitness", totalDurationMinutes: 53, isActive: false)
             ],
+            isVisible: true,
             selectedPlace: .constant(nil),
             showAllLocationsSheet: .constant(false)
         )

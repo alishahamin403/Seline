@@ -62,7 +62,10 @@ class ConversationState: ObservableObject {
             locationInfo: lastMessage.locationInfo,
             eventCreationInfo: lastMessage.eventCreationInfo,
             relevantContent: lastMessage.relevantContent,
-            proactiveQuestion: lastMessage.proactiveQuestion
+            proactiveQuestion: lastMessage.proactiveQuestion,
+            trackerThreadId: lastMessage.trackerThreadId,
+            trackerOperationDraft: lastMessage.trackerOperationDraft,
+            trackerStateSnapshot: lastMessage.trackerStateSnapshot
         )
         conversationHistory[lastIndex] = updatedMessage
     }
