@@ -27,13 +27,27 @@ class VectorContextBuilder {
         case compare
     }
 
+    private enum RetrievalStrategy: String {
+        case focused
+        case multiFacet
+    }
+
     private struct QueryPlan {
         let operation: AnswerOperation
+        let retrievalStrategy: RetrievalStrategy
         let retrievalMode: VectorSearchService.RetrievalMode
         let preferHistorical: Bool
         let shouldRunSecondPass: Bool
         let allowWidening: Bool
         let documentTypes: [VectorSearchService.DocumentType]?
+        let admission: VectorSearchService.RetrievalAdmission
+    }
+
+    private struct RetrievalLane {
+        let title: String
+        let query: String
+        let documentTypes: [VectorSearchService.DocumentType]?
+        let presentation: VectorSearchService.ContextPresentation
         let admission: VectorSearchService.RetrievalAdmission
     }
 
@@ -181,13 +195,21 @@ class VectorContextBuilder {
             in: padded
         )
         let preferHistorical = baseHistorical || (retrievalMode == .exhaustive && historicalBiasSignals)
-        let documentTypes = inferredDocumentTypes(for: query)
+        let inferredTypes = inferredDocumentTypes(for: query)
             ?? (isShortTopicalQuery ? [.visit, .location, .receipt, .note, .email] : nil)
+        let retrievalStrategy = shouldUseMultiFacetRetrieval(
+            for: query,
+            operation: operation,
+            inferredDocumentTypes: inferredTypes,
+            preferHistorical: preferHistorical
+        ) ? RetrievalStrategy.multiFacet : .focused
+        let documentTypes = retrievalStrategy == .multiFacet ? nil : inferredTypes
         let allowWidening = shouldAllowWidening(
             operation: operation,
             retrievalMode: retrievalMode,
             preferHistorical: preferHistorical,
-            documentTypes: documentTypes
+            documentTypes: documentTypes,
+            retrievalStrategy: retrievalStrategy
         )
         let shouldRunSecondPass = allowWidening && (
             preferHistorical
@@ -206,6 +228,7 @@ class VectorContextBuilder {
 
         return QueryPlan(
             operation: operation,
+            retrievalStrategy: retrievalStrategy,
             retrievalMode: retrievalMode,
             preferHistorical: preferHistorical,
             shouldRunSecondPass: shouldRunSecondPass,
@@ -213,6 +236,61 @@ class VectorContextBuilder {
             documentTypes: documentTypes,
             admission: admission
         )
+    }
+
+    private func shouldUseMultiFacetRetrieval(
+        for query: String,
+        operation: AnswerOperation,
+        inferredDocumentTypes: [VectorSearchService.DocumentType]?,
+        preferHistorical: Bool
+    ) -> Bool {
+        if operation == .summarize || operation == .compare {
+            return true
+        }
+
+        guard operation == .answer else { return false }
+
+        let lower = " " + query.lowercased() + " "
+        let broadSignals = [
+            " what did i do ",
+            " what did we do ",
+            " what happened ",
+            " tell me about ",
+            " walk me through ",
+            " how did i ",
+            " how did we ",
+            " how was ",
+            " whole day ",
+            " whole weekend ",
+            " that whole day ",
+            " around ",
+            " during ",
+            " celebrate ",
+            " celebrated ",
+            " celebration ",
+            " full picture ",
+            " everything about "
+        ]
+        let hasBroadSignal = broadSignals.contains { lower.contains($0) }
+        let inferredTypeCount = Set(inferredDocumentTypes ?? []).count
+
+        if hasBroadSignal && (inferredTypeCount >= 2 || preferHistorical) {
+            return true
+        }
+
+        if inferredTypeCount >= 4 {
+            return true
+        }
+
+        let relationalSignals = [
+            " with ",
+            " around ",
+            " during ",
+            " on ",
+            " for "
+        ]
+        let hasRelationalSignal = relationalSignals.contains { lower.contains($0) }
+        return hasBroadSignal && hasRelationalSignal
     }
 
     private func containsAnySignal(_ signals: [String], in text: String) -> Bool {
@@ -273,8 +351,13 @@ class VectorContextBuilder {
         operation: AnswerOperation,
         retrievalMode: VectorSearchService.RetrievalMode,
         preferHistorical: Bool,
-        documentTypes: [VectorSearchService.DocumentType]?
+        documentTypes: [VectorSearchService.DocumentType]?,
+        retrievalStrategy: RetrievalStrategy
     ) -> Bool {
+        if retrievalStrategy == .multiFacet {
+            return true
+        }
+
         if operation == .summarize || operation == .compare {
             return true
         }
@@ -339,6 +422,235 @@ class VectorContextBuilder {
         )
     }
 
+    private func buildRetrievalLanes(
+        for query: String,
+        plan: QueryPlan
+    ) -> [RetrievalLane] {
+        guard plan.retrievalStrategy == .multiFacet else { return [] }
+
+        let anchorPresentation = contextPresentation(for: plan)
+        let supportingPresentation: VectorSearchService.ContextPresentation = {
+            switch anchorPresentation {
+            case .detailed:
+                return .compactTimeline
+            case .compactTimeline, .latestOnly:
+                return anchorPresentation
+            }
+        }()
+
+        var lanes: [RetrievalLane] = [
+            RetrievalLane(
+                title: "Cross-Domain Anchors",
+                query: query,
+                documentTypes: nil,
+                presentation: anchorPresentation,
+                admission: makeLaneAdmission(
+                    focusedTypes: nil,
+                    base: plan.admission,
+                    maxMergedResults: 8,
+                    maxEvidenceItems: 5,
+                    maxPreviewCharacters: 150,
+                    maxCanonicalRecords: 8
+                )
+            ),
+            RetrievalLane(
+                title: "Timeline & Movement",
+                query: "\(query) visits places locations events tasks timeline",
+                documentTypes: [.visit, .location, .task],
+                presentation: supportingPresentation,
+                admission: makeLaneAdmission(
+                    focusedTypes: [.visit, .location, .task],
+                    base: plan.admission,
+                    maxMergedResults: 8,
+                    maxEvidenceItems: 5,
+                    maxPreviewCharacters: 140,
+                    maxCanonicalRecords: 8
+                )
+            ),
+            RetrievalLane(
+                title: "Spending & Purchases",
+                query: "\(query) receipts purchases spending paid amounts",
+                documentTypes: [.receipt],
+                presentation: supportingPresentation,
+                admission: makeLaneAdmission(
+                    focusedTypes: [.receipt],
+                    base: plan.admission,
+                    maxMergedResults: 6,
+                    maxEvidenceItems: 4,
+                    maxPreviewCharacters: 130,
+                    maxCanonicalRecords: 6
+                )
+            ),
+            RetrievalLane(
+                title: "Notes & Messages",
+                query: "\(query) notes journal emails messages",
+                documentTypes: [.note, .email],
+                presentation: supportingPresentation,
+                admission: makeLaneAdmission(
+                    focusedTypes: [.note, .email],
+                    base: plan.admission,
+                    maxMergedResults: 6,
+                    maxEvidenceItems: 4,
+                    maxPreviewCharacters: 130,
+                    maxCanonicalRecords: 6
+                )
+            )
+        ]
+
+        let lower = query.lowercased()
+        let peopleSignals = [
+            "birthday", "birthdays", "with", "friend", "friends", "family",
+            "person", "people", "relationship", "relationships", "celebrate", "celebrated"
+        ]
+        if peopleSignals.contains(where: { lower.contains($0) }) {
+            lanes.append(
+                RetrievalLane(
+                    title: "People & Relationships",
+                    query: "\(query) people relationships contacts with",
+                    documentTypes: [.person, .visit, .note, .receipt],
+                    presentation: supportingPresentation,
+                    admission: makeLaneAdmission(
+                        focusedTypes: [.person, .visit, .note, .receipt],
+                        base: plan.admission,
+                        maxMergedResults: 6,
+                        maxEvidenceItems: 4,
+                        maxPreviewCharacters: 130,
+                        maxCanonicalRecords: 6
+                    )
+                )
+            )
+        }
+
+        return lanes
+    }
+
+    private func makeLaneAdmission(
+        focusedTypes: [VectorSearchService.DocumentType]?,
+        base: VectorSearchService.RetrievalAdmission,
+        maxMergedResults: Int,
+        maxEvidenceItems: Int,
+        maxPreviewCharacters: Int,
+        maxCanonicalRecords: Int
+    ) -> VectorSearchService.RetrievalAdmission {
+        let focused = Set(focusedTypes ?? [])
+        var perTypeCaps: [VectorSearchService.DocumentType: Int] = [:]
+
+        for type in VectorSearchService.DocumentType.allCases {
+            if focused.isEmpty {
+                perTypeCaps[type] = 2
+            } else {
+                perTypeCaps[type] = focused.contains(type) ? 4 : 1
+            }
+        }
+
+        return VectorSearchService.RetrievalAdmission(
+            maxSearchQueries: min(base.maxSearchQueries, focused.isEmpty ? 2 : 1),
+            maxMergedResults: max(1, min(base.maxMergedResults, maxMergedResults)),
+            maxPreviewCharacters: min(base.maxPreviewCharacters, maxPreviewCharacters),
+            maxCanonicalRecords: max(1, min(base.maxCanonicalRecords, maxCanonicalRecords)),
+            maxEvidenceItems: max(1, min(base.maxEvidenceItems, maxEvidenceItems)),
+            minimumAnchorMatches: focused.isEmpty ? max(1, base.minimumAnchorMatches) : 1,
+            perTypeCaps: perTypeCaps
+        )
+    }
+
+    private func buildMultiFacetRelevantContext(
+        for query: String,
+        dateRange: (start: Date, end: Date)?,
+        plan: QueryPlan
+    ) async throws -> VectorSearchService.RelevantContextResult {
+        let lanes = buildRetrievalLanes(for: query, plan: plan)
+        guard !lanes.isEmpty else {
+            return try await vectorSearch.getRelevantContext(
+                forQuery: query,
+                limit: determineSearchLimit(forQuery: query, plan: plan),
+                documentTypes: plan.documentTypes,
+                dateRange: dateRange,
+                preferHistorical: plan.preferHistorical,
+                retrievalMode: plan.retrievalMode,
+                presentation: contextPresentation(for: plan),
+                admission: plan.admission
+            )
+        }
+
+        var sections: [String] = []
+        var mergedEvidence: [RelevantContentInfo] = []
+        var seenEvidenceKeys = Set<String>()
+
+        for lane in lanes {
+            let laneLimit = max(lane.admission.maxMergedResults + 2, 8)
+            let result = try await vectorSearch.getRelevantContext(
+                forQuery: lane.query,
+                limit: laneLimit,
+                documentTypes: lane.documentTypes,
+                dateRange: dateRange,
+                preferHistorical: plan.preferHistorical,
+                retrievalMode: plan.retrievalMode,
+                presentation: lane.presentation,
+                admission: lane.admission
+            )
+
+            let laneEvidence = result.evidence.filter { item in
+                let key = dedupKey(for: item)
+                guard !seenEvidenceKeys.contains(key) else { return false }
+                seenEvidenceKeys.insert(key)
+                return true
+            }
+
+            guard !laneEvidence.isEmpty else { continue }
+
+            let trimmedContext = result.context.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedContext.isEmpty {
+                sections.append("=== \(lane.title.uppercased()) ===\n\(trimmedContext)")
+            }
+            mergedEvidence.append(contentsOf: laneEvidence)
+        }
+
+        if sections.isEmpty {
+            return try await vectorSearch.getRelevantContext(
+                forQuery: query,
+                limit: determineSearchLimit(forQuery: query, plan: plan),
+                documentTypes: nil,
+                dateRange: dateRange,
+                preferHistorical: plan.preferHistorical,
+                retrievalMode: plan.retrievalMode,
+                presentation: contextPresentation(for: plan),
+                admission: plan.admission
+            )
+        }
+
+        return VectorSearchService.RelevantContextResult(
+            context: sections.joined(separator: "\n\n"),
+            evidence: mergedEvidence
+        )
+    }
+
+    private func fetchRelevantContext(
+        for query: String,
+        dateRange: (start: Date, end: Date)?,
+        plan: QueryPlan
+    ) async throws -> VectorSearchService.RelevantContextResult {
+        if plan.retrievalStrategy == .multiFacet {
+            return try await buildMultiFacetRelevantContext(
+                for: query,
+                dateRange: dateRange,
+                plan: plan
+            )
+        }
+
+        let limit = determineSearchLimit(forQuery: query, plan: plan)
+        return try await vectorSearch.getRelevantContext(
+            forQuery: query,
+            limit: limit,
+            documentTypes: plan.documentTypes,
+            dateRange: dateRange,
+            preferHistorical: plan.preferHistorical,
+            retrievalMode: plan.retrievalMode,
+            presentation: contextPresentation(for: plan),
+            admission: plan.admission
+        )
+    }
+
     private func looksLikeShortTopicalQuery(_ query: String) -> Bool {
         let normalized = query
             .lowercased()
@@ -395,7 +707,23 @@ class VectorContextBuilder {
             "friend", "friends", "family", "relationship", "relationships",
             "who is", "who's", "whose", "upcoming birthdays"
         ]
-        return peopleSignals.contains(where: { lower.contains($0) })
+        if peopleSignals.contains(where: { lower.contains($0) }) {
+            return true
+        }
+
+        let padded = " " + lower + " "
+        for person in PeopleManager.shared.people {
+            let aliases = [person.name, person.nickname]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+
+            if aliases.contains(where: { alias in
+                !alias.isEmpty && padded.contains(" \(alias) ")
+            }) {
+                return true
+            }
+        }
+
+        return false
     }
 
     private func shouldIncludeAmbientContext(forQuery query: String) -> Bool {
@@ -1414,7 +1742,7 @@ class VectorContextBuilder {
             let queryPlan = buildQueryPlan(for: query, dateRange: dateRange)
             let presentation = contextPresentation(for: queryPlan)
             let domainLabel = queryPlan.documentTypes?.map(\.rawValue).sorted().joined(separator: ",") ?? "all"
-            print("🧭 Query plan: operation=\(queryPlan.operation.rawValue) retrieval=\(queryPlan.retrievalMode.rawValue) historical=\(queryPlan.preferHistorical) domains=\(domainLabel) widen=\(queryPlan.allowWidening)")
+            print("🧭 Query plan: operation=\(queryPlan.operation.rawValue) strategy=\(queryPlan.retrievalStrategy.rawValue) retrieval=\(queryPlan.retrievalMode.rawValue) historical=\(queryPlan.preferHistorical) domains=\(domainLabel) widen=\(queryPlan.allowWidening)")
             let daySpan = Calendar.current.dateComponents([.day], from: start, to: end).day ?? 0
             let shouldUseCompleteDayData = daySpan > 0 && daySpan <= 45
 
@@ -1459,7 +1787,10 @@ class VectorContextBuilder {
                         metadata.usedCompleteDayData = true
                         print("✅ Found complete day data via direct DB query")
 
-                        if queryPlan.allowWidening && presentation == .detailed && !isStructuredHistoricalFactQuery(query) {
+                        if queryPlan.retrievalStrategy == .focused
+                            && queryPlan.allowWidening
+                            && presentation == .detailed
+                            && !isStructuredHistoricalFactQuery(query) {
                             let constrainedSemantic = await buildEntityConstrainedSemanticContext(
                                 query: query,
                                 conversationHistory: conversationHistory,
@@ -1479,32 +1810,20 @@ class VectorContextBuilder {
                         }
                     } else {
                         print("⚠️ Direct DB query returned nothing, falling back to vector search")
-                        let limit = determineSearchLimit(forQuery: query, plan: queryPlan)
-                        let relevantContext = try await vectorSearch.getRelevantContext(
-                            forQuery: query,
-                            limit: limit,
-                            documentTypes: queryPlan.documentTypes,
+                        let relevantContext = try await fetchRelevantContext(
+                            for: query,
                             dateRange: dateRange,
-                            preferHistorical: queryPlan.preferHistorical,
-                            retrievalMode: queryPlan.retrievalMode,
-                            presentation: presentation,
-                            admission: queryPlan.admission
+                            plan: queryPlan
                         )
                         context += "\n" + relevantContext.context
                         evidence.append(contentsOf: relevantContext.evidence)
                         metadata.usedVectorSearch = true
                     }
                 } else {
-                    let limit = determineSearchLimit(forQuery: query, plan: queryPlan)
-                    let relevantContext = try await vectorSearch.getRelevantContext(
-                        forQuery: query,
-                        limit: limit,
-                        documentTypes: queryPlan.documentTypes,
+                    let relevantContext = try await fetchRelevantContext(
+                        for: query,
                         dateRange: dateRange,
-                        preferHistorical: queryPlan.preferHistorical,
-                        retrievalMode: queryPlan.retrievalMode,
-                        presentation: presentation,
-                        admission: queryPlan.admission
+                        plan: queryPlan
                     )
                     context += "\n" + relevantContext.context
                     evidence.append(contentsOf: relevantContext.evidence)
@@ -1520,25 +1839,24 @@ class VectorContextBuilder {
                 let queryPlan = buildQueryPlan(for: query)
                 let presentation = contextPresentation(for: queryPlan)
                 let domainLabel = queryPlan.documentTypes?.map(\.rawValue).sorted().joined(separator: ",") ?? "all"
-                print("🧭 Query plan: operation=\(queryPlan.operation.rawValue) retrieval=\(queryPlan.retrievalMode.rawValue) historical=\(queryPlan.preferHistorical) domains=\(domainLabel) widen=\(queryPlan.allowWidening)")
+                print("🧭 Query plan: operation=\(queryPlan.operation.rawValue) strategy=\(queryPlan.retrievalStrategy.rawValue) retrieval=\(queryPlan.retrievalMode.rawValue) historical=\(queryPlan.preferHistorical) domains=\(domainLabel) widen=\(queryPlan.allowWidening)")
                 let limit = determineSearchLimit(forQuery: query, plan: queryPlan)
-                let relevantContext = try await vectorSearch.getRelevantContext(
-                    forQuery: query,
-                    limit: limit,
-                    documentTypes: queryPlan.documentTypes,
+                let relevantContext = try await fetchRelevantContext(
+                    for: query,
                     dateRange: nil,
-                    preferHistorical: queryPlan.preferHistorical,
-                    retrievalMode: queryPlan.retrievalMode,
-                    presentation: presentation,
-                    admission: queryPlan.admission
+                    plan: queryPlan
                 )
                 if !relevantContext.context.isEmpty {
                     context += "\n" + relevantContext.context
                     evidence.append(contentsOf: relevantContext.evidence)
                     metadata.usedVectorSearch = true
                     // Only broaden retrieval for explicitly broad or historical queries.
-                    let shouldRunCompactSecondPass = queryPlan.allowWidening && presentation != .detailed && relevantContext.evidence.count < min(4, queryPlan.admission.maxEvidenceItems)
-                    if queryPlan.allowWidening
+                    let shouldRunCompactSecondPass = queryPlan.retrievalStrategy == .focused
+                        && queryPlan.allowWidening
+                        && presentation != .detailed
+                        && relevantContext.evidence.count < min(4, queryPlan.admission.maxEvidenceItems)
+                    if queryPlan.retrievalStrategy == .focused
+                        && queryPlan.allowWidening
                         && (((presentation == .detailed && shouldRunExpandedSecondPass(forQuery: query, plan: queryPlan))
                             || shouldRunCompactSecondPass))
                         && relevantContext.context.count < 1800 {
@@ -1571,7 +1889,7 @@ class VectorContextBuilder {
                         }
                     }
 
-                    if queryPlan.allowWidening && presentation == .detailed {
+                    if queryPlan.retrievalStrategy == .focused && queryPlan.allowWidening && presentation == .detailed {
                         let constrainedSemantic = await buildEntityConstrainedSemanticContext(
                             query: query,
                             conversationHistory: conversationHistory,

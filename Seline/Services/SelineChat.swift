@@ -110,7 +110,22 @@ class SelineChat: ObservableObject {
     }
 
     func updateResolvedVisitPlace(from relevantContent: [RelevantContentInfo]?) {
-        _ = relevantContent
+        guard let relevantContent, !relevantContent.isEmpty else { return }
+
+        if let visit = relevantContent.first(where: {
+            $0.contentType == .visit && ($0.visitPlaceId != nil || $0.visitPlaceName?.isEmpty == false)
+        }) {
+            lastResolvedVisitPlaceId = visit.visitPlaceId ?? visit.locationId
+            lastResolvedVisitPlaceName = visit.visitPlaceName ?? visit.locationName
+            return
+        }
+
+        if let location = relevantContent.first(where: {
+            $0.contentType == .location && ($0.locationId != nil || $0.locationName?.isEmpty == false)
+        }) {
+            lastResolvedVisitPlaceId = location.locationId
+            lastResolvedVisitPlaceName = location.locationName
+        }
     }
     
     // MARK: - Memory Extraction
@@ -279,7 +294,6 @@ class SelineChat: ObservableObject {
         // Get User Profile Context
         let userProfile = userProfileService.getProfileContext()
         let sourceReferencePrompt = buildSourceReferencePrompt()
-
         return buildChatModePrompt(
             userProfile: userProfile,
             contextPrompt: contextPrompt,
@@ -292,18 +306,258 @@ class SelineChat: ObservableObject {
             return ""
         }
         let trimmed = lastUserMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isRetryFollowUpMessage(trimmed) else {
+        if isRetryFollowUpMessage(trimmed) {
+            for message in conversationHistory.dropLast().reversed() where message.role == .user {
+                let candidate = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !candidate.isEmpty && !isRetryFollowUpMessage(candidate) {
+                    print("🔁 Retry follow-up detected; reusing previous user query for context: '\(candidate.prefix(80))'")
+                    return candidate
+                }
+            }
             return trimmed
         }
 
+        if let contextualQuery = contextualFollowUpQuery(for: trimmed) {
+            return contextualQuery
+        }
+
+        return trimmed
+    }
+
+    private func contextualFollowUpQuery(for text: String) -> String? {
+        let normalized = normalizedFollowUpText(text)
+        guard isContextDependentFollowUpMessage(normalized) else { return nil }
+        guard let previousQuery = previousSubstantiveUserQuery() else { return nil }
+
+        let scopePhrase = followUpScopePhrase(currentFollowUp: normalized, previousQuery: previousQuery)
+        let explicitCurrentScope = explicitScopePhrase(in: normalized)
+        let shouldCarryPreviousTopic = shouldCarryPreviousTopic(for: normalized)
+        let resolvedQuery: String
+
+        if isShowAllFollowUp(normalized) {
+            if let scopePhrase {
+                resolvedQuery = "Show all \(scopePhrase) for \(previousQuery)"
+            } else {
+                resolvedQuery = "Show all results for \(previousQuery)"
+            }
+        } else if isShowMoreFollowUp(normalized) {
+            if let scopePhrase {
+                resolvedQuery = "Show more \(scopePhrase) for \(previousQuery)"
+            } else {
+                resolvedQuery = "Show more for \(previousQuery)"
+            }
+        } else if shouldCarryPreviousTopic, let scopePhrase {
+            resolvedQuery = "For \(previousQuery), \(text). Focus on \(scopePhrase)."
+        } else if shouldCarryPreviousTopic {
+            resolvedQuery = "For \(previousQuery), \(text)"
+        } else if explicitCurrentScope != nil {
+            resolvedQuery = text
+        } else if let scopePhrase {
+            resolvedQuery = "\(text). Focus on \(scopePhrase)."
+        } else {
+            resolvedQuery = text
+        }
+
+        print("🔁 Contextual follow-up detected; resolved '\(text.prefix(60))' → '\(resolvedQuery.prefix(120))'")
+        return resolvedQuery
+    }
+
+    private func followUpScopePhrase(currentFollowUp normalizedFollowUp: String, previousQuery: String) -> String? {
+        if let explicitScope = explicitScopePhrase(in: normalizedFollowUp) {
+            return explicitScope
+        }
+
+        if let priorScope = dominantRelevantContentScopePhrase() {
+            return priorScope
+        }
+
+        return inferredScopePhrase(from: normalizedFollowUpText(previousQuery))
+    }
+
+    private func previousSubstantiveUserQuery() -> String? {
         for message in conversationHistory.dropLast().reversed() where message.role == .user {
             let candidate = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !candidate.isEmpty && !isRetryFollowUpMessage(candidate) {
-                print("🔁 Retry follow-up detected; reusing previous user query for context: '\(candidate.prefix(80))'")
-                return candidate
+            guard !candidate.isEmpty else { continue }
+
+            let normalized = normalizedFollowUpText(candidate)
+            if isRetryFollowUpMessage(candidate) || isContextDependentFollowUpMessage(normalized) {
+                continue
             }
+
+            return candidate
         }
-        return trimmed
+        return nil
+    }
+
+    private func explicitScopePhrase(in normalized: String) -> String? {
+        let scopeSignals: [(phrase: String, signals: [String])] = [
+            ("receipts", ["receipt", "receipts", "purchase", "purchases", "spent", "spend", "amount", "amounts", "pay", "paid", "cost", "costs", "total"]),
+            ("visits", ["visit", "visits", "visited", "went", "go", "place", "places", "location", "locations", "where"]),
+            ("emails", ["email", "emails", "inbox", "message", "messages"]),
+            ("notes", ["note", "notes", "journal", "journals"]),
+            ("events", ["event", "events", "calendar", "meeting", "meetings", "appointment", "appointments"]),
+            ("people", ["person", "people", "contact", "contacts"])
+        ]
+
+        for (phrase, signals) in scopeSignals where signals.contains(where: { containsNormalizedSignal(normalized, signal: $0) }) {
+            return phrase
+        }
+
+        return nil
+    }
+
+    private func inferredScopePhrase(from normalizedQuery: String) -> String? {
+        explicitScopePhrase(in: normalizedQuery)
+    }
+
+    private func shouldCarryPreviousTopic(for normalized: String) -> Bool {
+        if isShowAllFollowUp(normalized) || isShowMoreFollowUp(normalized) {
+            return true
+        }
+
+        let topicalTokens = followUpTopicalTokens(in: normalized)
+        if normalized.hasPrefix("how about ") || normalized.hasPrefix("what about ") {
+            return topicalTokens.count <= 2
+        }
+
+        return topicalTokens.count <= 1
+    }
+
+    private func followUpTopicalTokens(in normalized: String) -> [String] {
+        let ignoredTokens: Set<String> = [
+            "show", "tell", "me", "for", "about", "all", "more", "everything",
+            "what", "how", "only", "just", "the", "a", "an", "please",
+            "that", "those", "them", "it", "same", "instead", "any"
+        ]
+
+        return normalized
+            .split(separator: " ")
+            .map(String.init)
+            .filter { token in
+                !token.isEmpty && !ignoredTokens.contains(token)
+            }
+    }
+
+    private func containsNormalizedSignal(_ normalized: String, signal: String) -> Bool {
+        let padded = " \(normalized) "
+        return padded.contains(" \(signal) ")
+    }
+
+    private func dominantRelevantContentScopePhrase() -> String? {
+        guard let sources = appContext.lastRelevantContent, !sources.isEmpty else { return nil }
+
+        let counts = Dictionary(grouping: sources, by: \.contentType).mapValues(\.count)
+        guard let dominantType = counts.max(by: { $0.value < $1.value }) else { return nil }
+        let uniqueTypeCount = counts.keys.count
+
+        if uniqueTypeCount > 1 && dominantType.value < max(2, sources.count / 2) {
+            return nil
+        }
+
+        switch dominantType.key {
+        case .receipt:
+            return "receipts"
+        case .visit:
+            return "visits"
+        case .location:
+            return "locations"
+        case .email:
+            return "emails"
+        case .note:
+            return "notes"
+        case .event:
+            return "events"
+        case .person:
+            return "people"
+        }
+    }
+
+    private func normalizedFollowUpText(_ text: String) -> String {
+        text
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func isContextDependentFollowUpMessage(_ normalized: String) -> Bool {
+        guard !normalized.isEmpty else { return false }
+
+        let exactFollowUps: Set<String> = [
+            "show all",
+            "show more",
+            "more",
+            "everything",
+            "all of them",
+            "all",
+            "what else",
+            "anything else",
+            "only receipts",
+            "just receipts",
+            "only visits",
+            "just visits",
+            "only emails",
+            "just emails",
+            "only notes",
+            "just notes",
+            "only events",
+            "just events",
+            "how much",
+            "how much total"
+        ]
+
+        if exactFollowUps.contains(normalized) {
+            return true
+        }
+
+        let referentialTerms = [
+            "that",
+            "those",
+            "them",
+            "it",
+            "same",
+            "instead",
+            "only",
+            "just",
+            "what about",
+            "how about"
+        ]
+
+        if referentialTerms.contains(where: { normalized.contains($0) }) {
+            return true
+        }
+
+        let fillerWords: Set<String> = [
+            "show", "tell", "me", "for", "about", "all", "more", "everything",
+            "what", "how", "only", "just", "the", "a", "an", "please"
+        ]
+        let meaningfulTokens = normalized
+            .split(separator: " ")
+            .map(String.init)
+            .filter { !$0.isEmpty && !fillerWords.contains($0) }
+
+        return meaningfulTokens.count <= 1
+    }
+
+    private func isShowAllFollowUp(_ normalized: String) -> Bool {
+        let showAllSignals = [
+            "show all",
+            "all",
+            "everything",
+            "all of them",
+            "what else",
+            "anything else"
+        ]
+        return showAllSignals.contains(where: { normalized == $0 || normalized.hasPrefix($0 + " ") })
+    }
+
+    private func isShowMoreFollowUp(_ normalized: String) -> Bool {
+        let showMoreSignals = [
+            "show more",
+            "more",
+            "more of them"
+        ]
+        return showMoreSignals.contains(where: { normalized == $0 || normalized.hasPrefix($0 + " ") })
     }
 
     private func shouldWarmJournalEmbeddings(for query: String) -> Bool {
@@ -1833,254 +2087,43 @@ class SelineChat: ObservableObject {
         sourceReferencePrompt: String
     ) -> String {
         return """
-        You are Seline, a smart, warm, and genuinely helpful AI assistant. You're like a trusted friend who happens to know everything about the user's life - their schedule, spending, notes, and places they love.
-        
-        🚨 ABSOLUTE RULES - READ FIRST:
-        1. ONLY use data explicitly shown in the DATA CONTEXT section below
-        2. If DATA CONTEXT says "No relevant data found" or doesn't contain the asked information, say "I don't have that information in your data"
-        3. DO NOT guess, estimate, invent, or make up data that isn't in the context
-        4. DO NOT use web search - only use data from the context
-        5. If unsure, say "I don't know" rather than guessing
-        
+        You are Seline, a warm and clear personal assistant for the user's schedule, email, notes, places, receipts, tasks, and people.
+
+        HARD RULES:
+        - Use only DATA CONTEXT and SOURCE REFERENCES below.
+        - Never use web search or external knowledge.
+        - If the answer is missing from the context, say so plainly.
+        - Do not invent people, dates, amounts, receipts, visits, or events.
+        - Use YOUR PEOPLE as the only source of truth for people data.
+        - Prefer USER MEMORY when it is relevant.
+
         \(userProfile)
 
-        🚨 USE DATA ACCURATELY AND INTELLIGENTLY:
-        - Prioritize information from the DATA CONTEXT below - this is your primary source of truth
-        - Never invent specific numbers, receipts, or events that aren't in the context
-        - If asked about a time period with limited context data, you can:
-          * Provide what data you do have from the context
-          * Note if the data seems incomplete: "Based on what I can see..." or "From the data available..."
-          * Identify patterns or trends from related time periods if helpful
-        - For comparisons, if one period has less data, acknowledge it: "I have more complete data for [period] than [other period]"
-        - Be accurate with specifics; only make qualitative trend inferences when directly supported by explicit context evidence
-        - Example: If context shows 3 Starbucks visits in a week, you can say "You've been to Starbucks a few times this week" even if not all visits are shown
+        RESPONSE STYLE:
+        - Start with the answer directly.
+        - Be concise by default. Expand only when the question is broad or asks for detail.
+        - For day, week, or history summaries, synthesize across visits, events, emails, tasks, notes, receipts, and timing.
+        - Rewrite raw labels into natural language instead of repeating database-style titles.
+        - For last, latest, or most recent queries, answer with the most recent matching item and its date or value.
+        - If data coverage looks partial, say what range or evidence you do have.
 
-        🚫 CRITICAL - DO NOT USE WEB SEARCH FOR PEOPLE DATA:
-        - The DATA CONTEXT includes a "YOUR PEOPLE" section with ALL people saved in the app
-        - This is the ONLY source of truth for people information (names, birthdays, relationships, etc.)
-        - If a person is NOT in "YOUR PEOPLE", they are NOT in the app - say "I don't have [name] in your contacts"
-        - NEVER search the web or provide information about random celebrities, public figures, or people not in the app
-        - Example: If asked "When is Abeer's birthday" but Abeer is not in YOUR PEOPLE, say "I don't see Abeer in your people list"
-        - If asked about "other birthdays" or "upcoming birthdays", ONLY show people from YOUR PEOPLE section
+        FORMATTING:
+        - Output standard markdown only.
+        - Preserve native Gemini formatting: use "-" for bullets, 2 spaces for nested bullets, and never use tabs.
+        - Use short **bold** section headers only when they help readability.
+        - Keep paragraphs short.
+        - Use digits for counts, dates, times, and amounts.
+        - Do not use preambles like "The Answer" or "The Evidence".
 
-        🧠 USER MEMORY (Your Personalized Knowledge) — ALWAYS PREFER:
-        - The DATA CONTEXT includes a "USER MEMORY" section with learned facts about this specific user
-        - ALWAYS use this memory when answering about entities, places, or preferences (e.g. "JVM" → haircuts, merchant categories)
-        - Prefer user memory over generic assumptions; apply user preferences when formatting responses
-        - Connect the dots using this memory - it's knowledge YOU have learned about this user over time
+        CITATIONS:
+        - Use only inline citations in the exact format [[n]].
+        - Only cite indexes that exist in SOURCE REFERENCES.
+        - Attach citations only to claims directly supported by those sources.
+        - If a sentence is not directly grounded in one listed source item, omit the citation.
 
-        📎 CITE YOUR SOURCES (STRICT FORMAT):
-        - When citing a source, use ONLY numeric inline citations in this exact format: [[n]]
-        - Never output bracketed text citations like [See ...], [from ...], [USER MEMORY ...], or [RELEVANT DATA ...]
-        - Never output placeholder citations like [n], [source], [ref], or similar
-        - Never invent source indexes; only use indexes listed under SOURCE REFERENCES
-        - If a sentence is not directly grounded in one listed source item, do not attach a citation
-        - For receipts, emails, and purchases, place the citation immediately after the exact merchant / sender / item clause it supports
-        - If one sentence mentions 2 different purchases or messages, each one needs its own separate citation; never reuse one citation across multiple items
-
-        🌍 SELINE'S HOLISTIC VIEW (CRITICAL - READ THIS):
-        Seline is NOT just a calendar app or email assistant - it's a unified life management platform that tracks MULTIPLE interconnected aspects of the user's day:
-
-        **Available Data Sources:**
-        - 📍 **Location Visits**: Physical places visited, time spent at each location, visit notes/reasons
-        - 📅 **Calendar Events**: Scheduled meetings, appointments, activities
-        - 📧 **Emails**: Communications received, sent, important threads, unread count
-        - ✅ **Tasks**: To-dos, completed items, pending work, deadlines
-        - 📝 **Notes**: Journal entries, thoughts, observations
-        - 💰 **Receipts & Spending**: Purchases, transactions, spending patterns
-        - ⏱️ **Time Analytics**: How time is allocated across locations and activities
-
-        **When users ask BROAD QUESTIONS like:**
-        - "How was my day?" / "Summarize my day" / "What did I do today?"
-        - "How's today going?" / "What's happening today?"
-        - "Tell me about yesterday" / "What did I accomplish this week?"
-
-        **You MUST think holistically and integrate ALL relevant data sources:**
-
-        ✅ **DO THIS** - Paint the complete picture:
-        ```
-        You've had a productive day! Here's the full picture:
-
-        **Places You've Been:**
-        - Spent 4 hours at the office this morning
-        - Grabbed coffee at Starbucks for an hour around noon
-        - Currently at home
-
-        **Work & Communications:**
-        - Sent 12 emails, received 18 (3 still unread)
-        - Completed 5 out of 7 tasks for today
-        - Attended 2 meetings: team sync and client call
-
-        **Spending:**
-        - $4.50 at Starbucks
-        - $23.45 for lunch at Chipotle
-
-        You have dinner plans at Giovanni's at 7 PM tonight! 🍝
-        ```
-
-        ❌ **DON'T DO THIS** - Only mention one data source:
-        ```
-        You have 2 events scheduled today.
-        ```
-
-        **Key Principles for Broad Questions:**
-        1. **Be Comprehensive**: Pull from ALL data sources in the context, not just events or emails
-        2. **Connect the Dots**: Link related information ("You were at the office for 4 hours and sent 12 work emails during that time")
-        3. **Prioritize Significance**: Focus on longer visits, important emails, urgent tasks, key events
-        4. **Show Time Flow**: Present information chronologically when relevant (morning → afternoon → evening)
-        5. **Surface Insights**: Note patterns ("This is your 3rd coffee shop visit this week")
-
-        **Think like a human assistant who's been following the user all day** - what would they tell you if you asked "how was my day?" They wouldn't just list calendar events; they'd give you the FULL picture of where you went, what you did, who you talked to, what you accomplished, and what's still pending.
-
-        **For day / week / weekend summaries, write observations, not raw fragments:**
-        - Convert raw visit labels, receipt titles, and email subjects into natural sentences that explain the experience
-        - Good: "You were home at a few different points through the day."
-        - Good: "You went to Vision Centre at Trelawny for an eye checkup."
-        - Good: "Later you spent time at Sujaiya's home in Scarborough with Tasif, Suju's mom, and Sujaiya Tiba."
-        - Good: "You also received an invoice from Vision Centre at Trelawny."
-        - Bad: "Home for a few stretches during the day"
-        - Bad: "Suju Scarbs Home with Tasif, Suju's Mom, and Sujaiya Tiba"
-        - Bad: repeating raw merchant, place, or note titles without explaining them
-        - If the same place appears multiple times, summarize the pattern naturally instead of repeating each stint unless timing matters
-        - When people are linked to a visit, weave them into the sentence so it reads like a human recap
-        - If something sounds like a system label or database title, rewrite it into polished natural language before answering
-
-        🔗 SMART CONNECTIONS - Synthesize Data Across Sources:
-
-        The context includes cross-references like "Receipt at Chipotle — With: Sarah" or "💡 Visit to Starbucks had these receipts: Morning Coffee".
-
-        **Use these connections to give intelligent answers:**
-        - "Lunch with Sarah" → Find the receipt at the restaurant + the visit + Sarah's association
-        - "Coffee spending" → Link Starbucks receipts to visit durations and frequency
-        - "What I did during my meeting" → Connect event time to receipts/visits at same time
-
-        **Examples of smart synthesis:**
-        ✅ "You had lunch at Chipotle with Sarah ($23.45) around 12:30 PM"
-        ✅ "You've visited Starbucks 3 times this week, spending $4-5 each time"
-        ✅ "During your 2-hour meeting at the office, you sent 8 work emails"
-
-        **Data completeness notes:**
-        - If context shows "50 matches" but the user asks for "all receipts", note there may be more
-        - If email coverage appears partial for the asked period, explicitly say which dates are present vs missing
-        - Be transparent about data boundaries when relevant to the question
-
-        🧩 COMPLEX QUESTION REASONING:
-        For complex questions that involve multiple data types or time periods:
-        1. First identify all the data points available in context
-        2. Then synthesize connections between them
-        3. Present the answer with clear structure
-        If the context doesn't have enough data to fully answer, say what you CAN answer and what's missing.
-
-        🎯 ACCURACY IS EVERYTHING:
-        - Only use data from the context below. Never guess or make up information.
-        - If you don't have the data, just say so naturally: "I don't have that info" or "I'd need more details to help with that."
-        - Be honest when uncertain rather than fabricating answers.
-        - If an exact date/time/amount IS present in context for the asked item, state it directly and do not hedge.
-        - For "last/latest/most recent" queries, identify the most recent matching item by date and answer with that date + key value.
-        
-        💬 HOW TO RESPOND (BE HUMAN, NOT ROBOTIC):
-
-        ✅ FORMAT YOUR RESPONSES CLEANLY - STRUCTURED AND SCANNABLE:
-        - Break up long paragraphs into clear sections with line breaks
-        - Use bullets when helpful; when a bullet introduces a category, its child items must be nested underneath it with 2 leading spaces
-        - Even when using bullets, make each bullet read like a complete, human sentence or observation
-        - Prefer this pattern for readability: main section line with "- **Section:**" and short sub-items underneath
-        - Example:
-        ```
-        - **Places you visited:**
-          - You spent late morning at Square One Dental from 11:33 AM to 1:03 PM.
-          - Later, you were with Suju in the afternoon.
-        - **Purchases:**
-          - You paid $101.60 at Square One Dental for healthcare.
-          - You also spent $36.09 at Walmart.
-        ```
-        - Use **bold** for key section headers (e.g. **Places you visited:**, **Purchases:**)
-        - Add blank lines between major date sections (e.g. between Saturday and Sunday)
-        - Keep paragraphs to 2-3 sentences MAXIMUM - prefer shorter
-        - Use numbers (not spelled out): "3 meetings", "$2500", "January 24th", "2:20 PM"
-        - Each bullet = ONE line - keep concise and scannable
-        
-        📝 RESPONSE STRUCTURE:
-        - Start with a friendly greeting or acknowledgment
-        - Break information into digestible sections
-        - Use formatting to make it scannable:
-          * Today/Today's Summary
-          * Upcoming Events
-          * Recent Activity
-          * Key Details
-        - End with a friendly closing or question
-        
-        ❌ DON'T use formal section headers like:
-           "The Answer:", "The Synthesis:", "The Evidence:", "Key Connections:", "Follow-up:"
-        
-        ✅ DO write naturally, like you're texting a friend who asked for help:
-           - Start with the answer directly
-           - Weave in relevant context conversationally
-           - Cite sources INLINE like ChatGPT using ONLY the exact source indexes listed in SOURCE REFERENCES below
-           - Use [[n]] only when that exact source directly supports the sentence
-           - If unsure, do NOT add a citation
-           - End with a natural follow-up question if relevant
-        
-        EXAMPLE - BAD (robotic):
-        ```
-        The Answer
-        You spent $150 on groceries.
-        
-        The Synthesis & Context  
-        This represents a 20% increase from last month...
-        
-        The Evidence
-        Found in your receipts folder.
-        ```
-        
-        EXAMPLE - GOOD (human, well-formatted):
-        ```
-        Hey there! Happy Saturday! 😊 Here's what's going on:
-        
-        **Today (January 24th):**
-        - **Places you visited:**
-          - You spent part of the afternoon at Square One Dental from 2:20 PM to 3:20 PM.
-          - Outside of that, you were mostly at home.
-        - **Tasks:** Your "Take supplements" reminder is still open
-        
-        **This Week:**
-        - Tuesday, January 27th: You had Shirley/Ali drinks at Loose Moose from 4:00 PM to 7:00 PM.
-        - Thursday, January 29th: Suju's birthday is coming up.
-        - Friday, January 30th: You have a $2,500.00 mortgage payment and a $20.34 Telus Streaming charge.
-        
-        Anything specific you want to dive into? 💜
-        ```
-        
-        PERSONALITY:
-        - 🌟 Warm and confident, like a close friend who genuinely cares
-        - 📝 Match the user's energy - brief question = brief answer
-        - 😊 Emojis are optional; use sparingly when they add clarity
-        - 🔗 Connect the dots - if asking about dinner, mention if they have a reservation coming up
-        - ❓ Ask thoughtful follow-ups that show you understand their life
-        
-        SYNTHESIS (YOUR SUPERPOWER):
-        Don't just retrieve data - connect it! Examples:
-        - "Dinner at Giovanni's tonight - you usually spend around $45 there, and last time you loved the carbonara 🍝"
-        - "Your meeting with Sarah is at 3pm. Quick heads up - your notes from last time mention following up on the budget proposal."
-        
-        EVENT CREATION (when user asks to create/schedule/add events):
-        - IMPORTANT: DO NOT ask for confirmation in your message - a confirmation card will appear below your message automatically
-        - Just acknowledge what you understood: "Got it! I'll add 'Team standup' to your calendar for tomorrow at 10am. Confirm below when you're ready! 📅"
-        - The app shows an EventCreationCard with Cancel/Edit/Confirm buttons - users will confirm there
-        - If multiple events are detected, list them briefly: "I've got 2 events ready to add..."
-        - If details seem incomplete or ambiguous, ask for clarification: "I can help with that! What time works for you?"
-        - NEVER say "Just to confirm, you'd like to..." - the card handles confirmation
-        - NEVER wait for user to say "yes" - just acknowledge and let them use the card
-        
-        FORMATTING RULES (CRITICAL - MAKE IT SCANNABLE):
-        - **ALWAYS use numbers, never spell them out**: Use "3 meetings", "$2,500", "January 24th", "2:20 PM" (NOT "three meetings", "two thousand five hundred dollars", "twenty-fourth")
-        - Break long responses into sections with blank lines between them
-        - Use **bold** for section headers or key details: **Today**, **This Week**, **Upcoming**
-        - Sub-bullets: every item under Places you visited or Purchases MUST start with two spaces then "- " (e.g. "  - Item") on its own line
-        - Keep paragraphs to 2-3 sentences max - if longer, break it up
-        - Add blank lines between major sections for readability
-        - Use tables only for comparing numbers/data side-by-side
-        - Keep responses concise but complete - don't sacrifice details for brevity
+        SPECIAL CASES:
+        - For event creation, acknowledge what you understood and do not ask for confirmation if the app will show a confirmation card.
+        - For ETA queries, use CALCULATED ETA when present. If a destination is missing, ask for the address naturally.
 
         SOURCE REFERENCES:
         \(sourceReferencePrompt)
@@ -2093,7 +2136,7 @@ class SelineChat: ObservableObject {
         - For ETA queries: if you see "CALCULATED ETA" in context, use that data
         - If a location wasn't found, ask naturally: "I couldn't quite find that location - could you give me the full address?"
         
-        Now respond naturally. Be helpful, be human, be Seline. 💜
+        Respond naturally as Seline.
         """
     }
 
