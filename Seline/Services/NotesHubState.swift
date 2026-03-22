@@ -14,6 +14,18 @@ final class NotesHubState: ObservableObject {
     @Published private(set) var allUnpinnedNotes: [Note] = []
     @Published private(set) var recentNotes: [Note] = []
     @Published private(set) var notesByMonth: [(month: String, notes: [Note])] = []
+    @Published private(set) var displayedNotes: [Note] = []
+    @Published private(set) var looseNotesCount: Int = 0
+    @Published private(set) var folderNotesCount: Int = 0
+    @Published private(set) var latestJournalRecap: Note?
+    @Published private(set) var journalOverviewStats: JournalStats = JournalStats(
+        currentStreak: 0,
+        longestStreak: 0,
+        completedThisWeek: 0,
+        totalEntries: 0,
+        lastEntryDate: nil,
+        todayStatus: .missing
+    )
     @Published private(set) var hubReceiptMonthlySummaries: [MonthlyReceiptSummary] = []
     @Published private(set) var hubReceiptTotal: Double = 0
     @Published private(set) var hubReceiptCount: Int = 0
@@ -31,6 +43,7 @@ final class NotesHubState: ObservableObject {
         showsCurrentMonthOnly: false
     )
     private var recurringExpenses: [RecurringExpense] = []
+    private var refreshGeneration = 0
 
     init(notesManager: NotesManager? = nil) {
         self.notesManager = notesManager ?? .shared
@@ -47,8 +60,10 @@ final class NotesHubState: ObservableObject {
         searchText: String,
         selectedFolderId: UUID?,
         showUnfiledNotesOnly: Bool,
-        showsCurrentMonthOnly: Bool
+        showsCurrentMonthOnly: Bool,
+        forceRefresh: Bool = false
     ) {
+        let previousInputs = inputs
         let nextInputs = Inputs(
             searchText: searchText,
             selectedFolderId: selectedFolderId,
@@ -56,9 +71,11 @@ final class NotesHubState: ObservableObject {
             showsCurrentMonthOnly: showsCurrentMonthOnly
         )
 
-        guard nextInputs != inputs else { return }
+        guard forceRefresh || nextInputs != inputs else { return }
         inputs = nextInputs
-        refresh()
+        refresh(
+            includeAggregates: forceRefresh || previousInputs.showsCurrentMonthOnly != nextInputs.showsCurrentMonthOnly
+        )
     }
 
     func updateRecurringExpenses(_ expenses: [RecurringExpense]) {
@@ -66,56 +83,215 @@ final class NotesHubState: ObservableObject {
         refreshAggregates()
     }
 
-    func refresh() {
-        let searchText = inputs.searchText
-        let selectedFolderId = inputs.selectedFolderId
-        let showUnfiledNotesOnly = inputs.showUnfiledNotesOnly
+    func refresh(includeAggregates: Bool = true) {
+        let currentInputs = inputs
+        let notesSnapshot = notesManager.notes
+        let foldersSnapshot = notesManager.folders
+        let pinnedNotesSnapshot = notesManager.pinnedNotes
+        let recentNotesSnapshot = notesManager.recentNotes
+        let searchedNotes = currentInputs.searchText.isEmpty ? nil : notesManager.searchNotes(query: currentInputs.searchText)
 
-        let searchedNotes = searchText.isEmpty ? nil : notesManager.searchNotes(query: searchText)
+        refreshGeneration += 1
+        let generation = refreshGeneration
 
-        var pinned = (searchedNotes ?? notesManager.pinnedNotes)
-            .filter { searchedNotes == nil ? true : $0.isPinned }
-
-        var unpinned = (searchedNotes ?? notesManager.recentNotes)
-            .filter { searchedNotes == nil ? true : !$0.isPinned }
-
-        if showUnfiledNotesOnly {
-            pinned = pinned.filter { $0.folderId == nil }
-            unpinned = unpinned.filter { $0.folderId == nil }
-        } else if let selectedFolderId {
-            pinned = pinned.filter { $0.folderId == selectedFolderId }
-            unpinned = unpinned.filter { $0.folderId == selectedFolderId }
-        }
-
-        pinned = pinned.filter(Self.isStandardNotesListNote)
-        unpinned = unpinned.filter(Self.isStandardNotesListNote)
-
-        let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        let recent = unpinned.filter { $0.dateModified >= oneWeekAgo }
-        let olderNotes = unpinned.filter { $0.dateModified < oneWeekAgo }
-
-        let grouped = Dictionary(grouping: olderNotes) { note in
-            FormatterCache.monthYear.string(from: note.dateModified)
-        }
-        let groupedByMonth = grouped
-            .map { (month: $0.key, notes: $0.value) }
-            .sorted { lhs, rhs in
-                guard let leftDate = lhs.notes.first?.dateModified,
-                      let rightDate = rhs.notes.first?.dateModified else {
-                    return false
-                }
-                return leftDate > rightDate
+        DispatchQueue.global(qos: .userInitiated).async {
+            let foldersById = Dictionary(uniqueKeysWithValues: foldersSnapshot.map { ($0.id, $0) })
+            let receiptsFolderId = foldersSnapshot.first(where: { $0.name == "Receipts" })?.id
+            let standardNoteFilter: (Note) -> Bool = { note in
+                Self.isStandardNotesListNote(
+                    note,
+                    foldersById: foldersById,
+                    receiptsFolderId: receiptsFolderId
+                )
             }
 
-        filteredPinnedNotes = pinned
-        allUnpinnedNotes = unpinned
-        recentNotes = recent
-        notesByMonth = groupedByMonth
-        refreshAggregates()
+            var pinned = (searchedNotes ?? pinnedNotesSnapshot)
+                .filter { searchedNotes == nil ? true : $0.isPinned }
+            var unpinned = (searchedNotes ?? recentNotesSnapshot)
+                .filter { searchedNotes == nil ? true : !$0.isPinned }
+
+            if currentInputs.showUnfiledNotesOnly {
+                pinned = pinned.filter { $0.folderId == nil }
+                unpinned = unpinned.filter { $0.folderId == nil }
+            } else if let selectedFolderId = currentInputs.selectedFolderId {
+                pinned = pinned.filter { $0.folderId == selectedFolderId }
+                unpinned = unpinned.filter { $0.folderId == selectedFolderId }
+            }
+
+            pinned = pinned.filter(standardNoteFilter)
+            unpinned = unpinned.filter(standardNoteFilter)
+
+            let calendar = Calendar.current
+            let now = Date()
+            let oneWeekAgo = calendar.date(byAdding: .day, value: -7, to: now) ?? now
+            let recent = unpinned.filter { $0.dateModified >= oneWeekAgo }
+            let olderNotes = unpinned.filter { $0.dateModified < oneWeekAgo }
+
+            let monthYearFormatter = DateFormatter()
+            monthYearFormatter.dateFormat = "MMMM yyyy"
+            let grouped = Dictionary(grouping: olderNotes) { note in
+                monthYearFormatter.string(from: note.dateModified)
+            }
+            let groupedByMonth = grouped
+                .map { (month: $0.key, notes: $0.value) }
+                .sorted { lhs, rhs in
+                    guard let leftDate = lhs.notes.first?.dateModified,
+                          let rightDate = rhs.notes.first?.dateModified else {
+                        return false
+                    }
+                    return leftDate > rightDate
+                }
+
+            let standardNotes = notesSnapshot
+                .filter(standardNoteFilter)
+                .sorted { $0.dateModified > $1.dateModified }
+            let meaningfulJournalEntries = notesSnapshot.filter { $0.isJournalEntry && $0.isMeaningfulJournalEntry }
+            let nextJournalOverviewStats = Self.journalStats(
+                for: meaningfulJournalEntries,
+                referenceDate: now,
+                calendar: calendar
+            )
+            let nextLatestJournalRecap = notesSnapshot
+                .filter { $0.isJournalWeeklyRecap }
+                .sorted {
+                    let lhs = $0.journalWeekStartDate ?? $0.dateModified
+                    let rhs = $1.journalWeekStartDate ?? $1.dateModified
+                    return lhs > rhs
+                }
+                .first
+
+            let nextDisplayedNotes: [Note]
+            if currentInputs.showUnfiledNotesOnly {
+                nextDisplayedNotes = standardNotes.filter { !$0.isPinned && $0.folderId == nil }
+            } else if let selectedFolderId = currentInputs.selectedFolderId {
+                nextDisplayedNotes = standardNotes.filter { $0.folderId == selectedFolderId }
+            } else {
+                nextDisplayedNotes = standardNotes.filter { $0.isPinned }
+            }
+
+            let nextLooseNotesCount = standardNotes.filter { $0.folderId == nil }.count
+            let nextFolderNotesCount = currentInputs.selectedFolderId.map { selectedFolderId in
+                standardNotes.filter { $0.folderId == selectedFolderId }.count
+            } ?? 0
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.refreshGeneration == generation, self.inputs == currentInputs else { return }
+
+                if self.filteredPinnedNotes != pinned {
+                    self.filteredPinnedNotes = pinned
+                }
+
+                if self.allUnpinnedNotes != unpinned {
+                    self.allUnpinnedNotes = unpinned
+                }
+
+                if self.recentNotes != recent {
+                    self.recentNotes = recent
+                }
+
+                let didChangeNotesByMonth = self.notesByMonth.count != groupedByMonth.count
+                    || zip(self.notesByMonth, groupedByMonth).contains { pair in
+                        pair.0.month != pair.1.month || pair.0.notes != pair.1.notes
+                    }
+                if didChangeNotesByMonth {
+                    self.notesByMonth = groupedByMonth
+                }
+
+                if self.displayedNotes != nextDisplayedNotes {
+                    self.displayedNotes = nextDisplayedNotes
+                }
+
+                self.looseNotesCount = nextLooseNotesCount
+                self.folderNotesCount = nextFolderNotesCount
+                self.latestJournalRecap = nextLatestJournalRecap
+                self.journalOverviewStats = nextJournalOverviewStats
+
+                if includeAggregates {
+                    self.refreshAggregates()
+                }
+            }
+        }
     }
 
-    private static func isStandardNotesListNote(_ note: Note) -> Bool {
-        !note.isJournalEntry && !note.isJournalWeeklyRecap
+    private static func isStandardNotesListNote(
+        _ note: Note,
+        foldersById: [UUID: NoteFolder],
+        receiptsFolderId: UUID?
+    ) -> Bool {
+        !isReceiptNote(note, foldersById: foldersById, receiptsFolderId: receiptsFolderId)
+            && !note.isJournalEntry
+            && !note.isJournalWeeklyRecap
+    }
+
+    private static func isReceiptNote(
+        _ note: Note,
+        foldersById: [UUID: NoteFolder],
+        receiptsFolderId: UUID?
+    ) -> Bool {
+        guard let receiptsFolderId, let folderId = note.folderId else { return false }
+
+        var currentFolderId: UUID? = folderId
+        while let currentId = currentFolderId {
+            if currentId == receiptsFolderId {
+                return true
+            }
+            currentFolderId = foldersById[currentId]?.parentFolderId
+        }
+
+        return false
+    }
+
+    private static func journalStats(
+        for entries: [Note],
+        referenceDate: Date,
+        calendar: Calendar
+    ) -> JournalStats {
+        let uniqueEntryDays = Set(
+            entries.compactMap { entry in
+                entry.journalDate.map { calendar.startOfDay(for: $0) }
+            }
+        )
+
+        let sortedDays = uniqueEntryDays.sorted(by: >)
+        let today = calendar.startOfDay(for: referenceDate)
+        let currentWeekInterval = calendar.dateInterval(of: .weekOfYear, for: referenceDate)
+        let completedThisWeek = uniqueEntryDays.filter { day in
+            guard let currentWeekInterval else { return false }
+            return currentWeekInterval.contains(day)
+        }.count
+
+        var currentStreak = 0
+        var cursor = today
+        while uniqueEntryDays.contains(cursor) {
+            currentStreak += 1
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = previous
+        }
+
+        var longestStreak = 0
+        var activeStreak = 0
+        var previousDay: Date?
+        for day in sortedDays.reversed() {
+            if let previousDay,
+               let expectedNext = calendar.date(byAdding: .day, value: 1, to: previousDay),
+               calendar.isDate(expectedNext, inSameDayAs: day) {
+                activeStreak += 1
+            } else {
+                activeStreak = 1
+            }
+            longestStreak = max(longestStreak, activeStreak)
+            previousDay = day
+        }
+
+        return JournalStats(
+            currentStreak: currentStreak,
+            longestStreak: longestStreak,
+            completedThisWeek: completedThisWeek,
+            totalEntries: uniqueEntryDays.count,
+            lastEntryDate: sortedDays.first,
+            todayStatus: uniqueEntryDays.contains(today) ? .complete : .missing
+        )
     }
 
     private func refreshAggregates() {

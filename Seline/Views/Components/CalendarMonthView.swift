@@ -16,7 +16,6 @@ struct CalendarMonthView: View {
     @State private var cachedTagId: String? = nil // Track which tag filter is cached
     
     private let calendar = Calendar.current
-    private let maxEventsPerCell = 1
     private let rowHeight: CGFloat = 58
     private static let cacheKeyDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -362,8 +361,8 @@ struct CalendarMonthView: View {
                         }
                     )
 
-                if let primaryEvent = events.first {
-                    Text(primaryEvent.title)
+                if !events.isEmpty {
+                    Text(eventCountLabel(for: events.count))
                         .font(FontManager.geist(size: 8, weight: .medium))
                         .foregroundColor(
                             isSelected
@@ -397,6 +396,10 @@ struct CalendarMonthView: View {
     
     private func dayNumber(_ date: Date) -> String {
         Self.dayNumberFormatter.string(from: date)
+    }
+
+    private func eventCountLabel(for count: Int) -> String {
+        "\(count) event\(count == 1 ? "" : "s")"
     }
     
     private func getFilteredEvents(for date: Date) -> [TaskItem] {

@@ -528,14 +528,9 @@ struct AllLocationsEditView: View {
                                             }
                                         }
                                     }
-                                    .appAmbientCardStyle(
-                                        colorScheme: colorScheme,
-                                        variant: .bottomTrailing,
-                                        cornerRadius: 18,
-                                        highlightStrength: 0.4
-                                    )
+                                    .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 18)
                                     .padding(.horizontal, 16)
-                                    .padding(.top, 8)
+                                    .padding(.top, 4)
                                 }
                             }
                             Spacer(minLength: 0)

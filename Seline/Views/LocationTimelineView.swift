@@ -2,12 +2,17 @@ import SwiftUI
 import PostgREST
 
 struct LocationTimelineView: View {
-    let colorScheme: ColorScheme
+    enum DisplayMode {
+        case standalone
+        case embedded
+    }
 
-    @StateObject private var locationsManager = LocationsManager.shared
+    let colorScheme: ColorScheme
+    var displayMode: DisplayMode = .standalone
+
     @StateObject private var peopleManager = PeopleManager.shared
-    @StateObject private var notesManager = NotesManager.shared
     @StateObject private var visitState = VisitStateManager.shared
+    @StateObject private var pageState = LocationTimelineState()
 
     @State private var isLoading = false
     @State private var selectedPlace: SavedPlace? = nil
@@ -32,8 +37,9 @@ struct LocationTimelineView: View {
     @State private var dayLoadTask: Task<Void, Never>?
     @State private var monthLoadTask: Task<Void, Never>?
     @State private var monthPageSelection: Int = 1
-    @State private var monthVisitLabels: [Date: String] = [:]
     @State private var linkedReceiptIds: [UUID: UUID] = [:]
+    @State private var lastLoadedDay: Date?
+    @State private var lastLoadedMonth: Date?
 
     private let calendar = Calendar.current
     private let calendarRowHeight: CGFloat = 58
@@ -56,28 +62,6 @@ struct LocationTimelineView: View {
         return formatter
     }()
 
-    private var placesById: [UUID: SavedPlace] {
-        Dictionary(uniqueKeysWithValues: locationsManager.savedPlaces.map { ($0.id, $0) })
-    }
-
-    private var notesById: [UUID: Note] {
-        Dictionary(uniqueKeysWithValues: notesManager.notes.map { ($0.id, $0) })
-    }
-
-    private var sortedSelectedDayVisits: [LocationVisitRecord] {
-        visitState.selectedDayVisits.sorted { $0.entryTime < $1.entryTime }
-    }
-
-    private struct MonthVisitLabelData: Codable {
-        let savedPlaceId: UUID
-        let entryTime: Date
-
-        enum CodingKeys: String, CodingKey {
-            case savedPlaceId = "saved_place_id"
-            case entryTime = "entry_time"
-        }
-    }
-
     private enum VisitActionStyle {
         case secondary
         case primary
@@ -85,35 +69,39 @@ struct LocationTimelineView: View {
     }
 
     var body: some View {
-        ZStack {
-            AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .bottomTrailing)
+        Group {
+            if displayMode == .embedded {
+                timelineContent
+            } else {
+                ZStack {
+                    AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .bottomTrailing)
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 12) {
-                    calendarSection
-
-                    if isLoading {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, 32)
-                    } else if visitState.selectedDayVisits.isEmpty {
-                        emptyDayView
-                    } else {
-                        timelineSection
+                    ScrollView(.vertical, showsIndicators: false) {
+                        timelineContent
+                            .padding(.bottom, 96)
                     }
+                    .selinePrimaryPageScroll()
                 }
-                .padding(.bottom, 96)
             }
         }
         .onAppear {
             refreshLinkedReceiptLinks()
-            reloadVisitData(reason: "initial_load")
+            reloadVisitData(reason: "initial_load", forceMonth: true, forceDay: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
-            scheduleVisitReload(reason: "geofence_visit_created")
+            scheduleVisitReload(
+                reason: "geofence_visit_created",
+                forceMonth: true,
+                forceDay: shouldReloadSelectedDayForVisitUpdates()
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
-            scheduleVisitReload(reason: "visit_history_updated", invalidateSelectedDayCache: true)
+            scheduleVisitReload(
+                reason: "visit_history_updated",
+                forceMonth: true,
+                forceDay: shouldReloadSelectedDayForVisitUpdates(),
+                invalidateSelectedDayCache: true
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .visitReceiptLinkUpdated)) { _ in
             refreshLinkedReceiptLinks()
@@ -135,7 +123,7 @@ struct LocationTimelineView: View {
         .sheet(item: $selectedVisitForNotes) { visit in
             VisitNotesSheet(
                 visit: visit,
-                place: placesById[visit.savedPlaceId],
+                place: pageState.placesById[visit.savedPlaceId],
                 colorScheme: colorScheme,
                 contentMode: .noteOnly,
                 onSave: { notes in
@@ -151,10 +139,11 @@ struct LocationTimelineView: View {
         .sheet(item: $selectedVisitForReceipt) { visit in
             VisitNotesSheet(
                 visit: visit,
-                place: placesById[visit.savedPlaceId],
+                place: pageState.placesById[visit.savedPlaceId],
                 colorScheme: colorScheme,
                 contentMode: .receiptOnly,
                 onSave: { _ in
+                    refreshLinkedReceiptLinks()
                     selectedVisitForReceipt = nil
                 },
                 onDismiss: {
@@ -168,13 +157,12 @@ struct LocationTimelineView: View {
                 visit: visit,
                 colorScheme: colorScheme,
                 onSave: { personIds in
-                    Task {
-                        await peopleManager.linkPeopleToVisit(
-                            visitId: visit.id,
-                            personIds: personIds
-                        )
-                        await loadPeopleForVisits([visit])
-                    }
+                    await updateVisitPeopleLocally(visitId: visit.id, personIds: personIds)
+                    await peopleManager.linkPeopleToVisit(
+                        visitId: visit.id,
+                        personIds: personIds
+                    )
+                    await loadPeopleForVisits([visit], forceRefreshVisitIds: Set([visit.id]))
                 },
                 onDismiss: {
                     selectedVisitForPeople = nil
@@ -185,7 +173,7 @@ struct LocationTimelineView: View {
         .sheet(item: $selectedVisitForEditing) { visit in
             EditVisitTimeSheet(
                 visit: visit,
-                place: placesById[visit.savedPlaceId],
+                place: pageState.placesById[visit.savedPlaceId],
                 colorScheme: colorScheme,
                 onSave: { entryTime, exitTime in
                     let success = await visitState.updateVisit(id: visit.id, entryTime: entryTime, exitTime: exitTime)
@@ -228,6 +216,23 @@ struct LocationTimelineView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(visitEditErrorMessage)
+        }
+    }
+
+    @ViewBuilder
+    private var timelineContent: some View {
+        VStack(spacing: 12) {
+            calendarSection
+
+            if isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 32)
+            } else if visitState.selectedDayVisits.isEmpty {
+                emptyDayView
+            } else {
+                timelineSection
+            }
         }
     }
 
@@ -394,7 +399,6 @@ struct LocationTimelineView: View {
         let isToday = calendar.isDateInToday(date)
         let visitCount = visitState.monthVisitCounts[normalizedDate] ?? 0
         let hasVisits = visitCount > 0
-        let visitLabel = monthVisitLabels[normalizedDate]
         let isInCurrentMonth = calendar.isDate(date, equalTo: month, toGranularity: .month)
 
         Button(action: {
@@ -422,8 +426,8 @@ struct LocationTimelineView: View {
                         }
                     )
 
-                if hasVisits, let visitLabel {
-                    Text(visitLabel)
+                if hasVisits {
+                    Text(visitCountLabel(for: visitCount))
                         .font(FontManager.geist(size: 8, weight: .medium))
                         .foregroundColor(
                             isSelected
@@ -545,7 +549,7 @@ struct LocationTimelineView: View {
             }
 
             LazyVStack(spacing: 12) {
-                ForEach(sortedSelectedDayVisits) { visit in
+                ForEach(pageState.sortedSelectedDayVisits) { visit in
                     visitCard(for: visit)
                 }
             }
@@ -603,7 +607,7 @@ struct LocationTimelineView: View {
 
     @ViewBuilder
     private func visitCard(for visit: LocationVisitRecord) -> some View {
-        if let place = placesById[visit.savedPlaceId] {
+        if let place = pageState.placesById[visit.savedPlaceId] {
             let isSelectedForMerge = selectedVisitsForMerge.contains(visit.id)
             let linkedReceipt = linkedReceipt(for: visit)
 
@@ -957,6 +961,10 @@ struct LocationTimelineView: View {
         }
     }
 
+    private func visitCountLabel(for count: Int) -> String {
+        "\(count) visit\(count == 1 ? "" : "s")"
+    }
+
     private func visitSummary() -> String {
         let count = visitState.selectedDayVisits.count
         let totalMinutes = visitState.selectedDayVisits.compactMap { $0.durationMinutes }.reduce(0, +)
@@ -1003,17 +1011,47 @@ struct LocationTimelineView: View {
             return "\(mins)m"
         }
     }
+
+    private func normalizedVisitNotes(_ notes: String) -> String? {
+        let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedNotes.isEmpty ? nil : trimmedNotes
+    }
+
+    @MainActor
+    private func updateVisitNotesLocally(visitId: UUID, notes: String?) -> String? {
+        guard let visitIndex = visitState.selectedDayVisits.firstIndex(where: { $0.id == visitId }) else {
+            return nil
+        }
+
+        let previousNotes = visitState.selectedDayVisits[visitIndex].visitNotes
+        visitState.selectedDayVisits[visitIndex].visitNotes = notes
+        visitState.selectedDayVisits[visitIndex].updatedAt = Date()
+        return previousNotes
+    }
+
+    @MainActor
+    private func updateVisitPeopleLocally(visitId: UUID, personIds: [UUID]) {
+        let selectedPeople = personIds
+            .compactMap { peopleManager.getPerson(by: $0) }
+            .sorted {
+                $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+
+        visitPeopleCache[visitId] = selectedPeople
+    }
     
     private func saveVisitNotes(visit: LocationVisitRecord, notes: String) async {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return }
-        
+        let normalizedNotes = normalizedVisitNotes(notes)
+        let previousNotes = await updateVisitNotesLocally(visitId: visit.id, notes: normalizedNotes)
+
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             
             let updateData: [String: PostgREST.AnyJSON] = [
-                "visit_notes": .string(notes),
+                "visit_notes": normalizedNotes.map { .string($0) } ?? .null,
                 "updated_at": .string(formatter.string(from: Date()))
             ]
             
@@ -1027,6 +1065,7 @@ struct LocationTimelineView: View {
             // Reload visits to show updated notes
             loadVisitsForSelectedDay()
         } catch {
+            _ = await updateVisitNotesLocally(visitId: visit.id, notes: previousNotes)
             print("❌ Failed to save visit notes: \(error)")
         }
     }
@@ -1114,8 +1153,8 @@ struct LocationTimelineView: View {
                     }
                     
                     // Reload visits (cache already invalidated)
-                    loadVisitsForSelectedDay()
-                    loadVisitsForMonth()
+                    loadVisitsForSelectedDay(force: true)
+                    loadVisitsForMonth(force: true)
                 } else {
                     HapticManager.shared.error()
                     mergeErrorMessage = LocationVisitAnalytics.shared.errorMessage ?? "Failed to merge visits"
@@ -1147,22 +1186,42 @@ struct LocationTimelineView: View {
 
     // MARK: - Data Loading
 
-    private func reloadVisitData(reason: String, invalidateSelectedDayCache: Bool = false) {
+    private func reloadVisitData(
+        reason: String,
+        forceMonth: Bool = false,
+        forceDay: Bool = false,
+        invalidateSelectedDayCache: Bool = false
+    ) {
         if invalidateSelectedDayCache {
             invalidateSelectedDayVisitCache()
+            lastLoadedDay = nil
         }
 
-        loadVisitsForMonth(reason: reason)
-        loadVisitsForSelectedDay(reason: reason)
+        loadVisitsForMonth(reason: reason, force: forceMonth)
+        loadVisitsForSelectedDay(reason: reason, force: forceDay || invalidateSelectedDayCache)
     }
 
-    private func scheduleVisitReload(reason: String, invalidateSelectedDayCache: Bool = false) {
+    private func scheduleVisitReload(
+        reason: String,
+        forceMonth: Bool = false,
+        forceDay: Bool = false,
+        invalidateSelectedDayCache: Bool = false
+    ) {
         reloadTask?.cancel()
         reloadTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled else { return }
-            reloadVisitData(reason: reason, invalidateSelectedDayCache: invalidateSelectedDayCache)
+            reloadVisitData(
+                reason: reason,
+                forceMonth: forceMonth,
+                forceDay: forceDay,
+                invalidateSelectedDayCache: invalidateSelectedDayCache
+            )
         }
+    }
+
+    private func shouldReloadSelectedDayForVisitUpdates() -> Bool {
+        calendar.isDateInToday(visitState.selectedDate)
     }
 
     private func invalidateSelectedDayVisitCache() {
@@ -1172,21 +1231,27 @@ struct LocationTimelineView: View {
         CacheManager.shared.invalidate(forKey: "cache.visits.day.\(dayKey)")
     }
 
-    private func loadVisitsForMonth(reason: String = "month") {
+    private func loadVisitsForMonth(reason: String = "month", force: Bool = false) {
         monthLoadTask?.cancel()
-        let month = visitState.currentMonth
+        let month = calendar.startOfDay(for: visitState.currentMonth)
+        if !force, let lastLoadedMonth, calendar.isDate(lastLoadedMonth, equalTo: month, toGranularity: .month) {
+            return
+        }
+
+        lastLoadedMonth = month
         monthLoadTask = Task {
             await visitState.fetchVisitsForMonth(month)
-            guard !Task.isCancelled else {
-                return
-            }
-            await loadMonthVisitLabels(for: month)
         }
     }
 
-    private func loadVisitsForSelectedDay(reason: String = "day") {
+    private func loadVisitsForSelectedDay(reason: String = "day", force: Bool = false) {
         dayLoadTask?.cancel()
-        let selectedDate = visitState.selectedDate
+        let selectedDate = calendar.startOfDay(for: visitState.selectedDate)
+        if !force, let lastLoadedDay, calendar.isDate(lastLoadedDay, inSameDayAs: selectedDate) {
+            return
+        }
+
+        lastLoadedDay = selectedDate
         dayLoadTask = Task {
             await MainActor.run {
                 isLoading = true
@@ -1213,13 +1278,18 @@ struct LocationTimelineView: View {
     
     // MARK: - Load People for Visits
 
-    private func loadPeopleForVisits(_ visits: [LocationVisitRecord]) async {
-        let uncachedVisits = visits.filter { visitPeopleCache[$0.id] == nil }
-        guard !uncachedVisits.isEmpty else { return }
+    private func loadPeopleForVisits(
+        _ visits: [LocationVisitRecord],
+        forceRefreshVisitIds: Set<UUID> = []
+    ) async {
+        let visitsToLoad = visits.filter {
+            forceRefreshVisitIds.contains($0.id) || visitPeopleCache[$0.id] == nil
+        }
+        guard !visitsToLoad.isEmpty else { return }
 
         var fetchedPeople: [UUID: [Person]] = [:]
         await withTaskGroup(of: (UUID, [Person]).self) { group in
-            for visit in uncachedVisits {
+            for visit in visitsToLoad {
                 group.addTask {
                     let people = await self.peopleManager.getPeopleForVisit(visitId: visit.id)
                     return (visit.id, people)
@@ -1236,71 +1306,13 @@ struct LocationTimelineView: View {
         }
     }
 
-    private func loadMonthVisitLabels(for month: Date) async {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
-            await MainActor.run {
-                monthVisitLabels = [:]
-            }
-            return
-        }
-
-        guard let monthInterval = calendar.dateInterval(of: .month, for: month) else {
-            return
-        }
-
-        do {
-            let client = await SupabaseManager.shared.getPostgrestClient()
-            let response = try await client
-                .from("location_visits")
-                .select("saved_place_id, entry_time")
-                .eq("user_id", value: userId.uuidString)
-                .gte("entry_time", value: monthInterval.start.ISO8601Format())
-                .lt("entry_time", value: monthInterval.end.ISO8601Format())
-                .order("entry_time", ascending: true)
-                .execute()
-
-            let visits = try JSONDecoder.supabaseDecoder().decode([MonthVisitLabelData].self, from: response.data)
-            let placeNamesById = Dictionary(uniqueKeysWithValues: locationsManager.savedPlaces.map { ($0.id, $0.displayName) })
-
-            var visitsByDay: [Date: [UUID]] = [:]
-            for visit in visits {
-                let day = calendar.startOfDay(for: visit.entryTime)
-                visitsByDay[day, default: []].append(visit.savedPlaceId)
-            }
-
-            var computedLabels: [Date: String] = [:]
-            for (day, placeIds) in visitsByDay {
-                var seenPlaceIds = Set<UUID>()
-                var uniquePlaceIds: [UUID] = []
-                for placeId in placeIds where seenPlaceIds.insert(placeId).inserted {
-                    uniquePlaceIds.append(placeId)
-                }
-
-                guard let firstPlaceId = uniquePlaceIds.first else { continue }
-                let firstPlaceName = placeNamesById[firstPlaceId] ?? "Visit"
-
-                if uniquePlaceIds.count > 1 {
-                    computedLabels[day] = "\(firstPlaceName) +\(uniquePlaceIds.count - 1)"
-                } else {
-                    computedLabels[day] = firstPlaceName
-                }
-            }
-
-            await MainActor.run {
-                monthVisitLabels = computedLabels
-            }
-        } catch {
-            print("❌ Failed to load month visit labels: \(error)")
-        }
-    }
-
     private func refreshLinkedReceiptLinks() {
         linkedReceiptIds = VisitReceiptLinkStore.allLinks()
     }
 
     private func linkedReceipt(for visit: LocationVisitRecord) -> Note? {
         guard let linkedNoteId = linkedReceiptIds[visit.id] else { return nil }
-        return notesById[linkedNoteId]
+        return pageState.notesById[linkedNoteId]
     }
     
     private func colorForRelationship(_ relationship: RelationshipType) -> Color {

@@ -79,6 +79,7 @@ struct EmailListView: View {
             .padding(.horizontal, 20)
         }
         .hideScrollContentInsetIfAvailable()
+        .selinePrimaryPageScroll()
         .refreshable {
             await onRefresh()
         }

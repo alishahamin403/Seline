@@ -22,6 +22,7 @@ struct VisitNotesSheet: View {
     @State private var selectedReceiptNoteId: UUID? = nil
     @State private var receiptSearchText: String = ""
     @State private var isLoadingPeople: Bool = true
+    @State private var isLoadingReceipts: Bool = false
     @State private var isSaving = false
     @FocusState private var isFocused: Bool
 
@@ -86,6 +87,7 @@ struct VisitNotesSheet: View {
                 let existingPeople = showsPeopleSection
                     ? await peopleManager.getPeopleForVisit(visitId: visit.id)
                     : []
+                await ensureReceiptDataLoaded()
                 let existingReceiptNoteId = showsReceiptSection
                     ? VisitReceiptLinkStore.receiptId(for: visit.id)
                     : nil
@@ -222,8 +224,18 @@ struct VisitNotesSheet: View {
 
             receiptSearchField
 
-            if filteredReceiptNotes.isEmpty {
-                Text("No matching receipts")
+            if isLoadingReceipts {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+
+                    Text("Loading receipts...")
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                }
+                .padding(.vertical, 8)
+            } else if filteredReceiptNotes.isEmpty {
+                Text(receiptSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No receipts available" : "No matching receipts")
                     .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.55))
                     .padding(.vertical, 8)
@@ -419,6 +431,20 @@ struct VisitNotesSheet: View {
         }
     }
 
+    private func ensureReceiptDataLoaded() async {
+        guard showsReceiptSection else { return }
+
+        await MainActor.run {
+            isLoadingReceipts = true
+        }
+
+        await notesManager.ensureReceiptDataAvailable()
+
+        await MainActor.run {
+            isLoadingReceipts = false
+        }
+    }
+
     private func persistChanges() {
         isSaving = true
 
@@ -434,6 +460,7 @@ struct VisitNotesSheet: View {
                 await onSave(cleanedNotes)
             case .receiptOnly:
                 VisitReceiptLinkStore.setReceiptId(selectedReceiptNoteId, for: visit.id)
+                await onSave(cleanedNotes)
             }
 
             await MainActor.run {

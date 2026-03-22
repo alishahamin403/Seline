@@ -303,7 +303,7 @@ class SharedLocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         
         // IMMEDIATE: Refresh widgets as soon as iOS detects location change
         // This ensures widget updates even before full visit processing completes
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "system_geofence_entry")
         print("   🔄 Widget refresh triggered immediately!")
         
         guard let circularRegion = region as? CLCircularRegion else { return }
@@ -322,7 +322,7 @@ class SharedLocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         
         // IMMEDIATE: Refresh widgets as soon as iOS detects location change
         // This clears the current location from widget ASAP
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "system_geofence_exit")
         print("   🔄 Widget refresh triggered immediately!")
         
         guard let circularRegion = region as? CLCircularRegion else { return }

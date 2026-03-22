@@ -7,17 +7,15 @@ struct EmailActionButtons: View {
     let onDelete: () -> Void
     let onMarkAsUnread: () -> Void
     let onAddEvent: (() -> Void)?
-    let onSave: (() -> Void)?
     @Environment(\.colorScheme) var colorScheme
 
-    init(email: Email, onReply: @escaping () -> Void, onForward: @escaping () -> Void, onDelete: @escaping () -> Void, onMarkAsUnread: @escaping () -> Void, onAddEvent: (() -> Void)? = nil, onSave: (() -> Void)? = nil) {
+    init(email: Email, onReply: @escaping () -> Void, onForward: @escaping () -> Void, onDelete: @escaping () -> Void, onMarkAsUnread: @escaping () -> Void, onAddEvent: (() -> Void)? = nil) {
         self.email = email
         self.onReply = onReply
         self.onForward = onForward
         self.onDelete = onDelete
         self.onMarkAsUnread = onMarkAsUnread
         self.onAddEvent = onAddEvent
-        self.onSave = onSave
     }
 
     var body: some View {
@@ -46,17 +44,6 @@ struct EmailActionButtons: View {
             if let onAddEvent = onAddEvent {
                 Button(action: onAddEvent) {
                     Image(systemName: "calendar.badge.plus")
-                        .font(FontManager.geist(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1)))
-                }
-            }
-
-            // Save Button - Icon Only
-            if let onSave = onSave {
-                Button(action: onSave) {
-                    Image(systemName: "folder.badge.plus")
                         .font(FontManager.geist(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(width: 44, height: 44)

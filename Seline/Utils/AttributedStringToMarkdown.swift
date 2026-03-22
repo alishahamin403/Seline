@@ -107,7 +107,7 @@ class AttributedStringToMarkdown {
             if let font = attrString.attribute(.font, at: position, effectiveRange: nil) as? UIFont {
                 let isBold = font.fontDescriptor.symbolicTraits.contains(.traitBold)
                 let isItalic = font.fontDescriptor.symbolicTraits.contains(.traitItalic)
-                let isUnderlined = attrString.attribute(.underlineStyle, at: position, effectiveRange: nil) != nil
+                let isStruck = attrString.attribute(.strikethroughStyle, at: position, effectiveRange: nil) != nil
 
                 // For consecutive characters with same formatting, group them
                 var endPos = position + 1
@@ -115,8 +115,8 @@ class AttributedStringToMarkdown {
                     if let nextFont = attrString.attribute(.font, at: endPos, effectiveRange: nil) as? UIFont {
                         let nextBold = nextFont.fontDescriptor.symbolicTraits.contains(.traitBold)
                         let nextItalic = nextFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
-                        let nextUnderlined = attrString.attribute(.underlineStyle, at: endPos, effectiveRange: nil) != nil
-                        if nextBold == isBold && nextItalic == isItalic && nextUnderlined == isUnderlined {
+                        let nextStruck = attrString.attribute(.strikethroughStyle, at: endPos, effectiveRange: nil) != nil
+                        if nextBold == isBold && nextItalic == isItalic && nextStruck == isStruck {
                             endPos += 1
                         } else {
                             break
@@ -133,14 +133,15 @@ class AttributedStringToMarkdown {
 
                 // Build markdown with all formatting attributes
                 var formatted = substring
-                if isBold {
+                if isBold && isItalic {
+                    formatted = "***" + formatted + "***"
+                } else if isBold {
                     formatted = "**" + formatted + "**"
-                }
-                if isItalic {
+                } else if isItalic {
                     formatted = "*" + formatted + "*"
                 }
-                if isUnderlined {
-                    formatted = "__" + formatted + "__"
+                if isStruck {
+                    formatted = "~~" + formatted + "~~"
                 }
 
                 result += formatted

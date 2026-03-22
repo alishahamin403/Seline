@@ -11,11 +11,12 @@ struct HomePinnedNotesWidget: View {
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var emailService = EmailService.shared
 
-    @Binding var selectedTab: TabSelection
+    @Binding var selectedTab: PrimaryTab
     @Binding var showingNewNoteSheet: Bool
 
     var onNoteSelected: ((Note) -> Void)?
     var onEmailSelected: ((Email) -> Void)?
+    var onOpenPlanInbox: (() -> Void)? = nil
 
     @State private var activeTab: FocusTab = .mail
 
@@ -172,7 +173,7 @@ struct HomePinnedNotesWidget: View {
                 }
             }
 
-            viewAllButton(title: "Open Mail", tab: .email)
+            viewAllButton(title: "Open Mail", tab: .home, action: onOpenPlanInbox)
         }
     }
 
@@ -214,10 +215,14 @@ struct HomePinnedNotesWidget: View {
         }
     }
 
-    private func viewAllButton(title: String, tab: TabSelection) -> some View {
+    private func viewAllButton(title: String, tab: PrimaryTab, action: (() -> Void)? = nil) -> some View {
         Button(action: {
             HapticManager.shared.selection()
-            selectedTab = tab
+            if let action {
+                action()
+            } else {
+                selectedTab = tab
+            }
         }) {
             Text(title)
                 .font(FontManager.geist(size: 12, weight: .semibold))
@@ -239,7 +244,8 @@ struct HomePinnedNotesWidget: View {
     VStack {
         HomePinnedNotesWidget(
             selectedTab: .constant(.home),
-            showingNewNoteSheet: .constant(false)
+            showingNewNoteSheet: .constant(false),
+            onOpenPlanInbox: nil
         )
         .padding(.horizontal, 12)
 

@@ -5,8 +5,9 @@ struct HomeUnreadEmailsWidget: View {
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var emailService = EmailService.shared
     
-    @Binding var selectedTab: TabSelection
+    @Binding var selectedTab: PrimaryTab
     var onEmailSelected: ((Email) -> Void)?
+    var onOpenInbox: (() -> Void)?
     
     private var unreadEmails: [Email] {
         emailService.inboxEmails.filter { !$0.isRead }
@@ -90,7 +91,7 @@ struct HomeUnreadEmailsWidget: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             HapticManager.shared.selection()
-                            selectedTab = .email
+                            onOpenInbox?()
                         }
                     }
                 }
@@ -167,4 +168,3 @@ struct HomeUnreadEmailsWidget: View {
     }
     .background(Color.shadcnBackground(.dark))
 }
-

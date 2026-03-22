@@ -13,7 +13,6 @@ struct EmailDetailView: View {
     @State private var fullEmail: Email? = nil
     @State private var isLoadingFullBody: Bool = false
     @State private var showAddEventSheet: Bool = false
-    @State private var showSaveFolderSheet: Bool = false
     @State private var showForwardSheet: Bool = false
     @State private var isSenderInfoExpanded: Bool = false
     @State private var senderProfilePictureUrl: String? = nil
@@ -101,10 +100,6 @@ struct EmailDetailView: View {
             AddEventFromEmailView(email: fullEmail ?? email)
         }
         .presentationBg()
-        .sheet(isPresented: $showSaveFolderSheet) {
-            SaveFolderSelectionSheet(email: email, isPresented: $showSaveFolderSheet)
-        }
-        .presentationBg()
         .fullScreenCover(isPresented: $showForwardSheet) {
             EmailComposeView(
                 email: fullEmail ?? email,
@@ -163,9 +158,6 @@ struct EmailDetailView: View {
             HStack(spacing: 16) {
                 topActionButton(icon: "calendar.badge.plus", tint: (colorScheme == .dark ? Color.white : Color.black)) {
                     showAddEventSheet = true
-                }
-                topActionButton(icon: "square.and.arrow.down", tint: (colorScheme == .dark ? Color.white : Color.black)) {
-                    showSaveFolderSheet = true
                 }
                 topActionButton(icon: "envelope", tint: (colorScheme == .dark ? Color.white : Color.black)) {
                     emailService.markAsUnread(email)

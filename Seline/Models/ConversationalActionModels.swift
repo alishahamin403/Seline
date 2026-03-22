@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Action Type (moved from QueryRouter to avoid duplication)
+// MARK: - Action Type
 
 enum ActionType: String, Codable {
     case createEvent
@@ -53,6 +53,8 @@ struct ExtractedActionInfo: Equatable {
     var eventDate: Date?
     var eventStartTime: String?
     var eventEndTime: String?
+    var eventLocation: String?
+    var eventCategory: String?
     var eventReminders: [EventReminder] = []
     var eventRecurrence: String?
     var isAllDay: Bool = false

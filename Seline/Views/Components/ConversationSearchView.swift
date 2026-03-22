@@ -241,6 +241,11 @@ struct ConversationSearchView: View {
         speechService.stopRecording()
         speechService.shouldIgnoreTranscriptionUpdates = true
         ttsService.stopSpeaking()
+        if pageState.isLoadingQuestionResponse {
+            searchService.stopCurrentRequest()
+            isStreamingResponse = false
+            streamingStartTime = nil
+        }
         dismissKeyboard()
     }
 
@@ -522,34 +527,12 @@ struct ConversationSearchView: View {
             // Progress bar animation
             HStack(spacing: 12) {
                 VStack(spacing: 2) {
-                    // Animated progress bar
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            // Background bar
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-
-                            // Animated progress
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [
-                                            Color.blue.opacity(0.6),
-                                            Color.blue.opacity(0.8)
-                                        ]),
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .frame(width: geometry.size.width * 0.6)
-                                .animation(.linear(duration: 0.8).repeatForever(autoreverses: true), value: isStreamingResponse)
-                        }
-                    }
+                    streamingProgressBar
                     .frame(height: 2)
 
                     // Status text
                     HStack(spacing: 6) {
-                        Text("✍️ Writing response...")
+                        Text("Writing response...")
                             .font(FontManager.geist(size: 11, weight: .medium))
                             .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)))
 
@@ -590,69 +573,79 @@ struct ConversationSearchView: View {
         .transition(.opacity)
     }
 
+    private var streamingProgressBar: some View {
+        GeometryReader { geometry in
+            SwiftUI.TimelineView(.animation(minimumInterval: 0.12)) { context in
+                let phase = context.date.timeIntervalSinceReferenceDate * 2.4
+                let normalized = (sin(phase) + 1) / 2
+                let widthFactor = 0.28 + (normalized * 0.44)
+
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color.blue.opacity(0.6),
+                                    Color.blue.opacity(0.8)
+                                ]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geometry.size.width * widthFactor)
+                }
+            }
+        }
+    }
+
     // MARK: - Subviews
 
     private var headerView: some View {
-        ZStack {
-            // Left side: Hamburger (history sidebar)
-            HStack {
-                Button(action: {
-                    HapticManager.shared.selection()
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        showingHistorySidebar = true
-                    }
-                }) {
-                    Image(systemName: "line.3.horizontal")
-                        .font(FontManager.geist(size: 18, weight: .medium))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
+        HStack(spacing: 10) {
+            Button(action: {
+                HapticManager.shared.selection()
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    showingHistorySidebar = true
                 }
-                .buttonStyle(PlainButtonStyle())
-                
-                Spacer()
+            }) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .frame(width: 34, height: 34)
+                    .background(
+                        Circle()
+                            .fill(Color.appChip(colorScheme))
+                    )
             }
-            
-            // Center: Title
+            .buttonStyle(PlainButtonStyle())
+            .frame(width: 42, height: 42)
+
+            Spacer(minLength: 0)
+
             Text(trackerHeaderTitle)
-                .font(FontManager.geist(size: 16, weight: .semibold))
+                .font(FontManager.geist(size: 18, weight: .semibold))
                 .foregroundColor(Color.appTextPrimary(colorScheme))
                 .lineLimit(1)
                 .minimumScaleFactor(0.82)
-                .padding(.horizontal, 56)
-            
-            // Right side: New chat
-            HStack(spacing: 8) {
-                Spacer()
-                
-                Button(action: {
-                    startNewChat()
-                }) {
-                    Image(systemName: "square.and.pencil")
-                        .font(FontManager.geist(size: 15, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(Color.appChip(colorScheme)))
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
+
+            Spacer(minLength: 0)
+
+            Color.clear
+                .frame(width: 42, height: 42)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .appAmbientCardStyle(
-            colorScheme: colorScheme,
-            variant: .topLeading,
-            cornerRadius: 22,
-            highlightStrength: 0.7
-        )
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.top, -6)
-        .padding(.bottom, 4)
+        .padding(.top, -4)
+        .padding(.bottom, 10)
     }
     
     private var historySidebarOverlay: some View {
         InteractiveSidebarOverlay(
             isPresented: $showingHistorySidebar,
             canOpen: true,
-            sidebarWidth: min(300, UIScreen.main.bounds.width * 0.82),
+            sidebarWidth: min(336, UIScreen.main.bounds.width * 0.86),
             colorScheme: colorScheme
         ) {
             ConversationHistorySheet(
@@ -724,7 +717,7 @@ struct ConversationSearchView: View {
                         .padding(.bottom, 88)
                     }
                 }
-                .scrollDismissesKeyboard(.interactively)
+                .selinePrimaryPageScroll()
                 .mask(
                     // Fade mask that creates smooth fade at top
                     LinearGradient(
@@ -925,7 +918,6 @@ struct ConversationSearchView: View {
     
     private var inputTextEditor: some View {
         ZStack(alignment: .leading) {
-            // Claude-style placeholder - only show when not focused and text is empty
             if messageText.isEmpty && !isInputFocused {
                 HStack {
                     Text(
@@ -1285,9 +1277,12 @@ struct ConversationMessageView: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var showContextMenu = false
     private let emailService = EmailService.shared
+    private let mapsService = GoogleMapsService.shared
     private let notesManager = NotesManager.shared
     private let taskManager = TaskManager.shared
     private let locationsManager = LocationsManager.shared
+    private let sharedLocationManager = SharedLocationManager.shared
+    private let searchService = SearchService.shared
     @Binding var selectedEmail: Email?
     @Binding var selectedNote: Note?
     @Binding var selectedTask: TaskItem?
@@ -1303,6 +1298,10 @@ struct ConversationMessageView: View {
         hasher.combine(message.isUser)
         hasher.combine(message.text)
         hasher.combine(message.relevantContent?.count ?? 0)
+        hasher.combine(message.actionDraft?.status.rawValue ?? "")
+        hasher.combine(message.presentation?.eventDraftCard?.count ?? 0)
+        hasher.combine(message.presentation?.emailPreviewCard?.emailId ?? "")
+        hasher.combine(message.presentation?.livePlaceCard?.selectedPlaceId ?? "")
         return hasher.finalize()
     }
 
@@ -1311,6 +1310,17 @@ struct ConversationMessageView: View {
             return renderCache
         }
         return buildRenderCache()
+    }
+
+    private var citedLocationResults: [PlaceSearchResult] {
+        savedPlaceResults(from: message.relevantContent ?? [])
+    }
+
+    private var shouldShowLocationSnippetMap: Bool {
+        !message.isUser
+            && message.locationInfo == nil
+            && message.presentation?.livePlaceCard == nil
+            && !citedLocationResults.isEmpty
     }
 
     var body: some View {
@@ -1322,8 +1332,8 @@ struct ConversationMessageView: View {
 
                 messageContent
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, message.isUser ? 14 : 0)
-                    .padding(.vertical, message.isUser ? 12 : 4)
+                    .padding(.horizontal, message.isUser ? 18 : 0)
+                    .padding(.vertical, message.isUser ? 14 : 4)
                     .background(messageBackground)
                     .overlay(messageBorder)
                     .contentShape(Rectangle())
@@ -1377,7 +1387,10 @@ struct ConversationMessageView: View {
         }
     }
 
+    @ViewBuilder
     private var messageContent: some View {
+        let eventDrafts = message.presentation?.eventDraftCard ?? message.actionDraft?.eventDrafts ?? message.eventCreationInfo
+
         VStack(alignment: .leading, spacing: 8) {
             messageText
 
@@ -1390,18 +1403,99 @@ struct ConversationMessageView: View {
                 ETAMapCard(locationInfo: locationInfo)
                     .padding(.top, 4)
             }
+
+            if shouldShowLocationSnippetMap {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(citedLocationResults.count == 1 ? "Location" : "Locations")
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.52))
+                        .textCase(.uppercase)
+                        .tracking(0.55)
+
+                    SearchResultsMapView(
+                        searchResults: citedLocationResults,
+                        currentLocation: sharedLocationManager.currentLocation,
+                        onResultTap: { result in
+                            openSavedPlaceMapResult(result)
+                        }
+                    )
+                }
+                .padding(.top, 4)
+            }
             
             // Event Creation Card - shows when there's event creation data
-            if let events = message.eventCreationInfo, !events.isEmpty {
+            if let events = eventDrafts, !events.isEmpty {
                 EventCreationCard(
                     events: events,
+                    status: message.actionDraft?.status ?? .pending,
                     onConfirm: { confirmedEvents in
                         Task {
-                            await createEvents(confirmedEvents)
+                            if message.actionDraft != nil {
+                                await searchService.confirmActionDraft(
+                                    for: message.id,
+                                    confirmedEvents: confirmedEvents
+                                )
+                            } else {
+                                await createEvents(confirmedEvents)
+                            }
                         }
                     },
                     onCancel: {
-                        // Just dismiss - user can ask again if needed
+                        if message.actionDraft != nil {
+                            searchService.cancelActionDraft(for: message.id)
+                        }
+                    }
+                )
+                .padding(.top, 4)
+            }
+
+            if let noteDraft = message.presentation?.noteDraftCard ?? message.actionDraft?.noteDraft {
+                NoteDraftCard(
+                    draft: noteDraft,
+                    status: message.actionDraft?.status ?? .pending,
+                    onConfirm: {
+                        Task {
+                            await searchService.confirmActionDraft(for: message.id)
+                        }
+                    },
+                    onCancel: {
+                        searchService.cancelActionDraft(for: message.id)
+                    }
+                )
+                .padding(.top, 4)
+            }
+
+            if let emailPreview = message.presentation?.emailPreviewCard ?? message.actionDraft?.emailPreview {
+                EmailPreviewCard(
+                    preview: emailPreview,
+                    onOpenEmail: {
+                        openEmailPreview(emailPreview)
+                    }
+                )
+                .padding(.top, 4)
+            }
+
+            if let livePlacePreview = message.presentation?.livePlaceCard {
+                let canSaveLivePlace = message.actionDraft?.type == .saveLocation
+                let livePlaceStatus: AgentActionDraftStatus? = canSaveLivePlace
+                    ? (message.actionDraft?.status ?? .pending)
+                    : nil
+
+                LivePlacePreviewCard(
+                    preview: livePlacePreview,
+                    folderName: message.actionDraft?.placeDraft?.folderName,
+                    status: livePlaceStatus,
+                    showSaveActions: canSaveLivePlace,
+                    onOpenPlace: { result in
+                        openLivePlacePreview(result)
+                    },
+                    onConfirmSave: { folder in
+                        Task {
+                            await searchService.confirmActionDraft(for: message.id, folderName: folder)
+                        }
+                    },
+                    onCancel: {
+                        searchService.cancelActionDraft(for: message.id)
                     }
                 )
                 .padding(.top, 4)
@@ -1591,7 +1685,7 @@ struct ConversationMessageView: View {
 
     @ViewBuilder
     private var eventPillsRow: some View {
-        let eventPills: [EventCreationInfo] = message.eventCreationInfo ?? []
+        let eventPills: [EventCreationInfo] = message.presentation?.eventDraftCard ?? message.actionDraft?.eventDrafts ?? message.eventCreationInfo ?? []
         if eventPills.isEmpty {
             EmptyView()
         } else {
@@ -1614,6 +1708,75 @@ struct ConversationMessageView: View {
             }
             .padding(.top, 6)
         }
+    }
+
+    private func openEmailPreview(_ preview: EmailPreviewInfo) {
+        HapticManager.shared.cardTap()
+        let allEmails = emailService.inboxEmails + emailService.sentEmails
+        if let email = allEmails.first(where: { $0.id == preview.emailId }) {
+            selectedEmail = email
+        }
+    }
+
+    private func openLivePlacePreview(_ result: PlaceSearchResult) {
+        HapticManager.shared.cardTap()
+
+        if let existingPlace = locationsManager.savedPlaces.first(where: { $0.googlePlaceId == result.id }) {
+            selectedLocation = existingPlace
+            return
+        }
+
+        Task {
+            let place = await hydratedLivePlace(result)
+            await MainActor.run {
+                selectedLocation = place
+            }
+        }
+    }
+
+    private func hydratedLivePlace(_ result: PlaceSearchResult) async -> SavedPlace {
+        if !result.id.hasPrefix("mapkit:"),
+           let details = try? await mapsService.getPlaceDetails(placeId: result.id) {
+            var place = details.toSavedPlace(googlePlaceId: result.id)
+            place.category = livePlaceCategory(for: result)
+            return place
+        }
+
+        var fallbackPlace = SavedPlace(
+            googlePlaceId: result.id,
+            name: result.name,
+            address: result.address,
+            latitude: result.latitude,
+            longitude: result.longitude,
+            photos: result.photoURL.map { [$0] } ?? []
+        )
+        fallbackPlace.category = livePlaceCategory(for: result)
+        return fallbackPlace
+    }
+
+    private func livePlaceCategory(for result: PlaceSearchResult) -> String {
+        if result.types.contains("current_location") {
+            return "Current Location"
+        }
+
+        if let firstType = result.types.first, !firstType.isEmpty {
+            return firstType
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+        }
+
+        let loweredName = result.name.lowercased()
+        if loweredName.contains("clinic") {
+            return "Clinic"
+        }
+        if loweredName.contains("hospital") {
+            return "Hospital"
+        }
+        if loweredName.contains("pharmacy") {
+            return "Pharmacy"
+        }
+
+        return "Nearby Place"
     }
 
     private func sourceLabelForContentType(_ item: RelevantContentInfo) -> String {
@@ -1736,6 +1899,63 @@ struct ConversationMessageView: View {
         }
     }
 
+    private func savedPlaceResults(from content: [RelevantContentInfo]) -> [PlaceSearchResult] {
+        var seenPlaceIds = Set<UUID>()
+        var results: [PlaceSearchResult] = []
+
+        for item in content {
+            guard let place = savedPlace(from: item) else { continue }
+            guard seenPlaceIds.insert(place.id).inserted else { continue }
+
+            results.append(
+                PlaceSearchResult(
+                    id: place.id.uuidString,
+                    name: place.displayName,
+                    address: place.address,
+                    latitude: place.latitude,
+                    longitude: place.longitude,
+                    types: [place.category, place.userCuisine ?? ""].filter { !$0.isEmpty },
+                    photoURL: place.photos.first,
+                    isSaved: true
+                )
+            )
+        }
+
+        return results
+    }
+
+    private func savedPlace(from item: RelevantContentInfo) -> SavedPlace? {
+        if let placeId = item.visitPlaceId ?? item.locationId,
+           let place = locationsManager.savedPlaces.first(where: { $0.id == placeId }) {
+            return place
+        }
+
+        let candidateName = item.visitPlaceName ?? item.locationName
+        if let candidateName,
+           let place = locationsManager.savedPlaces.first(where: { $0.displayName.caseInsensitiveCompare(candidateName) == .orderedSame }) {
+            return place
+        }
+
+        return nil
+    }
+
+    private func openSavedPlaceMapResult(_ result: PlaceSearchResult) {
+        HapticManager.shared.cardTap()
+
+        if let uuid = UUID(uuidString: result.id),
+           let place = locationsManager.savedPlaces.first(where: { $0.id == uuid }) {
+            selectedLocation = place
+            return
+        }
+
+        if let place = locationsManager.savedPlaces.first(where: {
+            $0.displayName.caseInsensitiveCompare(result.name) == .orderedSame
+                || $0.address.caseInsensitiveCompare(result.address) == .orderedSame
+        }) {
+            selectedLocation = place
+        }
+    }
+
     /// Inline source pill (no icon): text-only, horizontal, where [[0]] appears in the message. Tappable to open the item.
     private func inlineSourcePill(citationIndex index: Int) -> some View {
         let content = message.relevantContent ?? []
@@ -1815,13 +2035,15 @@ struct ConversationMessageView: View {
                     SimpleTextWithPhoneLinks(text: content, colorScheme: colorScheme)
                 } else {
                     Text(content)
-                        .font(FontManager.geist(size: 14, weight: .regular))
+                        .font(FontManager.geist(size: 15, weight: .regular))
                         .foregroundColor(
                             message.isUser
-                                ? (colorScheme == .dark ? Color.white.opacity(0.92) : Color.black.opacity(0.88))
+                                ? (colorScheme == .dark ? Color.white.opacity(0.95) : Color.black.opacity(0.90))
                                 : Color.shadcnForeground(colorScheme)
                         )
+                        .lineSpacing(3)
                         .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .animation(.linear(duration: 0.1), value: content.count)
@@ -1899,7 +2121,7 @@ struct ConversationMessageView: View {
                             HStack(alignment: .top, spacing: 6) {
                                 if showBullet {
                                     Text(parsed.level == 0 ? "•" : "◦")
-                                        .font(FontManager.geist(size: 14, weight: parsed.level == 0 ? .bold : .medium))
+                                        .font(FontManager.geist(size: 15, weight: parsed.level == 0 ? .bold : .medium))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                         .padding(.top, 1)
                                 }
@@ -1913,8 +2135,8 @@ struct ConversationMessageView: View {
                                                 Text(cleaned)
                                                     .font(
                                                         heading.level > 0
-                                                            ? FontManager.geist(size: heading.level == 1 ? 20 : 16, weight: heading.level == 1 ? .bold : .semibold)
-                                                            : FontManager.geist(size: 14, weight: .regular)
+                                                            ? FontManager.geist(size: heading.level == 1 ? 20 : 15, weight: heading.level == 1 ? .bold : .semibold)
+                                                            : FontManager.geist(size: 15, weight: .regular)
                                                     )
                                                     .foregroundColor(
                                                         heading.level == 1
@@ -1923,6 +2145,7 @@ struct ConversationMessageView: View {
                                                                 ? (colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.9))
                                                                 : Color.shadcnForeground(colorScheme)
                                                     )
+                                                    .lineSpacing(4)
                                             }
                                         case .citation(let index):
                                             inlineSourcePill(citationIndex: index)
@@ -2632,27 +2855,29 @@ struct ConversationMessageView: View {
     }
 
     private var messageBackground: some View {
-        RoundedRectangle(cornerRadius: 12)
+        RoundedRectangle(cornerRadius: message.isUser ? 26 : 12)
             .fill(
                 message.isUser
-                    ? (colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.045))
+                    ? (colorScheme == .dark
+                        ? Color.white.opacity(0.085)
+                        : Color(red: 0.95, green: 0.95, blue: 0.96))
                     : .clear
             )
             .shadow(
-                color: message.isUser ? Color.black.opacity(colorScheme == .dark ? 0.25 : 0.08) : Color.clear,
-                radius: message.isUser ? 6 : 0,
+                color: message.isUser ? Color.black.opacity(colorScheme == .dark ? 0.18 : 0.05) : Color.clear,
+                radius: message.isUser ? 10 : 0,
                 x: 0,
-                y: message.isUser ? 2 : 0
+                y: message.isUser ? 1 : 0
             )
     }
 
     private var messageBorder: some View {
         Group {
             if message.isUser {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 26)
                     .stroke(
-                        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08),
-                        lineWidth: 1
+                        colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.05),
+                        lineWidth: 0.8
                     )
             }
         }
@@ -2769,6 +2994,31 @@ private func trackerStateHighlights(from state: TrackerDerivedState, limit: Int)
     return highlights
 }
 
+private func trackerKeyActionHighlights(from state: TrackerDerivedState, limit: Int) -> [String] {
+    let highlights = trackerStateHighlights(from: state, limit: max(limit, 6))
+    let prioritized = highlights.filter(isTrackerKeyActionHighlight)
+    let source = prioritized.isEmpty ? highlights : prioritized
+    return Array(source.prefix(limit))
+}
+
+private func isTrackerKeyActionHighlight(_ text: String) -> Bool {
+    let normalized = text.lowercased()
+    let keywords = [
+        "left to spend",
+        "remaining",
+        "remaining budget",
+        "remaining to spend",
+        "leaving ",
+        "left with",
+        "available",
+        "budget left",
+        "can still spend",
+        "still spend"
+    ]
+
+    return keywords.contains(where: { normalized.contains($0) })
+}
+
 private func extractTrackerSummaryFacts(from text: String) -> [String] {
     let normalized = text
         .replacingOccurrences(of: "•", with: "\n")
@@ -2863,19 +3113,14 @@ struct TrackerSummaryCard: View {
     }
 
     private var latestStateHighlights: [String] {
-        trackerStateHighlights(from: state, limit: isExpanded ? 6 : 4)
-    }
-
-    private var currentStateTimestamp: Date? {
-        state.lastUpdatedAt ?? state.asOf
+        trackerKeyActionHighlights(from: state, limit: isExpanded ? 4 : 2)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            headerRow
-
+        VStack(alignment: .leading, spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    actionPill(icon: "doc.text", text: "Rules", action: onShowRules)
                     actionPill(icon: "clock.arrow.circlepath", text: "Activity", action: onShowActivity)
                     actionPill(icon: "slider.horizontal.3", text: "Edit Rules", action: onEditRules)
                     actionPill(
@@ -2884,13 +3129,15 @@ struct TrackerSummaryCard: View {
                         isEnabled: canUndo,
                         action: onUndoLastChange
                     )
+                    iconActionPill(systemName: isExpanded ? "chevron.up" : "chevron.down") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    }
                 }
             }
 
             VStack(alignment: .leading, spacing: 14) {
-                Divider()
-                    .overlay(TrackerTheme.pinnedCardBorder(colorScheme))
-
                 currentStateSection
 
                 if isExpanded, !ruleHighlights.isEmpty {
@@ -2953,90 +3200,13 @@ struct TrackerSummaryCard: View {
         .shadow(color: TrackerTheme.pinnedCardShadow(colorScheme), radius: 18, x: 0, y: 10)
     }
 
-    private var headerRow: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Latest state")
-                    .font(FontManager.geist(size: 11, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.5))
-                    .textCase(.uppercase)
-
-                if let currentStateTimestamp {
-                    Text("Updated \(compactTrackerDate(currentStateTimestamp))")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                }
-            }
-
-            Spacer()
-
-            HStack(spacing: 8) {
-                Button(action: onShowRules) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("Rules")
-                            .font(FontManager.geist(size: 12, weight: .semibold))
-                    }
-                    .foregroundColor(Color.appTextPrimary(colorScheme))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(
-                        Capsule()
-                            .fill(TrackerTheme.pillFill(colorScheme))
-                    )
-                    .overlay(
-                        Capsule()
-                            .stroke(TrackerTheme.pillBorder(colorScheme), lineWidth: 0.8)
-                    )
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isExpanded.toggle()
-                    }
-                } label: {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(TrackerTheme.accent(colorScheme))
-                        .frame(width: 32, height: 32)
-                        .background(
-                            Circle()
-                                .fill(TrackerTheme.pillFill(colorScheme))
-                        )
-                        .overlay(
-                            Circle()
-                                .stroke(TrackerTheme.pillBorder(colorScheme), lineWidth: 0.8)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
     private var currentStateSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Current Snapshot")
-                    .font(FontManager.geist(size: 11, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.5))
-                    .textCase(.uppercase)
-
-                Spacer()
-
-                if !state.warnings.isEmpty {
-                    Text("\(state.warnings.count) warning\(state.warnings.count == 1 ? "" : "s")")
-                        .font(FontManager.geist(size: 11, weight: .medium))
-                        .foregroundColor(TrackerTheme.accent(colorScheme))
-                }
-            }
-
+        VStack(alignment: .leading, spacing: 8) {
             if latestStateHighlights.isEmpty {
                 Text(state.summaryLine)
                     .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.78) : Color.black.opacity(0.74))
-                    .lineLimit(isExpanded ? 4 : 3)
+                    .lineLimit(isExpanded ? 3 : 2)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
@@ -3076,6 +3246,24 @@ struct TrackerSummaryCard: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.65)
+    }
+
+    private func iconActionPill(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(TrackerTheme.accent(colorScheme))
+                .frame(width: 28, height: 28)
+                .background(
+                    Capsule()
+                        .fill(TrackerTheme.pillFill(colorScheme))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(TrackerTheme.pillBorder(colorScheme), lineWidth: 0.8)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private func disclosureSection<Content: View>(
@@ -3653,10 +3841,12 @@ struct SimpleTextWithPhoneLinks: View {
 
         if matches.isEmpty {
             Text(text)
-                .font(FontManager.geist(size: 14, weight: .regular))
+                .font(FontManager.geist(size: 15, weight: .regular))
                 .foregroundColor(Color.shadcnForeground(colorScheme))
                 .textSelection(.enabled)
+                .lineSpacing(4)
                 .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
         } else {
             let components = createPhoneComponents(text)
             VStack(alignment: .leading, spacing: 0) {
@@ -3710,15 +3900,17 @@ struct SimpleTextWithPhoneLinks: View {
         if component.isPhone, let phoneNumber = component.phoneNumber {
             Link(destination: URL(string: "tel:\(phoneNumber)")!) {
                 Text(component.text)
-                    .font(FontManager.geist(size: 16, weight: .regular))
+                    .font(FontManager.geist(size: 15, weight: .regular))
                     .foregroundColor(.blue)
                     .underline()
                     .textSelection(.enabled)
+                    .lineSpacing(4)
             }
         } else {
             Text(component.text)
-                .font(FontManager.geist(size: 16, weight: .regular))
+                .font(FontManager.geist(size: 15, weight: .regular))
                 .foregroundColor(Color.shadcnForeground(colorScheme))
+                .lineSpacing(4)
                 .lineLimit(nil)
                 .textSelection(.enabled)
         }
@@ -3938,18 +4130,17 @@ struct DataTypeCardView: View {
 
 struct StreamingCursor: View {
     let colorScheme: ColorScheme
-    @State private var opacity: Double = 0.85
 
     var body: some View {
-        Rectangle()
-            .fill(colorScheme == .dark ? Color.white : Color.black)
-            .frame(width: 2, height: 14)
-            .opacity(opacity)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                    opacity = 0.35
-                }
-            }
+        SwiftUI.TimelineView(.animation(minimumInterval: 0.2)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate * 1.25
+            let opacity = 0.35 + (((sin(phase) + 1) / 2) * 0.5)
+
+            Rectangle()
+                .fill(colorScheme == .dark ? Color.white : Color.black)
+                .frame(width: 2, height: 14)
+                .opacity(opacity)
+        }
     }
 }
 
@@ -4105,7 +4296,8 @@ struct AlignedTextEditor: UIViewRepresentable {
         if textView.text != text {
             textView.text = text
         }
-        
+
+        textView.font = UIFont.systemFont(ofSize: 16, weight: .regular)
         textView.textColor = colorScheme == .dark ? .white : .black
         textView.tintColor = colorScheme == .dark ? UIColor.white.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.8)
         textView.layoutIfNeeded()
@@ -4488,15 +4680,15 @@ struct ConversationHistorySheet: View {
     }
 
     private var topControlFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : .white
+        colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.045)
     }
 
     private var topControlBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.05)
     }
 
-    private var trackerSectionDividerColor: Color {
-        TrackerTheme.accent(colorScheme).opacity(colorScheme == .dark ? 0.18 : 0.12)
+    private var sectionLabelColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.42) : Color.black.opacity(0.40)
     }
     
     let onSelectConversation: (SavedConversation) -> Void
@@ -4576,25 +4768,30 @@ struct ConversationHistorySheet: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { searchService.loadConversationHistoryLocally() }
+        .onAppear {
+            searchService.loadConversationHistoryLocally()
+            Task {
+                await searchService.loadConversationsFromSupabase()
+            }
+        }
     }
 
     private var searchBar: some View {
         HStack(spacing: 10) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
 
-                TextField("Search chats", text: $searchText)
+                TextField("Search", text: $searchText)
                     .textFieldStyle(.plain)
-                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .font(FontManager.geist(size: 15, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
             .background(
                 Capsule()
                     .fill(topControlFillColor)
@@ -4609,50 +4806,42 @@ struct ConversationHistorySheet: View {
                 searchService.startNewConversation()
                 if let onDismiss = onDismiss { onDismiss() } else { dismiss() }
             }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 13, weight: .medium))
-                    Text("New")
-                        .font(FontManager.geist(size: 13, weight: .medium))
-                }
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
-                .padding(.horizontal, 12)
-                .frame(height: 36)
-                .background(
-                    Capsule()
-                        .fill(topControlFillColor)
-                        .overlay(
-                            Capsule()
-                                .stroke(topControlBorderColor, lineWidth: 0.8)
-                        )
-                )
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                    .frame(width: 44, height: 44)
+                    .background(
+                        Circle()
+                            .fill(topControlFillColor)
+                            .overlay(
+                                Circle()
+                                    .stroke(topControlBorderColor, lineWidth: 0.8)
+                            )
+                    )
             }
             .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel("New chat")
 
             Button(action: {
                 HapticManager.shared.selection()
                 searchService.startNewTrackerConversation()
                 if let onDismiss = onDismiss { onDismiss() } else { dismiss() }
             }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "list.bullet.rectangle")
-                        .font(.system(size: 13, weight: .medium))
-                    Text("New Tracker")
-                        .font(FontManager.geist(size: 13, weight: .medium))
-                }
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
-                .padding(.horizontal, 12)
-                .frame(height: 36)
-                .background(
-                    Capsule()
-                        .fill(topControlFillColor)
-                        .overlay(
-                            Capsule()
-                                .stroke(topControlBorderColor, lineWidth: 0.8)
-                        )
-                )
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                    .frame(width: 44, height: 44)
+                    .background(
+                        Circle()
+                            .fill(topControlFillColor)
+                            .overlay(
+                                Circle()
+                                    .stroke(topControlBorderColor, lineWidth: 0.8)
+                            )
+                    )
             }
             .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel("New tracker")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -4698,15 +4887,15 @@ struct ConversationHistorySheet: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
                 if !trackerConversations.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Trackers")
                             .font(FontManager.geist(size: 11, weight: .medium))
-                            .foregroundColor(TrackerTheme.accent(colorScheme))
+                            .foregroundColor(sectionLabelColor)
                             .textCase(.uppercase)
-                            .padding(.horizontal, 20)
+                            .padding(.horizontal, 16)
                             .padding(.bottom, 6)
 
-                        ForEach(Array(trackerConversations.enumerated()), id: \.element.id) { index, conversation in
+                        ForEach(trackerConversations) { conversation in
                             ConversationHistoryRow(conversation: conversation)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
@@ -4719,39 +4908,22 @@ struct ConversationHistorySheet: View {
                                         onDeleteConversation(conversation)
                                     } label: { Label("Delete", systemImage: "trash") }
                                 }
-
-                            if index < trackerConversations.count - 1 {
-                                Rectangle()
-                                    .fill(trackerSectionDividerColor)
-                                    .frame(height: 1)
-                                    .padding(.leading, 20)
-                                    .padding(.trailing, 20)
-                            }
                         }
                     }
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 24)
-                            .fill(TrackerTheme.pinnedCardGradient(colorScheme))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24)
-                            .stroke(TrackerTheme.pinnedCardBorder(colorScheme), lineWidth: 1)
-                    )
-                    .shadow(color: TrackerTheme.pinnedCardShadow(colorScheme), radius: 14, x: 0, y: 8)
                     .padding(.horizontal, 12)
+                    .padding(.bottom, 14)
                 }
 
                 ForEach(filteredGroupedConversations, id: \.0) { sectionTitle, conversations in
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(sectionTitle)
                             .font(FontManager.geist(size: 11, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                            .foregroundColor(sectionLabelColor)
                             .textCase(.uppercase)
-                            .padding(.horizontal, 20)
+                            .padding(.horizontal, 16)
                             .padding(.bottom, 6)
                         
-                        ForEach(Array(conversations.enumerated()), id: \.element.id) { index, conversation in
+                        ForEach(conversations) { conversation in
                             ConversationHistoryRow(conversation: conversation)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
@@ -4764,19 +4936,12 @@ struct ConversationHistorySheet: View {
                                         onDeleteConversation(conversation)
                                     } label: { Label("Delete", systemImage: "trash") }
                                 }
-
-                            if index < conversations.count - 1 {
-                                Rectangle()
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.06))
-                                    .frame(height: 1)
-                                    .padding(.leading, 20)
-                                    .padding(.trailing, 20)
-                            }
                         }
                     }
+                    .padding(.horizontal, 12)
                 }
             }
-            .padding(.vertical, 16)
+            .padding(.vertical, 12)
         }
         .overlay {
             if isShowingSearchResults && !hasAnyVisibleConversations {
@@ -4789,6 +4954,7 @@ struct ConversationHistorySheet: View {
 struct ConversationHistoryRow: View {
     let conversation: SavedConversation
     @Environment(\.colorScheme) var colorScheme
+    @StateObject private var searchService = SearchService.shared
     
     private var displayTitle: String {
         if conversation.title.isEmpty {
@@ -4806,27 +4972,32 @@ struct ConversationHistoryRow: View {
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private var isActive: Bool {
+        searchService.currentConversationId == conversation.id
+    }
     
     var body: some View {
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(displayTitle)
-                    .font(FontManager.geist(size: 14, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .lineLimit(2)
+                    .font(FontManager.geist(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
+                    .lineLimit(1)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let subtitle = conversation.subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(FontManager.geist(size: 12, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.5))
-                        .lineLimit(2)
-                }
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(
+                    isActive
+                        ? (colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.055))
+                        : Color.clear
+                )
+        )
         .contentShape(Rectangle())
     }
 }

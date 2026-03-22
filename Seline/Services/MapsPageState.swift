@@ -7,6 +7,12 @@ final class MapsPageState: ObservableObject {
     typealias PlaceVisitCount = (place: SavedPlace, count: Int)
     typealias NamedCount = (name: String, count: Int)
 
+    private struct Inputs: Equatable {
+        let searchText: String
+        let hubPeriodVisits: [LocationVisitRecord]
+        let hubRangeStart: Date
+    }
+
     @Published private(set) var filteredSavedPlaces: [SavedPlace] = []
     @Published private(set) var filteredFavouritePlaces: [SavedPlace] = []
     @Published private(set) var savedFolderBreakdownRows: [FolderBreakdownRow] = []
@@ -31,6 +37,7 @@ final class MapsPageState: ObservableObject {
     private var searchText: String = ""
     private var hubPeriodVisits: [LocationVisitRecord] = []
     private var hubDateRange = DateInterval(start: .distantPast, end: Date())
+    private var currentInputs: Inputs?
 
     init(
         locationsManager: LocationsManager = .shared,
@@ -44,6 +51,11 @@ final class MapsPageState: ObservableObject {
         categories = locationsManager.categories
         userFolders = locationsManager.userFolders
         people = peopleManager.people
+        currentInputs = Inputs(
+            searchText: searchText,
+            hubPeriodVisits: hubPeriodVisits,
+            hubRangeStart: hubDateRange.start
+        )
         refresh()
     }
 
@@ -52,6 +64,16 @@ final class MapsPageState: ObservableObject {
         hubPeriodVisits: [LocationVisitRecord],
         hubDateRange: DateInterval
     ) {
+        let nextInputs = Inputs(
+            searchText: searchText,
+            hubPeriodVisits: hubPeriodVisits,
+            hubRangeStart: hubDateRange.start
+        )
+        guard currentInputs != nextInputs else {
+            return
+        }
+
+        currentInputs = nextInputs
         self.searchText = searchText
         self.hubPeriodVisits = hubPeriodVisits
         self.hubDateRange = hubDateRange

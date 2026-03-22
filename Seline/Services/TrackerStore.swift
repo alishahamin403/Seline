@@ -13,6 +13,7 @@ final class TrackerStore: ObservableObject {
     private let deletedThreadIDsStorageKey = "trackerDeletedThreadIDs.v1"
     private let isoFormatter = ISO8601DateFormatter()
     private let engine = TrackerEngine.shared
+    private let parserService = TrackerParserService.shared
     private var deletedThreadIDs = Set<UUID>()
 
     private init() {
@@ -27,8 +28,13 @@ final class TrackerStore: ObservableObject {
         }
 
         do {
-            threads = try JSONDecoder().decode([TrackerThread].self, from: data)
+            let decodedThreads = try JSONDecoder().decode([TrackerThread].self, from: data)
+            let normalizedThreads = decodedThreads.map(parserService.normalizedThread)
                 .sorted { $0.updatedAt > $1.updatedAt }
+            threads = normalizedThreads
+            if normalizedThreads != decodedThreads.sorted(by: { $0.updatedAt > $1.updatedAt }) {
+                saveLocalThreads()
+            }
         } catch {
             print("❌ Failed to decode tracker threads: \(error)")
             threads = []
@@ -50,14 +56,15 @@ final class TrackerStore: ObservableObject {
     }
 
     func upsertThread(_ thread: TrackerThread) {
+        let normalizedThread = parserService.normalizedThread(thread)
         if let index = threads.firstIndex(where: { $0.id == thread.id }) {
-            threads[index] = thread
+            threads[index] = normalizedThread
         } else {
-            threads.insert(thread, at: 0)
+            threads.insert(normalizedThread, at: 0)
         }
         threads.sort { $0.updatedAt > $1.updatedAt }
         saveLocalThreads()
-        setLastActiveThreadID(thread.id)
+        setLastActiveThreadID(normalizedThread.id)
     }
 
     func deleteThread(id: UUID) {
@@ -100,31 +107,32 @@ final class TrackerStore: ObservableObject {
         _ thread: TrackerThread,
         messages: [ConversationMessage]
     ) async {
+        let normalizedThread = parserService.normalizedThread(thread)
         guard !deletedThreadIDs.contains(thread.id) else { return }
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return }
         syncState = .syncing
 
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
-            let memoryData = try JSONEncoder().encode(thread.memorySnapshot)
+            let memoryData = try JSONEncoder().encode(normalizedThread.memorySnapshot)
             let memoryJSONString = String(decoding: memoryData, as: UTF8.self)
-            let summary = thread.cachedState?.summaryLine
-                ?? thread.subtitle
-                ?? thread.memorySnapshot.normalizedSummaryText
-            let trackerMessages = messages.filter { $0.trackerThreadId == thread.id }
+            let summary = normalizedThread.cachedState?.summaryLine
+                ?? normalizedThread.subtitle
+                ?? normalizedThread.memorySnapshot.normalizedSummaryText
+            let trackerMessages = messages.filter { $0.trackerThreadId == normalizedThread.id }
             let latestMessageTimestamp = trackerMessages.map(\.timestamp).max()
-            let remoteUpdatedAt = max(thread.updatedAt, latestMessageTimestamp ?? thread.updatedAt)
+            let remoteUpdatedAt = max(normalizedThread.updatedAt, latestMessageTimestamp ?? normalizedThread.updatedAt)
 
             let threadRow: [String: AnyJSON] = [
-                "id": .string(thread.id.uuidString),
+                "id": .string(normalizedThread.id.uuidString),
                 "user_id": .string(userId.uuidString),
-                "title": .string(thread.title),
-                "status": .string(thread.status.rawValue),
+                "title": .string(normalizedThread.title),
+                "status": .string(normalizedThread.status.rawValue),
                 "rule_json": .string(memoryJSONString),
                 "summary_text": summary.trackerNonEmpty.map(AnyJSON.string) ?? .null,
-                "subtitle": thread.subtitle.flatMap { $0.trackerNonEmpty }.map(AnyJSON.string) ?? .null,
+                "subtitle": normalizedThread.subtitle.flatMap { $0.trackerNonEmpty }.map(AnyJSON.string) ?? .null,
                 "updated_at": .string(isoFormatter.string(from: remoteUpdatedAt)),
-                "created_at": .string(isoFormatter.string(from: thread.createdAt))
+                "created_at": .string(isoFormatter.string(from: normalizedThread.createdAt))
             ]
 
             try await client
@@ -145,7 +153,7 @@ final class TrackerStore: ObservableObject {
                 }()
                 return [
                     "id": .string(message.id.uuidString),
-                    "tracker_thread_id": .string(thread.id.uuidString),
+                    "tracker_thread_id": .string(normalizedThread.id.uuidString),
                     "user_id": .string(userId.uuidString),
                     "is_user": .bool(message.isUser),
                     "text": .string(message.text),
@@ -160,6 +168,10 @@ final class TrackerStore: ObservableObject {
                     .from("tracker_messages")
                     .upsert(messageRows, onConflict: "id")
                     .execute()
+            }
+
+            if normalizedThread != thread {
+                upsertThread(normalizedThread)
             }
 
             syncState = .idle
@@ -250,7 +262,8 @@ final class TrackerStore: ObservableObject {
                 if thread.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
                     thread.subtitle = thread.cachedState?.summaryLine
                 }
-                return TrackerRemoteBundle(thread: thread, messages: messagesByThread[record.id] ?? [])
+                let normalizedThread = parserService.normalizedThread(thread)
+                return TrackerRemoteBundle(thread: normalizedThread, messages: messagesByThread[record.id] ?? [])
             }
 
             for bundle in bundles {

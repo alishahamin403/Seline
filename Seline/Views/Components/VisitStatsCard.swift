@@ -6,7 +6,7 @@ struct VisitStatsCard: View {
 
     @State private var stats: LocationVisitStats?
     @State private var isLoading = false
-    @State private var refreshTimer: Timer?
+    @State private var refreshTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -100,26 +100,40 @@ struct VisitStatsCard: View {
         }
 
         .onAppear {
-            loadStats()
-            // Refresh stats every 10 seconds if there's an active visit
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { _ in
-                loadStats()
-            }
+            startRefreshingStats()
         }
         .onDisappear {
-            // Clean up timer when view disappears
-            refreshTimer?.invalidate()
-            refreshTimer = nil
+            stopRefreshingStats()
         }
     }
 
-    private func loadStats() {
-        Task {
-            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+    private func startRefreshingStats() {
+        stopRefreshingStats()
 
-            await MainActor.run {
-                stats = LocationVisitAnalytics.shared.visitStats[place.id]
+        refreshTask = Task { @MainActor in
+            while !Task.isCancelled {
+                await loadStats()
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
             }
+        }
+    }
+
+    private func stopRefreshingStats() {
+        refreshTask?.cancel()
+        refreshTask = nil
+    }
+
+    @MainActor
+    private func loadStats() async {
+        let shouldShowLoading = stats == nil
+        if shouldShowLoading {
+            isLoading = true
+        }
+        await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+
+        stats = LocationVisitAnalytics.shared.visitStats[place.id]
+        if shouldShowLoading {
+            isLoading = false
         }
     }
 }

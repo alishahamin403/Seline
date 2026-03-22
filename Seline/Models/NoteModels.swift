@@ -463,6 +463,10 @@ class NotesManager: ObservableObject {
     private let foldersKey = "SavedNoteFolders"
     private let authManager = AuthenticationManager.shared
     private let cacheManager = CacheManager.shared
+    private let receiptStatsFallbackGracePeriod: TimeInterval = 15
+    private var activeLoadOperationCount = 0
+    private var lastReceiptCacheInvalidationDate: Date?
+    private var receiptDataAvailabilityTask: Task<Void, Never>?
 
     private init() {
         // CRITICAL FIX: Clear old UserDefaults data (was 89MB!)
@@ -484,6 +488,177 @@ class NotesManager: ObservableObject {
         // Remove the 89MB of data from UserDefaults
         UserDefaults.standard.removeObject(forKey: notesKey)
         UserDefaults.standard.removeObject(forKey: foldersKey)
+    }
+
+    private func beginDataLoadOperation() {
+        activeLoadOperationCount += 1
+        isLoading = activeLoadOperationCount > 0
+    }
+
+    private func endDataLoadOperation() {
+        activeLoadOperationCount = max(0, activeLoadOperationCount - 1)
+        isLoading = activeLoadOperationCount > 0
+    }
+
+    private func resolvedAuthenticatedUserId() async -> UUID? {
+        let initialAuthUserId: UUID? = await MainActor.run {
+            authManager.supabaseUser?.id
+        }
+        if let authUserId = initialAuthUserId {
+            return authUserId
+        }
+
+        if let currentUserId = SupabaseManager.shared.getCurrentUser()?.id {
+            return currentUserId
+        }
+
+        for _ in 0..<20 {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+
+            let authUserId: UUID? = await MainActor.run {
+                authManager.supabaseUser?.id
+            }
+            if let authUserId = authUserId {
+                return authUserId
+            }
+
+            if let currentUserId = SupabaseManager.shared.getCurrentUser()?.id {
+                return currentUserId
+            }
+        }
+
+        return nil
+    }
+
+    private func hasReceiptsFolderLoaded() -> Bool {
+        !receiptRootFolderIds().isEmpty
+    }
+
+    private func hasReceiptNotesLoaded() -> Bool {
+        !receiptCandidateNotes().isEmpty
+    }
+
+    private func normalizedReceiptFolderName(_ name: String) -> String {
+        name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private func receiptRootFolderIds() -> Set<UUID> {
+        Set(
+            folders
+                .filter { normalizedReceiptFolderName($0.name) == "receipts" }
+                .map(\.id)
+        )
+    }
+
+    private func isUnderFolderHierarchy(folderId: UUID?, rootFolderIds: Set<UUID>, foldersById: [UUID: NoteFolder]) -> Bool {
+        guard let folderId, !rootFolderIds.isEmpty else { return false }
+
+        var currentFolderId: UUID? = folderId
+        while let currentId = currentFolderId {
+            if rootFolderIds.contains(currentId) {
+                return true
+            }
+            currentFolderId = foldersById[currentId]?.parentFolderId
+        }
+
+        return false
+    }
+
+    private func isReceiptLikeNote(_ note: Note) -> Bool {
+        let combined = "\(note.title)\n\(note.content)".lowercased()
+        let keywords = [
+            "receipt",
+            "subtotal",
+            "total",
+            "merchant",
+            "invoice",
+            "payment",
+            "transaction",
+            "interac",
+            "e-transfer",
+            "etransfer"
+        ]
+
+        let hasKeyword = keywords.contains { combined.contains($0) }
+        let hasAttachment = !note.imageUrls.isEmpty || note.attachmentId != nil
+        let hasParsedDate = extractFullDateFromTitle(note.title) != nil || extractMonthYearFromTitle(note.title) != nil
+        let amount = CurrencyParser.extractAmount(
+            from: [note.title, note.content]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        )
+
+        return amount > 0 && (hasKeyword || hasAttachment || hasParsedDate)
+    }
+
+    private func receiptCandidateNotes() -> [Note] {
+        let foldersById = Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0) })
+        let rootFolderIds = receiptRootFolderIds()
+
+        var candidates = notes.filter { note in
+            isUnderFolderHierarchy(folderId: note.folderId, rootFolderIds: rootFolderIds, foldersById: foldersById)
+        }
+
+        if rootFolderIds.isEmpty || candidates.isEmpty {
+            let existingIds = Set(candidates.map(\.id))
+            let fallbackCandidates = notes.filter { note in
+                !existingIds.contains(note.id) && isReceiptLikeNote(note)
+            }
+
+            if !fallbackCandidates.isEmpty {
+                candidates.append(contentsOf: fallbackCandidates)
+            }
+        }
+
+        return candidates
+    }
+
+    @MainActor
+    func ensureReceiptDataAvailable(forceRefresh: Bool = false) async {
+        if let existingTask = receiptDataAvailabilityTask {
+            await existingTask.value
+            return
+        }
+
+        guard await resolvedAuthenticatedUserId() != nil else { return }
+
+        let recentlySynced = lastSyncTime.map { Date().timeIntervalSince($0) < 30 } ?? false
+        let shouldRetryAfterFailure = syncError != nil
+        let hasReceiptsFolder = hasReceiptsFolderLoaded()
+        let shouldLoadFolders = forceRefresh || shouldRetryAfterFailure || folders.isEmpty || (!hasReceiptsFolder && !recentlySynced)
+        let shouldLoadNotes = forceRefresh || shouldRetryAfterFailure || notes.isEmpty || (hasReceiptsFolder && !hasReceiptNotesLoaded() && !recentlySynced)
+
+        guard shouldLoadFolders || shouldLoadNotes || lastSyncTime == nil else {
+            return
+        }
+
+        isSyncing = true
+        syncError = nil
+        let task = Task { [weak self] in
+            guard let self else { return }
+
+            if shouldLoadFolders || self.lastSyncTime == nil {
+                await self.loadFoldersFromSupabase()
+            }
+
+            let needsNotesAfterFolderRefresh = forceRefresh
+                || self.notes.isEmpty
+                || (self.hasReceiptsFolderLoaded() && !self.hasReceiptNotesLoaded())
+
+            if needsNotesAfterFolderRefresh || self.lastSyncTime == nil {
+                await self.loadNotesFromSupabase()
+            }
+        }
+
+        receiptDataAvailabilityTask = task
+        defer {
+            receiptDataAvailabilityTask = nil
+            isSyncing = false
+        }
+
+        await task.value
     }
 
     // MARK: - Data Persistence
@@ -720,7 +895,7 @@ class NotesManager: ObservableObject {
             invalidateReceiptCache()
             
             // Update widgets to reflect changes
-            WidgetCenter.shared.reloadAllTimelines()
+            WidgetInvalidationCoordinator.shared.requestReload(reason: "note_updated")
             
             // Invalidate reminder cache just in case
             CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.upcomingNoteReminders)
@@ -851,7 +1026,7 @@ class NotesManager: ObservableObject {
         invalidateReceiptCache()
 
         // Immediately update widgets to reflect deletion
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "note_deleted")
 
         // Sync with Supabase
         Task {
@@ -1233,7 +1408,7 @@ class NotesManager: ObservableObject {
 
     func getOrCreateReceiptsFolder() -> UUID {
         // Check if Receipts folder already exists
-        if let existingFolder = folders.first(where: { $0.name == "Receipts" }) {
+        if let existingFolder = folders.first(where: { normalizedReceiptFolderName($0.name) == "receipts" }) {
             return existingFolder.id
         }
 
@@ -1463,7 +1638,7 @@ class NotesManager: ObservableObject {
 
     /// Async version that ensures sync to Supabase
     private func getOrCreateReceiptsFolderAsync() async -> UUID {
-        if let existingFolder = folders.first(where: { $0.name == "Receipts" }) {
+        if let existingFolder = folders.first(where: { normalizedReceiptFolderName($0.name) == "receipts" }) {
             return existingFolder.id
         }
         let receiptsFolder = NoteFolder(name: "Receipts", color: "#F59E42")
@@ -1769,27 +1944,21 @@ class NotesManager: ObservableObject {
     /// - Returns: Array of YearlyReceiptSummary sorted by year (most recent first)
     func getReceiptStatistics(year: Int? = nil) -> [YearlyReceiptSummary] {
         // Check cache first
-        let cacheKey = year != nil ? CacheManager.CacheKey.receiptStats(year: year!) : "cache.receipts.stats.all"
+        let cacheKey = receiptStatsCacheKey(for: year)
         if let cached: [YearlyReceiptSummary] = cacheManager.get(forKey: cacheKey) {
             return cached
         }
 
-        guard let receiptsFolderId = folders.first(where: { $0.name == "Receipts" })?.id else {
-            return []
-        }
+        let receiptRootIds = receiptRootFolderIds()
+        let foldersById = Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0) })
+        let allReceiptsNotes = receiptCandidateNotes()
 
-        // Get all notes in the Receipts folder hierarchy
-        let allReceiptsNotes = notes.filter { note in
-            guard let folderId = note.folderId else { return false }
-
-            var currentFolderId: UUID? = folderId
-            while let currentId = currentFolderId {
-                if currentId == receiptsFolderId {
-                    return true
-                }
-                currentFolderId = folders.first(where: { $0.id == currentId })?.parentFolderId
+        guard !allReceiptsNotes.isEmpty else {
+            if shouldUseLastKnownReceiptStatsFallback(),
+               let lastKnown = cachedLastKnownReceiptStatistics(year: year) {
+                return lastKnown
             }
-            return false
+            return []
         }
 
         // Convert notes to ReceiptStat with resilient date/year/month derivation.
@@ -1799,7 +1968,14 @@ class NotesManager: ObservableObject {
         // 3) note modified date
         let receiptStats = allReceiptsNotes.map { note in
             let calendar = Calendar.current
-            let (folderYear, folderMonth) = extractYearAndMonthFromFolderHierarchy(note.folderId)
+            let isInReceiptHierarchy = isUnderFolderHierarchy(
+                folderId: note.folderId,
+                rootFolderIds: receiptRootIds,
+                foldersById: foldersById
+            )
+            let (folderYear, folderMonth) = isInReceiptHierarchy
+                ? extractYearAndMonthFromFolderHierarchy(note.folderId)
+                : (nil, nil)
             let parsedDateFromTitle = extractFullDateFromTitle(note.title)
 
             let fallbackFromFolder: Date? = {
@@ -1894,9 +2070,14 @@ class NotesManager: ObservableObject {
         // Sort by year (most recent first)
         let result = yearlySummaries.sorted { $0.year > $1.year }
 
-        // Only cache non-empty results (prevents caching empty state during app initialization)
         if !result.isEmpty {
-            cacheManager.set(result, forKey: cacheKey, ttl: CacheManager.TTL.persistent)
+            persistReceiptStatisticsCache(result, year: year)
+            return result
+        }
+
+        if shouldUseLastKnownReceiptStatsFallback(),
+           let lastKnown = cachedLastKnownReceiptStatistics(year: year) {
+            return lastKnown
         }
 
         return result
@@ -2044,10 +2225,13 @@ class NotesManager: ObservableObject {
     }
 
     func loadNotesFromSupabase() async {
-        let isAuthenticated = await MainActor.run { authManager.isAuthenticated }
-        let userId = await MainActor.run { authManager.supabaseUser?.id }
+        beginDataLoadOperation()
+        defer { endDataLoadOperation() }
 
-        guard isAuthenticated, let userId = userId else {
+        let authIsAuthenticated = await MainActor.run { authManager.isAuthenticated }
+        let userId = await resolvedAuthenticatedUserId()
+
+        guard authIsAuthenticated || userId != nil, let userId = userId else {
             print("User not authenticated, loading local notes only")
             return
         }
@@ -2109,16 +2293,23 @@ class NotesManager: ObservableObject {
                         saveNotes()
                         // Clear receipt cache to refresh stats with newly loaded data
                         self.invalidateReceiptCache()
+                        self.lastSyncTime = Date()
+                        self.syncError = nil
                     } else {
                         print("⚠️ Failed to parse any notes from Supabase, keeping \(self.notes.count) local notes")
                     }
                 } else {
                     print("ℹ️ No notes in Supabase, keeping \(self.notes.count) local notes")
+                    self.lastSyncTime = Date()
+                    self.syncError = nil
                 }
             }
         } catch {
             print("❌ Error loading notes from Supabase: \(error)")
             print("❌ Error details: \(error.localizedDescription)")
+            await MainActor.run {
+                self.syncError = error.localizedDescription
+            }
         }
     }
 
@@ -2222,6 +2413,9 @@ class NotesManager: ObservableObject {
 
     // Called when user signs in to load their notes
     func syncNotesOnLogin() async {
+        beginDataLoadOperation()
+        defer { endDataLoadOperation() }
+
         // Load folders first, then sync any local folders that aren't in Supabase
         await loadFoldersFromSupabase()
         await syncLocalFoldersToSupabase()
@@ -2362,10 +2556,13 @@ class NotesManager: ObservableObject {
     }
 
     func loadFoldersFromSupabase() async {
-        let isAuthenticated = await MainActor.run { authManager.isAuthenticated }
-        let userId = await MainActor.run { authManager.supabaseUser?.id }
+        beginDataLoadOperation()
+        defer { endDataLoadOperation() }
 
-        guard isAuthenticated, let userId = userId else {
+        let authIsAuthenticated = await MainActor.run { authManager.isAuthenticated }
+        let userId = await resolvedAuthenticatedUserId()
+
+        guard authIsAuthenticated || userId != nil, let userId = userId else {
             print("User not authenticated, loading local folders only")
             return
         }
@@ -2424,17 +2621,24 @@ class NotesManager: ObservableObject {
                     saveFolders()
                     // Clear receipt cache since folder structure affects receipt organization
                     self.invalidateReceiptCache()
+                    self.lastSyncTime = Date()
+                    self.syncError = nil
                 } else {
                     print("⚠️ Failed to parse any folders from Supabase, keeping \(self.folders.count) local folders")
                 }
 
                 if response.isEmpty {
                     print("ℹ️ No folders in Supabase, keeping \(self.folders.count) local folders")
+                    self.lastSyncTime = Date()
+                    self.syncError = nil
                 }
             }
         } catch {
             print("❌ Error loading folders from Supabase: \(error)")
             print("❌ Error details: \(error.localizedDescription)")
+            await MainActor.run {
+                self.syncError = error.localizedDescription
+            }
         }
     }
 
@@ -2703,8 +2907,97 @@ class NotesManager: ObservableObject {
 
     // MARK: - Cache Invalidation
 
+    var shouldPreserveVisibleReceiptStats: Bool {
+        shouldUseLastKnownReceiptStatsFallback()
+    }
+
+    private func receiptStatsCacheKey(for year: Int?) -> String {
+        guard let year else { return CacheManager.CacheKey.receiptStatsAll }
+        return CacheManager.CacheKey.receiptStats(year: year)
+    }
+
+    private func lastKnownReceiptStatsCacheKey(for year: Int?) -> String {
+        guard let year else { return CacheManager.CacheKey.lastKnownReceiptStatsAll }
+        return CacheManager.CacheKey.lastKnownReceiptStats(year: year)
+    }
+
+    private func persistReceiptStatisticsCache(_ result: [YearlyReceiptSummary], year: Int?) {
+        guard !result.isEmpty else { return }
+
+        let liveCacheKey = receiptStatsCacheKey(for: year)
+        let lastKnownCacheKey = lastKnownReceiptStatsCacheKey(for: year)
+        cacheManager.set(result, forKey: liveCacheKey, ttl: CacheManager.TTL.persistent)
+        cacheManager.set(result, forKey: lastKnownCacheKey, ttl: CacheManager.TTL.persistent)
+
+        if year == nil {
+            for summary in result {
+                let singleYearSummary = [summary]
+                cacheManager.set(
+                    singleYearSummary,
+                    forKey: CacheManager.CacheKey.receiptStats(year: summary.year),
+                    ttl: CacheManager.TTL.persistent
+                )
+                cacheManager.set(
+                    singleYearSummary,
+                    forKey: CacheManager.CacheKey.lastKnownReceiptStats(year: summary.year),
+                    ttl: CacheManager.TTL.persistent
+                )
+            }
+        }
+    }
+
+    private func cachedLastKnownReceiptStatistics(year: Int?) -> [YearlyReceiptSummary]? {
+        let lastKnownCacheKey = lastKnownReceiptStatsCacheKey(for: year)
+        if let cached: [YearlyReceiptSummary] = cacheManager.get(forKey: lastKnownCacheKey),
+           !cached.isEmpty {
+            return cached
+        }
+
+        let allCacheKeys = [
+            CacheManager.CacheKey.receiptStatsAll,
+            CacheManager.CacheKey.lastKnownReceiptStatsAll
+        ]
+
+        for cacheKey in allCacheKeys {
+            if let cachedAll: [YearlyReceiptSummary] = cacheManager.get(forKey: cacheKey),
+               !cachedAll.isEmpty {
+                guard let year else { return cachedAll }
+
+                let matchingYear = cachedAll.filter { $0.year == year }
+                if !matchingYear.isEmpty {
+                    return matchingYear
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func shouldUseLastKnownReceiptStatsFallback() -> Bool {
+        if isLoading || isSyncing {
+            return true
+        }
+
+        if notes.isEmpty || folders.isEmpty {
+            return true
+        }
+
+        if receiptRootFolderIds().isEmpty && receiptCandidateNotes().isEmpty {
+            return true
+        }
+
+        if let lastReceiptCacheInvalidationDate,
+           Date().timeIntervalSince(lastReceiptCacheInvalidationDate) < receiptStatsFallbackGracePeriod {
+            return true
+        }
+
+        return false
+    }
+
     /// Invalidate all receipt-related caches when notes change
     private func invalidateReceiptCache() {
+        lastReceiptCacheInvalidationDate = Date()
+
         // Invalidate all receipt stats caches
         cacheManager.invalidate(keysWithPrefix: "cache.receipts.stats.")
         // Invalidate all category breakdown caches
@@ -2726,6 +3019,7 @@ class NotesManager: ObservableObject {
     /// Public method to force clear all receipt caches (useful for debugging or fixing bad cached state)
     public func clearReceiptCache() {
         invalidateReceiptCache()
+        cacheManager.invalidate(keysWithPrefix: "cache.receipts.lastKnownStats.")
         print("🗑️ Cleared all receipt caches")
     }
 }

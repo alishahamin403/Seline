@@ -5,6 +5,7 @@ import SwiftUI
 
 struct EventCreationCard: View {
     let events: [EventCreationInfo]
+    let status: AgentActionDraftStatus
     let onConfirm: ([EventCreationInfo]) -> Void
     let onCancel: () -> Void
     @Environment(\.colorScheme) var colorScheme
@@ -13,10 +14,12 @@ struct EventCreationCard: View {
 
     init(
         events: [EventCreationInfo],
+        status: AgentActionDraftStatus = .pending,
         onConfirm: @escaping ([EventCreationInfo]) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.events = events
+        self.status = status
         self.onConfirm = onConfirm
         self.onCancel = onCancel
         // Select all events by default
@@ -33,6 +36,11 @@ struct EventCreationCard: View {
         .cornerRadius(12)
         .overlay(borderView)
         .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
+        .onChange(of: status) { newStatus in
+            if newStatus != .pending {
+                isCreating = false
+            }
+        }
     }
     
     private var headerView: some View {
@@ -81,9 +89,18 @@ struct EventCreationCard: View {
     }
     
     private var actionButtonsView: some View {
-        HStack(spacing: 10) {
-            cancelButton
-            confirmButton
+        Group {
+            switch status {
+            case .pending:
+                HStack(spacing: 10) {
+                    cancelButton
+                    confirmButton
+                }
+            case .confirmed:
+                completedStateView
+            case .cancelled:
+                cancelledStateView
+            }
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 14)
@@ -112,7 +129,7 @@ struct EventCreationCard: View {
             onConfirm(eventsToCreate)
         }) {
             HStack(spacing: 6) {
-                if isCreating {
+                if isCreating && status == .pending {
                     ProgressView()
                         .scaleEffect(0.8)
                         .tint(.white)
@@ -120,7 +137,7 @@ struct EventCreationCard: View {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                Text(isCreating ? "Creating..." : "Confirm")
+                Text((isCreating && status == .pending) ? "Creating..." : "Confirm")
                     .font(FontManager.geist(size: 13, weight: .semibold))
             }
             .foregroundColor(confirmButtonForeground)
@@ -129,7 +146,35 @@ struct EventCreationCard: View {
             .background(confirmButtonBackground)
             .cornerRadius(8)
         }
-        .disabled(selectedEvents.isEmpty || isCreating)
+        .disabled(selectedEvents.isEmpty || (isCreating && status == .pending))
+    }
+
+    private var completedStateView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+            Text(events.count == 1 ? "Event created" : "Events created")
+                .font(FontManager.geist(size: 13, weight: .semibold))
+        }
+        .foregroundColor(colorScheme == .dark ? .black : .white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(colorScheme == .dark ? Color.white : Color.black)
+        .cornerRadius(8)
+    }
+
+    private var cancelledStateView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+            Text("Draft cancelled")
+                .font(FontManager.geist(size: 13, weight: .semibold))
+        }
+        .foregroundColor(Color.shadcnForeground(colorScheme).opacity(0.72))
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.10))
+        .cornerRadius(8)
     }
     
     private var confirmButtonBackground: Color {

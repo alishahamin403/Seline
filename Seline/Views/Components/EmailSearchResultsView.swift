@@ -26,12 +26,7 @@ struct EmailSearchResultsView: View {
                             .foregroundColor(Color.emailGlassMutedText(colorScheme))
                     }
                     .frame(maxWidth: .infinity, minHeight: 220)
-                    .appAmbientCardStyle(
-                        colorScheme: colorScheme,
-                        variant: .topLeading,
-                        cornerRadius: 24,
-                        highlightStrength: 0.28
-                    )
+                    .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 24)
                 } else if searchResults.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "magnifyingglass")
@@ -47,12 +42,7 @@ struct EmailSearchResultsView: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 220)
                     .padding(.horizontal, 20)
-                    .appAmbientCardStyle(
-                        colorScheme: colorScheme,
-                        variant: .topLeading,
-                        cornerRadius: 24,
-                        highlightStrength: 0.28
-                    )
+                    .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 24)
                 } else {
                     VStack(alignment: .leading, spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
@@ -81,19 +71,14 @@ struct EmailSearchResultsView: View {
                         }
                     }
                     .padding(18)
-                    .appAmbientCardStyle(
-                        colorScheme: colorScheme,
-                        variant: .topLeading,
-                        cornerRadius: 24,
-                        highlightStrength: 0.34
-                    )
+                    .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 24)
                 }
 
                 Spacer()
                     .frame(height: 100)
             }
             .padding(.horizontal, 8)
-            .padding(.top, 10)
+            .padding(.top, 6)
         }
     }
 }

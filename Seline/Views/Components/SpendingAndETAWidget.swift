@@ -13,6 +13,16 @@ struct SpendingAndETAWidget: View {
         }
     }
 
+    private struct SelectedDayReceipts: Identifiable {
+        let id = UUID()
+        let title: String
+        let receipts: [ReceiptStat]
+
+        var total: Double {
+            receipts.reduce(0) { $0 + $1.amount }
+        }
+    }
+
     private struct WeekSpendDaySummary: Identifiable {
         let date: Date
         let label: String
@@ -35,6 +45,7 @@ struct SpendingAndETAWidget: View {
     @State private var spendingInsights: [SpendingInsightsService.SpendingInsight] = []
     @State private var selectedInsight: SpendingInsightsService.SpendingInsight?
     @State private var selectedCategory: SelectedCategory?
+    @State private var selectedDayReceipts: SelectedDayReceipts?
     @State private var selectedWeekSpendDate: Date = Calendar.current.startOfDay(for: Date())
     @State private var expandedTopCategoryName: String? = nil
 
@@ -226,6 +237,16 @@ struct SpendingAndETAWidget: View {
         return weekSpendSummaries.reversed().first(where: { !$0.isFuture }) ?? weekSpendSummaries.first
     }
 
+    private func receiptsForWeekSpendDay(_ date: Date) -> [ReceiptStat] {
+        let dayStart = mondayFirstCalendar.startOfDay(for: date)
+
+        return allReceipts
+            .filter { receipt in
+                mondayFirstCalendar.startOfDay(for: receipt.date) == dayStart
+            }
+            .sorted { $0.date > $1.date }
+    }
+
     private func receiptsForExpandedCategory(_ categoryName: String) -> [ReceiptStat] {
         (categoryReceiptsMapCache[categoryName] ?? [])
             .sorted { $0.date > $1.date }
@@ -411,14 +432,18 @@ struct SpendingAndETAWidget: View {
     private static func calculateTodayTotalFromNotes(_ notesManager: NotesManager, now: Date = Date()) -> Double {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: now)
-        let receiptsFolderId = notesManager.folders.first(where: { $0.name == "Receipts" })?.id
+        let receiptRootIds = Set(
+            notesManager.folders
+                .filter { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Receipts") == .orderedSame }
+                .map(\.id)
+        )
 
         return notesManager.notes.reduce(0.0) { partial, note in
             let belongsToReceipts: Bool = {
-                if let receiptsFolderId {
+                if !receiptRootIds.isEmpty {
                     var currentFolderId = note.folderId
                     while let folderId = currentFolderId {
-                        if folderId == receiptsFolderId {
+                        if receiptRootIds.contains(folderId) {
                             return true
                         }
                         currentFolderId = notesManager.folders.first(where: { $0.id == folderId })?.parentFolderId
@@ -432,8 +457,11 @@ struct SpendingAndETAWidget: View {
             let effectiveDate = notesManager.extractFullDateFromTitle(note.title) ?? note.dateModified
             guard calendar.startOfDay(for: effectiveDate) == today else { return partial }
 
-            let content = note.content.isEmpty ? note.title : note.content
-            let amount = CurrencyParser.extractAmount(from: content)
+            let amount = CurrencyParser.extractAmount(
+                from: [note.title, note.content]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+            )
             return partial + amount
         }
     }
@@ -469,15 +497,30 @@ struct SpendingAndETAWidget: View {
         spendingCard()
             .onAppear {
                 guard isVisible else { return }
-                updateCategoryBreakdown()
-                selectedWeekSpendDate = mondayFirstCalendar.startOfDay(for: Date())
+                Task {
+                    await notesManager.ensureReceiptDataAvailable()
+                    await MainActor.run {
+                        updateCategoryBreakdown()
+                        selectedWeekSpendDate = mondayFirstCalendar.startOfDay(for: Date())
+                    }
+                }
             }
             .onChange(of: isVisible) { newValue in
                 guard newValue else { return }
+                Task {
+                    await notesManager.ensureReceiptDataAvailable()
+                    await MainActor.run {
+                        updateCategoryBreakdown()
+                        selectedWeekSpendDate = mondayFirstCalendar.startOfDay(for: Date())
+                    }
+                }
+            }
+            .onChange(of: notesManager.notes.count) { _ in
+                guard isVisible else { return }
                 updateCategoryBreakdown()
                 selectedWeekSpendDate = mondayFirstCalendar.startOfDay(for: Date())
             }
-            .onChange(of: notesManager.notes.count) { _ in
+            .onChange(of: notesManager.folders.count) { _ in
                 guard isVisible else { return }
                 updateCategoryBreakdown()
                 selectedWeekSpendDate = mondayFirstCalendar.startOfDay(for: Date())
@@ -497,6 +540,17 @@ struct SpendingAndETAWidget: View {
                     receipts: category.receipts,
                     categoryName: category.name,
                     total: category.total,
+                    onReceiptTap: { receipt in
+                        onReceiptSelected?(receipt)
+                    }
+                )
+                .presentationDetents([.medium, .large])
+            }
+            .sheet(item: $selectedDayReceipts) { selection in
+                CategoryReceiptsListModal(
+                    receipts: selection.receipts,
+                    categoryName: selection.title,
+                    total: selection.total,
                     onReceiptTap: { receipt in
                         onReceiptSelected?(receipt)
                     }
@@ -907,37 +961,43 @@ struct SpendingAndETAWidget: View {
     private var selectedWeekSpendDetail: some View {
         Group {
             if let selected = selectedWeekSpendSummary {
-                HStack(alignment: .center, spacing: 12) {
-                    Capsule()
-                        .fill(selected.amount > 0 ? Color.homeGlassAccent : Color.homeGlassInnerTint(colorScheme))
-                        .frame(width: 8, height: 8)
+                Button(action: {
+                    openSelectedDayReceipts(selected)
+                }) {
+                    HStack(alignment: .center, spacing: 12) {
+                        Capsule()
+                            .fill(selected.amount > 0 ? Color.homeGlassAccent : Color.homeGlassInnerTint(colorScheme))
+                            .frame(width: 8, height: 8)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(FormatterCache.weekdayShortMonthDay.string(from: selected.date))
-                            .font(FontManager.geist(size: 12, weight: .semibold))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(FormatterCache.weekdayShortMonthDay.string(from: selected.date))
+                                .font(FontManager.geist(size: 12, weight: .semibold))
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                            Text(selected.amount > 0 ? "Spent that day" : "No spend logged")
+                                .font(FontManager.geist(size: 11, weight: .medium))
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                        }
+
+                        Spacer(minLength: 10)
+
+                        Text(CurrencyParser.formatAmountNoDecimals(selected.amount))
+                            .font(FontManager.geist(size: 16, weight: .semibold))
                             .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                        Text(selected.amount > 0 ? "Spent that day" : "No spend logged")
-                            .font(FontManager.geist(size: 11, weight: .medium))
-                            .foregroundColor(Color.appTextSecondary(colorScheme))
                     }
-
-                    Spacer(minLength: 10)
-
-                    Text(CurrencyParser.formatAmountNoDecimals(selected.amount))
-                        .font(FontManager.geist(size: 16, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.homeGlassInnerTint(colorScheme))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 16))
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.homeGlassInnerTint(colorScheme))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
-                )
+                .buttonStyle(PlainButtonStyle())
             }
         }
     }
@@ -1162,6 +1222,17 @@ struct SpendingAndETAWidget: View {
         guard !matchingReceipts.isEmpty else { return }
         HapticManager.shared.selection()
         selectedCategory = SelectedCategory(name: categoryName, receipts: matchingReceipts)
+    }
+
+    private func openSelectedDayReceipts(_ selected: WeekSpendDaySummary) {
+        let receipts = receiptsForWeekSpendDay(selected.date)
+        guard !receipts.isEmpty else { return }
+
+        HapticManager.shared.selection()
+        selectedDayReceipts = SelectedDayReceipts(
+            title: FormatterCache.weekdayShortMonthDay.string(from: selected.date),
+            receipts: receipts
+        )
     }
 }
 

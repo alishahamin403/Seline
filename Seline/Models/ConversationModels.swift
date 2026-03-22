@@ -34,8 +34,12 @@ struct ConversationMessage: Identifiable, Codable {
     var trackerThreadId: UUID?
     var trackerOperationDraft: TrackerOperationDraft?
     var trackerStateSnapshot: TrackerDerivedState?
+    var evidenceBundle: EvidenceBundle?
+    var toolTrace: [AgentToolTrace]?
+    var actionDraft: AgentActionDraft?
+    var presentation: AgentPresentation?
 
-    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil, followUpSuggestions: [FollowUpSuggestion]? = nil, locationInfo: ETALocationInfo? = nil, eventCreationInfo: [EventCreationInfo]? = nil, relevantContent: [RelevantContentInfo]? = nil, proactiveQuestion: ProactiveQuestionInfo? = nil, trackerThreadId: UUID? = nil, trackerOperationDraft: TrackerOperationDraft? = nil, trackerStateSnapshot: TrackerDerivedState? = nil) {
+    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil, followUpSuggestions: [FollowUpSuggestion]? = nil, locationInfo: ETALocationInfo? = nil, eventCreationInfo: [EventCreationInfo]? = nil, relevantContent: [RelevantContentInfo]? = nil, proactiveQuestion: ProactiveQuestionInfo? = nil, trackerThreadId: UUID? = nil, trackerOperationDraft: TrackerOperationDraft? = nil, trackerStateSnapshot: TrackerDerivedState? = nil, evidenceBundle: EvidenceBundle? = nil, toolTrace: [AgentToolTrace]? = nil, actionDraft: AgentActionDraft? = nil, presentation: AgentPresentation? = nil) {
         self.id = id
         self.isUser = isUser
         self.text = text
@@ -52,6 +56,10 @@ struct ConversationMessage: Identifiable, Codable {
         self.trackerThreadId = trackerThreadId
         self.trackerOperationDraft = trackerOperationDraft
         self.trackerStateSnapshot = trackerStateSnapshot
+        self.evidenceBundle = evidenceBundle
+        self.toolTrace = toolTrace
+        self.actionDraft = actionDraft
+        self.presentation = presentation
     }
 
     var formattedTime: String {
@@ -326,13 +334,16 @@ struct RelevantContentInfo: Codable, Identifiable {
 
 // MARK: - Event Creation Info (for Event Card display in chat)
 
-struct EventCreationInfo: Codable, Identifiable {
+struct EventCreationInfo: Codable, Identifiable, Hashable {
     let id: UUID
     let title: String
     let date: Date
+    let endDate: Date?
     let hasTime: Bool
     let reminderMinutes: Int?  // nil = no reminder, 0 = at time, 5/10/15/30/60 = before
     let category: String
+    let tagId: String?
+    let recurrenceFrequency: RecurrenceFrequency?
     let location: String?
     let notes: String?
     var isConfirmed: Bool
@@ -341,9 +352,12 @@ struct EventCreationInfo: Codable, Identifiable {
         id: UUID = UUID(),
         title: String,
         date: Date,
+        endDate: Date? = nil,
         hasTime: Bool = true,
         reminderMinutes: Int? = nil,
         category: String = "Personal",
+        tagId: String? = nil,
+        recurrenceFrequency: RecurrenceFrequency? = nil,
         location: String? = nil,
         notes: String? = nil,
         isConfirmed: Bool = false
@@ -351,9 +365,12 @@ struct EventCreationInfo: Codable, Identifiable {
         self.id = id
         self.title = title
         self.date = date
+        self.endDate = endDate
         self.hasTime = hasTime
         self.reminderMinutes = reminderMinutes
         self.category = category
+        self.tagId = tagId
+        self.recurrenceFrequency = recurrenceFrequency
         self.location = location
         self.notes = notes
         self.isConfirmed = isConfirmed

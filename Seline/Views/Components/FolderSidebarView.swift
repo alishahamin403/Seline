@@ -4,6 +4,10 @@ struct FolderSidebarView: View {
     @Binding var isPresented: Bool
     @Binding var selectedFolderId: UUID?
     @Binding var showUnfiledNotesOnly: Bool
+    @Binding var showSidebarNotesSelection: Bool
+    let isNotesHomeSelected: Bool
+    let onOpenHome: (() -> Void)?
+    let onActivateNotesPage: (() -> Void)?
     let onOpenJournal: (() -> Void)?
     @StateObject private var notesManager = NotesManager.shared
     @Environment(\.colorScheme) var colorScheme
@@ -19,11 +23,20 @@ struct FolderSidebarView: View {
     }
 
     private var topControlFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : .white
+        colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.045)
     }
 
     private var topControlBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.05)
+    }
+
+    private var sectionLabelColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.42) : Color.black.opacity(0.40)
+    }
+
+    private func sidebarRowFill(isSelected: Bool) -> Color {
+        guard isSelected else { return .clear }
+        return colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.055)
     }
 
     // Computed property to organize folders by hierarchy (excluding special system folders)
@@ -127,18 +140,18 @@ struct FolderSidebarView: View {
                 HStack(spacing: 10) {
                     HStack(spacing: 10) {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: 15, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
 
-                        TextField("Search folders", text: $searchText)
+                        TextField("Search", text: $searchText)
                             .textFieldStyle(.plain)
-                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .font(FontManager.geist(size: 15, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
                     .frame(maxWidth: .infinity)
                     .background(
                         Capsule()
@@ -153,25 +166,21 @@ struct FolderSidebarView: View {
                         HapticManager.shared.buttonTap()
                         showingNewFolderAlert = true
                     }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 14, weight: .medium))
-                            Text("Folder")
-                                .font(FontManager.geist(size: 13, weight: .medium))
-                        }
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
-                        .padding(.horizontal, 12)
-                        .frame(height: 36)
-                        .background(
-                            Capsule()
-                                .fill(topControlFillColor)
-                                .overlay(
-                                    Capsule()
-                                        .stroke(topControlBorderColor, lineWidth: 0.8)
-                                )
-                        )
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                            .frame(width: 44, height: 44)
+                            .background(
+                                Circle()
+                                    .fill(topControlFillColor)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(topControlBorderColor, lineWidth: 0.8)
+                                    )
+                            )
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .accessibilityLabel("New folder")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -186,55 +195,88 @@ struct FolderSidebarView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("BROWSE")
                                 .font(FontManager.geist(size: 11, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                .foregroundColor(sectionLabelColor)
                                 .textCase(.uppercase)
-                                .padding(.horizontal, 20)
+                                .padding(.horizontal, 16)
                                 .padding(.bottom, 6)
 
                             Button(action: {
                                 HapticManager.shared.selection()
-                                selectedFolderId = nil
-                                showUnfiledNotesOnly = false
+                                onOpenHome?()
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     isPresented = false
                                 }
                             }) {
                                 HStack(spacing: 12) {
-                                    Text("Pinned")
-                                        .font(FontManager.geist(size: 14, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    Text("Home")
+                                        .font(FontManager.geist(size: 15, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
                                     Spacer()
-                                    Text("\(pinnedNotesCount)")
-                                        .font(FontManager.geist(size: 12, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                 }
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(colorScheme == .dark ? Color.white.opacity((selectedFolderId == nil && !showUnfiledNotesOnly) ? 0.08 : 0) : Color.black.opacity((selectedFolderId == nil && !showUnfiledNotesOnly) ? 0.04 : 0))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(sidebarRowFill(isSelected: isNotesHomeSelected))
+                                )
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PlainButtonStyle())
 
                             Button(action: {
                                 HapticManager.shared.selection()
+                                onActivateNotesPage?()
+                                selectedFolderId = nil
+                                showUnfiledNotesOnly = false
+                                showSidebarNotesSelection = true
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isPresented = false
+                                }
+                            }) {
+                                HStack(spacing: 12) {
+                                    Text("Pinned")
+                                        .font(FontManager.geist(size: 15, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
+                                    Spacer()
+                                    Text("\(pinnedNotesCount)")
+                                        .font(FontManager.geist(size: 12, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(sidebarRowFill(isSelected: selectedFolderId == nil && !showUnfiledNotesOnly && showSidebarNotesSelection))
+                                )
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Button(action: {
+                                HapticManager.shared.selection()
+                                onActivateNotesPage?()
                                 selectedFolderId = nil
                                 showUnfiledNotesOnly = true
+                                showSidebarNotesSelection = true
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     isPresented = false
                                 }
                             }) {
                                 HStack(spacing: 12) {
                                     Text("Unfiled")
-                                        .font(FontManager.geist(size: 14, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .font(FontManager.geist(size: 15, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
                                     Spacer()
                                     Text("\(unfiledNotesCount)")
                                         .font(FontManager.geist(size: 12, weight: .regular))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                 }
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(colorScheme == .dark ? Color.white.opacity(showUnfiledNotesOnly ? 0.08 : 0) : Color.black.opacity(showUnfiledNotesOnly ? 0.04 : 0))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(sidebarRowFill(isSelected: showUnfiledNotesOnly && showSidebarNotesSelection))
+                                )
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -242,8 +284,10 @@ struct FolderSidebarView: View {
                             if let onOpenJournal {
                                 Button(action: {
                                     HapticManager.shared.selection()
+                                    onActivateNotesPage?()
                                     selectedFolderId = nil
                                     showUnfiledNotesOnly = false
+                                    showSidebarNotesSelection = false
                                     withAnimation(.easeInOut(duration: 0.2)) {
                                         isPresented = false
                                     }
@@ -251,15 +295,19 @@ struct FolderSidebarView: View {
                                 }) {
                                     HStack(spacing: 12) {
                                         Text("Journal")
-                                            .font(FontManager.geist(size: 14, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            .font(FontManager.geist(size: 15, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
                                         Spacer()
                                         Text("\(notesManager.journalEntries.count)")
                                             .font(FontManager.geist(size: 12, weight: .regular))
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                     }
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 10)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 16)
+                                            .fill(.clear)
+                                    )
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(PlainButtonStyle())
@@ -272,9 +320,9 @@ struct FolderSidebarView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("FOLDERS")
                                 .font(FontManager.geist(size: 11, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                .foregroundColor(sectionLabelColor)
                                 .textCase(.uppercase)
-                                .padding(.horizontal, 20)
+                                .padding(.horizontal, 16)
                                 .padding(.bottom, 6)
 
                             ForEach(filteredOrganizedFolders, id: \.folder.id) { item in
@@ -295,8 +343,10 @@ struct FolderSidebarView: View {
                                     },
                                     onTap: {
                                         HapticManager.shared.selection()
+                                        onActivateNotesPage?()
                                         selectedFolderId = item.folder.id
                                         showUnfiledNotesOnly = false
+                                        showSidebarNotesSelection = true
                                         withAnimation(.easeInOut(duration: 0.2)) {
                                             isPresented = false
                                         }
@@ -336,9 +386,9 @@ struct FolderSidebarView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("TRASH")
                                 .font(FontManager.geist(size: 11, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                .foregroundColor(sectionLabelColor)
                                 .textCase(.uppercase)
-                                .padding(.horizontal, 20)
+                                .padding(.horizontal, 16)
                                 .padding(.bottom, 6)
 
                             Button(action: {
@@ -347,8 +397,8 @@ struct FolderSidebarView: View {
                             }) {
                                 HStack(spacing: 12) {
                                     Text("Deleted Items")
-                                        .font(FontManager.geist(size: 14, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .font(FontManager.geist(size: 15, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
                                     Spacer()
                                     let count = notesManager.deletedNotes.count + notesManager.deletedFolders.count
                                     if count > 0 {
@@ -357,8 +407,12 @@ struct FolderSidebarView: View {
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                     }
                                 }
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(.clear)
+                                )
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -457,6 +511,11 @@ struct FolderRowView: View {
         notesManager.notes.filter { $0.folderId == folder.id }.count
     }
 
+    private var sectionRowFill: Color {
+        guard isSelected else { return .clear }
+        return colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.055)
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             // Indentation based on depth
@@ -486,8 +545,8 @@ struct FolderRowView: View {
             }
 
             Text(folder.name)
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .font(FontManager.geist(size: 15, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
                 .lineLimit(1)
 
             Spacer(minLength: 0)
@@ -509,9 +568,12 @@ struct FolderRowView: View {
             }
             .buttonStyle(PlainButtonStyle())
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
-        .background(colorScheme == .dark ? Color.white.opacity(isSelected ? 0.08 : 0) : Color.black.opacity(isSelected ? 0.04 : 0))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(sectionRowFill)
+        )
         .contentShape(Rectangle())
         .onTapGesture {
             HapticManager.shared.selection()

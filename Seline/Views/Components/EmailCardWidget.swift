@@ -3,7 +3,7 @@ import SwiftUI
 struct EmailCardWidget: View {
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var emailService = EmailService.shared
-    @Binding var selectedTab: TabSelection
+    @Binding var selectedTab: PrimaryTab
     @Binding var selectedEmail: Email?
 
     private var unreadEmails: [Email] {

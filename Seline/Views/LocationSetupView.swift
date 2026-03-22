@@ -359,12 +359,7 @@ struct LocationInput: View {
                                 }
                             }
                         }
-                        .appAmbientCardStyle(
-                            colorScheme: colorScheme,
-                            variant: .bottomTrailing,
-                            cornerRadius: 16,
-                            highlightStrength: 0.45
-                        )
+                        .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 16)
                         .padding(.top, 4)
                     }
                 }

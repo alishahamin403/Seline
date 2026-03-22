@@ -25,10 +25,7 @@ struct PeopleListView: View {
     @State private var personToDelete: Person? = nil
 
     @State private var categoryOrder: [String] = []
-    @State private var filteredPeopleCache: [Person] = []
-    @State private var groupedPeopleCache: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] = []
-    @State private var favouritePeopleCache: [Person] = []
-    @State private var upcomingBirthdayPeopleCache: [(person: Person, daysUntil: Int)] = []
+    @StateObject private var pageState: PeopleListState
     @State private var searchDebouncer = DebouncedTaskRunner()
     @State private var internalSearchText = ""
     @FocusState private var isSearchFocused: Bool
@@ -49,20 +46,21 @@ struct PeopleListView: View {
         self.searchText = searchText
         self._isSearchActive = isSearchActive
         self.showsHeader = showsHeader
+        self._pageState = StateObject(wrappedValue: PeopleListState(peopleManager: peopleManager))
     }
 
     private var favouritePeople: [Person] {
-        favouritePeopleCache
+        pageState.favouritePeople
     }
 
     private var upcomingBirthdayPeople: [(person: Person, daysUntil: Int)] {
-        upcomingBirthdayPeopleCache
+        pageState.upcomingBirthdayPeople
     }
 
     private var sortedGroupedPeople: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] {
-        guard !categoryOrder.isEmpty else { return groupedPeopleCache }
+        guard !categoryOrder.isEmpty else { return pageState.groupedPeople }
 
-        return groupedPeopleCache.sorted { group1, group2 in
+        return pageState.groupedPeople.sorted { group1, group2 in
             let index1 = categoryOrder.firstIndex(of: group1.groupKey) ?? Int.max
             let index2 = categoryOrder.firstIndex(of: group2.groupKey) ?? Int.max
             return index1 < index2
@@ -167,22 +165,13 @@ struct PeopleListView: View {
     private func lifecycle<Content: View>(_ content: Content) -> some View {
         content
             .onChange(of: searchText) { _ in
-                searchDebouncer.schedule(delay: 0.3) {
-                    updateFilteredResults()
-                }
+                schedulePeopleRefresh()
             }
             .onChange(of: internalSearchText) { _ in
-                searchDebouncer.schedule(delay: 0.3) {
-                    updateFilteredResults()
-                }
+                schedulePeopleRefresh()
             }
             .onChange(of: selectedRelationshipFilter) { _ in
-                updateFilteredResults()
-            }
-            .onChange(of: peopleManager.people) { _ in
-                updateFilteredResults()
-                syncCategoryOrder()
-                refreshSummaryCache()
+                refreshPeopleState()
             }
             .onChange(of: isSearchActive) { newValue in
                 if newValue {
@@ -191,12 +180,13 @@ struct PeopleListView: View {
             }
             .onAppear {
                 loadCategoryOrder()
-                updateFilteredResults()
-                syncCategoryOrder()
-                refreshSummaryCache()
+                refreshPeopleState()
             }
             .onDisappear {
                 searchDebouncer.cancel()
+            }
+            .onReceive(pageState.$groupedPeople) { _ in
+                syncCategoryOrder()
             }
             .onReceive(NotificationCenter.default.publisher(for: .peopleHubAddRequested)) { _ in
                 if !isEditMode {
@@ -218,7 +208,7 @@ struct PeopleListView: View {
             )
 
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 12) {
+                LazyVStack(spacing: 12) {
                     peopleHeroCard
                     peopleDirectorySection
                 }
@@ -226,62 +216,68 @@ struct PeopleListView: View {
                 .padding(.top, 12)
                 .padding(.bottom, isEditMode ? 22 : 30)
             }
+            .selinePrimaryPageScroll()
         }
         .safeAreaInset(edge: .bottom) {
             if isEditMode {
                 stickyDeleteFooter
             }
         }
-        .blur(radius: isSearchActive && !internalSearchText.isEmpty ? 8 : 0)
         .allowsHitTesting(!(isSearchActive && !internalSearchText.isEmpty))
     }
 
     private var searchOverlayView: some View {
-        VStack(spacing: 0) {
-            UnifiedSearchBar(
-                searchText: $internalSearchText,
-                isFocused: $isSearchFocused,
-                placeholder: "Search people",
-                onCancel: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isSearchActive = false
-                        isSearchFocused = false
-                        internalSearchText = ""
-                        updateFilteredResults()
-                    }
-                },
-                colorScheme: colorScheme,
-                variant: peoplePageVariant
-            )
-            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-            .padding(.top, 8)
+        ZStack(alignment: .top) {
+            Color.appBackground(colorScheme)
+                .opacity(colorScheme == .dark ? 0.96 : 0.98)
+                .ignoresSafeArea()
 
-            if !internalSearchText.isEmpty {
-                SearchResultsListView(
-                    results: filteredPeopleCache,
-                    emptyMessage: "No people match your search",
-                    rowContent: { person in
-                        AnyView(
-                            PersonRowView(
-                                person: person,
-                                colorScheme: colorScheme,
-                                isEditMode: false,
-                                isSelected: false,
-                                onTap: {
-                                    selectedPerson = person
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        isSearchActive = false
-                                        internalSearchText = ""
-                                    }
-                                },
-                                onFavouriteTap: {
-                                    peopleManager.toggleFavourite(for: person.id)
-                                }
-                            )
-                        )
+            VStack(spacing: 0) {
+                UnifiedSearchBar(
+                    searchText: $internalSearchText,
+                    isFocused: $isSearchFocused,
+                    placeholder: "Search people",
+                    onCancel: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isSearchActive = false
+                            isSearchFocused = false
+                            internalSearchText = ""
+                            refreshPeopleState()
+                        }
                     },
-                    colorScheme: colorScheme
+                    colorScheme: colorScheme,
+                    variant: peoplePageVariant
                 )
+                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.top, 8)
+
+                if !internalSearchText.isEmpty {
+                    SearchResultsListView(
+                        results: pageState.filteredPeople,
+                        emptyMessage: "No people match your search",
+                        rowContent: { person in
+                            AnyView(
+                                PersonRowView(
+                                    person: person,
+                                    colorScheme: colorScheme,
+                                    isEditMode: false,
+                                    isSelected: false,
+                                    onTap: {
+                                        selectedPerson = person
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            isSearchActive = false
+                                            internalSearchText = ""
+                                        }
+                                    },
+                                    onFavouriteTap: {
+                                        peopleManager.toggleFavourite(for: person.id)
+                                    }
+                                )
+                            )
+                        },
+                        colorScheme: colorScheme
+                    )
+                }
             }
         }
         .transition(.move(edge: .top).combined(with: .opacity))
@@ -423,7 +419,7 @@ struct PeopleListView: View {
                 relationshipFilterChips
             }
 
-            if filteredPeopleCache.isEmpty {
+            if pageState.filteredPeople.isEmpty {
                 emptyDirectoryState
             } else {
                 VStack(spacing: 18) {
@@ -451,7 +447,7 @@ struct PeopleListView: View {
                     }
                 }
 
-                ForEach(groupedPeopleCache, id: \.groupKey) { group in
+                ForEach(pageState.groupedPeople, id: \.groupKey) { group in
                     filterChip(
                         title: group.displayName,
                         isSelected: selectedRelationshipFilter == group.groupKey
@@ -739,108 +735,22 @@ struct PeopleListView: View {
         .topLeading
     }
 
-    private func updateFilteredResults() {
-        var result = peopleManager.people
-        let activeSearchText = isSearchActive ? internalSearchText : searchText
-
-        if !activeSearchText.isEmpty {
-            let lowercasedSearch = activeSearchText.lowercased()
-            result = result.filter { person in
-                person.name.lowercased().contains(lowercasedSearch) ||
-                (person.nickname?.lowercased().contains(lowercasedSearch) ?? false) ||
-                person.relationshipDisplayText.lowercased().contains(lowercasedSearch) ||
-                (person.notes?.lowercased().contains(lowercasedSearch) ?? false) ||
-                (person.favouriteFood?.lowercased().contains(lowercasedSearch) ?? false) ||
-                (person.favouriteGift?.lowercased().contains(lowercasedSearch) ?? false)
-            }
+    private func schedulePeopleRefresh() {
+        searchDebouncer.schedule(delay: 0.3) {
+            refreshPeopleState()
         }
-
-        if let filter = selectedRelationshipFilter {
-            result = result.filter { person in
-                if filter.hasPrefix("custom_") {
-                    let customName = String(filter.dropFirst("custom_".count))
-                    return person.relationship == .other && person.customRelationship == customName
-                } else if filter.hasPrefix("type_") {
-                    let typeRawValue = String(filter.dropFirst("type_".count))
-                    return person.relationship.rawValue == typeRawValue
-                } else {
-                    return false
-                }
-            }
-        }
-
-        filteredPeopleCache = result
-
-        let groupedDict = Dictionary(grouping: result) { person -> String in
-            if person.relationship == .other, let custom = person.customRelationship, !custom.isEmpty {
-                return "custom_\(custom)"
-            } else {
-                return "type_\(person.relationship.rawValue)"
-            }
-        }
-
-        var groups: [(groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person])] = []
-
-        for relType in RelationshipType.allCases where relType != .other {
-            let key = "type_\(relType.rawValue)"
-            if let people = groupedDict[key], !people.isEmpty {
-                groups.append((
-                    groupKey: key,
-                    displayName: relType.displayName,
-                    relationshipType: relType,
-                    people: people.sorted { $0.name < $1.name }
-                ))
-            }
-        }
-
-        let customGroups = groupedDict
-            .filter { $0.key.hasPrefix("custom_") }
-            .sorted { $0.key < $1.key }
-            .map { key, people -> (groupKey: String, displayName: String, relationshipType: RelationshipType?, people: [Person]) in
-                let customName = String(key.dropFirst("custom_".count))
-                return (
-                    groupKey: key,
-                    displayName: customName,
-                    relationshipType: nil,
-                    people: people.sorted { $0.name < $1.name }
-                )
-            }
-        groups.append(contentsOf: customGroups)
-
-        let otherKey = "type_\(RelationshipType.other.rawValue)"
-        if let otherPeople = groupedDict[otherKey], !otherPeople.isEmpty {
-            groups.append((
-                groupKey: otherKey,
-                displayName: RelationshipType.other.displayName,
-                relationshipType: .other,
-                people: otherPeople.sorted { $0.name < $1.name }
-            ))
-        }
-
-        groupedPeopleCache = groups
     }
 
-    private func refreshSummaryCache() {
-        let allPeople = peopleManager.people
-        let favouritePeople = peopleManager.getFavourites()
-        let upcomingBirthdays = allPeople
-            .compactMap { person -> (person: Person, daysUntil: Int)? in
-                guard let daysUntil = peopleDaysUntilBirthday(person), daysUntil <= 30 else { return nil }
-                return (person, daysUntil)
-            }
-            .sorted {
-                if $0.daysUntil == $1.daysUntil {
-                    return $0.person.displayName < $1.person.displayName
-                }
-                return $0.daysUntil < $1.daysUntil
-            }
-
-        favouritePeopleCache = favouritePeople
-        upcomingBirthdayPeopleCache = upcomingBirthdays
+    private func refreshPeopleState() {
+        let activeSearchText = isSearchActive ? internalSearchText : searchText
+        pageState.updateInputs(
+            searchText: activeSearchText,
+            selectedRelationshipFilter: selectedRelationshipFilter
+        )
     }
 
     private func syncCategoryOrder() {
-        let currentKeys = groupedPeopleCache.map { $0.groupKey }
+        let currentKeys = pageState.groupedPeople.map { $0.groupKey }
         var merged: [String] = []
         for key in categoryOrder where currentKeys.contains(key) {
             merged.append(key)

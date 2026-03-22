@@ -673,6 +673,10 @@ class LocationVisitAnalytics: ObservableObject {
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.visitHistory(placeId.uuidString))
         // Also invalidate today's visits since it aggregates all locations
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.topLocations)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.recentlyVisitedPlaces)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.allLocationsRanking)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.weeklyVisitsSummary)
         print("🔄 Invalidated stats & history cache for place \(placeId)")
 
         Task { @MainActor in
@@ -684,6 +688,10 @@ class LocationVisitAnalytics: ObservableObject {
     func invalidateAllCache() {
         CacheManager.shared.invalidate(keysWithPrefix: "cache.location")
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.topLocations)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.recentlyVisitedPlaces)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.allLocationsRanking)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.weeklyVisitsSummary)
         print("🔄 Invalidated all stats caches")
 
         Task { @MainActor in
@@ -696,6 +704,10 @@ class LocationVisitAnalytics: ObservableObject {
     func invalidateAllVisitCaches() {
         // Invalidate today's visits cache (used by home page Today's Activity)
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.topLocations)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.recentlyVisitedPlaces)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.allLocationsRanking)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.weeklyVisitsSummary)
 
         // Invalidate calendar day cache for today (used by LocationTimelineView)
         let dayFormatter = DateFormatter()

@@ -101,6 +101,7 @@ class InformationExtractor {
         - isAllDay: true/false
         - reminder: Minutes before event for reminder, or null
         - recurrence: "daily", "weekly", "biweekly", "monthly", "yearly", or null
+        - location: Location text if the user mentioned a place or address, or null
         - category: ALWAYS "Personal" unless user EXPLICITLY says "put in X category" or "categorize as X"
         - description: Additional context (people involved, purpose, notes)
 
@@ -110,7 +111,7 @@ class InformationExtractor {
         3. Title: Remove meta-words like "for me", "create", date/time references
 
         Return ONLY valid JSON with these fields. Use null for missing fields.
-        Example: {"title":"Dentist appointment","date":"2026-02-14","startTime":null,"endTime":null,"isAllDay":true,"reminder":null,"recurrence":null,"category":"Personal","description":"Dental checkup"}
+        Example: {"title":"Dentist appointment","date":"2026-02-14","startTime":null,"endTime":null,"isAllDay":true,"reminder":null,"recurrence":null,"location":null,"category":"Personal","description":"Dental checkup"}
         """
 
         do {
@@ -163,17 +164,19 @@ class InformationExtractor {
                     action.extractionState.confirmField("eventRecurrence")
                 }
 
+                if let location = extracted["location"] as? String, !location.isEmpty {
+                    action.extractedInfo.eventLocation = location
+                    action.extractionState.confirmField("eventLocation")
+                }
+
                 if let description = extracted["description"] as? String, !description.isEmpty {
                     action.extractedInfo.eventDescription = description
                 }
                 
                 // Extract category if present
                 if let category = extracted["category"] as? String, !category.isEmpty {
-                    // Category is stored in eventDescription or we can add a new field
-                    // For now, we'll note it in the description if not already there
-                    if action.extractedInfo.eventDescription?.isEmpty ?? true {
-                        action.extractedInfo.eventDescription = "Category: \(category)"
-                    }
+                    action.extractedInfo.eventCategory = category
+                    action.extractionState.confirmField("eventCategory")
                 }
             }
         } catch {

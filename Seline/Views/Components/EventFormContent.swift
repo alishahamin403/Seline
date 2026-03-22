@@ -1161,14 +1161,7 @@ struct LocationSelectionSheet: View {
                                 }
                             }
                         }
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(cardBackground)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
-                        )
+                        .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 16)
                     }
                 }
 
@@ -1228,14 +1221,7 @@ struct LocationSelectionSheet: View {
                                 }
                             }
                         }
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(cardBackground)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
-                        )
+                        .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 16)
                     }
                 }
 

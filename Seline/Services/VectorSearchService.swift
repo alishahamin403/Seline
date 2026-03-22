@@ -9,7 +9,8 @@ import Foundation
  *
  * Key features:
  * - 1536-dimension embeddings (supports HNSW index for fast search)
- * - Semantic search across notes, emails, tasks, locations, receipts, visits, people
+ * - Semantic search across notes, emails, tasks, locations, receipts, visits, people,
+ *   recurring expenses, attachments, trackers, and budgets/reminders
  * - Automatic embedding generation and caching
  * - Background sync to keep embeddings up-to-date
  * - Efficient batch processing
@@ -338,6 +339,10 @@ class VectorSearchService: ObservableObject {
                 .visit: 22,
                 .receipt: 20,
                 .note: 18,
+                .tracker: 16,
+                .attachment: 14,
+                .recurringExpense: 14,
+                .budget: 12,
                 .location: 12,
                 .person: 12
             ]
@@ -348,6 +353,10 @@ class VectorSearchService: ObservableObject {
                 .visit: 18,
                 .receipt: 16,
                 .note: 14,
+                .tracker: 12,
+                .attachment: 10,
+                .recurringExpense: 10,
+                .budget: 8,
                 .location: 10,
                 .person: 10
             ]
@@ -358,6 +367,10 @@ class VectorSearchService: ObservableObject {
                 .visit: 16,
                 .receipt: 14,
                 .note: 14,
+                .tracker: 12,
+                .attachment: 10,
+                .recurringExpense: 10,
+                .budget: 8,
                 .location: 10,
                 .person: 10
             ]
@@ -368,6 +381,10 @@ class VectorSearchService: ObservableObject {
                 .visit: 10,
                 .receipt: 8,
                 .note: 8,
+                .tracker: 6,
+                .attachment: 6,
+                .recurringExpense: 6,
+                .budget: 4,
                 .location: 6,
                 .person: 6
             ]
@@ -788,7 +805,10 @@ class VectorSearchService: ObservableObject {
             result.metadata?["merchant"] as? String ?? "",
             result.metadata?["place_name"] as? String ?? "",
             result.metadata?["location"] as? String ?? "",
-            result.metadata?["sender"] as? String ?? ""
+            result.metadata?["sender"] as? String ?? "",
+            result.metadata?["name"] as? String ?? "",
+            result.metadata?["thread_title"] as? String ?? "",
+            result.metadata?["file_name"] as? String ?? ""
         ].filter { !$0.isEmpty }
 
         if let memoryLabel = memoryCanonicalLabel(for: candidateTexts + [String(result.content.prefix(120))], memories: memories) {
@@ -837,7 +857,7 @@ class VectorSearchService: ObservableObject {
 
     private func simplifyTimelineLabel(_ text: String, fallbackType: DocumentType?) -> String {
         var cleaned = text
-            .replacingOccurrences(of: #"^(Receipt|Visit|Subject|Note|Event):\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^(Receipt|Visit|Subject|Note|Event|Tracker|Attachment|Budget|Reminder|Recurring Expense):\s*"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"\s*-\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}$"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1003,6 +1023,9 @@ class VectorSearchService: ObservableObject {
             let name = result.title?.isEmpty == false ? result.title! : ((result.metadata?["person"] as? String) ?? "Person")
             let relationship = result.metadata?["relationship"] as? String
             return .person(id: personId, name: name, relationship: relationship)
+
+        case .recurringExpense, .attachment, .tracker, .budget:
+            return nil
         }
     }
 
@@ -1428,6 +1451,239 @@ class VectorSearchService: ObservableObject {
             }
         }
 
+        // Recurring expenses
+        if typeFilter == nil || typeFilter?.contains(.recurringExpense) == true {
+            do {
+                let expenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
+                for expense in expenses {
+                    let monthlyEstimate = NSDecimalNumber(decimal: expense.yearlyAmount).doubleValue / 12.0
+                    var content = """
+                    Recurring Expense: \(expense.title)
+                    Amount: \(expense.formattedAmount)
+                    Frequency: \(expense.frequency.rawValue)
+                    Status: \(expense.statusBadge)
+                    Reminder: \(expense.reminderOption.displayName)
+                    Monthly estimate: \(CurrencyParser.formatAmount(monthlyEstimate))
+                    """
+                    if let description = expense.description, !description.isEmpty {
+                        content += "\nDescription: \(description)"
+                    }
+                    if let category = expense.category, !category.isEmpty {
+                        content += "\nCategory: \(category)"
+                    }
+
+                    let s = score(for: content)
+                    if s > 0 {
+                        let metadata: [String: Any] = [
+                            "date": iso.string(from: expense.nextOccurrence),
+                            "next_occurrence": iso.string(from: expense.nextOccurrence),
+                            "start_date": iso.string(from: expense.startDate),
+                            "updated_at": iso.string(from: expense.updatedAt),
+                            "amount": NSDecimalNumber(decimal: expense.amount).doubleValue,
+                            "category": expense.category ?? NSNull(),
+                            "frequency": expense.frequency.rawValue,
+                            "status": expense.statusBadge
+                        ]
+                        if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
+                            let boosted = blendWithRecency(baseScore: s, metadata: metadata)
+                            results.append(SearchResult(
+                                documentType: .recurringExpense,
+                                documentId: expense.id.uuidString,
+                                title: expense.title,
+                                content: content,
+                                metadata: metadata,
+                                similarity: boosted
+                            ))
+                        }
+                    }
+                }
+            } catch {
+                print("⚠️ Keyword recurring expense search failed: \(error)")
+            }
+        }
+
+        // Budgets and reminders
+        if typeFilter == nil || typeFilter?.contains(.budget) == true {
+            let budgetService = ExpenseBudgetService.shared
+            for budget in budgetService.budgets {
+                let status = budgetService.status(for: budget)
+                let content = """
+                Expense Budget: \(budget.name)
+                Period: \(budget.period.displayName)
+                Limit: \(CurrencyParser.formatAmount(budget.limit))
+                Current spend: \(CurrencyParser.formatAmount(status.spent))
+                Remaining: \(CurrencyParser.formatAmount(status.remaining))
+                """
+                let s = score(for: content)
+                if s > 0 {
+                    let metadata: [String: Any] = [
+                        "date": iso.string(from: budget.updatedAt),
+                        "updated_at": iso.string(from: budget.updatedAt),
+                        "subtype": "budget",
+                        "name": budget.name,
+                        "remaining": status.remaining,
+                        "period": budget.period.rawValue
+                    ]
+                    let boosted = blendWithRecency(baseScore: s, metadata: metadata)
+                    results.append(SearchResult(
+                        documentType: .budget,
+                        documentId: "budget_\(budget.id.uuidString)",
+                        title: "Budget: \(budget.name)",
+                        content: content,
+                        metadata: metadata,
+                        similarity: boosted
+                    ))
+                }
+            }
+
+            for reminder in ExpenseReminderService.shared.reminders {
+                let content = """
+                Expense Reminder: \(reminder.expenseName)
+                Frequency: \(reminder.frequency.displayName)
+                Time: \(String(format: "%02d:%02d", reminder.hour, reminder.minute))
+                """
+                let s = score(for: content)
+                if s > 0 {
+                    let metadata: [String: Any] = [
+                        "date": iso.string(from: reminder.updatedAt),
+                        "updated_at": iso.string(from: reminder.updatedAt),
+                        "subtype": "reminder",
+                        "name": reminder.expenseName,
+                        "frequency": reminder.frequency.rawValue
+                    ]
+                    let boosted = blendWithRecency(baseScore: s, metadata: metadata)
+                    results.append(SearchResult(
+                        documentType: .budget,
+                        documentId: "reminder_\(reminder.id.uuidString)",
+                        title: "Reminder: \(reminder.expenseName)",
+                        content: content,
+                        metadata: metadata,
+                        similarity: boosted
+                    ))
+                }
+            }
+        }
+
+        // Tracker threads
+        if typeFilter == nil || typeFilter?.contains(.tracker) == true {
+            for thread in TrackerStore.shared.threads {
+                let sortedChanges = thread.memorySnapshot.changeLog.sorted { lhs, rhs in
+                    if lhs.effectiveAt == rhs.effectiveAt {
+                        return lhs.createdAt > rhs.createdAt
+                    }
+                    return lhs.effectiveAt > rhs.effectiveAt
+                }
+                var content = """
+                Tracker: \(thread.title)
+                Status: \(thread.status.rawValue)
+                Rules: \(thread.memorySnapshot.normalizedRulesText)
+                Current summary: \(thread.memorySnapshot.normalizedSummaryText)
+                """
+                if !thread.memorySnapshot.quickFacts.isEmpty {
+                    content += "\nQuick facts: \(thread.memorySnapshot.quickFacts.joined(separator: " | "))"
+                }
+                for change in sortedChanges.prefix(6) {
+                    content += "\nChange: \(formattedTrackerChangeLine(change))"
+                }
+
+                let s = score(for: content)
+                if s > 0 {
+                    let latestDate = sortedChanges.first?.effectiveAt ?? thread.updatedAt
+                    let metadata: [String: Any] = [
+                        "date": iso.string(from: latestDate),
+                        "effective_at": iso.string(from: latestDate),
+                        "updated_at": iso.string(from: thread.updatedAt),
+                        "status": thread.status.rawValue,
+                        "change_count": thread.memorySnapshot.changeLog.count
+                    ]
+                    let boosted = blendWithRecency(baseScore: s, metadata: metadata)
+                    results.append(SearchResult(
+                        documentType: .tracker,
+                        documentId: thread.id.uuidString,
+                        title: thread.title,
+                        content: content,
+                        metadata: metadata,
+                        similarity: boosted
+                    ))
+                }
+            }
+        }
+
+        // Attachments / extracted documents
+        if typeFilter == nil || typeFilter?.contains(.attachment) == true,
+           let userId = SupabaseManager.shared.getCurrentUser()?.id {
+            do {
+                let client = await SupabaseManager.shared.getPostgrestClient()
+                let attachmentRows: [AttachmentSupabaseData] = try await client
+                    .from("attachments")
+                    .select()
+                    .eq("user_id", value: userId.uuidString)
+                    .execute()
+                    .value
+
+                let extractedRows: [ExtractedDataSupabaseData] = try await client
+                    .from("extracted_data")
+                    .select()
+                    .eq("user_id", value: userId.uuidString)
+                    .execute()
+                    .value
+
+                let attachments = attachmentRows.compactMap(NoteAttachment.init(from:))
+                let extractedByAttachmentId = Dictionary(
+                    uniqueKeysWithValues: extractedRows.compactMap { row -> (UUID, ExtractedData)? in
+                        guard let extracted = ExtractedData(from: row) else { return nil }
+                        return (extracted.attachmentId, extracted)
+                    }
+                )
+                let notesById = Dictionary(uniqueKeysWithValues: NotesManager.shared.notes.map { ($0.id, $0) })
+
+                for attachment in attachments {
+                    let extracted = extractedByAttachmentId[attachment.id]
+                    let noteTitle = notesById[attachment.noteId]?.title ?? "Unknown note"
+                    let summary = extractedSummaryText(extracted) ?? ""
+                    let rawText = extracted?.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    var content = """
+                    Attachment: \(attachment.fileName)
+                    File type: \(attachment.fileType)
+                    Note: \(noteTitle)
+                    """
+                    if !summary.isEmpty {
+                        content += "\nSummary: \(summary)"
+                    }
+                    if !rawText.isEmpty {
+                        content += "\nExtracted text: \(String(rawText.prefix(4000)))"
+                    }
+
+                    let s = score(for: content)
+                    if s > 0 {
+                        let documentDate = extracted?.updatedAt ?? attachment.updatedAt
+                        let metadata: [String: Any] = [
+                            "date": iso.string(from: documentDate),
+                            "created_at": iso.string(from: attachment.createdAt),
+                            "updated_at": iso.string(from: documentDate),
+                            "file_name": attachment.fileName,
+                            "file_type": attachment.fileType,
+                            "note_title": noteTitle,
+                            "document_type_label": attachment.documentType ?? extracted?.documentType ?? NSNull()
+                        ]
+                        if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
+                            let boosted = blendWithRecency(baseScore: s, metadata: metadata)
+                            results.append(SearchResult(
+                                documentType: .attachment,
+                                documentId: attachment.id.uuidString,
+                                title: "Attachment: \(attachment.fileName)",
+                                content: content,
+                                metadata: metadata,
+                                similarity: boosted
+                            ))
+                        }
+                    }
+                }
+            } catch {
+                print("⚠️ Keyword attachment search failed: \(error)")
+            }
+        }
+
         return results
     }
 
@@ -1827,46 +2083,43 @@ class VectorSearchService: ObservableObject {
         print("⚠️  NOTE: Embedding sync requires 'embeddings-proxy' edge function to be deployed")
         let startTime = Date()
         
-        // Sync each document type - COMPREHENSIVE coverage
-        
-        embeddingStatus = "Syncing notes..."
-        let notesCount = await syncNoteEmbeddings()
-        embeddingProgress = 0.12
+        let phases: [(status: String, run: () async -> Int)] = [
+            ("Syncing notes...", { await self.syncNoteEmbeddings() }),
+            ("Syncing emails...", { await self.syncEmailEmbeddings() }),
+            ("Syncing tasks...", { await self.syncTaskEmbeddings() }),
+            ("Syncing locations...", { await self.syncLocationEmbeddings() }),
+            ("Syncing receipts...", { await self.syncReceiptEmbeddings() }),
+            ("Syncing visits...", { await self.syncLocationVisitEmbeddings() }),
+            ("Syncing people...", { await self.syncPeopleEmbeddings() }),
+            ("Syncing recurring expenses...", { await self.syncRecurringExpenseEmbeddings() }),
+            ("Syncing attachments...", { await self.syncAttachmentEmbeddings() }),
+            ("Syncing trackers...", { await self.syncTrackerEmbeddings() }),
+            ("Syncing budgets...", { await self.syncBudgetEmbeddings() })
+        ]
 
-        embeddingStatus = "Syncing emails..."
-        let emailsCount = await syncEmailEmbeddings()
-        embeddingProgress = 0.24
-        
-        embeddingStatus = "Syncing tasks..."
-        let tasksCount = await syncTaskEmbeddings()
-        embeddingProgress = 0.40
-        
-        embeddingStatus = "Syncing locations..."
-        let locationsCount = await syncLocationEmbeddings()
-        embeddingProgress = 0.56
-        
-        embeddingStatus = "Syncing receipts..."
-        let receiptsCount = await syncReceiptEmbeddings()
-        embeddingProgress = 0.72
-        
-        embeddingStatus = "Syncing visits..."
-        let visitsCount = await syncLocationVisitEmbeddings()
-        embeddingProgress = 0.88
-        
-        embeddingStatus = "Syncing people..."
-        let peopleCount = await syncPeopleEmbeddings()
-        
+        var phaseCounts: [String: Int] = [:]
+
+        for (index, phase) in phases.enumerated() {
+            embeddingStatus = phase.status
+            phaseCounts[phase.status] = await phase.run()
+            embeddingProgress = Double(index + 1) / Double(phases.count)
+        }
+
         embeddingProgress = 1.0
         embeddingStatus = "Complete"
-        
-        let totalCount = notesCount + emailsCount + tasksCount + locationsCount + receiptsCount + visitsCount + peopleCount
+
+        let totalCount = phaseCounts.values.reduce(0, +)
         embeddingsCount = totalCount
         lastSyncTime = Date()
         hasCompletedFirstSync = true
-        
+
         let duration = Date().timeIntervalSince(startTime)
         print("✅ Embedding sync complete: \(totalCount) documents in \(String(format: "%.1f", duration))s")
-        print("   Notes: \(notesCount), Emails: \(emailsCount), Tasks: \(tasksCount), Locations: \(locationsCount), Receipts: \(receiptsCount), Visits: \(visitsCount), People: \(peopleCount)")
+        print(
+            """
+               Notes: \(phaseCounts["Syncing notes..."] ?? 0), Emails: \(phaseCounts["Syncing emails..."] ?? 0), Tasks: \(phaseCounts["Syncing tasks..."] ?? 0), Locations: \(phaseCounts["Syncing locations..."] ?? 0), Receipts: \(phaseCounts["Syncing receipts..."] ?? 0), Visits: \(phaseCounts["Syncing visits..."] ?? 0), People: \(phaseCounts["Syncing people..."] ?? 0), Recurring: \(phaseCounts["Syncing recurring expenses..."] ?? 0), Attachments: \(phaseCounts["Syncing attachments..."] ?? 0), Trackers: \(phaseCounts["Syncing trackers..."] ?? 0), Budgets: \(phaseCounts["Syncing budgets..."] ?? 0)
+            """
+        )
         
         // Log any potential issues
         if totalCount == 0 {
@@ -2455,11 +2708,37 @@ class VectorSearchService: ObservableObject {
     
     /// Sync location embeddings - ALL saved places (no date filter since locations don't expire)
     private func syncLocationEmbeddings() async -> Int {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return 0 }
         let locations = LocationsManager.shared.savedPlaces
         guard !locations.isEmpty else { return 0 }
 
         print("📍 Locations: Syncing all \(locations.count) saved places")
         let memories = await fetchAllMemories()
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let visitDateFormatter = DateFormatter()
+        visitDateFormatter.dateStyle = .medium
+        visitDateFormatter.timeStyle = .short
+
+        var visitsByPlaceId: [UUID: [LocationVisitRecord]] = [:]
+        var visitPeopleMap: [UUID: [Person]] = [:]
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .order("entry_time", ascending: false)
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            visitsByPlaceId = Dictionary(grouping: visits, by: \.savedPlaceId)
+            visitPeopleMap = await PeopleManager.shared.getPeopleForVisits(visitIds: visits.map(\.id))
+        } catch {
+            print("⚠️ Failed to load visit context for location embeddings: \(error)")
+        }
         
         let documents = locations.map { place -> [String: Any] in
             // Build comprehensive content for embedding
@@ -2525,6 +2804,56 @@ class VectorSearchService: ObservableObject {
             if !aliases.isEmpty {
                 content += "\nAliases: \(aliases.joined(separator: ", "))"
             }
+
+            let placeVisits = visitsByPlaceId[place.id] ?? []
+            let sortedVisits = placeVisits.sorted { $0.entryTime > $1.entryTime }
+            let lastVisit = sortedVisits.first?.entryTime
+            let notedVisits = sortedVisits.filter {
+                guard let notes = $0.visitNotes?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+                return !notes.isEmpty
+            }
+            let recentVisitNotes = notedVisits.prefix(3).compactMap { visit -> String? in
+                guard let notes = visit.visitNotes?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty else {
+                    return nil
+                }
+                return "\(visitDateFormatter.string(from: visit.entryTime)): \(notes)"
+            }
+
+            var peopleCounts: [UUID: (person: Person, count: Int)] = [:]
+            for visit in placeVisits {
+                for person in visitPeopleMap[visit.id] ?? [] {
+                    if let existing = peopleCounts[person.id] {
+                        peopleCounts[person.id] = (person: existing.person, count: existing.count + 1)
+                    } else {
+                        peopleCounts[person.id] = (person: person, count: 1)
+                    }
+                }
+            }
+            let frequentPeople = peopleCounts.values
+                .sorted {
+                    if $0.count == $1.count {
+                        return $0.person.name < $1.person.name
+                    }
+                    return $0.count > $1.count
+                }
+                .prefix(5)
+
+            if !placeVisits.isEmpty {
+                content += "\nVisit count: \(placeVisits.count)"
+            }
+            if let lastVisit {
+                content += "\nLast visited: \(visitDateFormatter.string(from: lastVisit))"
+            }
+            if !frequentPeople.isEmpty {
+                let peopleSummary = frequentPeople.map { "\($0.person.name) (\($0.count)x)" }.joined(separator: ", ")
+                content += "\nPeople often with me here: \(peopleSummary)"
+            }
+            if !recentVisitNotes.isEmpty {
+                content += "\nRecent visit reasons:"
+                for note in recentVisitNotes {
+                    content += "\n- \(note)"
+                }
+            }
             
             return [
                 "document_type": "location",
@@ -2543,14 +2872,18 @@ class VectorSearchService: ObservableObject {
                     "latitude": place.latitude,
                     "longitude": place.longitude,
                     "has_notes": place.userNotes != nil && !place.userNotes!.isEmpty,
-                    "aliases": aliases.isEmpty ? NSNull() : aliases
+                    "aliases": aliases.isEmpty ? NSNull() : aliases,
+                    "visit_count": placeVisits.count,
+                    "last_visit": lastVisit.map { iso.string(from: $0) } ?? NSNull(),
+                    "frequent_people": frequentPeople.isEmpty ? NSNull() : frequentPeople.map { $0.person.name },
+                    "frequent_people_ids": frequentPeople.isEmpty ? NSNull() : frequentPeople.map { $0.person.id.uuidString },
+                    "recent_visit_notes": recentVisitNotes.isEmpty ? NSNull() : recentVisitNotes
                 ] as [String: Any]
             ]
         }
         
         // Check which locations need embedding (content changed or new)
         do {
-            let userId = try await SupabaseManager.shared.authClient.session.user.id
             let ids = documents.compactMap { $0["document_id"] as? String }
             let hashes = documents.compactMap { doc -> Int64? in
                 guard let content = doc["content"] as? String else { return nil }
@@ -2710,6 +3043,43 @@ class VectorSearchService: ObservableObject {
         
         let response: CheckNeededResponse = try await makeRequest(body: requestBody)
         return response.needs_embedding
+    }
+
+    private func embedDocumentsIfNeeded(
+        _ documents: [[String: Any]],
+        type: String
+    ) async -> Int {
+        guard !documents.isEmpty else { return 0 }
+
+        do {
+            guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return 0 }
+
+            let ids = documents.compactMap { $0["document_id"] as? String }
+            let hashes: [Int64] = documents.compactMap { doc in
+                guard let content = doc["content"] as? String else { return nil }
+                return hashContent32BitDjb2(content)
+            }
+
+            let neededIds = try await checkDocumentsNeedingEmbedding(
+                userId: userId,
+                documentType: type,
+                documentIds: ids,
+                contentHashes: hashes
+            )
+
+            guard !neededIds.isEmpty else { return 0 }
+            let neededSet = Set(neededIds)
+            let docsToEmbed = documents.filter { doc in
+                guard let id = doc["document_id"] as? String else { return false }
+                return neededSet.contains(id)
+            }
+
+            guard !docsToEmbed.isEmpty else { return 0 }
+            return await batchEmbed(documents: docsToEmbed, type: type)
+        } catch {
+            print("❌ Error checking \(type) embeddings: \(error)")
+            return await batchEmbed(documents: documents, type: type)
+        }
     }
     
     private func normalizeWhitespace(_ text: String) -> String {
@@ -3207,6 +3577,354 @@ class VectorSearchService: ObservableObject {
             return await batchEmbed(documents: documents, type: "person")
         }
     }
+
+    private func syncRecurringExpenseEmbeddings() async -> Int {
+        do {
+            let expenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
+            guard !expenses.isEmpty else { return 0 }
+
+            let iso = ISO8601DateFormatter()
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .medium
+            dateFormatter.timeStyle = .none
+
+            let documents: [[String: Any]] = expenses.map { expense in
+                let monthlyEstimate = NSDecimalNumber(decimal: expense.yearlyAmount).doubleValue / 12.0
+                var content = """
+                Recurring Expense: \(expense.title)
+                Status: \(expense.statusBadge)
+                Amount: \(expense.formattedAmount)
+                Frequency: \(expense.frequency.rawValue)
+                Next occurrence: \(dateFormatter.string(from: expense.nextOccurrence))
+                Start date: \(dateFormatter.string(from: expense.startDate))
+                Reminder: \(expense.reminderOption.displayName)
+                Monthly estimate: \(CurrencyParser.formatAmount(monthlyEstimate))
+                """
+
+                if let description = expense.description, !description.isEmpty {
+                    content += "\nDescription: \(description)"
+                }
+                if let category = expense.category, !category.isEmpty {
+                    content += "\nCategory: \(category)"
+                }
+                if let endDate = expense.endDate {
+                    content += "\nEnd date: \(dateFormatter.string(from: endDate))"
+                }
+
+                return [
+                    "document_type": "recurring_expense",
+                    "document_id": expense.id.uuidString,
+                    "title": expense.title,
+                    "content": content,
+                    "metadata": [
+                        "title": expense.title,
+                        "amount": NSDecimalNumber(decimal: expense.amount).doubleValue,
+                        "category": expense.category ?? NSNull(),
+                        "frequency": expense.frequency.rawValue,
+                        "status": expense.statusBadge,
+                        "is_active": expense.isActive,
+                        "date": iso.string(from: expense.nextOccurrence),
+                        "next_occurrence": iso.string(from: expense.nextOccurrence),
+                        "start_date": iso.string(from: expense.startDate),
+                        "end_date": expense.endDate.map { iso.string(from: $0) } ?? NSNull(),
+                        "updated_at": iso.string(from: expense.updatedAt)
+                    ] as [String: Any]
+                ]
+            }
+
+            return await embedDocumentsIfNeeded(documents, type: "recurring_expense")
+        } catch {
+            print("❌ Error syncing recurring expense embeddings: \(error)")
+            return 0
+        }
+    }
+
+    private func syncAttachmentEmbeddings() async -> Int {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return 0 }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let attachmentRows: [AttachmentSupabaseData] = try await client
+                .from("attachments")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+                .value
+
+            let attachments = attachmentRows.compactMap(NoteAttachment.init(from:))
+            guard !attachments.isEmpty else { return 0 }
+
+            let extractedRows: [ExtractedDataSupabaseData] = try await client
+                .from("extracted_data")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+                .value
+
+            let extractedByAttachmentId = Dictionary(
+                uniqueKeysWithValues: extractedRows.compactMap { row -> (UUID, ExtractedData)? in
+                    guard let extracted = ExtractedData(from: row) else { return nil }
+                    return (extracted.attachmentId, extracted)
+                }
+            )
+            let notesById = Dictionary(uniqueKeysWithValues: NotesManager.shared.notes.map { ($0.id, $0) })
+            let iso = ISO8601DateFormatter()
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .medium
+            dateFormatter.timeStyle = .none
+
+            let documents: [[String: Any]] = attachments.map { attachment in
+                let note = notesById[attachment.noteId]
+                let extracted = extractedByAttachmentId[attachment.id]
+                let documentTypeLabel = attachment.documentType ?? extracted?.documentType ?? "document"
+
+                var content = """
+                Attachment: \(attachment.fileName)
+                File type: \(attachment.fileType)
+                Document type: \(documentTypeLabel)
+                Note: \(note?.title ?? "Unknown note")
+                Uploaded: \(dateFormatter.string(from: attachment.uploadedAt))
+                """
+
+                if let summary = extractedSummaryText(extracted), !summary.isEmpty {
+                    content += "\nSummary: \(summary)"
+                }
+                if let rawText = extracted?.rawText?.trimmingCharacters(in: .whitespacesAndNewlines), !rawText.isEmpty {
+                    content += "\nExtracted text:\n\(String(rawText.prefix(6000)))"
+                }
+
+                let documentDate = extracted?.updatedAt ?? attachment.updatedAt
+                return [
+                    "document_type": "attachment",
+                    "document_id": attachment.id.uuidString,
+                    "title": "Attachment: \(attachment.fileName)",
+                    "content": content,
+                    "metadata": [
+                        "file_name": attachment.fileName,
+                        "file_type": attachment.fileType,
+                        "document_type_label": documentTypeLabel,
+                        "note_id": attachment.noteId.uuidString,
+                        "note_title": note?.title ?? NSNull(),
+                        "date": iso.string(from: documentDate),
+                        "created_at": iso.string(from: attachment.createdAt),
+                        "updated_at": iso.string(from: documentDate),
+                        "has_extracted_text": extracted?.rawText?.isEmpty == false
+                    ] as [String: Any]
+                ]
+            }
+
+            return await embedDocumentsIfNeeded(documents, type: "attachment")
+        } catch {
+            print("❌ Error syncing attachment embeddings: \(error)")
+            return 0
+        }
+    }
+
+    private func syncTrackerEmbeddings() async -> Int {
+        let threads = TrackerStore.shared.threads
+        guard !threads.isEmpty else { return 0 }
+
+        let iso = ISO8601DateFormatter()
+        let documents: [[String: Any]] = threads.map { thread in
+            let sortedChanges = thread.memorySnapshot.changeLog.sorted { lhs, rhs in
+                if lhs.effectiveAt == rhs.effectiveAt {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhs.effectiveAt > rhs.effectiveAt
+            }
+            let latestEffectiveAt = sortedChanges.first?.effectiveAt ?? thread.updatedAt
+            let actors = Array(Set(sortedChanges.flatMap { $0.context?.actors ?? [] })).sorted()
+            let tags = Array(Set(sortedChanges.flatMap { $0.context?.tags ?? [] })).sorted()
+
+            var content = """
+            Tracker: \(thread.title)
+            Status: \(thread.status.rawValue)
+            Rules:
+            \(thread.memorySnapshot.normalizedRulesText)
+
+            Current summary:
+            \(thread.memorySnapshot.normalizedSummaryText)
+            """
+
+            if !thread.memorySnapshot.quickFacts.isEmpty {
+                content += "\nQuick facts: \(thread.memorySnapshot.quickFacts.joined(separator: " | "))"
+            }
+            if let cachedState = thread.cachedState {
+                content += "\nHeadline: \(cachedState.headline)"
+                if !cachedState.blockers.isEmpty {
+                    content += "\nBlockers: \(cachedState.blockers.joined(separator: ", "))"
+                }
+                if !cachedState.warnings.isEmpty {
+                    content += "\nWarnings: \(cachedState.warnings.joined(separator: ", "))"
+                }
+            }
+            if let notes = thread.memorySnapshot.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
+                content += "\nNotes: \(notes)"
+            }
+            if !sortedChanges.isEmpty {
+                content += "\nRecent changes:"
+                for change in sortedChanges.prefix(8) {
+                    content += "\n- \(formattedTrackerChangeLine(change))"
+                }
+            }
+
+            return [
+                "document_type": "tracker",
+                "document_id": thread.id.uuidString,
+                "title": thread.title,
+                "content": content,
+                "metadata": [
+                    "thread_title": thread.title,
+                    "status": thread.status.rawValue,
+                    "change_count": thread.memorySnapshot.changeLog.count,
+                    "date": iso.string(from: latestEffectiveAt),
+                    "effective_at": iso.string(from: latestEffectiveAt),
+                    "updated_at": iso.string(from: thread.updatedAt),
+                    "actors": actors.isEmpty ? NSNull() : actors,
+                    "tags": tags.isEmpty ? NSNull() : tags
+                ] as [String: Any]
+            ]
+        }
+
+        return await embedDocumentsIfNeeded(documents, type: "tracker")
+    }
+
+    private func syncBudgetEmbeddings() async -> Int {
+        let budgets = ExpenseBudgetService.shared.budgets
+        let reminders = ExpenseReminderService.shared.reminders
+        guard !budgets.isEmpty || !reminders.isEmpty else { return 0 }
+
+        let budgetService = ExpenseBudgetService.shared
+        let iso = ISO8601DateFormatter()
+        var documents: [[String: Any]] = []
+
+        for budget in budgets {
+            let status = budgetService.status(for: budget)
+            let content = """
+            Expense Budget: \(budget.name)
+            Period: \(budget.period.displayName)
+            Limit: \(CurrencyParser.formatAmount(budget.limit))
+            Current spend: \(CurrencyParser.formatAmount(status.spent))
+            Remaining: \(CurrencyParser.formatAmount(status.remaining))
+            Progress: \(Int(status.progress * 100))%
+            Active: \(budget.isActive ? "Yes" : "No")
+            """
+
+            documents.append([
+                "document_type": "budget",
+                "document_id": "budget_\(budget.id.uuidString)",
+                "title": "Budget: \(budget.name)",
+                "content": content,
+                "metadata": [
+                    "subtype": "budget",
+                    "name": budget.name,
+                    "period": budget.period.rawValue,
+                    "limit": budget.limit,
+                    "spent": status.spent,
+                    "remaining": status.remaining,
+                    "is_active": budget.isActive,
+                    "date": iso.string(from: budget.updatedAt),
+                    "updated_at": iso.string(from: budget.updatedAt)
+                ] as [String: Any]
+            ])
+        }
+
+        for reminder in reminders {
+            let schedule = String(format: "%02d:%02d", reminder.hour, reminder.minute)
+            var content = """
+            Expense Reminder: \(reminder.expenseName)
+            Frequency: \(reminder.frequency.displayName)
+            Scheduled time: \(schedule)
+            """
+
+            if let weekday = reminder.weekday {
+                content += "\nWeekday: \(weekday)"
+            }
+            if let dayOfMonth = reminder.dayOfMonth {
+                content += "\nDay of month: \(dayOfMonth)"
+            }
+
+            documents.append([
+                "document_type": "budget",
+                "document_id": "reminder_\(reminder.id.uuidString)",
+                "title": "Reminder: \(reminder.expenseName)",
+                "content": content,
+                "metadata": [
+                    "subtype": "reminder",
+                    "name": reminder.expenseName,
+                    "frequency": reminder.frequency.rawValue,
+                    "hour": reminder.hour,
+                    "minute": reminder.minute,
+                    "date": iso.string(from: reminder.updatedAt),
+                    "updated_at": iso.string(from: reminder.updatedAt)
+                ] as [String: Any]
+            ])
+        }
+
+        return await embedDocumentsIfNeeded(documents, type: "budget")
+    }
+
+    private func extractedSummaryText(_ extracted: ExtractedData?) -> String? {
+        guard let extracted else { return nil }
+        if let summary = extracted.extractedFields["summary"]?.value as? String {
+            return summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
+    }
+
+    private func formattedTrackerChangeLine(_ change: TrackerChange) -> String {
+        var fragments: [String] = []
+        let headline = change.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let headline, !headline.isEmpty {
+            fragments.append(headline)
+        }
+
+        let normalizedContent = change.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedContent.isEmpty && normalizedContent != (headline ?? "") {
+            fragments.append(normalizedContent)
+        }
+
+        if let context = change.context {
+            if !context.actors.isEmpty {
+                fragments.append("actors: \(context.actors.joined(separator: ", "))")
+            }
+            if let subject = context.subject, !subject.isEmpty {
+                fragments.append("subject: \(subject)")
+            }
+            if let amount = context.amount {
+                fragments.append("amount: \(formattedTrackerMetric(amount, unit: context.unit))")
+            }
+            if let resultingValue = context.resultingValue {
+                fragments.append("result: \(formattedTrackerMetric(resultingValue, unit: context.unit))")
+            }
+            if let periodLabel = context.periodLabel, !periodLabel.isEmpty {
+                fragments.append("period: \(periodLabel)")
+            }
+            if !context.tags.isEmpty {
+                fragments.append("tags: \(context.tags.joined(separator: ", "))")
+            }
+        }
+
+        return fragments.joined(separator: " | ")
+    }
+
+    private func formattedTrackerMetric(_ value: Double, unit: String?) -> String {
+        if let unit = unit?.trimmingCharacters(in: .whitespacesAndNewlines), !unit.isEmpty {
+            let lowered = unit.lowercased()
+            if lowered == "$" || lowered == "cad" || lowered == "usd" || lowered.contains("dollar") {
+                return CurrencyParser.formatAmount(value)
+            }
+            if unit == "%" {
+                return "\(String(format: "%.2f", value))%"
+            }
+            return "\(String(format: "%.2f", value)) \(unit)"
+        }
+
+        if value.rounded() == value {
+            return String(format: "%.0f", value)
+        }
+        return String(format: "%.2f", value)
+    }
     
     
     /// Batch embed documents
@@ -3304,6 +4022,7 @@ class VectorSearchService: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(SupabaseManager.shared.anonKey, forHTTPHeaderField: "apikey")
+        LLMDiagnostics.logEmbeddingRequest(body)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let maxAttempts = 3
@@ -3403,6 +4122,10 @@ class VectorSearchService: ObservableObject {
         case receipt = "receipt"
         case visit = "visit"
         case person = "person"
+        case recurringExpense = "recurring_expense"
+        case attachment = "attachment"
+        case tracker = "tracker"
+        case budget = "budget"
         
         var displayName: String {
             switch self {
@@ -3413,6 +4136,10 @@ class VectorSearchService: ObservableObject {
             case .receipt: return "Receipts"
             case .visit: return "Visits"
             case .person: return "People"
+            case .recurringExpense: return "Recurring Expenses"
+            case .attachment: return "Attachments"
+            case .tracker: return "Trackers"
+            case .budget: return "Budgets & Reminders"
             }
         }
     }

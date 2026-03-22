@@ -3,7 +3,8 @@ import SwiftUI
 struct SearchResultsView: View {
     let results: [SearchResult]
     let isSearching: Bool
-    @Binding var selectedTab: TabSelection
+    @Binding var selectedTab: PrimaryTab
+    var onOpenPlanInbox: (() -> Void)? = nil
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var searchService = SearchService.shared
 
@@ -36,7 +37,8 @@ struct SearchResultsView: View {
                     ForEach(results.prefix(5)) { result in
                         SearchResultRow(
                             result: result,
-                            selectedTab: $selectedTab
+                            selectedTab: $selectedTab,
+                            onOpenPlanInbox: onOpenPlanInbox
                         )
                     }
 
@@ -52,28 +54,33 @@ struct SearchResultsView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.05))
+                .fill(Color.clear)
         )
+        .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 10)
         .padding(.horizontal, 20)
-        .padding(.top, 4)
+        .padding(.top, 2)
     }
 }
 
 struct SearchResultRow: View {
     let result: SearchResult
-    @Binding var selectedTab: TabSelection
+    @Binding var selectedTab: PrimaryTab
+    var onOpenPlanInbox: (() -> Void)? = nil
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var searchService = SearchService.shared
 
     var body: some View {
         Button(action: {
-            // Navigate to the result's tab
-            selectedTab = result.item.type
+            if result.item.type == .plan, let onOpenPlanInbox {
+                onOpenPlanInbox()
+            } else if let destination = primaryTab(for: result.item.type) {
+                selectedTab = destination
+            }
             searchService.clearSearch()
         }) {
             HStack(spacing: 12) {
                 // Tab icon
-                Image(systemName: result.item.type.rawValue)
+                Image(systemName: result.item.type.systemImage)
                     .font(.shadcnTextSm)
                     .foregroundColor(tabColor)
                     .frame(width: 20, height: 20)
@@ -112,10 +119,7 @@ struct SearchResultRow: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.clear)
-            )
+            .searchResultsRowStyle(colorScheme: colorScheme, cornerRadius: 8)
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -124,14 +128,27 @@ struct SearchResultRow: View {
         switch result.item.type {
         case .home:
             return .gray
-        case .email:
-            return .red
-        case .events:
+        case .plan:
+            return .orange
+        case .search:
+            return .gray
+        case .chat:
             return .green
         case .notes:
             return .primary
         case .maps:
-            return .purple
+            return .blue
+        }
+    }
+
+    private func primaryTab(for destination: SearchDestination) -> PrimaryTab? {
+        switch destination {
+        case .home: return .home
+        case .search: return .search
+        case .chat: return .chat
+        case .notes: return .notes
+        case .maps: return .maps
+        case .plan: return nil
         }
     }
 }
@@ -142,7 +159,7 @@ struct SearchResultRow: View {
             item: SearchableItem(
                 title: "Important Email",
                 content: "This is a sample email content that matches the search query.",
-                type: .email,
+                type: .plan,
                 identifier: "email-1"
             ),
             relevanceScore: 3.0,
@@ -152,7 +169,7 @@ struct SearchResultRow: View {
             item: SearchableItem(
                 title: "Team Meeting",
                 content: "Weekly team sync meeting with the development team.",
-                type: .events,
+                type: .chat,
                 identifier: "event-1"
             ),
             relevanceScore: 2.5,

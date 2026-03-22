@@ -30,8 +30,10 @@ struct ReceiptStat: Identifiable, Hashable, Codable {
     init(from note: Note, year: Int? = nil, month: String? = nil, date: Date? = nil, category: String = "Other") {
         self.id = UUID()
         self.title = note.title
-        // Extract amount from note content (body text), fallback to title if content is empty
-        self.amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
+        let amountSource = [note.title, note.content]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        self.amount = CurrencyParser.extractAmount(from: amountSource)
         // Use provided date if available, otherwise use note.dateModified
         self.date = date ?? note.dateModified
         self.noteId = note.id

@@ -970,6 +970,11 @@ class GeminiService: ObservableObject {
                 "maxOutputTokens": request.max_tokens ?? GeminiService.defaultMaxOutputTokens
             ]
         ]
+        LLMDiagnostics.logLLMRequest(
+            operation: request.operation_type,
+            model: request.model,
+            payload: requestBody
+        )
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
@@ -1167,6 +1172,11 @@ class GeminiService: ObservableObject {
             // NOTE: google_search tool REMOVED - it causes the LLM to web-search
             // instead of using the provided app context data (receipts, visits, etc.)
         ]
+        LLMDiagnostics.logLLMRequest(
+            operation: operationType,
+            model: selectedModel,
+            payload: requestBody
+        )
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
@@ -1268,7 +1278,7 @@ class GeminiService: ObservableObject {
         return nil
     }
 
-    /// Simple chat completion (for SelineChat)
+    /// Simple chat completion helper for legacy/non-agent callers.
     func simpleChatCompletion(
         systemPrompt: String,
         messages: [[String: String]],
@@ -1318,7 +1328,7 @@ class GeminiService: ObservableObject {
         }
     }
 
-    /// Simple chat completion with streaming (for SelineChat)
+    /// Simple streaming chat completion helper for legacy/non-agent callers.
     func simpleChatCompletionStreaming(
         systemPrompt: String,
         messages: [[String: String]],

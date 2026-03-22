@@ -78,6 +78,43 @@ enum TrackerChangeType: String, CaseIterable, Hashable, Codable {
     case note
 }
 
+struct TrackerChangeContext: Codable, Hashable {
+    var actors: [String]
+    var relatedEntities: [String]
+    var subject: String?
+    var amount: Double?
+    var resultingValue: Double?
+    var unit: String?
+    var periodLabel: String?
+    var tags: [String]
+
+    init(
+        actors: [String] = [],
+        relatedEntities: [String] = [],
+        subject: String? = nil,
+        amount: Double? = nil,
+        resultingValue: Double? = nil,
+        unit: String? = nil,
+        periodLabel: String? = nil,
+        tags: [String] = []
+    ) {
+        self.actors = actors
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.relatedEntities = relatedEntities
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.subject = subject?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.amount = amount
+        self.resultingValue = resultingValue
+        self.unit = unit?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.periodLabel = periodLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.tags = tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+}
+
 struct TrackerChange: Identifiable, Codable, Hashable {
     var id: UUID
     var type: TrackerChangeType
@@ -86,6 +123,7 @@ struct TrackerChange: Identifiable, Codable, Hashable {
     var effectiveAt: Date
     var createdAt: Date
     var sourceMessageId: UUID?
+    var context: TrackerChangeContext?
 
     init(
         id: UUID = UUID(),
@@ -94,7 +132,8 @@ struct TrackerChange: Identifiable, Codable, Hashable {
         content: String,
         effectiveAt: Date = Date(),
         createdAt: Date = Date(),
-        sourceMessageId: UUID? = nil
+        sourceMessageId: UUID? = nil,
+        context: TrackerChangeContext? = nil
     ) {
         self.id = id
         self.type = type
@@ -103,6 +142,7 @@ struct TrackerChange: Identifiable, Codable, Hashable {
         self.effectiveAt = effectiveAt
         self.createdAt = createdAt
         self.sourceMessageId = sourceMessageId
+        self.context = context
     }
 }
 

@@ -15,6 +15,7 @@ class VisitStateManager: ObservableObject {
 
     private struct VisitDeletionSnapshot {
         let todaysVisits: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)]
+        let todayVisitTimeline: [HomeVisitTimelineItem]
         let selectedDayVisits: [LocationVisitRecord]
         let monthVisitCounts: [Date: Int]
         let selectedDayVisitContexts: [UUID: ProcessedVisitDisplayContext]
@@ -24,6 +25,7 @@ class VisitStateManager: ObservableObject {
 
     // Today's visits for home page widget
     @Published var todaysVisits: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)] = []
+    @Published var todayVisitTimeline: [HomeVisitTimelineItem] = []
 
     // Selected day visits for calendar detail view
     @Published var selectedDayVisits: [LocationVisitRecord] = []
@@ -43,6 +45,8 @@ class VisitStateManager: ObservableObject {
     private var selectedDayVisitContexts: [UUID: ProcessedVisitDisplayContext] = [:]
     private var latestSelectedDayRequest: Date?
     private var latestMonthRequest: Date?
+    private let peopleManager = PeopleManager.shared
+    private let locationsManager = LocationsManager.shared
 
     // MARK: - Initialization
 
@@ -86,13 +90,98 @@ class VisitStateManager: ObservableObject {
         isLoadingToday = true
         defer { isLoadingToday = false }
 
-        print("📊 [VisitStateManager] Fetching today's visits...")
+        let calendar = Calendar.current
+        let requestedDay = calendar.startOfDay(for: Date())
 
-        // Use the existing getTodaysVisitsWithDuration method
-        let visits = await LocationVisitAnalytics.shared.getTodaysVisitsWithDuration()
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            todaysVisits = []
+            todayVisitTimeline = []
+            return
+        }
 
-        todaysVisits = visits
-        print("📊 [VisitStateManager] Fetched \(visits.count) locations for today")
+        guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: requestedDay) else {
+            todaysVisits = []
+            todayVisitTimeline = []
+            return
+        }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .gte("entry_time", value: requestedDay.ISO8601Format())
+                .lt("entry_time", value: endOfDay.ISO8601Format())
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            let rawVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            let displayContexts = LocationVisitAnalytics.shared.buildDisplayContexts(for: rawVisits)
+            let processedVisits = displayContexts.map(\.displayedVisit)
+            let allPlaces = locationsManager.savedPlaces
+            let now = Date()
+
+            var placeAggregates: [UUID: (displayName: String, totalMinutes: Int, isActive: Bool, lastVisitTime: Date)] = [:]
+
+            for visit in processedVisits {
+                let placeId = visit.savedPlaceId
+                let displayName = allPlaces.first(where: { $0.id == placeId })?.displayName ?? "Unknown Location"
+                let isActive = visit.exitTime == nil
+
+                let visitStart = visit.entryTime
+                let visitEnd = visit.exitTime ?? now
+                let effectiveStart = max(visitStart, requestedDay)
+                let effectiveEnd = min(visitEnd, now)
+
+                var minutesInToday = 0
+                if effectiveStart < effectiveEnd {
+                    minutesInToday = Int(effectiveEnd.timeIntervalSince(effectiveStart) / 60)
+                }
+
+                if var existing = placeAggregates[placeId] {
+                    existing.totalMinutes += minutesInToday
+                    existing.isActive = existing.isActive || isActive
+                    if visit.entryTime > existing.lastVisitTime {
+                        existing.lastVisitTime = visit.entryTime
+                    }
+                    placeAggregates[placeId] = existing
+                } else {
+                    placeAggregates[placeId] = (displayName, minutesInToday, isActive, visit.entryTime)
+                }
+            }
+
+            let sortedAggregates = placeAggregates
+                .map { (placeId, aggregate) in
+                    (
+                        id: placeId,
+                        displayName: aggregate.displayName,
+                        totalDurationMinutes: aggregate.totalMinutes,
+                        isActive: aggregate.isActive,
+                        lastVisitTime: aggregate.lastVisitTime
+                    )
+                }
+                .sorted { lhs, rhs in
+                    if lhs.isActive != rhs.isActive {
+                        return lhs.isActive
+                    }
+                    return lhs.lastVisitTime > rhs.lastVisitTime
+                }
+
+            todaysVisits = sortedAggregates.map {
+                (
+                    id: $0.id,
+                    displayName: $0.displayName,
+                    totalDurationMinutes: $0.totalDurationMinutes,
+                    isActive: $0.isActive
+                )
+            }
+            todayVisitTimeline = await buildTodayVisitTimeline(from: displayContexts, places: allPlaces, now: now)
+            CacheManager.shared.set(todaysVisits, forKey: CacheManager.CacheKey.todaysVisits, ttl: CacheManager.TTL.short)
+        } catch {
+            todaysVisits = []
+            todayVisitTimeline = []
+        }
     }
 
     func fetchVisitsForDay(_ date: Date) async {
@@ -261,6 +350,7 @@ class VisitStateManager: ObservableObject {
 
         let snapshot = VisitDeletionSnapshot(
             todaysVisits: todaysVisits,
+            todayVisitTimeline: todayVisitTimeline,
             selectedDayVisits: selectedDayVisits,
             monthVisitCounts: monthVisitCounts,
             selectedDayVisitContexts: selectedDayVisitContexts
@@ -282,6 +372,7 @@ class VisitStateManager: ObservableObject {
                 await MainActor.run {
                     print("❌ [VisitStateManager] Failed remote delete, restoring local state")
                     todaysVisits = snapshot.todaysVisits
+                    todayVisitTimeline = snapshot.todayVisitTimeline
                     selectedDayVisits = snapshot.selectedDayVisits
                     monthVisitCounts = snapshot.monthVisitCounts
                     selectedDayVisitContexts = snapshot.selectedDayVisitContexts
@@ -313,6 +404,8 @@ class VisitStateManager: ObservableObject {
                     ?? Int((visit.exitTime ?? Date()).timeIntervalSince(visit.entryTime) / 60),
                 1
             )
+
+            todayVisitTimeline.removeAll { $0.visitId == visit.id }
 
             if let index = todaysVisits.firstIndex(where: { $0.id == visit.savedPlaceId }) {
                 var item = todaysVisits[index]
@@ -360,5 +453,64 @@ class VisitStateManager: ObservableObject {
 
     func refreshMonth(_ month: Date) async {
         await fetchVisitsForMonth(month)
+    }
+
+    private func buildTodayVisitTimeline(
+        from contexts: [ProcessedVisitDisplayContext],
+        places: [SavedPlace],
+        now: Date
+    ) async -> [HomeVisitTimelineItem] {
+        let visitIds = contexts.flatMap(\.sourceVisits).map(\.id)
+        let peopleByVisit = await peopleManager.getPeopleForVisits(visitIds: visitIds)
+        let uniquePlaces = Dictionary(uniqueKeysWithValues: places.map { ($0.id, $0) })
+
+        return contexts
+            .sorted { $0.displayedVisit.entryTime < $1.displayedVisit.entryTime }
+            .map { context in
+                let visit = context.displayedVisit
+                let place = uniquePlaces[visit.savedPlaceId]
+                let mergedNotes = mergedVisitNotes(for: context.sourceVisits)
+                let peopleNames = mergedPeopleNames(for: context.sourceVisits, peopleByVisit: peopleByVisit)
+                let endTime = visit.exitTime
+                let duration = max(
+                    visit.durationMinutes
+                        ?? Int((endTime ?? now).timeIntervalSince(visit.entryTime) / 60),
+                    1
+                )
+
+                return HomeVisitTimelineItem(
+                    visitId: visit.id,
+                    placeId: visit.savedPlaceId,
+                    displayName: place?.displayName ?? "Unknown Location",
+                    address: place?.address,
+                    entryTime: visit.entryTime,
+                    exitTime: endTime,
+                    durationMinutes: duration,
+                    isActive: endTime == nil,
+                    notes: mergedNotes,
+                    peopleNames: peopleNames
+                )
+            }
+    }
+
+    private func mergedVisitNotes(for visits: [LocationVisitRecord]) -> String? {
+        let notes = visits
+            .compactMap { $0.visitNotes?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !notes.isEmpty else { return nil }
+        return Array(NSOrderedSet(array: notes)).compactMap { $0 as? String }.joined(separator: " • ")
+    }
+
+    private func mergedPeopleNames(
+        for visits: [LocationVisitRecord],
+        peopleByVisit: [UUID: [Person]]
+    ) -> [String] {
+        let names = visits
+            .flatMap { peopleByVisit[$0.id] ?? [] }
+            .map(\.displayName)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+        return Array(NSOrderedSet(array: names)).compactMap { $0 as? String }
     }
 }

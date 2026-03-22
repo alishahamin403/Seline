@@ -20,79 +20,88 @@ struct PersonDetailSheet: View {
     @State private var selectedVisitPlaceId: UUID? = nil
 
     private var primaryTextColor: Color {
-        colorScheme == .dark ? .white : .black
+        Color.appTextPrimary(colorScheme)
     }
 
     private var secondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.66) : Color.black.opacity(0.64)
+        Color.appTextSecondary(colorScheme)
     }
 
     private var tertiaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.48)
+        Color.appTextSecondary(colorScheme).opacity(0.72)
     }
 
     private var cardFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.white
+        Color.appSurface(colorScheme)
     }
 
     private var cardBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)
+        Color.appBorder(colorScheme)
+    }
+
+    private var detailHeroSummary: String {
+        "Places, visits, receipts, and notes connected to \(person.displayName) stay organized in one calm view."
+    }
+
+    private var hasPersonalAttributes: Bool {
+        person.birthday != nil
+            || !(person.favouriteFood ?? "").isEmpty
+            || !(person.favouriteGift ?? "").isEmpty
+            || !(person.favouriteColor ?? "").isEmpty
+            || !(person.interests ?? []).isEmpty
     }
     
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
-                topActionBar
+        ZStack {
+            AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .topLeading)
 
-                // Header with avatar and basic info
-                headerSection
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    topActionBar
+                    headerSection
 
-                if !isLoadingStats {
-                    statsOverviewCard
+                    if !isLoadingStats {
+                        statsOverviewCard
+                    }
+
+                    if hasPersonalAttributes {
+                        personalAttributesSection
+                    }
+
+                    if hasContactInfo {
+                        contactInfoSection
+                    }
+
+                    if !favouritePlaceIds.isEmpty {
+                        favouritePlacesSection
+                    }
+
+                    if visitCount > 0 {
+                        recentVisitsSection
+                    }
+
+                    if receiptCount > 0 {
+                        receiptsSection
+                    }
+
+                    if let notes = person.notes, !notes.isEmpty {
+                        notesSection(notes: notes)
+                    }
+
+                    if let howWeMet = person.howWeMet, !howWeMet.isEmpty {
+                        howWeMetSection(text: howWeMet)
+                    }
+
+                    deleteButton
+
+                    Spacer().frame(height: 24)
                 }
-
-                // Personal attributes section
-                personalAttributesSection
-
-                // Contact info section
-                if hasContactInfo {
-                    contactInfoSection
-                }
-
-                // Favourite places section
-                if !favouritePlaceIds.isEmpty {
-                    favouritePlacesSection
-                }
-
-                // Recent visits together section
-                if visitCount > 0 {
-                    recentVisitsSection
-                }
-
-                // Receipts together section
-                if receiptCount > 0 {
-                    receiptsSection
-                }
-
-                // Notes section
-                if let notes = person.notes, !notes.isEmpty {
-                    notesSection(notes: notes)
-                }
-
-                // How we met section
-                if let howWeMet = person.howWeMet, !howWeMet.isEmpty {
-                    howWeMetSection(text: howWeMet)
-                }
-
-                // Delete button
-                deleteButton
-
-                Spacer().frame(height: 24)
+                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.top, 12)
+                .padding(.bottom, 20)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
+            .selinePrimaryPageScroll()
         }
-        .background(colorScheme == .dark ? Color.black : Color(uiColor: .systemGroupedBackground))
         .task {
             await loadStats()
         }
@@ -128,106 +137,143 @@ struct PersonDetailSheet: View {
 
     private var topActionBar: some View {
         HStack(spacing: 12) {
-            topPillButton(title: "Close") {
+            topPillButton(title: "Close", systemImage: "xmark") {
                 onDismiss()
             }
 
             Spacer(minLength: 10)
 
-            topPillButton(title: "Edit") {
+            topPillButton(title: "Edit", systemImage: "pencil") {
                 showingEditSheet = true
             }
         }
     }
 
-    private func topPillButton(title: String, action: @escaping () -> Void) -> some View {
+    private func topPillButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(FontManager.geist(size: 15, weight: .semibold))
-                .foregroundColor(primaryTextColor)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 10)
-                .background(
-                    Capsule()
-                        .fill(cardFillColor)
-                )
-                .overlay(
-                    Capsule()
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text(title)
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+            }
+            .foregroundColor(primaryTextColor)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .fill(Color.appChip(colorScheme))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(cardBorderColor, lineWidth: 1)
+            )
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
     }
     
     // MARK: - Header Section
     
     private var headerSection: some View {
-        VStack(spacing: 16) {
-            // Avatar
-            ZStack {
-                if let photoURL = person.photoURL, !photoURL.isEmpty {
-                    CachedAsyncImage(url: photoURL) { image in
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        initialsAvatar(size: 100)
-                    }
-                    .frame(width: 100, height: 100)
-                    .clipShape(Circle())
-                } else {
-                    initialsAvatar(size: 100)
-                }
-            }
-            .overlay(
-                Circle()
-                    .stroke(cardBorderColor, lineWidth: 1.2)
-            )
-            
-            // Name and relationship
-            VStack(spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(person.name)
-                        .font(FontManager.geist(size: 33, weight: .bold))
-                        .foregroundColor(primaryTextColor)
-                    
-                    if person.isFavourite {
-                        Image(systemName: "star.fill")
-                            .font(FontManager.geist(size: 15, weight: .semibold))
-                            .foregroundColor(.yellow)
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .center, spacing: 16) {
+                ZStack {
+                    if let photoURL = person.photoURL, !photoURL.isEmpty {
+                        CachedAsyncImage(url: photoURL) { image in
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            initialsAvatar(size: 92)
+                        }
+                        .frame(width: 92, height: 92)
+                        .clipShape(Circle())
+                    } else {
+                        initialsAvatar(size: 92)
                     }
                 }
-                
-                if let nickname = person.nickname, !nickname.isEmpty, nickname != person.name {
-                    Text("\"\(nickname)\"")
-                        .font(FontManager.geist(size: 17, weight: .regular))
-                        .foregroundColor(secondaryTextColor)
-                        .italic()
-                }
-                
-                HStack(spacing: 6) {
-                    Image(systemName: person.relationship.icon)
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                    Text(person.relationshipDisplayText)
-                        .font(FontManager.geist(size: 14, weight: .medium))
-                }
-                .foregroundColor(secondaryTextColor)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 7)
-                .background(
-                    Capsule()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.06))
-                )
                 .overlay(
-                    Capsule()
-                        .stroke(cardBorderColor, lineWidth: 0.8)
+                    Circle()
+                        .stroke(cardBorderColor, lineWidth: 1.2)
                 )
+                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.22 : 0.08), radius: 16, x: 0, y: 8)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(person.relationshipDisplayText.uppercased())
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(secondaryTextColor)
+                        .tracking(1.4)
+
+                    HStack(spacing: 8) {
+                        Text(person.name)
+                            .font(FontManager.geist(size: 30, weight: .semibold))
+                            .foregroundColor(primaryTextColor)
+                            .lineLimit(2)
+
+                        if person.isFavourite {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.black)
+                                .frame(width: 28, height: 28)
+                                .background(
+                                    Circle()
+                                        .fill(Color.homeGlassAccent)
+                                )
+                        }
+                    }
+
+                    if let nickname = person.nickname, !nickname.isEmpty, nickname != person.name {
+                        Text("\"\(nickname)\"")
+                            .font(FontManager.geist(size: 16, weight: .regular))
+                            .foregroundColor(secondaryTextColor)
+                            .italic()
+                    }
+
+                    Text(detailHeroSummary)
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(secondaryTextColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                heroMetaChip(icon: person.relationship.icon, title: person.relationshipDisplayText)
+
+                if let birthday = person.formattedBirthday {
+                    heroMetaChip(icon: "gift.fill", title: birthday)
+                }
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 20)
-        .padding(.horizontal, 14)
-        .background(sectionCardBackground(cornerRadius: 20))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 22)
+        .padding(.horizontal, 18)
+        .background(sectionCardBackground(cornerRadius: 28))
+    }
+
+    private func heroMetaChip(icon: String, title: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(secondaryTextColor)
+
+            Text(title)
+                .font(FontManager.geist(size: 13, weight: .medium))
+                .foregroundColor(primaryTextColor)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            Capsule()
+                .fill(Color.appChip(colorScheme))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+        )
     }
 
     private var statsOverviewCard: some View {
@@ -237,14 +283,14 @@ struct PersonDetailSheet: View {
             statTile(count: favouritePlaceIds.count, label: "Places", icon: "heart")
         }
         .padding(10)
-        .background(sectionCardBackground(cornerRadius: 16))
+        .background(sectionCardBackground(cornerRadius: 22))
     }
 
     private func statTile(count: Int, label: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(secondaryTextColor)
 
                 Text(label)
@@ -254,16 +300,20 @@ struct PersonDetailSheet: View {
             }
 
             Text("\(count)")
-                .font(FontManager.geist(size: 24, weight: .bold))
+                .font(FontManager.geist(size: 28, weight: .semibold))
                 .foregroundColor(primaryTextColor)
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.appInnerSurface(colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.appBorder(colorScheme), lineWidth: 1)
         )
     }
     
@@ -273,7 +323,7 @@ struct PersonDetailSheet: View {
             .frame(width: size, height: size)
             .overlay(
                 Text(person.initials)
-                    .font(FontManager.geist(size: size * 0.4, weight: .semibold))
+                    .font(FontManager.geist(size: size * 0.36, weight: .semibold))
                     .foregroundColor(.white)
             )
     }
@@ -314,7 +364,7 @@ struct PersonDetailSheet: View {
                     attributeRow(icon: "heart.fill", title: "Interests", value: interests.joined(separator: ", "), iconColor: secondaryTextColor)
                 }
             }
-            .background(sectionCardBackground(cornerRadius: 16))
+            .background(sectionCardBackground(cornerRadius: 22))
         }
     }
     
@@ -357,7 +407,7 @@ struct PersonDetailSheet: View {
                     contactRow(icon: "link", value: linkedIn, action: { openLinkedIn(linkedIn) }, iconColor: secondaryTextColor)
                 }
             }
-            .background(sectionCardBackground(cornerRadius: 16))
+            .background(sectionCardBackground(cornerRadius: 22))
         }
     }
     
@@ -399,11 +449,11 @@ struct PersonDetailSheet: View {
                     .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(tertiaryTextColor)
             }
-            .padding(12)
-            .frame(width: 220, alignment: .leading)
-            .background(sectionCardBackground(cornerRadius: 14))
+            .padding(14)
+            .frame(width: 228, alignment: .leading)
+            .background(sectionCardBackground(cornerRadius: 18))
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
     }
     
     // MARK: - Recent Visits Section
@@ -426,7 +476,7 @@ struct PersonDetailSheet: View {
                     }
                 }
             }
-            .background(sectionCardBackground(cornerRadius: 16))
+            .background(sectionCardBackground(cornerRadius: 22))
         }
     }
     
@@ -439,13 +489,13 @@ struct PersonDetailSheet: View {
         }) {
             HStack(spacing: 12) {
                 ZStack {
-                    Circle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.appChip(colorScheme))
                     Image(systemName: "mappin")
                         .font(FontManager.geist(size: 13, weight: .semibold))
                         .foregroundColor(secondaryTextColor)
                 }
-                .frame(width: 30, height: 30)
+                .frame(width: 34, height: 34)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(visitItem.placeName)
@@ -477,13 +527,13 @@ struct PersonDetailSheet: View {
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
+                Image(systemName: "arrow.up.right")
                     .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(tertiaryTextColor)
             }
-            .padding(12)
+            .padding(14)
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
     }
     
     // MARK: - Receipts Section
@@ -506,20 +556,20 @@ struct PersonDetailSheet: View {
                     }
                 }
             }
-            .background(sectionCardBackground(cornerRadius: 16))
+            .background(sectionCardBackground(cornerRadius: 22))
         }
     }
     
     private func receiptRow(receiptId: UUID) -> some View {
         HStack(spacing: 12) {
             ZStack {
-                Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.appChip(colorScheme))
                 Image(systemName: "receipt")
                     .font(FontManager.geist(size: 13, weight: .semibold))
                     .foregroundColor(secondaryTextColor)
             }
-            .frame(width: 30, height: 30)
+            .frame(width: 34, height: 34)
             
             Text("Receipt \(receiptId.uuidString.prefix(8))...")
                 .font(FontManager.geist(size: 14, weight: .regular))
@@ -527,11 +577,11 @@ struct PersonDetailSheet: View {
             
             Spacer()
             
-            Image(systemName: "chevron.right")
+            Image(systemName: "arrow.up.right")
                 .font(FontManager.geist(size: 12, weight: .medium))
                 .foregroundColor(tertiaryTextColor)
         }
-        .padding(12)
+        .padding(14)
     }
     
     // MARK: - Notes Section
@@ -543,9 +593,9 @@ struct PersonDetailSheet: View {
             Text(notes)
                 .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(primaryTextColor)
-                .padding(12)
+                .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(sectionCardBackground(cornerRadius: 16))
+                .background(sectionCardBackground(cornerRadius: 22))
         }
     }
     
@@ -558,9 +608,9 @@ struct PersonDetailSheet: View {
             Text(text)
                 .font(FontManager.geist(size: 14, weight: .regular))
                 .foregroundColor(primaryTextColor)
-                .padding(12)
+                .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(sectionCardBackground(cornerRadius: 16))
+                .background(sectionCardBackground(cornerRadius: 22))
         }
     }
     
@@ -576,17 +626,17 @@ struct PersonDetailSheet: View {
             }
             .font(FontManager.geist(size: 14, weight: .medium))
             .foregroundColor(.red)
-            .padding(.vertical, 12)
+            .padding(.vertical, 14)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 18)
                     .fill(colorScheme == .dark ? Color.red.opacity(0.12) : Color.red.opacity(0.08))
             )
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.red.opacity(colorScheme == .dark ? 0.35 : 0.25), lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.red.opacity(colorScheme == .dark ? 0.35 : 0.22), lineWidth: 1)
         )
         .padding(.top, 6)
     }
@@ -597,17 +647,17 @@ struct PersonDetailSheet: View {
         HStack(spacing: 8) {
             ZStack {
                 Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                    .fill(Color.appChip(colorScheme))
                 Image(systemName: icon)
                     .font(FontManager.geist(size: 10, weight: .semibold))
                     .foregroundColor(secondaryTextColor)
             }
-            .frame(width: 20, height: 20)
+            .frame(width: 24, height: 24)
 
             Text(title)
                 .font(FontManager.geist(size: 13, weight: .semibold))
                 .textCase(.uppercase)
-                .tracking(0.55)
+                .tracking(1.1)
         }
         .foregroundColor(secondaryTextColor)
     }
@@ -617,16 +667,27 @@ struct PersonDetailSheet: View {
             .fill(cardFillColor)
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(cardBorderColor, lineWidth: 0.8)
+                    .stroke(cardBorderColor, lineWidth: 1)
+            )
+            .shadow(
+                color: colorScheme == .dark ? .black.opacity(0.18) : Color.black.opacity(0.05),
+                radius: colorScheme == .dark ? 10 : 16,
+                x: 0,
+                y: colorScheme == .dark ? 6 : 10
             )
     }
     
     private func attributeRow(icon: String, title: String, value: String, iconColor: Color) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(FontManager.geist(size: 14, weight: .medium))
-                .foregroundColor(iconColor)
-                .frame(width: 24)
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.appChip(colorScheme))
+
+                Image(systemName: icon)
+                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .foregroundColor(iconColor)
+            }
+            .frame(width: 34, height: 34)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -641,16 +702,21 @@ struct PersonDetailSheet: View {
             
             Spacer()
         }
-        .padding(12)
+        .padding(14)
     }
     
     private func contactRow(icon: String, value: String, action: @escaping () -> Void, iconColor: Color) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(FontManager.geist(size: 16, weight: .medium))
-                    .foregroundColor(iconColor)
-                    .frame(width: 24)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.appChip(colorScheme))
+
+                    Image(systemName: icon)
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .foregroundColor(iconColor)
+                }
+                .frame(width: 34, height: 34)
                 
                 Text(value)
                     .font(FontManager.geist(size: 14, weight: .medium))
@@ -662,15 +728,15 @@ struct PersonDetailSheet: View {
                     .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(tertiaryTextColor)
             }
-            .padding(12)
+            .padding(14)
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
     }
     
     private var divider: some View {
         Divider()
-            .overlay(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08))
-            .padding(.leading, 48)
+            .overlay(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.7 : 0.95))
+            .padding(.leading, 60)
     }
     
     // MARK: - Actions

@@ -62,6 +62,12 @@ enum FormatterCache {
         return formatter
     }()
 
+    static let shortMonthDay: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
     static let weekdayFull: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE"

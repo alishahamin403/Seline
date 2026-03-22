@@ -249,14 +249,56 @@ class MarkdownParser {
             }
         }
 
-        // Process text character by character to handle **bold** and *italic*
+        func attributesForCurrentState(
+            bold: Bool,
+            italic: Bool,
+            strikethrough: Bool
+        ) -> [NSAttributedString.Key: Any] {
+            var attributes: [NSAttributedString.Key: Any] = [
+                .font: getFont(bold: bold, italic: italic),
+                .foregroundColor: textColor
+            ]
+
+            if strikethrough {
+                attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+                attributes[.strikethroughColor] = textColor
+            }
+
+            return attributes
+        }
+
+        // Process text character by character to handle **bold**, *italic*, and ~~strikethrough~~
         var index = currentText.startIndex
         var buffer = ""
         var isBold = false
         var isItalic = false
+        var isStrikethrough = false
 
         while index < currentText.endIndex {
             let char = currentText[index]
+
+            if char == "~" {
+                let nextIndex = currentText.index(after: index)
+                if nextIndex < currentText.endIndex && currentText[nextIndex] == "~" {
+                    if !buffer.isEmpty {
+                        attributedString.append(
+                            NSAttributedString(
+                                string: buffer,
+                                attributes: attributesForCurrentState(
+                                    bold: isBold,
+                                    italic: isItalic,
+                                    strikethrough: isStrikethrough
+                                )
+                            )
+                        )
+                        buffer = ""
+                    }
+
+                    isStrikethrough.toggle()
+                    index = currentText.index(after: nextIndex)
+                    continue
+                }
+            }
 
             if char == "*" {
                 // Check for ** (bold)
@@ -265,11 +307,16 @@ class MarkdownParser {
                     // Found **
                     // Add current buffer with current formatting
                     if !buffer.isEmpty {
-                        let attrs: [NSAttributedString.Key: Any] = [
-                            .font: getFont(bold: isBold, italic: isItalic),
-                            .foregroundColor: textColor
-                        ]
-                        attributedString.append(NSAttributedString(string: buffer, attributes: attrs))
+                        attributedString.append(
+                            NSAttributedString(
+                                string: buffer,
+                                attributes: attributesForCurrentState(
+                                    bold: isBold,
+                                    italic: isItalic,
+                                    strikethrough: isStrikethrough
+                                )
+                            )
+                        )
                         buffer = ""
                     }
 
@@ -281,11 +328,16 @@ class MarkdownParser {
                     // Found single * (italic)
                     // Add current buffer with current formatting
                     if !buffer.isEmpty {
-                        let attrs: [NSAttributedString.Key: Any] = [
-                            .font: getFont(bold: isBold, italic: isItalic),
-                            .foregroundColor: textColor
-                        ]
-                        attributedString.append(NSAttributedString(string: buffer, attributes: attrs))
+                        attributedString.append(
+                            NSAttributedString(
+                                string: buffer,
+                                attributes: attributesForCurrentState(
+                                    bold: isBold,
+                                    italic: isItalic,
+                                    strikethrough: isStrikethrough
+                                )
+                            )
+                        )
                         buffer = ""
                     }
 
@@ -303,11 +355,16 @@ class MarkdownParser {
 
         // Add remaining buffer with current formatting
         if !buffer.isEmpty {
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: getFont(bold: isBold, italic: isItalic),
-                .foregroundColor: textColor
-            ]
-            attributedString.append(NSAttributedString(string: buffer, attributes: attrs))
+            attributedString.append(
+                NSAttributedString(
+                    string: buffer,
+                    attributes: attributesForCurrentState(
+                        bold: isBold,
+                        italic: isItalic,
+                        strikethrough: isStrikethrough
+                    )
+                )
+            )
         }
 
         // If nothing was added, use the original text

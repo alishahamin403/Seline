@@ -241,7 +241,7 @@ class LocationBackgroundValidationService {
         NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
         
         // Refresh widgets
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "background_validation_visit_created")
     }
 
     // MARK: - Validation Logic

@@ -11,12 +11,14 @@ struct WeatherWidget: View {
 
     var isVisible: Bool = true // Controls whether to fetch data
 
-    @State private var currentTime = Date()
     @State private var locationPreferences: UserLocationPreferences?
-    @State private var timer: Timer? // Manual timer that we can start/stop
     @State private var lastWeatherFetch: Date? // Track last fetch
     @State private var lastETAFingerprint: String?
     @State private var lastETARefreshAt: Date = .distantPast
+    @State private var refreshTask: Task<Void, Never>?
+    @State private var pendingForceWeather = false
+    @State private var pendingForceETAs = false
+    @State private var pendingRefreshReason = "initial"
 
     private var currentWeather: WeatherData? {
         weatherService.weatherData
@@ -163,23 +165,22 @@ struct WeatherWidget: View {
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {
             case .active:
-                refreshVisibleContent(forceWeather: false, forceETAs: false, reason: "scene_active")
+                scheduleRefreshVisibleContent(forceWeather: false, forceETAs: false, reason: "scene_active")
             case .background, .inactive:
-                // App went to background - stop timer
-                stopWeatherTimer()
+                cancelRefreshTask()
             @unknown default:
                 break
             }
         }
         .task {
             guard isVisible else { return }
-            refreshVisibleContent(forceWeather: false, forceETAs: false, reason: "initial_task")
+            scheduleRefreshVisibleContent(forceWeather: false, forceETAs: false, reason: "initial_task")
         }
         .onChange(of: isVisible) { visible in
             if visible {
-                refreshVisibleContent(forceWeather: false, forceETAs: false, reason: "visibility")
+                scheduleRefreshVisibleContent(forceWeather: false, forceETAs: false, reason: "visibility")
             } else {
-                // When becoming invisible, stop location updates
+                cancelRefreshTask()
                 locationService.stopLocationUpdates()
             }
         }
@@ -187,12 +188,15 @@ struct WeatherWidget: View {
             guard isVisible else { return }
 
             if location != nil {
-                refreshVisibleContent(forceWeather: false, forceETAs: false, reason: "location_change")
+                scheduleRefreshVisibleContent(forceWeather: false, forceETAs: false, reason: "location_change")
             }
         }
         .onChange(of: locationPreferences) { _ in
             guard isVisible else { return }
-            refreshVisibleContent(forceWeather: false, forceETAs: true, reason: "preferences_change")
+            scheduleRefreshVisibleContent(forceWeather: false, forceETAs: true, reason: "preferences_change")
+        }
+        .onDisappear {
+            cancelRefreshTask()
         }
     }
 
@@ -382,23 +386,38 @@ struct WeatherWidget: View {
         return "\(originLatitude),\(originLongitude)::\(destinations)"
     }
 
-    private func refreshVisibleContent(
+    private func scheduleRefreshVisibleContent(
         forceWeather: Bool,
         forceETAs: Bool,
         reason: String
     ) {
         guard isVisible else { return }
 
-        Task {
+        pendingForceWeather = pendingForceWeather || forceWeather
+        pendingForceETAs = pendingForceETAs || forceETAs
+        pendingRefreshReason = reason
+        refreshTask?.cancel()
+
+        refreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled, isVisible else { return }
+
+            let shouldForceWeather = pendingForceWeather
+            let shouldForceETAs = pendingForceETAs
+            let refreshReason = pendingRefreshReason
+            pendingForceWeather = false
+            pendingForceETAs = false
+
             locationService.requestLocationPermission()
             await loadLocationPreferences(force: false)
 
             if let location = locationService.currentLocation {
-                await weatherService.fetchWeather(for: location, forceRefresh: forceWeather)
+                await weatherService.fetchWeather(for: location, forceRefresh: shouldForceWeather)
                 lastWeatherFetch = Date()
             }
 
-            await updateETAs(force: forceETAs, reason: reason)
+            guard !Task.isCancelled else { return }
+            await updateETAs(force: shouldForceETAs, reason: refreshReason)
         }
     }
 
@@ -436,12 +455,11 @@ struct WeatherWidget: View {
         }
     }
 
-    // MARK: - Weather Timer Management (REMOVED - Manual refresh only)
-
-    private func stopWeatherTimer() {
-        timer?.invalidate()
-        timer = nil
-        print("🛑 WeatherWidget: Timer stopped")
+    private func cancelRefreshTask() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        pendingForceWeather = false
+        pendingForceETAs = false
     }
 
     private func refreshWeatherIfNeeded() {
@@ -454,7 +472,7 @@ struct WeatherWidget: View {
             return
         }
 
-        refreshVisibleContent(forceWeather: false, forceETAs: false, reason: "weather_if_needed")
+        scheduleRefreshVisibleContent(forceWeather: false, forceETAs: false, reason: "weather_if_needed")
     }
 }
 

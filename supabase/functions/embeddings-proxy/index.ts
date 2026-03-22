@@ -2,7 +2,9 @@
  * Embeddings Proxy Edge Function
  *
  * Generates vector embeddings using OpenAI's text-embedding-3-small model.
- * This is used for semantic search across notes, emails, tasks, locations, receipts, visits, and people.
+ * This is used for semantic search across app data such as notes, emails, tasks,
+ * locations, receipts, visits, people, trackers, attachments, recurring expenses,
+ * and other user-defined document types.
  *
  * Features:
  * - Batch embedding generation (up to 2048 texts at once)
@@ -29,7 +31,7 @@ const queryEmbeddingCache = new Map<string, number[]>()
 interface EmbeddingRequest {
     action: 'embed' | 'search' | 'batch_embed' | 'check_needed'
     // For 'embed' action
-    document_type?: 'note' | 'email' | 'task' | 'location' | 'receipt' | 'visit' | 'person'
+    document_type?: string
     document_id?: string
     title?: string
     content?: string
@@ -43,7 +45,7 @@ interface EmbeddingRequest {
     date_range_end?: string // ISO8601 date string
     // For 'batch_embed' action
     documents?: Array<{
-        document_type: 'note' | 'email' | 'task' | 'location' | 'receipt' | 'visit' | 'person'
+        document_type: string
         document_id: string
         title?: string
         content: string
@@ -560,6 +562,9 @@ function extractDateFromMetadata(metadata: any, documentType: string): Date | nu
     const dateFields = [
         'entry_time',      // visits
         'date',            // receipts, notes
+        'effective_at',    // tracker changes
+        'next_occurrence', // recurring expenses
+        'start_date',      // recurring expenses
         'start',           // tasks
         'scheduled_time',  // tasks
         'target_date',     // tasks

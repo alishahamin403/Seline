@@ -65,38 +65,31 @@ class SearchService: ObservableObject {
 
     // Streaming response support
     @Published var enableStreamingResponses: Bool = true  // Toggle for streaming vs non-streaming
-    private var streamingMessageID: UUID? = nil
 
-    // NEW: SelineChat integration flag
-    @Published var useSelineChat: Bool = true  // Use new simplified chat system
-    private var selineChat: SelineChat? = nil
-
-    // DEPRECATED: Semantic query system removed - SelineChat handles all queries directly
-    // @Published var useSemanticQueryFallback: Bool = false
-    // NOTE: Semantic query system is being phased out in favor of simpler SelineChat approach
-    // Reason: Semantic query parsing is complex, error-prone, and the LLM can handle all logic directly
-
-    /// DEPRECATED: Semantic query system removed
-    // func disableSemanticQuerySystem() {
-    //     useSemanticQueryFallback = false
-    // }
+    private let chatAgent = ChatAgentService.shared
+    private var currentConversationAnchorState: ConversationAnchorState?
 
     // Track recently created items for context in follow-up actions
     private var lastCreatedEventTitle: String? = nil
     private var lastCreatedEventDate: String? = nil
     private var lastCreatedNoteTitle: String? = nil
 
-    private var searchableProviders: [TabSelection: Searchable] = [:]
+    private var searchableProviders: [SearchDestination: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
     private var cancellables = Set<AnyCancellable>()
-    private let queryRouter = QueryRouter.shared
     private let conversationActionHandler = ConversationActionHandler.shared
     private let infoExtractor = InformationExtractor.shared
     private let trackerStore = TrackerStore.shared
     private let trackerParserService = TrackerParserService.shared
+    private let locationsManager = LocationsManager.shared
+    private let mapsService = GoogleMapsService.shared
 
     var chatLoadingStatusLabel: String {
         chatLoadingPhase.statusLabel
+    }
+
+    var currentConversationId: UUID? {
+        currentlyLoadedConversationId
     }
 
     var isTrackerConversation: Bool {
@@ -104,9 +97,6 @@ class SearchService: ObservableObject {
     }
 
     private init() {
-        // DEPRECATED: Semantic query system removed
-        // disableSemanticQuerySystem()
-
         // Load saved conversations from local storage
         loadConversationHistoryLocally()
         trackerStore.loadLocalThreads()
@@ -129,12 +119,12 @@ class SearchService: ObservableObject {
 
     // MARK: - Registration
 
-    func registerSearchableProvider(_ provider: Searchable, for tab: TabSelection) {
+    func registerSearchableProvider(_ provider: Searchable, for tab: SearchDestination) {
         searchableProviders[tab] = provider
         refreshSearchableContent()
     }
 
-    func unregisterSearchableProvider(for tab: TabSelection) {
+    func unregisterSearchableProvider(for tab: SearchDestination) {
         searchableProviders.removeValue(forKey: tab)
         refreshSearchableContent()
     }
@@ -461,7 +451,7 @@ class SearchService: ObservableObject {
 
     // MARK: - Navigation Helpers
 
-    func navigateToResult(_ result: SearchResult) -> TabSelection {
+    func navigateToResult(_ result: SearchResult) -> SearchDestination {
         return result.item.type
     }
 
@@ -470,23 +460,6 @@ class SearchService: ObservableObject {
         searchResults = []
         isSearching = false
     }
-
-    // MARK: - Semantic Query Processing (DEPRECATED - Moved to LLMArchitecture_deprecated/)
-    // The entire semantic query system has been deprecated in favor of SelineChat + VectorContextBuilder.
-    // SelineChat handles all query types directly without pre-processing.
-    
-    /*
-    /// DEPRECATED: Try to process a query using the semantic query engine first
-    func processWithSemanticQuery(_ userQuery: String) async -> (text: String, items: [RelatedDataItem])? {
-        // Moved to LLMArchitecture_deprecated/
-        return nil
-    }
-
-    /// DEPRECATED: Map RelatedItem type to RelatedDataItem.DataType
-    private func mapItemType(_ type: String) -> RelatedDataItem.DataType {
-        return .receipt
-    }
-    */
 
     // MARK: - Conversation Management
 
@@ -559,8 +532,8 @@ class SearchService: ObservableObject {
         chatLoadingPhase = .retrieving
         let thinkStartTime = Date()  // Track when LLM starts thinking
 
-        // Always use SelineChat - legacy path removed
-        await addConversationMessageWithSelineChat(trimmed, thinkStartTime: thinkStartTime)
+        // Standard chat runs only through the new ChatAgentService path.
+        await addConversationMessageWithChatAgent(trimmed, thinkStartTime: thinkStartTime)
     }
 
     private func addTrackerConversationMessage(_ userMessage: String) async {
@@ -622,749 +595,585 @@ class SearchService: ObservableObject {
         _ = upsertCurrentConversationInHistory()
     }
     
-    // MARK: - SelineChat Implementation (Phase 2)
+    // MARK: - ChatAgent Implementation
 
-    /// NEW simplified chat using SelineChat with proper streaming support
-    private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date, skipUserMessage: Bool = false) async {
+    private func addConversationMessageWithChatAgent(_ userMessage: String, thinkStartTime: Date) async {
         chatLoadingPhase = .retrieving
         VectorSearchService.shared.beginInteractiveRequest(reason: "chat")
         defer {
             VectorSearchService.shared.endInteractiveRequest(reason: "chat")
         }
 
-        // Initialize SelineChat if needed
-        if selineChat == nil {
-            selineChat = SelineChat(appContext: SelineAppContext(), geminiService: GeminiService.shared)
+        let turnInput = AgentTurnInput(
+            userMessage: userMessage,
+            conversationHistory: conversationHistory,
+            anchorState: currentConversationAnchorState,
+            allowLiveSearch: true
+        )
+        let turnResult = await chatAgent.respond(turn: turnInput)
+        currentConversationAnchorState = turnResult.evidenceBundle.anchorState
+        await applyAgentTurnResult(turnResult, thinkStartTime: thinkStartTime)
+    }
 
-            // IMPORTANT: Sync existing conversation history to SelineChat
-            // This ensures historical chats retain context when reopened
-            if !conversationHistory.isEmpty {
-                for msg in conversationHistory {
-                    let chatMsg = ChatMessage(
-                        role: msg.isUser ? .user : .assistant,
-                        content: msg.text,
-                        timestamp: msg.timestamp
+    private func applyAgentTurnResult(_ turnResult: AgentTurnResult, thinkStartTime: Date) async {
+        let citedRecords = citedEvidenceRecords(
+            in: turnResult.responseText,
+            from: turnResult.evidenceBundle
+        )
+        let relevantContent = relevantContent(from: citedRecords)
+        let relatedData = relatedData(from: citedRecords)
+        let presentedEventDrafts = turnResult.presentation?.eventDraftCard ?? turnResult.actionDraft?.eventDrafts
+
+        if enableStreamingResponses {
+            let assistantId = UUID()
+            let baseMessage = ConversationMessage(
+                id: assistantId,
+                isUser: false,
+                text: "",
+                timestamp: Date(),
+                intent: .general,
+                timeStarted: thinkStartTime,
+                locationInfo: turnResult.locationInfo,
+                eventCreationInfo: presentedEventDrafts,
+                relevantContent: relevantContent,
+                evidenceBundle: turnResult.evidenceBundle,
+                toolTrace: turnResult.toolTrace,
+                actionDraft: turnResult.actionDraft,
+                presentation: turnResult.presentation
+            )
+            conversationHistory.append(baseMessage)
+
+            var renderedText = ""
+            for chunk in streamingChunks(from: turnResult.responseText) {
+                renderedText += chunk
+                if let index = conversationHistory.lastIndex(where: { $0.id == assistantId }) {
+                    conversationHistory[index] = ConversationMessage(
+                        id: assistantId,
+                        isUser: false,
+                        text: renderedText,
+                        timestamp: conversationHistory[index].timestamp,
+                        intent: .general,
+                        timeStarted: thinkStartTime,
+                        locationInfo: turnResult.locationInfo,
+                        eventCreationInfo: presentedEventDrafts,
+                        relevantContent: relevantContent,
+                        evidenceBundle: turnResult.evidenceBundle,
+                        toolTrace: turnResult.toolTrace,
+                        actionDraft: turnResult.actionDraft,
+                        presentation: turnResult.presentation
                     )
-                    selineChat?.conversationHistory.append(chatMsg)
+                    lastMessageContentVersion += 1
                 }
-                print("📝 Restored \(conversationHistory.count) messages to SelineChat context")
+                saveConversationLocally()
+                try? await Task.sleep(nanoseconds: 12_000_000)
             }
+
+            if let index = conversationHistory.lastIndex(where: { $0.id == assistantId }) {
+                conversationHistory[index] = ConversationMessage(
+                    id: assistantId,
+                    isUser: false,
+                    text: turnResult.responseText,
+                    timestamp: conversationHistory[index].timestamp,
+                    intent: .general,
+                    relatedData: relatedData.isEmpty ? nil : relatedData,
+                    timeStarted: thinkStartTime,
+                    timeFinished: Date(),
+                    locationInfo: turnResult.locationInfo,
+                    eventCreationInfo: presentedEventDrafts,
+                    relevantContent: relevantContent,
+                    evidenceBundle: turnResult.evidenceBundle,
+                    toolTrace: turnResult.toolTrace,
+                    actionDraft: turnResult.actionDraft,
+                    presentation: turnResult.presentation
+                )
+                lastMessageContentVersion += 1
+            }
+        } else {
+            let assistantMessage = ConversationMessage(
+                isUser: false,
+                text: turnResult.responseText,
+                timestamp: Date(),
+                intent: .general,
+                relatedData: relatedData.isEmpty ? nil : relatedData,
+                timeStarted: thinkStartTime,
+                timeFinished: Date(),
+                locationInfo: turnResult.locationInfo,
+                eventCreationInfo: presentedEventDrafts,
+                relevantContent: relevantContent,
+                evidenceBundle: turnResult.evidenceBundle,
+                toolTrace: turnResult.toolTrace,
+                actionDraft: turnResult.actionDraft,
+                presentation: turnResult.presentation
+            )
+            conversationHistory.append(assistantMessage)
         }
 
-        guard let chat = selineChat else {
-            print("❌ SelineChat initialization failed")
-            DispatchQueue.main.async {
-                self.isLoadingQuestionResponse = false
-                self.chatLoadingPhase = .idle
-            }
+        isLoadingQuestionResponse = false
+        chatLoadingPhase = .idle
+        saveConversationLocally()
+        _ = upsertCurrentConversationInHistory()
+    }
+
+    func confirmActionDraft(
+        for messageId: UUID,
+        confirmedEvents: [EventCreationInfo]? = nil,
+        folderName: String? = nil
+    ) async {
+        guard let index = conversationHistory.firstIndex(where: { $0.id == messageId }),
+              let draft = conversationHistory[index].actionDraft else {
             return
         }
-        
-        // If skipUserMessage is true, don't add user message to SelineChat history
-        // (it's already there from the previous interaction)
-        if !skipUserMessage {
-            // Check if last message in SelineChat is already this user message
-            let shouldAddToChatHistory: Bool
-            if let lastChatMsg = chat.conversationHistory.last, 
-               lastChatMsg.role == .user && lastChatMsg.content == userMessage {
-                shouldAddToChatHistory = false
-            } else {
-                shouldAddToChatHistory = true
-            }
-            
-            if shouldAddToChatHistory {
-                // Add user message to SelineChat history if not skipping
-                let userMsg = ChatMessage(role: .user, content: userMessage, timestamp: Date())
-                chat.conversationHistory.append(userMsg)
-            }
-        }
 
-        // Prepare non-citation chat UI state (event creation cards, ETA cards).
-        // Citation evidence now comes from VectorContextBuilder output to keep one source of truth.
-        let effectiveQuery = chat.contextQueryForLatestUserTurn()
-        await chat.appContext.prepareEventCreationInfoForChat(userQuery: effectiveQuery)
-
-        setupSelineChatCallbacks(chat: chat, thinkStartTime: thinkStartTime)
-        
-        let response = await chat.sendMessage(userMessage, streaming: enableStreamingResponses)
-        
-        handleNonStreamingResponse(response: response, thinkStartTime: thinkStartTime)
-    }
-    
-    // Wire up streaming callbacks common to both normal chat and briefing
-    private func setupSelineChatCallbacks(chat: SelineChat, thinkStartTime: Date) {
-        let streamingMessageID = UUID()
-        weak var weakSelf = self
-        var messageAdded = false
-        var fullResponse = ""
-        var didFinalizeStreaming = false
-
-        func commitUpdate(with text: String) {
-            guard weakSelf != nil else { return }
-            if !messageAdded {
-                let assistantMsg = ConversationMessage(
-                    id: streamingMessageID,
+        switch draft.type {
+        case .createEvent:
+            let eventsToCreate = confirmedEvents ?? draft.eventDrafts ?? []
+            guard !eventsToCreate.isEmpty else { return }
+            await createEventsFromDraft(eventsToCreate)
+            updateActionDraftStatus(for: messageId, status: .confirmed)
+            conversationHistory.append(
+                ConversationMessage(
                     isUser: false,
-                    text: text,
-                    timestamp: Date(),
-                    intent: .general,
-                    timeStarted: thinkStartTime,
-                    locationInfo: chat.appContext.lastETALocationInfo,
-                    eventCreationInfo: chat.appContext.lastEventCreationInfo,
-                    relevantContent: chat.appContext.lastRelevantContent
+                    text: eventsToCreate.count == 1
+                        ? "I created the event."
+                        : "I created \(eventsToCreate.count) events.",
+                    intent: .calendar
                 )
-                conversationHistory.append(assistantMsg)
-                messageAdded = true
-                saveConversationLocally()
-            } else if let lastIndex = conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                let updatedMsg = ConversationMessage(
-                    id: streamingMessageID,
+            )
+        case .createNote:
+            guard let noteDraft = draft.noteDraft else { return }
+            pendingNoteCreation = NoteCreationData(
+                title: noteDraft.title,
+                content: noteDraft.content,
+                formattedContent: noteDraft.content,
+                folderId: noteDraft.folderId,
+                folderName: noteDraft.folderName
+            )
+            updateActionDraftStatus(for: messageId, status: .confirmed)
+            conversationHistory.append(
+                ConversationMessage(
                     isUser: false,
-                    text: text,
-                    timestamp: conversationHistory[lastIndex].timestamp,
-                    intent: conversationHistory[lastIndex].intent ?? .general,
-                    timeStarted: conversationHistory[lastIndex].timeStarted,
-                    locationInfo: chat.appContext.lastETALocationInfo,
-                    eventCreationInfo: chat.appContext.lastEventCreationInfo,
-                    relevantContent: chat.appContext.lastRelevantContent
+                    text: "I opened the note draft so you can make final edits before saving.",
+                    intent: .notes
                 )
-                conversationHistory[lastIndex] = updatedMsg
-                lastMessageContentVersion += 1
-                saveConversationLocally()
-            }
-        }
+            )
+        case .latestEmail:
+            return
+        case .saveLocation:
+            guard let placeDraft = draft.placeDraft else { return }
+            let trimmedRequestedFolder = folderName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedDraftFolder = placeDraft.folderName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedFolder: String? = {
+                if let trimmedRequestedFolder, !trimmedRequestedFolder.isEmpty { return trimmedRequestedFolder }
+                if let trimmedDraftFolder, !trimmedDraftFolder.isEmpty { return trimmedDraftFolder }
+                return nil
+            }()
+            guard let resolvedFolder else { return }
 
-        func finalizeStreaming() {
-            guard !didFinalizeStreaming else { return }
-            didFinalizeStreaming = true
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                if !messageAdded {
-                    commitUpdate(with: fullResponse)
-                }
-                // Update final message with completion time and fetch related data
-                if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                    let rawResponseText = self.conversationHistory[lastIndex].text
-                    let aligned = self.alignCitationsWithRelevantContent(
-                        in: rawResponseText,
-                        relevantContent: chat.appContext.lastRelevantContent
-                    )
-                    let responseText = aligned.text
-
-                    let updatedMsg = ConversationMessage(
-                        id: streamingMessageID,
+            if locationsManager.isPlaceSaved(googlePlaceId: placeDraft.place.id) {
+                updateActionDraftStatus(for: messageId, status: .confirmed)
+                conversationHistory.append(
+                    ConversationMessage(
                         isUser: false,
-                        text: responseText,
-                        timestamp: self.conversationHistory[lastIndex].timestamp,
-                        intent: self.conversationHistory[lastIndex].intent ?? .general,
-                        timeStarted: self.conversationHistory[lastIndex].timeStarted,
-                        locationInfo: chat.appContext.lastETALocationInfo,
-                        eventCreationInfo: chat.appContext.lastEventCreationInfo,
-                        relevantContent: aligned.relevantContent
+                        text: "\(placeDraft.place.name) is already saved.",
+                        intent: .locations
                     )
-                    chat.updateResolvedVisitPlace(from: aligned.relevantContent ?? chat.appContext.lastRelevantContent)
-                    self.conversationHistory[lastIndex] = updatedMsg
-                    self.lastMessageContentVersion += 1
-
-                    // Fetch related data based on response
-                    Task { [weak self] in
-                        guard let self = self else { return }
-                        let relatedData = await self.fetchRelatedDataForResponse(responseText)
-
-                        DispatchQueue.main.async {
-                            if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                                let finalMsg = ConversationMessage(
-                                    id: streamingMessageID,
-                                    isUser: false,
-                                    text: self.conversationHistory[lastIndex].text,
-                                    timestamp: self.conversationHistory[lastIndex].timestamp,
-                                    intent: self.conversationHistory[lastIndex].intent ?? .general,
-                                    relatedData: relatedData.isEmpty ? nil : relatedData,
-                                    timeStarted: self.conversationHistory[lastIndex].timeStarted,
-                                    timeFinished: Date(),
-                                    followUpSuggestions: nil,
-                                    locationInfo: chat.appContext.lastETALocationInfo,
-                                    eventCreationInfo: chat.appContext.lastEventCreationInfo,
-                                    relevantContent: self.conversationHistory[lastIndex].relevantContent
-                                )
-                                self.conversationHistory[lastIndex] = finalMsg
-                                self.lastMessageContentVersion += 1
-                                self.saveConversationLocally()
-                            }
-                        }
-                    }
-                }
-
-                self.isLoadingQuestionResponse = false
-                self.chatLoadingPhase = .idle
-                print("✅ SelineChat streaming completed")
+                )
+                break
             }
-        }
 
-        chat.onStreamingStateChanged = { [weak self] isStreaming in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                if isStreaming {
-                    self.chatLoadingPhase = .generating
-                } else if !self.isLoadingQuestionResponse {
-                    self.chatLoadingPhase = .idle
-                }
+            if !locationsManager.categories.contains(resolvedFolder) && !locationsManager.userFolders.contains(resolvedFolder) {
+                locationsManager.addFolder(resolvedFolder)
             }
-        }
 
-        // Callback when a streaming chunk arrives (real-time token updates)
-        chat.onStreamingChunk = { [weak self] chunk in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                self.chatLoadingPhase = .generating
-                fullResponse += chunk
-                commitUpdate(with: fullResponse)
-            }
-        }
-
-        // Callback when streaming completes (finalize metadata and citations)
-        chat.onStreamingComplete = { [weak self] in
-            DispatchQueue.main.async {
-                guard self != nil else { return }
-                finalizeStreaming()
-            }
-        }
-    }
-    
-    private func handleNonStreamingResponse(response: String, thinkStartTime: Date) {
-        let aligned = alignCitationsWithRelevantContent(
-            in: response,
-            relevantContent: selineChat?.appContext.lastRelevantContent
-        )
-        let finalResponse = aligned.text
-        selineChat?.updateResolvedVisitPlace(from: aligned.relevantContent ?? selineChat?.appContext.lastRelevantContent)
-
-        if !enableStreamingResponses {
-            Task {
-                let relatedData = await fetchRelatedDataForResponse(finalResponse)
-                
-                await MainActor.run {
-                    let assistantMsg = ConversationMessage(
-                        id: UUID(),
-                        isUser: false,
-                        text: finalResponse,
-                        timestamp: Date(),
-                        intent: .general,
-                        relatedData: relatedData.isEmpty ? nil : relatedData,
-                        timeStarted: thinkStartTime,
-                        timeFinished: Date(),
-                        locationInfo: self.selineChat?.appContext.lastETALocationInfo,
-                        eventCreationInfo: self.selineChat?.appContext.lastEventCreationInfo,
-                        relevantContent: aligned.relevantContent
-                    )
-                    self.conversationHistory.append(assistantMsg)
-                    self.isLoadingQuestionResponse = false
-                    self.chatLoadingPhase = .idle
-                    self.saveConversationLocally()
-                    print("✅ SelineChat response added to history")
-                }
-            }
-        }
-    }
-
-    private func alignCitationsWithRelevantContent(
-        in responseText: String,
-        relevantContent: [RelevantContentInfo]?
-    ) -> (text: String, relevantContent: [RelevantContentInfo]?) {
-        let normalizedText = normalizeCitationMarkers(in: responseText)
-        let citationRegex = try! NSRegularExpression(pattern: "\\[\\s*(\\d+)\\s*\\]")
-        let placeholderCitationRegex = try! NSRegularExpression(pattern: "\\[(?i:[a-z])\\]")
-        let numericMatches = citationRegex.matches(in: normalizedText, range: NSRange(normalizedText.startIndex..., in: normalizedText))
-        let placeholderMatches = placeholderCitationRegex.matches(in: normalizedText, range: NSRange(normalizedText.startIndex..., in: normalizedText))
-
-        guard let content = relevantContent, !content.isEmpty else {
-            return (stripCitationMarkers(from: normalizedText), nil)
-        }
-
-        guard !numericMatches.isEmpty || !placeholderMatches.isEmpty else {
-            // Inline-only citation mode: no fallback source pills when model omitted citations.
-            return (stripCitationMarkers(from: normalizedText), nil)
-        }
-
-        struct CitationReplacement {
-            let range: NSRange
-            let replacementText: String
-        }
-
-        enum CitationMatch {
-            case numeric(NSTextCheckingResult)
-            case placeholder(NSTextCheckingResult)
-
-            var range: NSRange {
-                switch self {
-                case .numeric(let result), .placeholder(let result):
-                    return result.range
-                }
-            }
-        }
-
-        var replacements: [CitationReplacement] = []
-        var orderedContent: [RelevantContentInfo] = []
-        var orderedIndexBySourceKey: [String: Int] = [:]
-        var displayedCitationSourceKeys = Set<String>()
-        let rawCitationIndexes: [Int] = numericMatches.compactMap { match in
-            guard let numberRange = Range(match.range(at: 1), in: normalizedText) else { return nil }
-            return Int(String(normalizedText[numberRange]))
-        }
-        let shouldTreatIndexesAsOneBased =
-            !rawCitationIndexes.isEmpty &&
-            !rawCitationIndexes.contains(0) &&
-            rawCitationIndexes.allSatisfy { $0 >= 1 && $0 <= content.count }
-
-        func replacement(for selectedItem: RelevantContentInfo, range: NSRange) -> CitationReplacement {
-            let sourceKey = citationSourceIdentityKey(for: selectedItem)
-            let mappedIndex: Int
-            if let existing = orderedIndexBySourceKey[sourceKey] {
-                mappedIndex = existing
+            let savedPlace: SavedPlace
+            if !placeDraft.place.id.hasPrefix("mapkit:"),
+               let details = try? await mapsService.getPlaceDetails(placeId: placeDraft.place.id) {
+                savedPlace = {
+                    var place = details.toSavedPlace(googlePlaceId: placeDraft.place.id)
+                    place.category = resolvedFolder
+                    return place
+                }()
             } else {
-                mappedIndex = orderedContent.count
-                orderedContent.append(selectedItem)
-                orderedIndexBySourceKey[sourceKey] = mappedIndex
+                savedPlace = {
+                    var place = SavedPlace(
+                        googlePlaceId: placeDraft.place.id,
+                        name: placeDraft.place.name,
+                        address: placeDraft.place.address,
+                        latitude: placeDraft.place.latitude,
+                        longitude: placeDraft.place.longitude,
+                        photos: placeDraft.place.photoURL.map { [$0] } ?? []
+                    )
+                    place.category = resolvedFolder
+                    return place
+                }()
             }
 
-            // Keep inline citations concise: render each source pill once per response.
-            if displayedCitationSourceKeys.contains(sourceKey) {
-                return CitationReplacement(range: range, replacementText: "")
-            }
-            displayedCitationSourceKeys.insert(sourceKey)
-
-            return CitationReplacement(
-                range: range,
-                replacementText: "[[\(mappedIndex)]]"
+            locationsManager.addPlace(savedPlace)
+            updateActionDraftStatus(
+                for: messageId,
+                status: .confirmed,
+                folderName: resolvedFolder
+            )
+            conversationHistory.append(
+                ConversationMessage(
+                    isUser: false,
+                    text: "Saved \(savedPlace.displayName) at \(savedPlace.address) to \(resolvedFolder).",
+                    intent: .locations
+                )
             )
         }
 
-        let allMatches = (
-            numericMatches.map { CitationMatch.numeric($0) } +
-            placeholderMatches.map { CitationMatch.placeholder($0) }
-        ).sorted { lhs, rhs in
-            lhs.range.location < rhs.range.location
-        }
-
-        for match in allMatches {
-            switch match {
-            case .numeric(let result):
-                guard
-                    let numberRange = Range(result.range(at: 1), in: normalizedText),
-                    let parsedIndex = Int(String(normalizedText[numberRange]))
-                else { continue }
-                let citedIndex = shouldTreatIndexesAsOneBased ? parsedIndex - 1 : parsedIndex
-
-                guard citedIndex >= 0, citedIndex < content.count else {
-                    print("⚠️ Dropping citation [\(citedIndex)] - out of range for available sources (\(content.count))")
-                    replacements.append(CitationReplacement(range: result.range, replacementText: ""))
-                    continue
-                }
-
-                let selectedItem = content[citedIndex]
-                let contextSnippet = citationContext(in: normalizedText, around: result.range)
-                guard
-                    let matchScore = citationMatchScore(for: selectedItem, context: contextSnippet),
-                    matchScore >= minimumCitationScore(for: selectedItem)
-                else {
-                    print("⚠️ Dropping citation [\(citedIndex)] - source/context mismatch")
-                    replacements.append(CitationReplacement(range: result.range, replacementText: ""))
-                    continue
-                }
-
-                replacements.append(replacement(for: selectedItem, range: result.range))
-
-            case .placeholder(let result):
-                let contextSnippet = citationContext(in: normalizedText, around: result.range)
-                let bestIndex = bestMatchingCitationSourceIndex(
-                    in: content,
-                    context: contextSnippet,
-                    excluding: displayedCitationSourceKeys
-                )
-
-                guard let bestIndex else {
-                    replacements.append(CitationReplacement(range: result.range, replacementText: ""))
-                    continue
-                }
-
-                replacements.append(replacement(for: content[bestIndex], range: result.range))
-            }
-        }
-
-        let mutableText = NSMutableString(string: normalizedText)
-        for replacement in replacements.reversed() {
-            mutableText.replaceCharacters(in: replacement.range, with: replacement.replacementText)
-        }
-
-        let cleanedText = cleanupCitationSpacing(in: mutableText as String)
-        if orderedContent.isEmpty {
-            return (cleanedText, nil)
-        }
-        return (cleanedText, orderedContent)
+        saveConversationLocally()
+        _ = upsertCurrentConversationInHistory()
     }
 
-    private func bestMatchingCitationSourceIndex(
-        in content: [RelevantContentInfo],
-        context: String,
-        excluding displayedCitationSourceKeys: Set<String>
-    ) -> Int? {
-        var bestIndex: Int?
-        var bestScore = Int.min
-        var isAmbiguous = false
+    func cancelActionDraft(for messageId: UUID) {
+        updateActionDraftStatus(for: messageId, status: .cancelled)
+        conversationHistory.append(
+            ConversationMessage(
+                isUser: false,
+                text: "Okay, I cancelled that draft.",
+                intent: .general
+            )
+        )
+        saveConversationLocally()
+        _ = upsertCurrentConversationInHistory()
+    }
 
-        for (index, item) in content.enumerated() {
-            let sourceKey = citationSourceIdentityKey(for: item)
-            guard !displayedCitationSourceKeys.contains(sourceKey) else { continue }
-
-            guard let score = citationMatchScore(for: item, context: context) else {
-                continue
-            }
-
-            if score > bestScore {
-                bestScore = score
-                bestIndex = index
-                isAmbiguous = false
-            } else if score == bestScore {
-                isAmbiguous = true
-            }
+    private func updateActionDraftStatus(
+        for messageId: UUID,
+        status: AgentActionDraftStatus,
+        folderName: String? = nil
+    ) {
+        guard let index = conversationHistory.firstIndex(where: { $0.id == messageId }),
+              let draft = conversationHistory[index].actionDraft else {
+            return
         }
 
-        guard let bestIndex else { return nil }
-        let bestItem = content[bestIndex]
-        guard bestScore >= minimumCitationScore(for: bestItem), !isAmbiguous else {
-            return nil
+        let updatedPlaceDraft: SavedPlaceDraftInfo?
+        if let placeDraft = draft.placeDraft {
+            updatedPlaceDraft = SavedPlaceDraftInfo(place: placeDraft.place, folderName: folderName ?? placeDraft.folderName)
+        } else {
+            updatedPlaceDraft = nil
         }
 
-        return bestIndex
-    }
-
-    private func displayTitleForCitation(_ item: RelevantContentInfo) -> String {
-        switch item.contentType {
-        case .email:
-            return item.emailSubject ?? item.emailSender ?? "Email"
-        case .note:
-            return item.noteTitle ?? "Note"
-        case .receipt:
-            return item.receiptTitle ?? item.noteTitle ?? "Receipt"
-        case .event:
-            return item.eventTitle ?? "Event"
-        case .location:
-            return item.locationName ?? "Place"
-        case .visit:
-            return item.visitPlaceName ?? item.locationName ?? "Visit"
-        case .person:
-            return item.personName ?? "Person"
-        }
-    }
-
-    private func isCitationLikelyValid(for item: RelevantContentInfo, context: String) -> Bool {
-        guard let score = citationMatchScore(for: item, context: context) else {
-            return false
-        }
-        return score >= minimumCitationScore(for: item)
-    }
-
-    private func citationMatchScore(for item: RelevantContentInfo, context: String) -> Int? {
-        let normalizedContext = context.lowercased()
-        let matchedTerms = sourceTerms(for: item).filter { normalizedContext.contains($0) }
-        let matchedTermScore = matchedTerms.reduce(0) { partial, term in
-            partial + min(term.count, 12)
-        }
-        let exactTitle = normalizedIdentityText(displayTitleForCitation(item))
-        let exactTitleMatch = !exactTitle.isEmpty && normalizedContext.contains(exactTitle)
-
-        switch item.contentType {
-        case .location:
-            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
-            return matchedTermScore + (exactTitleMatch ? 18 : 0)
-        case .visit:
-            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
-            let activityBoost = (normalizedContext.contains("visit") || normalizedContext.contains("went")) ? 4 : 0
-            return matchedTermScore + (exactTitleMatch ? 18 : 0) + activityBoost
-        case .event:
-            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
-            let calendarBoost = (normalizedContext.contains("calendar") || normalizedContext.contains("event")) ? 4 : 0
-            return matchedTermScore + (exactTitleMatch ? 18 : 0) + calendarBoost
-        case .email:
-            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
-            let emailBoost = (normalizedContext.contains("email") || normalizedContext.contains("inbox") || normalizedContext.contains("subject")) ? 4 : 0
-            return matchedTermScore + (exactTitleMatch ? 18 : 0) + emailBoost
-        case .note:
-            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
-            let noteBoost: Int
-            let lowerFolder = (item.noteFolder ?? "").lowercased()
-            if lowerFolder.contains("journal") || lowerFolder.contains("weekly summary") || lowerFolder.contains("weekly recap") || lowerFolder.contains("recap") {
-                noteBoost = (normalizedContext.contains("journal") || normalizedContext.contains("recap") || normalizedContext.contains("summary")) ? 4 : 0
-            } else {
-                noteBoost = normalizedContext.contains("note") ? 3 : 0
-            }
-            return matchedTermScore + (exactTitleMatch ? 18 : 0) + noteBoost
-        case .receipt:
-            let merchantPhrase = normalizedIdentityText(receiptMerchantLabel(for: item))
-            let merchantPhraseMatch = !merchantPhrase.isEmpty && normalizedContext.contains(merchantPhrase)
-            let amountMatch = contextMentionsReceiptAmount(item.receiptAmount, in: normalizedContext)
-            let categoryMatch = contextMentionsReceiptCategory(item.receiptCategory, in: normalizedContext)
-            guard merchantPhraseMatch || exactTitleMatch || !matchedTerms.isEmpty || (amountMatch && categoryMatch) else {
-                return nil
-            }
-
-            var score = matchedTermScore
-            if exactTitleMatch { score += 18 }
-            if merchantPhraseMatch { score += 22 }
-            if amountMatch { score += 20 }
-            if categoryMatch { score += 8 }
-            if amountMatch && (merchantPhraseMatch || exactTitleMatch || !matchedTerms.isEmpty) {
-                score += 10
-            }
-            if normalizedContext.contains("receipt")
-                || normalizedContext.contains("expense")
-                || normalizedContext.contains("purchase")
-                || normalizedContext.contains("paid")
-                || normalizedContext.contains("spent") {
-                score += 4
-            }
-            return score
-        case .person:
-            guard exactTitleMatch || !matchedTerms.isEmpty else { return nil }
-            let withBoost = normalizedContext.contains("with") ? 3 : 0
-            return matchedTermScore + (exactTitleMatch ? 18 : 0) + withBoost
-        }
-    }
-
-    private func minimumCitationScore(for item: RelevantContentInfo) -> Int {
-        switch item.contentType {
-        case .receipt:
-            return 18
-        case .email:
-            return 10
-        case .note:
-            return 8
-        case .event, .location, .visit, .person:
-            return 6
-        }
-    }
-
-    private func receiptMerchantLabel(for item: RelevantContentInfo) -> String {
-        let rawTitle = item.receiptTitle ?? item.noteTitle ?? ""
-        for separator in [" - ", " — ", " – "] {
-            if let range = rawTitle.range(of: separator) {
-                let prefix = rawTitle[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !prefix.isEmpty {
-                    return prefix
-                }
-            }
-        }
-        return rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func contextMentionsReceiptAmount(_ amount: Double?, in context: String) -> Bool {
-        guard let amount else { return false }
-        return extractCurrencyValues(from: context).contains { abs($0 - amount) < 0.011 }
-    }
-
-    private func contextMentionsReceiptCategory(_ category: String?, in context: String) -> Bool {
-        let normalizedCategory = normalizedIdentityText(category)
-        guard !normalizedCategory.isEmpty else { return false }
-
-        let categoryTerms = normalizedCategory
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.count >= 4 }
-
-        if context.contains(normalizedCategory) {
-            return true
-        }
-
-        return categoryTerms.contains { context.contains($0) }
-    }
-
-    private func extractCurrencyValues(from context: String) -> [Double] {
-        let pattern = "\\$\\s*(\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)"
-        let regex = try! NSRegularExpression(pattern: pattern)
-        let matches = regex.matches(in: context, range: NSRange(context.startIndex..., in: context))
-
-        return matches.compactMap { match in
-            guard let range = Range(match.range(at: 1), in: context) else { return nil }
-            let rawValue = context[range].replacingOccurrences(of: ",", with: "")
-            return Double(rawValue)
-        }
-    }
-
-    private func citationSourceIdentityKey(for item: RelevantContentInfo) -> String {
-        switch item.contentType {
-        case .email:
-            if let emailId = item.emailId, !emailId.isEmpty { return "email:\(emailId)" }
-            return "email:\(normalizedIdentityText(item.emailSubject))|\(normalizedIdentityText(item.emailSender))|\(Int(item.emailDate?.timeIntervalSince1970 ?? 0))"
-        case .note:
-            if let noteId = item.noteId { return "note:\(noteId.uuidString.lowercased())" }
-            return "note:\(normalizedIdentityText(item.noteTitle))|\(normalizedIdentityText(item.noteSnippet))"
-        case .receipt:
-            if let receiptId = item.receiptId { return "receipt:\(receiptId.uuidString.lowercased())" }
-            if let noteId = item.noteId { return "receipt-note:\(noteId.uuidString.lowercased())" }
-            let amountKey = item.receiptAmount.map { String(format: "%.2f", $0) } ?? "0.00"
-            return "receipt:\(normalizedIdentityText(item.receiptTitle))|\(amountKey)|\(Int(item.receiptDate?.timeIntervalSince1970 ?? 0))"
-        case .event:
-            if let eventId = item.eventId { return "event:\(eventId.uuidString.lowercased())" }
-            return "event:\(normalizedIdentityText(item.eventTitle))|\(Int(item.eventDate?.timeIntervalSince1970 ?? 0))"
-        case .location:
-            if let locationId = item.locationId { return "location:\(locationId.uuidString.lowercased())" }
-            return "location:\(normalizedIdentityText(item.locationName))|\(normalizedIdentityText(item.locationAddress))"
-        case .visit:
-            if let visitId = item.visitId { return "visit:\(visitId.uuidString.lowercased())" }
-            if let placeId = item.visitPlaceId { return "visit-place:\(placeId.uuidString.lowercased())|\(Int(item.visitEntryTime?.timeIntervalSince1970 ?? 0))" }
-            return "visit:\(normalizedIdentityText(item.visitPlaceName))|\(Int(item.visitEntryTime?.timeIntervalSince1970 ?? 0))"
-        case .person:
-            if let personId = item.personId { return "person:\(personId.uuidString.lowercased())" }
-            return "person:\(normalizedIdentityText(item.personName))|\(normalizedIdentityText(item.personRelationship))"
-        }
-    }
-
-    private func normalizedIdentityText(_ value: String?) -> String {
-        (value ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-    }
-
-    private func sourceTerms(for item: RelevantContentInfo) -> [String] {
-        let rawValue: String
-        switch item.contentType {
-        case .location:
-            rawValue = "\(item.locationName ?? "") \(item.locationAddress ?? "")"
-        case .visit:
-            rawValue = "\(item.visitPlaceName ?? "") \(item.locationName ?? "") \(item.locationAddress ?? "") \(item.visitEntryTime?.description ?? "")"
-        case .event:
-            rawValue = "\(item.eventTitle ?? "") \(item.eventCategory ?? "")"
-        case .email:
-            rawValue = "\(item.emailSubject ?? "") \(item.emailSender ?? "")"
-        case .note:
-            rawValue = "\(item.noteTitle ?? "") \(item.noteSnippet ?? "") \(item.noteFolder ?? "")"
-        case .receipt:
-            rawValue = "\(receiptMerchantLabel(for: item)) \(item.receiptCategory ?? "")"
-        case .person:
-            rawValue = "\(item.personName ?? "") \(item.personRelationship ?? "")"
-        }
-
-        let stopWords: Set<String> = [
-            "the", "and", "for", "with", "from", "your", "you", "this", "that",
-            "visit", "visited", "event", "note", "email", "calendar", "place",
-            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-            "january", "february", "march", "april", "may", "june",
-            "july", "august", "september", "october", "november", "december"
-        ]
-
-        let tokens = rawValue
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { $0.count >= 3 && !stopWords.contains($0) }
-
-        return Array(Set(tokens)).sorted(by: { $0.count > $1.count })
-    }
-
-    private func citationContext(in text: String, around range: NSRange) -> String {
-        guard let rangeInText = Range(range, in: text) else { return "" }
-        let start = text.index(rangeInText.lowerBound, offsetBy: -80, limitedBy: text.startIndex) ?? text.startIndex
-        let end = text.index(rangeInText.upperBound, offsetBy: 80, limitedBy: text.endIndex) ?? text.endIndex
-        return String(text[start..<end]).lowercased()
-    }
-
-    private func normalizeCitationMarkers(in text: String) -> String {
-        let normalizedBrackets = text
-            .replacingOccurrences(of: "[[", with: "[")
-            .replacingOccurrences(of: "]]", with: "]")
-
-        let groupedCitationRegex = try! NSRegularExpression(pattern: "\\[(\\s*\\d+\\s*(?:,\\s*\\d+\\s*)+)\\]")
-        let matches = groupedCitationRegex.matches(
-            in: normalizedBrackets,
-            range: NSRange(normalizedBrackets.startIndex..., in: normalizedBrackets)
+        conversationHistory[index].actionDraft = AgentActionDraft(
+            id: draft.id,
+            type: draft.type,
+            status: status,
+            requiresConfirmation: draft.requiresConfirmation,
+            eventDrafts: draft.eventDrafts,
+            noteDraft: draft.noteDraft,
+            emailPreview: draft.emailPreview,
+            placeDraft: updatedPlaceDraft
         )
 
-        guard !matches.isEmpty else { return normalizedBrackets }
-
-        let mutable = NSMutableString(string: normalizedBrackets)
-        for match in matches.reversed() {
-            guard let contentRange = Range(match.range(at: 1), in: normalizedBrackets) else { continue }
-            let numbers = normalizedBrackets[contentRange]
-                .split(separator: ",")
-                .compactMap { part in
-                    Int(String(part).trimmingCharacters(in: .whitespacesAndNewlines))
-                }
-            guard !numbers.isEmpty else {
-                mutable.replaceCharacters(in: match.range, with: "")
-                continue
-            }
-
-            let replacement = numbers
-                .map { "[\($0)]" }
-                .joined(separator: " ")
-            mutable.replaceCharacters(in: match.range, with: replacement)
+        if let presentation = conversationHistory[index].presentation,
+           let livePlaceCard = presentation.livePlaceCard,
+           let updatedPlaceDraft {
+            conversationHistory[index].presentation = AgentPresentation(
+                eventDraftCard: presentation.eventDraftCard,
+                noteDraftCard: presentation.noteDraftCard,
+                emailPreviewCard: presentation.emailPreviewCard,
+                livePlaceCard: LivePlacePreviewInfo(
+                    results: livePlaceCard.results,
+                    selectedPlaceId: updatedPlaceDraft.place.id,
+                    prompt: livePlaceCard.prompt
+                )
+            )
         }
 
-        return mutable as String
+        lastMessageContentVersion += 1
     }
 
-    private func stripCitationMarkers(from text: String) -> String {
-        var stripped = normalizeCitationMarkers(in: text)
-            .replacingOccurrences(of: "\\[\\s*\\d+\\s*\\]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\[(?i:[a-z])\\]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\[(?i:see\\s+[^\\]]+)\\]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\[(?i:from\\s+[^\\]]+)\\]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\[(?i:sources?\\s*[^\\]]*)\\]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\[(?i:user\\s+memory\\s*[^\\]]*)\\]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\[(?i:relevant\\s+data\\s*[^\\]]*)\\]", with: "", options: .regularExpression)
-        stripped = stripped.trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleanupCitationSpacing(in: stripped)
+    private func createEventsFromDraft(_ events: [EventCreationInfo]) async {
+        let taskManager = TaskManager.shared
+        let calendar = Calendar.current
+
+        for event in events {
+            let weekday = weekdayFromNumber(calendar.component(.weekday, from: event.date))
+            taskManager.addTask(
+                title: event.title,
+                to: weekday,
+                description: event.notes,
+                scheduledTime: event.hasTime ? event.date : nil,
+                endTime: event.endDate,
+                targetDate: event.date,
+                reminderTime: reminderTime(for: event.reminderMinutes),
+                location: event.location,
+                isRecurring: event.recurrenceFrequency != nil,
+                recurrenceFrequency: event.recurrenceFrequency,
+                customRecurrenceDays: nil,
+                tagId: tagId(forCategory: event.category) ?? event.tagId
+            )
+        }
     }
 
-    private func cleanupCitationSpacing(in text: String) -> String {
-        var cleaned = text.replacingOccurrences(of: "\\s+([,.!?;:])", with: "$1", options: .regularExpression)
-        cleaned = cleaned.replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
-        cleaned = cleaned.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
-        return cleaned
+    private func reminderTime(for minutes: Int?) -> ReminderTime? {
+        guard let minutes else { return nil }
+        switch minutes {
+        case ..<15:
+            return .fifteenMinutes
+        case ..<60:
+            return .oneHour
+        case ..<180:
+            return .threeHours
+        default:
+            return .oneDay
+        }
     }
 
+    private func weekdayFromNumber(_ number: Int) -> WeekDay {
+        switch number {
+        case 1: return .sunday
+        case 2: return .monday
+        case 3: return .tuesday
+        case 4: return .wednesday
+        case 5: return .thursday
+        case 6: return .friday
+        case 7: return .saturday
+        default: return .monday
+        }
+    }
+
+    private func tagId(forCategory category: String) -> String? {
+        let normalized = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.lowercased() != "personal" else { return nil }
+
+        let tagManager = TagManager.shared
+        if let existing = tagManager.tags.first(where: { $0.name.caseInsensitiveCompare(normalized) == .orderedSame }) {
+            return existing.id
+        }
+
+        return tagManager.createTag(name: normalized)?.id
+    }
+
+    private func citedEvidenceRecords(
+        in responseText: String,
+        from evidenceBundle: EvidenceBundle
+    ) -> [EvidenceRecord] {
+        let indices = citationIndices(
+            in: responseText,
+            maxIndex: evidenceBundle.records.count - 1
+        )
+
+        guard !indices.isEmpty else {
+            return []
+        }
+
+        return indices.compactMap { index in
+            guard evidenceBundle.records.indices.contains(index) else { return nil }
+            return evidenceBundle.records[index]
+        }
+    }
+
+    private func citationIndices(in responseText: String, maxIndex: Int) -> [Int] {
+        guard maxIndex >= 0 else { return [] }
+
+        let normalized = responseText
+            .replacingOccurrences(of: "[[", with: "[")
+            .replacingOccurrences(of: "]]", with: "]")
+        let pattern = #"\[(\d+)\]"#
+
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+
+        let nsRange = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+        let matches = regex.matches(in: normalized, options: [], range: nsRange)
+        var orderedIndices: [Int] = []
+        var seen = Set<Int>()
+
+        for match in matches {
+            guard
+                match.numberOfRanges > 1,
+                let range = Range(match.range(at: 1), in: normalized),
+                let value = Int(normalized[range]),
+                value >= 0,
+                value <= maxIndex,
+                seen.insert(value).inserted
+            else {
+                continue
+            }
+            orderedIndices.append(value)
+        }
+
+        return orderedIndices
+    }
+
+    private func relevantContent(from records: [EvidenceRecord]) -> [RelevantContentInfo]? {
+        let mapped = records.compactMap { record in
+            relevantContent(from: record)
+        }
+        return mapped.isEmpty ? nil : mapped
+    }
+
+    private func relatedData(from records: [EvidenceRecord]) -> [RelatedDataItem] {
+        let mapped = records.compactMap { record in
+            relatedData(from: record)
+        }
+        return Array(mapped.prefix(6))
+    }
+
+    private func relevantContent(from record: EvidenceRecord) -> RelevantContentInfo? {
+        switch record.ref.type {
+        case .email:
+            return RelevantContentInfo.email(
+                id: record.ref.id,
+                subject: record.title,
+                sender: record.attributes["sender"] ?? "Email",
+                snippet: record.summary,
+                date: parseEvidenceDate(record.timestamps.first?.value) ?? Date()
+            )
+        case .note:
+            guard let noteId = UUID(uuidString: record.ref.id) else { return nil }
+            return RelevantContentInfo.note(
+                id: noteId,
+                title: record.title,
+                snippet: record.summary,
+                folder: record.attributes["folder"] ?? "Notes"
+            )
+        case .receipt:
+            guard let receiptId = UUID(uuidString: record.ref.id) else { return nil }
+            let amount = record.attributes["amount"].flatMap { CurrencyParser.extractAmount(from: $0) }
+            return RelevantContentInfo.receipt(
+                id: receiptId,
+                title: record.title,
+                amount: amount,
+                date: parseEvidenceDate(record.timestamps.first?.value),
+                category: record.attributes["category"]
+            )
+        case .event:
+            guard let eventId = UUID(uuidString: record.ref.id) else { return nil }
+            return RelevantContentInfo.event(
+                id: eventId,
+                title: record.title,
+                date: parseEvidenceDate(record.timestamps.first?.value) ?? Date(),
+                category: record.attributes["calendar"] ?? "Personal"
+            )
+        case .location, .nearbyPlace:
+            guard let locationId = UUID(uuidString: record.ref.id) else { return nil }
+            return RelevantContentInfo.location(
+                id: locationId,
+                name: record.title,
+                address: record.attributes["address"] ?? record.summary,
+                category: record.attributes["category"] ?? "Place"
+            )
+        case .visit:
+            guard let visitId = UUID(uuidString: record.ref.id) else { return nil }
+            let placeRelation = record.relations.first(where: { $0.type == "place" })
+            let placeId = placeRelation.flatMap { UUID(uuidString: $0.target.id) }
+            return RelevantContentInfo.visit(
+                id: visitId,
+                placeId: placeId,
+                placeName: placeRelation?.target.title ?? record.title,
+                address: record.attributes["address"] ?? record.summary,
+                entryTime: parseEvidenceDate(record.timestamps.first(where: { $0.label == "entry" })?.value),
+                exitTime: parseEvidenceDate(record.timestamps.first(where: { $0.label == "exit" })?.value),
+                durationMinutes: Int(record.attributes["duration_minutes"] ?? "")
+            )
+        case .person:
+            guard let personId = UUID(uuidString: record.ref.id) else { return nil }
+            return RelevantContentInfo.person(
+                id: personId,
+                name: record.title,
+                relationship: record.attributes["relationship"]
+            )
+        case .currentContext, .aggregate, .webResult:
+            return nil
+        }
+    }
+
+    private func relatedData(from record: EvidenceRecord) -> RelatedDataItem? {
+        switch record.ref.type {
+        case .email:
+            return RelatedDataItem(
+                type: .email,
+                title: record.title,
+                subtitle: record.attributes["sender"] ?? record.summary,
+                date: parseEvidenceDate(record.timestamps.first?.value)
+            )
+        case .note:
+            return RelatedDataItem(
+                type: .note,
+                title: record.title,
+                subtitle: record.summary.isEmpty ? record.attributes["folder"] : record.summary
+            )
+        case .receipt:
+            return RelatedDataItem(
+                type: .receipt,
+                title: record.title,
+                subtitle: record.attributes["category"],
+                date: parseEvidenceDate(record.timestamps.first?.value),
+                amount: record.attributes["amount"].flatMap { CurrencyParser.extractAmount(from: $0) },
+                merchant: record.title
+            )
+        case .event:
+            return RelatedDataItem(
+                type: .event,
+                title: record.title,
+                subtitle: record.summary,
+                date: parseEvidenceDate(record.timestamps.first?.value)
+            )
+        case .location:
+            return RelatedDataItem(
+                type: .location,
+                title: record.title,
+                subtitle: record.attributes["address"] ?? record.summary
+            )
+        case .visit, .person, .nearbyPlace, .currentContext, .aggregate, .webResult:
+            return nil
+        }
+    }
+
+    private func parseEvidenceDate(_ raw: String?) -> Date? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        return iso.date(from: raw)
+    }
+
+    private func streamingChunks(from text: String) -> [String] {
+        let words = text.split(separator: " ", omittingEmptySubsequences: false)
+        guard words.count > 18 else {
+            return [text]
+        }
+
+        var chunks: [String] = []
+        var currentChunk: [Substring] = []
+        for word in words {
+            currentChunk.append(word)
+            if currentChunk.count >= 12 {
+                chunks.append(currentChunk.joined(separator: " ") + " ")
+                currentChunk.removeAll(keepingCapacity: true)
+            }
+        }
+        if !currentChunk.isEmpty {
+            chunks.append(currentChunk.joined(separator: " "))
+        }
+        return chunks
+    }
+    
     /// Generate a proactive morning briefing
     func generateMorningBriefing() async {
         guard conversationHistory.isEmpty else { return }
-        
-        if selineChat == nil {
-            selineChat = SelineChat(appContext: SelineAppContext(), geminiService: GeminiService.shared)
-        }
-        guard let chat = selineChat else { return }
-        
-        // No loading state needed - response is instant
-        await chat.generateMorningBriefing()
-        
-        // Sync the result from SelineChat to SearchService history
-        if let lastMsg = chat.conversationHistory.last, lastMsg.role == .assistant {
-            // Check if we haven't already added this message
-            if conversationHistory.last?.text != lastMsg.content {
-                let assistantMsg = ConversationMessage(
-                    id: UUID(),
-                    isUser: false,
-                    text: lastMsg.content,
-                    timestamp: lastMsg.timestamp,
-                    intent: .general
-                )
-                
-                await MainActor.run {
-                    self.conversationHistory.append(assistantMsg)
-                    self.saveConversationLocally()
-                }
-            }
-        }
-    }
 
-    // MARK: - Legacy Implementation (DEPRECATED - Moved to LLMArchitecture_deprecated/)
-    // addConversationMessageLegacy() has been deprecated in favor of SelineChat
-    // Keeping the method signature but it now calls the active SelineChat path
-    /*
-    /// DEPRECATED: Old legacy chat system
-    private func addConversationMessageLegacy(_ userMessage: String, thinkStartTime: Date) async {
-        // Moved to LLMArchitecture_deprecated/
-        // This path is never reached since useSelineChat is always true
+        isInConversationMode = true
+        isLoadingQuestionResponse = true
+        chatLoadingPhase = .retrieving
+
+        let turnResult = await chatAgent.respond(
+            turn: AgentTurnInput(
+                userMessage: """
+                Give me a concise morning briefing for today using only my Seline data. Cover today's schedule, important follow-ups, spending or receipts that matter, recent visits or routines, and anything time-sensitive. If a category has no evidence, skip it instead of guessing.
+                """,
+                conversationHistory: conversationHistory,
+                anchorState: currentConversationAnchorState,
+                allowLiveSearch: false
+            )
+        )
+        currentConversationAnchorState = turnResult.evidenceBundle.anchorState
+        await applyAgentTurnResult(turnResult, thinkStartTime: Date())
     }
-    */
 
     private func persistCurrentConversationIfNeeded() {
         guard !conversationHistory.isEmpty else { return }
@@ -1393,6 +1202,7 @@ class SearchService: ObservableObject {
         currentlyLoadedConversationId = nil
         lastGeneratedTitleMessageCount = 0
         isNewConversation = false
+        currentConversationAnchorState = nil
     }
 
     /// Start a new blank conversation (user will type first message)
@@ -1415,9 +1225,8 @@ class SearchService: ObservableObject {
 
     /// Stop/cancel the currently streaming response
     func stopCurrentRequest() {
-        selineChat?.cancelStreaming()
         isLoadingQuestionResponse = false
-        print("🛑 User cancelled the response")
+        chatLoadingPhase = .idle
     }
 
     /// Regenerate response for a given assistant message
@@ -1456,16 +1265,6 @@ class SearchService: ObservableObject {
         // Remove the assistant message from conversation history
         conversationHistory.remove(at: assistantIndex)
 
-        // Also remove the last assistant message from SelineChat's conversation history if it exists
-        // This keeps the history in sync for regeneration
-        if let chat = selineChat, !chat.conversationHistory.isEmpty {
-            let lastMessage = chat.conversationHistory.last
-            if lastMessage?.role == .assistant {
-                chat.conversationHistory.removeLast()
-                print("🔄 Removed last assistant message from SelineChat history for regeneration")
-            }
-        }
-
         // Save the updated conversation (without the old assistant message)
         saveConversationLocally()
 
@@ -1474,8 +1273,7 @@ class SearchService: ObservableObject {
         isLoadingQuestionResponse = true
         let thinkStartTime = Date()
         
-        // Always use SelineChat for regeneration
-        await addConversationMessageWithSelineChat(userMessage, thinkStartTime: thinkStartTime, skipUserMessage: true)
+        await addConversationMessageWithChatAgent(userMessage, thinkStartTime: thinkStartTime)
     }
 
     /// Start a conversation with an initial question
@@ -1815,6 +1613,11 @@ class SearchService: ObservableObject {
             return
         }
 
+        let conversationID = upsertCurrentConversationInHistory()
+        guard let localConversation = savedConversations.first(where: { $0.id == conversationID }) else {
+            return
+        }
+
         let titleToSave = isWeakConversationTitle(conversationTitle)
             ? provisionalConversationTitle(from: conversationHistory)
             : conversationTitle
@@ -1837,8 +1640,8 @@ class SearchService: ObservableObject {
                 historyJson = jsonString
             }
 
-            // Create a struct that conforms to Encodable
             struct ConversationData: Encodable {
+                let id: UUID
                 let user_id: UUID
                 let title: String
                 let messages: String
@@ -1848,38 +1651,74 @@ class SearchService: ObservableObject {
             }
 
             let data = ConversationData(
+                id: conversationID,
                 user_id: userId,
                 title: titleToSave,
                 messages: historyJson,
                 message_count: conversationHistory.count,
                 first_message: conversationHistory.first?.text ?? "",
-                created_at: ISO8601DateFormatter().string(from: Date())
+                created_at: ISO8601DateFormatter().string(from: localConversation.updatedAt)
             )
 
-            // Save to conversations table
             try await client
                 .from("conversations")
-                .insert(data)
+                .upsert(data, onConflict: "id")
                 .execute()
         } catch {
             print("❌ Error saving conversation to Supabase: \(error)")
         }
     }
 
-    /// Load conversations from Supabase (requires conversations table to be created)
-    /// Currently disabled - can be implemented once Supabase table is fully set up
-    /// For now, conversations are loaded from local UserDefaults via loadLastConversation()
-    func loadConversationsFromSupabase() async -> [[String: Any]] {
-        // To implement this:
-        // 1. Create the conversations table in Supabase (using provided SQL)
-        // 2. Use direct HTTP request or update Supabase SDK implementation
-        return []
+    /// Load standard conversations from Supabase and merge them into local history.
+    @discardableResult
+    func loadConversationsFromSupabase() async -> [SavedConversation] {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return [] }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let response = try await client
+                .from("conversations")
+                .select("id,title,messages,created_at")
+                .eq("user_id", value: userId.uuidString)
+                .order("created_at", ascending: false)
+                .execute()
+
+            let records = try JSONDecoder.supabaseDecoder().decode([RemoteConversationRecord].self, from: response.data)
+            let remoteConversations = deduplicatedRemoteStandardConversations(from: records)
+            mergeRemoteStandardConversations(remoteConversations)
+            return remoteConversations
+        } catch {
+            print("❌ Error loading conversations from Supabase: \(error)")
+            return []
+        }
     }
 
     /// Load specific conversation from Supabase by ID
-    /// Currently disabled - can be implemented once proper SDK support is available
     func loadConversationFromSupabase(id: String) async {
-        // Not yet implemented - use loadLastConversation() for local persistence
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let response = try await client
+                .from("conversations")
+                .select("id,title,messages,created_at")
+                .eq("user_id", value: userId.uuidString)
+                .eq("id", value: id)
+                .limit(1)
+                .execute()
+
+            let records = try JSONDecoder.supabaseDecoder().decode([RemoteConversationRecord].self, from: response.data)
+            guard let remoteConversation = deduplicatedRemoteStandardConversations(from: records).first else { return }
+
+            mergeRemoteStandardConversations([remoteConversation])
+            if let resolvedConversation = savedConversations.first(where: { conversation in
+                conversation.kind == .standard && remoteConversation.messages.first?.id == conversation.messages.first?.id
+            }) ?? savedConversations.first(where: { $0.id == remoteConversation.id }) {
+                loadConversation(withId: resolvedConversation.id)
+            }
+        } catch {
+            print("❌ Error loading conversation \(id) from Supabase: \(error)")
+        }
     }
 
     /// Save current conversation to history
@@ -1929,6 +1768,134 @@ class SearchService: ObservableObject {
             return currentTrackerThread?.subtitle ?? currentTrackerThread?.cachedState?.summaryLine
         }
         return nil
+    }
+
+    private func deduplicatedRemoteStandardConversations(from records: [RemoteConversationRecord]) -> [SavedConversation] {
+        var bestConversationsByKey: [String: SavedConversation] = [:]
+
+        for record in records {
+            guard let conversation = remoteStandardConversation(from: record) else { continue }
+            let dedupeKey = conversation.messages.first?.id.uuidString ?? record.id.uuidString
+
+            if let existing = bestConversationsByKey[dedupeKey] {
+                let shouldReplace =
+                    conversation.messages.count > existing.messages.count
+                    || (conversation.messages.count == existing.messages.count && conversation.updatedAt > existing.updatedAt)
+                if shouldReplace {
+                    bestConversationsByKey[dedupeKey] = conversation
+                }
+            } else {
+                bestConversationsByKey[dedupeKey] = conversation
+            }
+        }
+
+        return bestConversationsByKey.values.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private func remoteStandardConversation(from record: RemoteConversationRecord) -> SavedConversation? {
+        let messagesData = record.messages.data(using: .utf8) ?? Data("[]".utf8)
+        let decoder = JSONDecoder()
+        let messages = (try? decoder.decode([ConversationMessage].self, from: messagesData)) ?? []
+        let title = sanitizedStandardConversationTitle(record.title, messages: messages)
+
+        return SavedConversation(
+            id: record.id,
+            title: title,
+            kind: .standard,
+            messages: messages,
+            createdAt: record.created_at,
+            updatedAt: record.created_at
+        )
+    }
+
+    private func mergeRemoteStandardConversations(_ remoteConversations: [SavedConversation]) {
+        guard !remoteConversations.isEmpty else { return }
+
+        for remoteConversation in remoteConversations {
+            if let index = savedConversations.firstIndex(where: { $0.kind == .standard && $0.id == remoteConversation.id }) {
+                savedConversations[index] = mergedStandardConversation(local: savedConversations[index], remote: remoteConversation)
+                continue
+            }
+
+            if let firstMessageID = remoteConversation.messages.first?.id,
+               let index = savedConversations.firstIndex(where: {
+                   $0.kind == .standard && $0.messages.first?.id == firstMessageID
+               }) {
+                savedConversations[index] = mergedStandardConversation(local: savedConversations[index], remote: remoteConversation)
+                continue
+            }
+
+            savedConversations.append(remoteConversation)
+        }
+
+        savedConversations.sort { $0.updatedAt > $1.updatedAt }
+        saveConversationHistoryLocally()
+    }
+
+    private func mergedStandardConversation(local: SavedConversation, remote: SavedConversation) -> SavedConversation {
+        let remoteIsNewer = remote.updatedAt > local.updatedAt
+        let preferredMessages: [ConversationMessage]
+
+        if remote.messages.count > local.messages.count {
+            preferredMessages = remote.messages
+        } else if remote.messages.count < local.messages.count {
+            preferredMessages = local.messages
+        } else {
+            preferredMessages = remoteIsNewer ? remote.messages : local.messages
+        }
+
+        let title = remoteIsNewer
+            ? preferredStandardConversationTitle(local: local.title, remote: remote.title, messages: preferredMessages)
+            : preferredStandardConversationTitle(local: remote.title, remote: local.title, messages: preferredMessages)
+
+        return SavedConversation(
+            id: local.id,
+            title: title,
+            kind: .standard,
+            messages: preferredMessages,
+            createdAt: min(local.createdAt, remote.createdAt),
+            updatedAt: max(local.updatedAt, remote.updatedAt)
+        )
+    }
+
+    private func preferredStandardConversationTitle(local: String, remote: String, messages: [ConversationMessage]) -> String {
+        let localTitle = sanitizedStandardConversationTitle(local, messages: messages)
+        let remoteTitle = sanitizedStandardConversationTitle(remote, messages: messages)
+        let localIsWeak = isWeakStandardConversationTitle(localTitle)
+        let remoteIsWeak = isWeakStandardConversationTitle(remoteTitle)
+
+        switch (localIsWeak, remoteIsWeak) {
+        case (true, false):
+            return remoteTitle
+        case (false, true):
+            return localTitle
+        default:
+            return localTitle
+        }
+    }
+
+    private func sanitizedStandardConversationTitle(_ rawTitle: String, messages: [ConversationMessage]) -> String {
+        let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, !isWeakStandardConversationTitle(trimmed) {
+            return trimmed
+        }
+
+        if let firstUserMessage = messages.first(where: { $0.isUser })?.text
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !firstUserMessage.isEmpty {
+            return firstUserMessage.count > 80 ? String(firstUserMessage.prefix(79)) + "…" : firstUserMessage
+        }
+
+        return trimmed.isEmpty ? "New chat" : trimmed
+    }
+
+    private func isWeakStandardConversationTitle(_ title: String) -> Bool {
+        let lower = title.lowercased()
+        if title.isEmpty || title == "New Conversation" || title == "New chat" { return true }
+        if lower.hasPrefix("tell me") || lower.hasPrefix("what did i do") || lower.hasPrefix("can you") { return true }
+        if lower.hasPrefix("chat on ") { return true }
+        return false
     }
 
     private func updateTrackerSubtitle(from state: TrackerDerivedState) {
@@ -2026,7 +1993,11 @@ class SearchService: ObservableObject {
                     proactiveQuestion: message.proactiveQuestion,
                     trackerThreadId: thread.id,
                     trackerOperationDraft: message.trackerOperationDraft,
-                    trackerStateSnapshot: message.trackerStateSnapshot
+                    trackerStateSnapshot: message.trackerStateSnapshot,
+                    evidenceBundle: message.evidenceBundle,
+                    toolTrace: message.toolTrace,
+                    actionDraft: message.actionDraft,
+                    presentation: message.presentation
                 )
             }
         }
@@ -2145,10 +2116,7 @@ class SearchService: ObservableObject {
             lastGeneratedTitleMessageCount = conversationHistory.count
             pendingTrackerDraft = saved.messages.last(where: { !$0.isUser })?.trackerOperationDraft
             currentTrackerThread = trackerStore.thread(id: saved.trackerThreadId)
-
-            // Reset SelineChat so the next follow-up message re-initializes with this conversation's history.
-            // Otherwise SelineChat keeps stale context and follow-ups get wrong/empty responses.
-            selineChat = nil
+            currentConversationAnchorState = saved.messages.last(where: { !$0.isUser })?.evidenceBundle?.anchorState
 
             if saved.kind == .standard {
                 // Restore the note being edited from conversation context
@@ -2373,165 +2341,6 @@ class SearchService: ObservableObject {
         }
     }
 
-    // MARK: - Related Data Fetching
-
-    /// Fetches related data items (events, notes, locations, etc.) based on LLM response content
-    /// Only shows items that are ACTUALLY RELEVANT to the response intent
-    func fetchRelatedDataForResponse(_ responseText: String) async -> [RelatedDataItem] {
-        var relatedItems: [RelatedDataItem] = []
-        let lowerResponse = responseText.lowercased()
-
-        // Check if response actually discusses the data type (not just mentioning it in passing)
-        // Be conservative - only show items if they're clearly relevant to the response intent
-
-        // MARK: - Events/Calendar Detection (Only if discussing specific events/times)
-        let eventKeywords = ["event", "calendar", "meeting", "appointment", "scheduled", "when", "time"]
-        let hasEventContext = eventKeywords.contains { keyword in
-            // Make sure it's not just passing mention - look for context phrases
-            let hasContext = lowerResponse.contains(keyword) &&
-                (lowerResponse.contains("you have") || lowerResponse.contains("you're") ||
-                 lowerResponse.contains("upcoming") || lowerResponse.contains("next ") ||
-                 lowerResponse.contains("scheduled for") || lowerResponse.contains("at "))
-            return hasContext
-        } || lowerResponse.contains("📅") || lowerResponse.contains("calendar")
-
-        if hasEventContext {
-
-            // Fetch recent/upcoming events from TaskManager
-            let taskManager = TaskManager.shared
-            let allTasks = taskManager.getAllTasksIncludingArchived()
-            let relevantEvents = allTasks
-                .filter { task in
-                    // Only include events that are from calendar
-                    task.isFromCalendar &&
-                    // And were created recently or are upcoming
-                    {
-                        if let targetDate = task.targetDate {
-                            return abs(targetDate.timeIntervalSinceNow) < 7 * 24 * 60 * 60  // Last 7 days
-                        } else if let scheduledTime = task.scheduledTime {
-                            return abs(scheduledTime.timeIntervalSinceNow) < 7 * 24 * 60 * 60
-                        } else {
-                            return abs(task.createdAt.timeIntervalSinceNow) < 7 * 24 * 60 * 60
-                        }
-                    }()
-                }
-                .sorted { (task1, task2) in
-                    let date1 = task1.targetDate ?? task1.scheduledTime ?? task1.createdAt
-                    let date2 = task2.targetDate ?? task2.scheduledTime ?? task2.createdAt
-                    return date1 > date2  // Most recent first
-                }
-                .prefix(3)
-
-            for task in relevantEvents {
-                let eventDate = task.targetDate ?? task.scheduledTime ?? task.createdAt
-                relatedItems.append(RelatedDataItem(
-                    type: .event,
-                    title: task.title,
-                    subtitle: task.description?.isEmpty == false ? task.description : nil,
-                    date: eventDate
-                ))
-            }
-        }
-
-        // MARK: - Notes Detection (Only if discussing notes specifically)
-        let noteKeywords = ["note", "notes", "memo", "reminder", "document"]
-        let hasNoteContext = noteKeywords.contains { keyword in
-            let hasContext = lowerResponse.contains(keyword) &&
-                (lowerResponse.contains("you have") || lowerResponse.contains("saved") ||
-                 lowerResponse.contains("found") || lowerResponse.contains("check your") ||
-                 lowerResponse.contains("your notes") || lowerResponse.contains("note about"))
-            return hasContext
-        } || lowerResponse.contains("📝")
-
-        if hasNoteContext {
-            let notesManager = NotesManager.shared
-            let allNotes = notesManager.notes
-            // Get recent notes that might be relevant
-            let recentNotes = allNotes
-                .sorted { $0.dateCreated > $1.dateCreated }
-                .prefix(3)
-
-            for note in recentNotes {
-                let contentPreview = String(note.content.prefix(50)).trimmingCharacters(in: .whitespaces)
-                relatedItems.append(RelatedDataItem(
-                    type: .note,
-                    title: note.title,
-                    subtitle: contentPreview + (note.content.count > 50 ? "..." : ""),
-                    date: note.dateCreated
-                ))
-            }
-        }
-
-        // MARK: - Locations Detection (Only if discussing specific places)
-        let locationKeywords = ["location", "place", "visit", "visited", "been to", "went to", "shop", "restaurant", "cafe"]
-        let hasLocationContext = locationKeywords.contains { keyword in
-            let hasContext = lowerResponse.contains(keyword) &&
-                (lowerResponse.contains("you've") || lowerResponse.contains("you've been") ||
-                 lowerResponse.contains("you visited") || lowerResponse.contains("near") ||
-                 lowerResponse.contains("favorite") || lowerResponse.contains("saved place"))
-            return hasContext
-        } || lowerResponse.contains("📍")
-
-        if hasLocationContext {
-            let locationsManager = LocationsManager.shared
-            let savedPlaces = locationsManager.savedPlaces
-            // Get recent saved locations
-            let recentLocations = savedPlaces
-                .sorted { $0.dateCreated > $1.dateCreated }
-                .prefix(3)
-
-            for place in recentLocations {
-                relatedItems.append(RelatedDataItem(
-                    type: .location,
-                    title: place.customName ?? place.name,
-                    subtitle: place.customName != nil ? place.address : nil,
-                    date: place.dateCreated
-                ))
-            }
-        }
-
-        // MARK: - Email Detection (Only if discussing specific emails)
-        let emailKeywords = ["email", "mail", "message", "sent", "received", "inbox"]
-        let hasEmailContext = emailKeywords.contains { keyword in
-            let hasContext = lowerResponse.contains(keyword) &&
-                (lowerResponse.contains("you received") || lowerResponse.contains("you have") ||
-                 lowerResponse.contains("from ") || lowerResponse.contains("sent you") ||
-                 lowerResponse.contains("check your") || lowerResponse.contains("your email"))
-            return hasContext
-        } || lowerResponse.contains("📧")
-
-        if hasEmailContext {
-            let emailService = EmailService.shared
-            // Get recent emails from inbox and sent, sorted by date
-            var recentEmails = emailService.inboxEmails + emailService.sentEmails
-            recentEmails.sort { (email1: Email, email2: Email) in
-                email1.timestamp > email2.timestamp
-            }
-
-            for email in recentEmails.prefix(3) {
-                relatedItems.append(RelatedDataItem(
-                    type: .email,
-                    title: email.subject.isEmpty ? "No Subject" : email.subject,
-                    subtitle: email.sender.displayName,
-                    date: email.timestamp
-                ))
-            }
-        }
-
-        // MARK: - Receipts Detection
-        if lowerResponse.contains("receipt") || lowerResponse.contains("spent") ||
-           lowerResponse.contains("purchase") || lowerResponse.contains("bought") ||
-           lowerResponse.contains("cost") || lowerResponse.contains("price") ||
-           lowerResponse.contains("$") {
-
-            // Try to fetch receipts - this would depend on your implementation
-            // For now, we'll skip as it may not be available
-            // Implement this once you have a ReceiptsManager
-        }
-
-        return relatedItems
-    }
-
     /// Delete conversation from history
     func deleteConversation(withId id: UUID) {
         let isCurrentlyLoaded = currentlyLoadedConversationId == id
@@ -2540,6 +2349,10 @@ class SearchService: ObservableObject {
            conversation.kind == .tracker,
            let trackerThreadId = conversation.trackerThreadId {
             trackerStore.deleteThread(id: trackerThreadId)
+        } else {
+            Task {
+                await deleteStandardConversationsFromSupabase(ids: [id])
+            }
         }
         savedConversations.removeAll { $0.id == id }
 
@@ -2554,7 +2367,16 @@ class SearchService: ObservableObject {
     func deleteAllConversations() {
         let trackerIds = savedConversations.compactMap(\.trackerThreadId)
         trackerIds.forEach { trackerStore.deleteThread(id: $0) }
+        let standardConversationIDs = savedConversations
+            .filter { $0.kind == .standard }
+            .map(\.id)
         savedConversations.removeAll()
+
+        if !standardConversationIDs.isEmpty {
+            Task {
+                await deleteStandardConversationsFromSupabase(ids: standardConversationIDs)
+            }
+        }
 
         if currentlyLoadedConversationId != nil {
             resetDeletedConversationState()
@@ -2569,8 +2391,17 @@ class SearchService: ObservableObject {
         let trackerIds = savedConversations
             .filter { ids.contains($0.id) }
             .compactMap(\.trackerThreadId)
+        let standardConversationIDs = savedConversations
+            .filter { ids.contains($0.id) && $0.kind == .standard }
+            .map(\.id)
         trackerIds.forEach { trackerStore.deleteThread(id: $0) }
         savedConversations.removeAll { ids.contains($0.id) }
+
+        if !standardConversationIDs.isEmpty {
+            Task {
+                await deleteStandardConversationsFromSupabase(ids: standardConversationIDs)
+            }
+        }
 
         if shouldResetLoadedConversation {
             resetDeletedConversationState()
@@ -2601,6 +2432,7 @@ class SearchService: ObservableObject {
         currentlyLoadedConversationId = nil
         cancellables.removeAll()
         trackerStore.clearLocalData()
+        currentConversationAnchorState = nil
 
         // Clear conversation storage from UserDefaults
         UserDefaults.standard.removeObject(forKey: "SavedConversations")
@@ -2620,8 +2452,24 @@ class SearchService: ObservableObject {
         isNewConversation = false
         currentlyLoadedConversationId = nil
         lastGeneratedTitleMessageCount = 0
-        selineChat = nil
+        currentConversationAnchorState = nil
         UserDefaults.standard.removeObject(forKey: "lastConversation")
+    }
+
+    private func deleteStandardConversationsFromSupabase(ids: [UUID]) async {
+        guard !ids.isEmpty, let userId = SupabaseManager.shared.getCurrentUser()?.id else { return }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("conversations")
+                .delete()
+                .eq("user_id", value: userId.uuidString)
+                .in("id", values: ids.map(\.uuidString))
+                .execute()
+        } catch {
+            print("❌ Failed deleting conversations from Supabase: \(error)")
+        }
     }
 }
 
@@ -2686,4 +2534,11 @@ struct SavedConversation: Identifiable, Codable {
         formatter.timeStyle = .short
         return formatter.string(from: updatedAt)
     }
+}
+
+private struct RemoteConversationRecord: Decodable {
+    let id: UUID
+    let title: String
+    let messages: String
+    let created_at: Date
 }

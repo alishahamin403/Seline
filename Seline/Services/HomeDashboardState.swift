@@ -1,6 +1,21 @@
 import Combine
 import Foundation
 
+struct HomeVisitTimelineItem: Identifiable, Equatable {
+    let visitId: UUID
+    let placeId: UUID
+    let displayName: String
+    let address: String?
+    let entryTime: Date
+    let exitTime: Date?
+    let durationMinutes: Int
+    let isActive: Bool
+    let notes: String?
+    let peopleNames: [String]
+
+    var id: UUID { visitId }
+}
+
 @MainActor
 final class HomeDashboardState: ObservableObject {
     struct UpcomingBirthdayItem: Identifiable, Equatable {
@@ -14,6 +29,7 @@ final class HomeDashboardState: ObservableObject {
     @Published private(set) var todayTaskCount: Int = 0
     @Published private(set) var pinnedNotesCount: Int = 0
     @Published private(set) var todaysVisits: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)] = []
+    @Published private(set) var todayVisitTimeline: [HomeVisitTimelineItem] = []
     @Published private(set) var hasPendingLocationSuggestion = false
     @Published private(set) var flattenedTasks: [TaskItem] = []
     @Published private(set) var todayTasks: [TaskItem] = []
@@ -97,6 +113,12 @@ final class HomeDashboardState: ObservableObject {
             }
             .store(in: &cancellables)
 
+        visitState.$todayVisitTimeline
+            .sink { [weak self] timeline in
+                self?.todayVisitTimeline = timeline
+            }
+            .store(in: &cancellables)
+
         locationSuggestionService.$hasPendingSuggestion
             .sink { [weak self] hasPendingSuggestion in
                 self?.hasPendingLocationSuggestion = hasPendingSuggestion
@@ -115,6 +137,7 @@ final class HomeDashboardState: ObservableObject {
         refreshTasks()
         refreshPinnedNotes()
         todaysVisits = visitState.todaysVisits
+        todayVisitTimeline = visitState.todayVisitTimeline
         hasPendingLocationSuggestion = locationSuggestionService.hasPendingSuggestion
         refreshUpcomingBirthdays()
         refreshRecurringExpenses()
@@ -137,10 +160,21 @@ final class HomeDashboardState: ObservableObject {
 
     private func refreshTasks() {
         let allTasks = taskManager.getAllFlattenedTasks()
+        let todayTasks = buildTodayTodoTasks(
+            from: taskManager.getTasksForDate(Calendar.current.startOfDay(for: Date()))
+        )
         flattenedTasks = allTasks
-        todayTasks = taskManager.getTasksForDate(Calendar.current.startOfDay(for: Date()))
-        todayTaskCount = taskManager.getTasksForToday().count
+        self.todayTasks = todayTasks
+        todayTaskCount = todayTasks.count
         missedOneTimeTodos = buildMissedOneTimeTodos(from: allTasks)
+    }
+
+    private func buildTodayTodoTasks(from tasks: [TaskItem]) -> [TaskItem] {
+        tasks.filter { task in
+            guard !task.isDeleted else { return false }
+            guard !isRecurringExpenseTask(task) else { return false }
+            return true
+        }
     }
 
     private func refreshPinnedNotes() {

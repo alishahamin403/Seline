@@ -67,7 +67,7 @@ struct RecurringExpenseForm: View {
         NavigationStack {
             VStack(spacing: 0) {
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 12) {
+                    LazyVStack(spacing: 12) {
                         introCard
                         basicInfoCard
                         detailsCard
@@ -84,7 +84,7 @@ struct RecurringExpenseForm: View {
                     .padding(.top, 10)
                     .padding(.bottom, 8)
                 }
-                .scrollDismissesKeyboard(.interactively)
+                .selinePrimaryPageScroll()
 
                 actionButtonsSection
             }

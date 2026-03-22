@@ -75,6 +75,7 @@ struct MainAppView: View {
     private let locationService = LocationService.shared
     @StateObject private var geofenceManager = GeofenceManager.shared
     private let searchService = SearchService.shared
+    private let searchIndex = SearchIndexState.shared
     private let widgetManager = WidgetManager.shared
     private let emailService = EmailService.shared
     private let taskManager = TaskManager.shared
@@ -83,9 +84,11 @@ struct MainAppView: View {
     private let peopleManager = PeopleManager.shared
     private let locationSuggestionService = LocationSuggestionService.shared
     private let visitState = VisitStateManager.shared
+    private let floatingActionCoordinator = FloatingActionCoordinator.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
-    @State private var selectedTab: TabSelection = .home
+    @State private var selectedTab: PrimaryTab = .home
+    @State private var selectedPlanTab: EmailTab = .inbox
     @State private var keyboardHeight: CGFloat = 0
     @State private var selectedNoteToOpen: Note? = nil
     @State private var showingNewNoteSheet = false
@@ -126,22 +129,25 @@ struct MainAppView: View {
     @State private var selectedLocationPlace: SavedPlace? = nil
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
+    @State private var showingRecurringExpenseForm = false
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var selectedReceiptImages: [UIImage] = []
     @State private var processingQueue: [UIImage] = []
     @State private var currentProcessingIndex = 0
-    @State private var showingSettings = false
     @State private var profilePictureUrl: String? = nil
     @State private var hasAppeared = false
     @State private var dismissedVisitReasonIds: Set<UUID> = [] // Track visits where user dismissed the reason popup
     @State private var isSidebarOverlayVisible = false
     @State private var isEmailDetailOpen = false
+    @State private var activeOverlayRoute: OverlayRoute? = nil
+    @State private var showingHomeDrawer = false
     @State private var syncedWidgetVisitId: UUID? = nil
     @State private var loadTodaysVisitsTask: Task<Void, Never>?
     @State private var allLocationsRefreshTask: Task<Void, Never>?
     @State private var lastAllLocationsRefreshAt: Date = .distantPast
     @State private var isFetchingProfilePicture = false
     @State private var isViewingNoteInNavigation = false
+    @State private var isPeopleOverlaySearchActive = false
 
     /// Returns the current active visit and place if user is at a saved location and should see the visit reason popup
     private var currentActiveVisitForReasonPopup: (visit: LocationVisitRecord, place: SavedPlace)? {
@@ -210,28 +216,14 @@ struct MainAppView: View {
     }
 
     private func clearHomeSearch() {
+        searchDebounceTask?.cancel()
         searchText = ""
         searchResults = []
         isSearchFocused = false
     }
 
     private func homeSearchBadgeLabel(for type: OverlaySearchResultType) -> String {
-        switch type {
-        case .email:
-            return "Email"
-        case .event:
-            return "Event"
-        case .note:
-            return "Note"
-        case .location:
-            return "Place"
-        case .folder:
-            return "Folder"
-        case .receipt:
-            return "Receipt"
-        case .recurringExpense:
-            return "Recurring"
-        }
+        type.badgeLabel
     }
 
     /// Compute search results against a prebuilt search index.
@@ -517,32 +509,23 @@ struct MainAppView: View {
     }
 
     private func scheduleHomeSearchIndexRefresh() {
-        homeSearchIndexRefreshTask?.cancel()
-        homeSearchIndexRefreshTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 200_000_000)
+        searchDebounceTask?.cancel()
+
+        let query = trimmedHomeSearchText
+        guard !query.isEmpty, !shouldSuppressHomeSearchResults else {
+            searchResults = []
+            return
+        }
+
+        searchDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
             guard !Task.isCancelled else { return }
 
-            let nextIndex = buildHomeSearchIndex()
-            guard !Task.isCancelled else { return }
-
-            homeSearchIndex = nextIndex
-
-            let query = trimmedHomeSearchText
-            guard !query.isEmpty, !shouldSuppressHomeSearchResults else { return }
-
-            searchDebounceTask?.cancel()
-            searchDebounceTask = Task {
-                let capturedQuery = query
-                let capturedIndex = nextIndex
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let results = performSearchComputation(query: capturedQuery, index: capturedIndex)
-                    DispatchQueue.main.async {
-                        if trimmedHomeSearchText == capturedQuery {
-                            searchResults = results
-                        }
-                    }
-                }
-            }
+            searchResults = searchIndex.results(
+                for: query,
+                scopes: .homeSearchScopes,
+                limit: 18
+            )
         }
     }
 
@@ -555,7 +538,7 @@ struct MainAppView: View {
             searchService.pendingNoteUpdate != nil) &&
            !searchService.isInConversationMode {
             searchService.isInConversationMode = true
-            selectedTab = .email
+            selectedTab = .chat
         }
     }
 
@@ -568,9 +551,11 @@ struct MainAppView: View {
         case "receiptStats":
             showReceiptStats = true
         case "search":
-            isSearchFocused = true
+            dismissOverlay()
+            selectedTab = .search
         case "chat":
-            selectedTab = .email // Navigate to email tab which now has chat
+            dismissOverlay()
+            selectedTab = .chat
         case "journal":
             openJournalInNotes(openToday: false)
         default:
@@ -611,6 +596,14 @@ struct MainAppView: View {
                 userInfo: ["openToday": openToday]
             )
         }
+    }
+
+    private func openReceiptsInNotes() {
+        presentOverlay(.receipts)
+    }
+
+    private func openRecurringInNotes() {
+        presentOverlay(.recurring)
     }
 
     private func updateCurrentLocation() {
@@ -898,6 +891,10 @@ struct MainAppView: View {
         case .recurringExpense:
             // Navigate to receipt stats view which shows recurring expenses
             showReceiptStats = true
+        case .person:
+            if let person = result.person {
+                selectedPersonForDetail = person
+            }
         }
 
         // Dismiss search after setting the state
@@ -918,7 +915,7 @@ struct MainAppView: View {
     // MARK: - Tab Navigation Helpers
 
     private func previousTab() {
-        let allTabs = TabSelection.allCases
+        let allTabs = PrimaryTab.allCases
         guard let currentIndex = allTabs.firstIndex(of: selectedTab) else { return }
 
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -932,7 +929,7 @@ struct MainAppView: View {
     }
 
     private func nextTab() {
-        let allTabs = TabSelection.allCases
+        let allTabs = PrimaryTab.allCases
         guard let currentIndex = allTabs.firstIndex(of: selectedTab) else { return }
 
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -945,40 +942,76 @@ struct MainAppView: View {
         HapticManager.shared.selection()
     }
 
+    private func presentOverlay(_ route: OverlayRoute) {
+        dismissActiveKeyboard()
+
+        let openRoute = {
+            withAnimation(.smoothTabTransition) {
+                activeOverlayRoute = route
+            }
+        }
+
+        if showingHomeDrawer {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showingHomeDrawer = false
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                openRoute()
+            }
+        } else {
+            openRoute()
+        }
+    }
+
+    private func dismissOverlay() {
+        withAnimation(.smoothTabTransition) {
+            activeOverlayRoute = nil
+        }
+    }
+
+    private func dismissActiveKeyboard() {
+        isSearchFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    private func openPlanInbox() {
+        selectedPlanTab = .inbox
+        presentOverlay(.plan)
+    }
+
+    private func openPlanCalendar() {
+        selectedPlanTab = .calendar
+        presentOverlay(.plan)
+    }
+
+    private func openPlanSent() {
+        selectedPlanTab = .sent
+        presentOverlay(.plan)
+    }
+
+    private func openSettingsOverlay() {
+        presentOverlay(.settings)
+    }
+
+    private func openPeopleOverlay() {
+        isPeopleOverlaySearchActive = false
+        presentOverlay(.people)
+    }
+
     var body: some View {
         mainContent
-            .onChange(of: searchText) { newValue in
-                searchDebounceTask?.cancel()
-
-                let trimmedQuery = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmedQuery.isEmpty {
-                    searchService.cancelAction()
-                    searchResults = []
-                } else if shouldSuppressHomeSearchResults {
-                    searchResults = []
-                } else {
-                    searchDebounceTask = Task {
-                        try? await Task.sleep(nanoseconds: 250_000_000)
-                        guard !Task.isCancelled else { return }
-
-                        let query = trimmedQuery
-                        let index = homeSearchIndex
-                        DispatchQueue.global(qos: .userInitiated).async {
-                            let results = performSearchComputation(query: query, index: index)
-                            DispatchQueue.main.async {
-                                if trimmedHomeSearchText == query {
-                                    searchResults = results
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            .edgeSwipeBackEnabled(
+                action: activeOverlayRoute != nil ? dismissOverlay : nil
+            )
             .onReceive(searchService.$pendingEventCreation.dropFirst()) { _ in
                 activateConversationModalIfNeeded()
             }
-            .onReceive(searchService.$pendingNoteCreation.dropFirst()) { _ in
+            .onReceive(searchService.$pendingNoteCreation.dropFirst()) { draft in
                 activateConversationModalIfNeeded()
+                if draft != nil {
+                    showingNewNoteSheet = true
+                }
             }
             .onReceive(searchService.$pendingNoteUpdate.dropFirst()) { _ in
                 activateConversationModalIfNeeded()
@@ -1028,15 +1061,14 @@ struct MainAppView: View {
                     guard !hasAppeared else { return }
                     hasAppeared = true
                     isViewingNoteInNavigation = notesManager.isViewingNoteInNavigation
-                    pageRefreshCoordinator.markDirty(TabSelection.allCases, reason: .initialLoad)
-                    pageRefreshCoordinator.pageBecameVisible(selectedTab)
+                    pageRefreshCoordinator.markDirty(PageRoute.allCases, reason: .initialLoad)
+                    pageRefreshCoordinator.pageBecameVisible(selectedTab.pageRoute)
 
                     taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
                     deepLinkHandler.processPendingAction()
                     Task {
                         await fetchUserProfilePicture()
                     }
-                    scheduleHomeSearchIndexRefresh()
 
                     Task {
                         let (mergedCount, deletedCount) = await LocationVisitAnalytics.shared.mergeAndCleanupVisits()
@@ -1091,13 +1123,6 @@ struct MainAppView: View {
                 .onChange(of: locationsManager.savedPlaces) { _ in
                     pageRefreshCoordinator.markDirty([.home, .maps], reason: .locationDataChanged)
                     loadTodaysVisits()
-                    scheduleHomeSearchIndexRefresh()
-                }
-                .onReceive(notesManager.$notes) { _ in
-                    scheduleHomeSearchIndexRefresh()
-                }
-                .onReceive(notesManager.$folders) { _ in
-                    scheduleHomeSearchIndexRefresh()
                 }
                 .onReceive(notesManager.$isViewingNoteInNavigation.removeDuplicates()) { isViewing in
                     isViewingNoteInNavigation = isViewing
@@ -1107,15 +1132,12 @@ struct MainAppView: View {
                     refreshAllLocationRankingsIfNeeded(force: allLocations.isEmpty)
                 }
                 .onReceive(taskManager.$tasks) { _ in
-                    pageRefreshCoordinator.markDirty([.home, .email], reason: .taskDataChanged)
+                    pageRefreshCoordinator.markDirty([.home, .plan], reason: .taskDataChanged)
                     taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
-                    scheduleHomeSearchIndexRefresh()
                 }
                 .onReceive(emailService.$inboxEmails) { _ in
-                    scheduleHomeSearchIndexRefresh()
                 }
                 .onReceive(emailService.$sentEmails) { _ in
-                    scheduleHomeSearchIndexRefresh()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
                     pageRefreshCoordinator.markDirty([.home, .maps], reason: .visitHistoryChanged)
@@ -1135,10 +1157,13 @@ struct MainAppView: View {
                     }
                 }
                 .onChange(of: selectedTab) { newTab in
-                    pageRefreshCoordinator.pageBecameVisible(newTab)
+                    dismissActiveKeyboard()
+                    pageRefreshCoordinator.pageBecameVisible(newTab.pageRoute)
 
                     if newTab == .home {
                         revalidateHomeIfNeeded(reason: .initialLoad)
+                    } else if showingHomeDrawer {
+                        showingHomeDrawer = false
                     }
                 }
                 .onChange(of: nearbyLocationPlace) { newPlace in
@@ -1188,7 +1213,21 @@ struct MainAppView: View {
                     ))
                 }
                 .sheet(isPresented: $showingNewNoteSheet) {
-                    NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+                    NoteEditView(
+                        note: nil,
+                        isPresented: Binding<Bool>(
+                            get: { showingNewNoteSheet },
+                            set: { newValue in
+                                showingNewNoteSheet = newValue
+                                if !newValue {
+                                    searchService.pendingNoteCreation = nil
+                                }
+                            }
+                        ),
+                        initialFolderId: searchService.pendingNoteCreation?.folderId,
+                        initialTitle: searchService.pendingNoteCreation?.title,
+                        initialContent: searchService.pendingNoteCreation?.content ?? ""
+                    )
                         .presentationDetents([.medium, .large])
                         .presentationDragIndicator(.visible)
                         .modifier(PresentationModifiers())
@@ -1207,12 +1246,6 @@ struct MainAppView: View {
                 .sheet(isPresented: $authManager.showLocationSetup) {
                     LocationSetupView()
                         .presentationDetents([.medium, .large])
-                        .presentationDragIndicator(.visible)
-                        .presentationBg()
-                }
-                .sheet(isPresented: $showingSettings) {
-                    SettingsView()
-                        .presentationDetents([.large])
                         .presentationDragIndicator(.visible)
                         .presentationBg()
                 }
@@ -1399,6 +1432,13 @@ struct MainAppView: View {
                         }
                     ))
                 }
+                .sheet(isPresented: $showingRecurringExpenseForm) {
+                    RecurringExpenseForm { expense in
+                        HapticManager.shared.buttonTap()
+                        print("Created recurring expense: \(expense.title)")
+                    }
+                    .presentationBg()
+                }
                 .overlay(alignment: .top) {
                     if receiptProcessingState != .idle {
                         VStack {
@@ -1416,6 +1456,11 @@ struct MainAppView: View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
                 mainContentVStack(geometry: geometry)
+                overlayRouteView(in: geometry)
+
+                if shouldShowPrimaryFloatingComposeButton {
+                    primaryFloatingComposeOverlay(in: geometry)
+                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(Color.appBackground(colorScheme))
@@ -1430,9 +1475,42 @@ struct MainAppView: View {
         searchSelectedEmail == nil &&
         searchSelectedTask == nil &&
         !authManager.showLocationSetup &&
+        activeOverlayRoute == nil &&
+        !showingHomeDrawer &&
         !isViewingNoteInNavigation &&
         !isSidebarOverlayVisible &&
         !isEmailDetailOpen
+    }
+
+    private var shouldShowPrimaryFloatingComposeButton: Bool {
+        activeOverlayRoute == nil &&
+        !showingHomeDrawer &&
+        keyboardHeight == 0 &&
+        (selectedTab == .home || selectedTab == .notes || selectedTab == .maps)
+    }
+
+    @ViewBuilder
+    private func primaryFloatingComposeOverlay(in geometry: GeometryProxy) -> some View {
+        VStack {
+            Spacer()
+
+            HStack {
+                Spacer()
+                ShellFloatingComposeButton(
+                    selectedTab: selectedTab,
+                    coordinator: floatingActionCoordinator,
+                    homeButton: AnyView(homeFloatingComposeButton),
+                    notesButton: { page in
+                        AnyView(notesShellFloatingComposeButton(for: page))
+                    },
+                    mapsButton: AnyView(mapsShellFloatingComposeButton)
+                )
+            }
+            .padding(.trailing, 16)
+            .padding(.bottom, geometry.safeAreaInsets.bottom > 0 ? 56 : 40)
+        }
+        .transition(.opacity)
+        .zIndex(15)
     }
 
     private func bottomTabBarVerticalOffset(for geometry: GeometryProxy) -> CGFloat {
@@ -1457,24 +1535,111 @@ struct MainAppView: View {
 
     @ViewBuilder
     private var activeTabContent: some View {
-        switch selectedTab {
+        RetainedTabContainer(selection: $selectedTab, allTabs: PrimaryTab.allCases) { tab, isVisible in
+            tabContent(for: tab, isVisible: isVisible)
+        }
+    }
+
+    @ViewBuilder
+    private func tabContent(for tab: PrimaryTab, isVisible: Bool) -> some View {
+        switch tab {
         case .home:
-            HomeTabView(isVisible: true) {
-                homeContentWithoutHeader
-            }
-        case .email:
-            EmailView(
-                isVisible: true,
-                onDetailNavigationChanged: { isShowingDetail in
-                    isEmailDetailOpen = isShowingDetail
+            homeTabContent(isVisible: isVisible)
+        case .search:
+            SearchView(
+                isVisible: isVisible,
+                selectedTab: $selectedTab,
+                selectedFolder: $searchSelectedFolder,
+                onOpenEmail: { email in
+                    selectedPlanTab = emailService.sentEmails.contains(where: { $0.id == email.id }) ? .sent : .inbox
+                    presentOverlay(.plan)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        searchSelectedEmail = email
+                    }
+                },
+                onOpenTask: { task in
+                    openPlanCalendar()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        searchSelectedTask = task
+                        showingEditTask = false
+                    }
+                },
+                onOpenNote: { note in
+                    searchSelectedNote = note
+                },
+                onOpenPlace: { place in
+                    selectedLocationPlace = place
+                },
+                onOpenPerson: { person in
+                    selectedPersonForDetail = person
+                },
+                onOpenChat: { query in
+                    selectedTab = .chat
+                    Task {
+                        await searchService.addConversationMessage(query)
+                    }
                 }
             )
-        case .events:
-            EventsView(isVisible: true)
+        case .chat:
+            ChatView(isVisible: isVisible)
         case .notes:
-            NotesView(isVisible: true)
+            NotesView(isVisible: isVisible)
         case .maps:
-            MapsViewNew(isVisible: true, externalSelectedFolder: $searchSelectedFolder)
+            MapsViewNew(isVisible: isVisible, externalSelectedFolder: $searchSelectedFolder)
+        }
+    }
+
+    @ViewBuilder
+    private func homeTabContent(isVisible: Bool) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                HomeTabView(isVisible: isVisible) {
+                    homeContentWithoutHeader
+                }
+                .scaleEffect(showingHomeDrawer ? 0.985 : 1, anchor: .leading)
+                .offset(x: showingHomeDrawer ? 12 : 0)
+                .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.88), value: showingHomeDrawer)
+
+                InteractiveSidebarOverlay(
+                    isPresented: $showingHomeDrawer,
+                    canOpen: isVisible && activeOverlayRoute == nil,
+                    sidebarWidth: min(318, geometry.size.width * 0.84),
+                    colorScheme: colorScheme
+                ) {
+                    homeDrawerContent
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func overlayRouteView(in geometry: GeometryProxy) -> some View {
+        if let route = activeOverlayRoute {
+            ZStack {
+                Color.appBackground(colorScheme)
+                    .ignoresSafeArea()
+
+                switch route {
+                case .plan:
+                    PlanView(
+                        selectedTab: $selectedPlanTab,
+                        onDetailNavigationChanged: { isShowingDetail in
+                            isEmailDetailOpen = isShowingDetail
+                        },
+                        onClose: dismissOverlay
+                    )
+                case .receipts:
+                    receiptsOverlayContent(in: geometry)
+                case .recurring:
+                    recurringOverlayContent(in: geometry)
+                case .people:
+                    peopleOverlayContent(in: geometry)
+                case .settings:
+                    settingsOverlayContent
+                }
+            }
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+            .zIndex(20)
         }
     }
 
@@ -1715,7 +1880,7 @@ struct MainAppView: View {
 
                 if emailService.inboxEmails.filter({ !$0.isRead }).count > 5 {
                     Button(action: {
-                        selectedTab = .email
+                        openPlanInbox()
                     }) {
                         Text("... and \(emailService.inboxEmails.filter { !$0.isRead }.count - 5) more")
                             .font(FontManager.geist(size: 13, weight: .regular))
@@ -1739,7 +1904,7 @@ struct MainAppView: View {
                 ForEach(todayTasks.prefix(5)) { task in
                     Button(action: {
                         HapticManager.shared.calendar()
-                        selectedTab = .events
+                        openPlanCalendar()
                     }) {
                         HStack(spacing: 6) {
                             Group {
@@ -1780,7 +1945,7 @@ struct MainAppView: View {
 
                 if todayTasks.count > 5 {
                     Button(action: {
-                        selectedTab = .events
+                        openPlanCalendar()
                     }) {
                         Text("... and \(todayTasks.count - 5) more")
                             .font(FontManager.geist(size: 13, weight: .regular))
@@ -1843,29 +2008,29 @@ struct MainAppView: View {
     private func handleEmailNotification(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let emailId = userInfo["emailId"] as? String else {
-            // No specific email ID, just navigate to email tab
-            selectedTab = .email
+            // No specific email ID, just navigate to the inbox section of Plan
+            openPlanInbox()
             return
         }
 
         // Find the email and show it
         if let email = emailService.inboxEmails.first(where: { $0.id == emailId }) {
-            selectedTab = .email
+            openPlanInbox()
             // Delay slightly to ensure tab is switched before showing email detail
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 searchSelectedEmail = email
             }
         } else {
-            // Email not found, just navigate to email tab
-            selectedTab = .email
+            // Email not found, just navigate to the inbox section of Plan
+            openPlanInbox()
         }
     }
 
     private func handleTaskNotification(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let taskId = userInfo["taskId"] as? String else {
-            // No specific task ID, just navigate to events tab
-            selectedTab = .events
+            // No specific task ID, just navigate to the calendar section of Plan
+            openPlanCalendar()
             return
         }
 
@@ -1879,15 +2044,15 @@ struct MainAppView: View {
         }
 
         if let task = foundTask {
-            selectedTab = .events
+            openPlanCalendar()
             // Delay slightly to ensure tab is switched before showing task detail
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 searchSelectedTask = task
                 showingEditTask = false // Show in read mode
             }
         } else {
-            // Task not found, just navigate to events tab
-            selectedTab = .events
+            // Task not found, just navigate to the calendar section of Plan
+            openPlanCalendar()
         }
     }
 
@@ -1898,7 +2063,7 @@ struct MainAppView: View {
         Button(action: {
             // Navigate to chat tab
             HapticManager.shared.selection()
-            selectedTab = .email
+            selectedTab = .chat
         }) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
@@ -1929,7 +2094,7 @@ struct MainAppView: View {
     private var profileAvatarButton: some View {
         Button(action: {
             HapticManager.shared.selection()
-            showingSettings = true
+            openSettingsOverlay()
         }) {
             Group {
                 if let resolvedProfilePictureURL,
@@ -1971,6 +2136,13 @@ struct MainAppView: View {
         }
     }
 
+    private func toggleHomeDrawer() {
+        HapticManager.shared.selection()
+        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
+            showingHomeDrawer.toggle()
+        }
+    }
+
     // NEW: App-wide search bar for searching emails, events, notes, receipts, etc.
     private var appSearchBar: some View {
         HStack(spacing: 10) {
@@ -1997,8 +2169,7 @@ struct MainAppView: View {
 
             if !searchText.isEmpty {
                 Button(action: {
-                    searchText = ""
-                    searchResults = []
+                    clearHomeSearch()
                 }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(FontManager.geist(size: 14, weight: .medium))
@@ -2012,6 +2183,12 @@ struct MainAppView: View {
         .frame(maxWidth: .infinity)
         .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 21)
         .contentShape(RoundedRectangle(cornerRadius: 21))
+        .onChange(of: searchText) { _ in
+            scheduleHomeSearchIndexRefresh()
+        }
+        .onReceive(searchIndex.$snapshotVersion) { _ in
+            scheduleHomeSearchIndexRefresh()
+        }
         .onTapGesture {
             isSearchFocused = true
         }
@@ -2041,8 +2218,8 @@ struct MainAppView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .frame(maxHeight: dropdownHeight)
-        .padding(8)
-        .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 22, highlightStrength: 0.85)
+        .padding(6)
+        .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 22)
     }
 
     private func searchResultRow(for result: OverlaySearchResult) -> some View {
@@ -2119,7 +2296,7 @@ struct MainAppView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .homeGlassInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 14)
+            .searchResultsRowStyle(colorScheme: colorScheme, cornerRadius: 14)
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -2171,8 +2348,7 @@ struct MainAppView: View {
 
     private var homeProfileButton: some View {
         Button(action: {
-            HapticManager.shared.selection()
-            showingSettings = true
+            toggleHomeDrawer()
         }) {
             Group {
                 if let resolvedProfilePictureURL,
@@ -2201,6 +2377,421 @@ struct MainAppView: View {
         }
     }
 
+    private var homeHeaderBar: some View {
+        HStack(spacing: 12) {
+            homeProfileButton
+                .frame(width: 42, height: 42)
+
+            Spacer(minLength: 0)
+
+            Image("SelineLogo")
+                .resizable()
+                .scaledToFill()
+                .frame(width: 34, height: 24, alignment: .top)
+                .clipped()
+
+            Spacer(minLength: 0)
+
+            Color.clear
+                .frame(width: 42, height: 42)
+        }
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+    }
+
+    private var homeFloatingComposeButton: some View {
+        Menu {
+            Button(action: {
+                HapticManager.shared.selection()
+                showingAddEventPopup = true
+            }) {
+                Label("Todo", systemImage: "checklist")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
+                todoImportSourceType = .camera
+                showingTodoPhotoImportSheet = true
+            }) {
+                Label("Todo Camera", systemImage: "camera.fill")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
+                showingNewNoteSheet = true
+            }) {
+                Label("New Note", systemImage: "note.text.badge.plus")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 24, weight: .regular))
+                .foregroundColor(.black)
+                .frame(width: 56, height: 56)
+                .background(
+                    Circle()
+                        .fill(Color.homeGlassAccent)
+                )
+                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.45 : 0.18), radius: 18, x: 0, y: 10)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func notesShellFloatingComposeButton(for page: NotesFloatingActionPage) -> some View {
+        switch page {
+        case .notes:
+            Menu {
+                Button(action: {
+                    HapticManager.shared.selection()
+                    NotificationCenter.default.post(name: .notesShellNewNoteRequested, object: nil)
+                }) {
+                    Label("New Note", systemImage: "note.text.badge.plus")
+                }
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    NotificationCenter.default.post(name: .notesShellNewJournalRequested, object: nil)
+                }) {
+                    Label("New Journal", systemImage: "book.closed")
+                }
+            } label: {
+                floatingComposeButtonLabel
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New note or journal")
+        case .receipts:
+            Button(action: {
+                HapticManager.shared.selection()
+                NotificationCenter.default.post(name: .notesShellAddRequested, object: nil)
+            }) {
+                floatingComposeButtonLabel
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add receipt")
+        case .recurring:
+            Button(action: {
+                HapticManager.shared.selection()
+                NotificationCenter.default.post(name: .notesShellAddRequested, object: nil)
+            }) {
+                floatingComposeButtonLabel
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add recurring expense")
+        }
+    }
+
+    private var mapsShellFloatingComposeButton: some View {
+        Menu {
+            Button(action: {
+                HapticManager.shared.selection()
+                NotificationCenter.default.post(name: .mapsShellAddRequested, object: nil)
+            }) {
+                Label("Add Location", systemImage: "mappin.and.ellipse")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
+                NotificationCenter.default.post(name: .mapsShellNewFolderRequested, object: nil)
+            }) {
+                Label("New Folder", systemImage: "folder.badge.plus")
+            }
+        } label: {
+            floatingComposeButtonLabel
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add location or folder")
+    }
+
+    private var floatingComposeButtonLabel: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 24, weight: .regular))
+            .foregroundColor(.black)
+            .frame(width: 56, height: 56)
+            .background(
+                Circle()
+                    .fill(Color.homeGlassAccent)
+            )
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.45 : 0.18), radius: 18, x: 0, y: 10)
+    }
+
+    private var receiptsOverlayFloatingComposeButton: some View {
+        Menu {
+            Button(action: {
+                HapticManager.shared.selection()
+                showingReceiptCameraPicker = true
+            }) {
+                Label("Take Picture", systemImage: "camera.fill")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
+                showingReceiptImagePicker = true
+            }) {
+                Label("Upload Receipt", systemImage: "photo.on.rectangle")
+            }
+        } label: {
+            floatingComposeButtonLabel
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add receipt")
+    }
+
+    private var recurringOverlayFloatingComposeButton: some View {
+        Button(action: {
+            HapticManager.shared.selection()
+            showingRecurringExpenseForm = true
+        }) {
+            floatingComposeButtonLabel
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add recurring expense")
+    }
+
+    private var peopleOverlayFloatingComposeButton: some View {
+        Menu {
+            Button(action: {
+                HapticManager.shared.selection()
+                NotificationCenter.default.post(name: .peopleHubAddRequested, object: nil)
+            }) {
+                Label("Add Person", systemImage: "plus.circle")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
+                NotificationCenter.default.post(name: .peopleHubImportRequested, object: nil)
+            }) {
+                Label("Import Contacts", systemImage: "square.and.arrow.down")
+            }
+        } label: {
+            floatingComposeButtonLabel
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add or import person")
+    }
+
+    private func overlayFloatingComposeInset<Content: View>(
+        in geometry: GeometryProxy,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .padding(.trailing, 16)
+            .padding(.bottom, geometry.safeAreaInsets.bottom > 0 ? 22 : 16)
+    }
+
+    private var homeDrawerContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 14) {
+                Group {
+                    if let resolvedProfilePictureURL,
+                       let url = URL(string: resolvedProfilePictureURL) {
+                        CachedAsyncImage(url: url.absoluteString) { image in
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        } placeholder: {
+                            homeProfileFallbackAvatar
+                        }
+                    } else {
+                        homeProfileFallbackAvatar
+                    }
+                }
+                .frame(width: 58, height: 58)
+                .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(authManager.currentUser?.profile?.name ?? "Seline")
+                        .font(FontManager.geist(size: 24, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                    if let email = authManager.currentUser?.profile?.email, !email.isEmpty {
+                        Text(email)
+                            .font(FontManager.geist(size: 13, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 54)
+            .padding(.bottom, 22)
+
+            VStack(spacing: 4) {
+                homeDrawerButton(title: "Home", systemImage: "house.fill") {
+                    withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
+                        showingHomeDrawer = false
+                    }
+                }
+
+                homeDrawerButton(title: "Inbox", systemImage: "tray.fill") {
+                    openPlanInbox()
+                }
+
+                homeDrawerButton(title: "Calendar", systemImage: "calendar") {
+                    openPlanCalendar()
+                }
+
+                homeDrawerButton(title: "Sent", systemImage: "paperplane.fill") {
+                    openPlanSent()
+                }
+
+                homeDrawerButton(title: "Receipts", systemImage: "receipt") {
+                    openReceiptsInNotes()
+                }
+
+                homeDrawerButton(title: "Recurring", systemImage: "repeat") {
+                    openRecurringInNotes()
+                }
+
+                homeDrawerButton(title: "People", systemImage: "person.2.fill") {
+                    openPeopleOverlay()
+                }
+            }
+            .padding(.horizontal, 12)
+
+            Spacer(minLength: 24)
+
+            Divider()
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+
+            homeDrawerButton(title: "Settings", systemImage: "gearshape.fill") {
+                openSettingsOverlay()
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(colorScheme == .dark ? Color.black : Color.white)
+        .task {
+            await fetchUserProfilePicture()
+        }
+    }
+
+    private func homeDrawerButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 22)
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                Text(title)
+                    .font(FontManager.geist(size: 18, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 54)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var overlayCircleDismissButton: some View {
+        Button(action: dismissOverlay) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .frame(width: 36, height: 36)
+                .background(
+                    Circle()
+                        .fill(Color.appChip(colorScheme))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var chromeDividerColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.12)
+    }
+
+    private func titledOverlayHeader(_ title: String) -> some View {
+        HStack {
+            overlayCircleDismissButton
+                .frame(width: 44, height: 44)
+
+            Spacer(minLength: 0)
+
+            Text(title)
+                .font(FontManager.geist(size: 16, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            Spacer(minLength: 0)
+
+            Color.clear
+                .frame(width: 44, height: 44)
+        }
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+        .background(Color.appBackground(colorScheme).opacity(0.94))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(chromeDividerColor)
+                .frame(height: 0.5)
+        }
+    }
+
+    private func receiptsOverlayContent(in geometry: GeometryProxy) -> some View {
+        NavigationStack {
+            ReceiptStatsView()
+            .background(Color.appBackground(colorScheme))
+            .safeAreaInset(edge: .top) {
+                titledOverlayHeader("Receipts")
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            overlayFloatingComposeInset(in: geometry) {
+                receiptsOverlayFloatingComposeButton
+            }
+        }
+    }
+
+    private func recurringOverlayContent(in geometry: GeometryProxy) -> some View {
+        NavigationStack {
+            RecurringExpenseStatsContent()
+                .background(Color.appBackground(colorScheme))
+                .safeAreaInset(edge: .top) {
+                    titledOverlayHeader("Recurring")
+                }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            overlayFloatingComposeInset(in: geometry) {
+                recurringOverlayFloatingComposeButton
+            }
+        }
+    }
+
+    private func peopleOverlayContent(in geometry: GeometryProxy) -> some View {
+        NavigationStack {
+            PeopleListView(
+                peopleManager: peopleManager,
+                locationsManager: locationsManager,
+                colorScheme: colorScheme,
+                searchText: "",
+                isSearchActive: $isPeopleOverlaySearchActive
+            )
+            .background(Color.appBackground(colorScheme))
+            .safeAreaInset(edge: .top) {
+                titledOverlayHeader("People")
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            overlayFloatingComposeInset(in: geometry) {
+                peopleOverlayFloatingComposeButton
+            }
+        }
+    }
+
+    private var settingsOverlayContent: some View {
+        SettingsView()
+            .safeAreaInset(edge: .top) {
+                titledOverlayHeader("Settings")
+            }
+    }
+
     private var homeProfileFallbackAvatar: some View {
         Group {
             if let name = authManager.currentUser?.profile?.name,
@@ -2226,7 +2817,7 @@ struct MainAppView: View {
 
     private var homeSearchBackdrop: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: 92)
+            Color.clear.frame(height: 58)
 
             LinearGradient(
                 colors: [
@@ -2247,11 +2838,11 @@ struct MainAppView: View {
 
     private var homeSearchResultsOverlay: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: 86)
+            Color.clear.frame(height: 54)
 
             searchResultsDropdown
                 .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .padding(.top, 8)
+                .padding(.top, 4)
 
             Spacer(minLength: 0)
         }
@@ -2346,6 +2937,10 @@ struct MainAppView: View {
                     homeState: homeState,
                     isExpanded: $isDailyOverviewExpanded,
                     isVisible: selectedTab == .home,
+                    currentLocationName: currentLocationName,
+                    nearbyLocation: nearbyLocation,
+                    nearbyLocationPlace: nearbyLocationPlace,
+                    distanceToNearest: distanceToNearest,
                     onNoteSelected: { note in
                         selectedNoteToOpen = note
                     },
@@ -2357,6 +2952,9 @@ struct MainAppView: View {
                     },
                     onPersonSelected: { person in
                         selectedPersonForDetail = person
+                    },
+                    onLocationSelected: { place in
+                        selectedLocationPlace = place
                     },
                     onAddTask: {
                         showingAddEventPopup = true
@@ -2419,7 +3017,7 @@ struct MainAppView: View {
                         searchSelectedTask = task
                     },
                     onOpenEvents: {
-                        selectedTab = .events
+                        openPlanCalendar()
                     }
                 )
             }
@@ -2439,6 +3037,9 @@ struct MainAppView: View {
                     selectedTab: $selectedTab,
                     onEmailSelected: { email in
                         searchSelectedEmail = email
+                    },
+                    onOpenInbox: {
+                        openPlanInbox()
                     }
                 )
             }
@@ -2486,31 +3087,15 @@ struct MainAppView: View {
 
     // MARK: - Home Content
     private var homeContentWithoutHeader: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             HomeGlassBackgroundLayer(colorScheme: colorScheme)
-
-            if isHomeSearchPresented {
-                homeSearchBackdrop
-                    .zIndex(90)
-            }
-            
             VStack(spacing: 0) {
-                searchBarContainer
-                    .padding(.top, -8)
-                    .zIndex(120)
+                homeHeaderBar
 
                 VStack(spacing: 0) {
                     visitReasonPopupSection
                     mainContentWidgets
                 }
-                .allowsHitTesting(!isHomeSearchPresented)
-            }
-            .background(Color.clear)
-            .zIndex(100)
-
-            if !trimmedHomeSearchText.isEmpty {
-                homeSearchResultsOverlay
-                    .zIndex(110)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2585,8 +3170,8 @@ struct MainAppView: View {
     
     // MARK: - Tab Transition Helpers
     
-    private func getTabEdge(for tab: TabSelection, isRemoval: Bool = false) -> Edge {
-        let tabs = TabSelection.allCases
+    private func getTabEdge(for tab: PrimaryTab, isRemoval: Bool = false) -> Edge {
+        let tabs = PrimaryTab.allCases
         guard let currentIndex = tabs.firstIndex(of: selectedTab),
               let tabIndex = tabs.firstIndex(of: tab) else {
             return .trailing
@@ -2823,6 +3408,32 @@ struct MainAppView: View {
         }
     }
 
+}
+
+private struct ShellFloatingComposeButton: View {
+    let selectedTab: PrimaryTab
+    @ObservedObject var coordinator: FloatingActionCoordinator
+    let homeButton: AnyView
+    let notesButton: (NotesFloatingActionPage) -> AnyView
+    let mapsButton: AnyView
+
+    @ViewBuilder
+    var body: some View {
+        switch selectedTab {
+        case .home:
+            homeButton
+        case .notes:
+            if coordinator.isNotesFloatingActionVisible {
+                notesButton(coordinator.notesFloatingActionPage)
+            }
+        case .maps:
+            if coordinator.isMapsFloatingActionVisible {
+                mapsButton
+            }
+        default:
+            EmptyView()
+        }
+    }
 }
 
 #Preview {

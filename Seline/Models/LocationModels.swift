@@ -216,7 +216,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     }
 }
 
-struct PlaceSearchResult: Identifiable, Codable {
+struct PlaceSearchResult: Identifiable, Codable, Hashable {
     let id: String // Google Place ID
     let name: String
     let address: String

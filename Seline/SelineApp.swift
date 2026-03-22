@@ -6,6 +6,10 @@ import EventKit
 import BackgroundTasks
 import WidgetKit
 
+func print(_ items: Any..., separator: String = " ", terminator: String = "\n") {}
+
+func debugPrint(_ items: Any..., separator: String = " ", terminator: String = "\n") {}
+
 @main
 struct SelineApp: App {
     private enum BackgroundTaskIdentifier {
@@ -28,6 +32,8 @@ struct SelineApp: App {
     @StateObject private var tagManager = TagManager.shared
     @State private var lastCalendarSyncTime: Date = Date.distantPast
     @State private var isCalendarSyncing: Bool = false
+    @State private var foregroundMaintenanceTask: Task<Void, Never>? = nil
+    @State private var foregroundWarmupTask: Task<Void, Never>? = nil
 
     init() {
         ScrollExperienceConfigurator.installGlobalAppearance()
@@ -94,70 +100,12 @@ struct SelineApp: App {
                     deepLinkHandler.handleURL(url)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                    // Handle app becoming active
-                    Task {
-                        await MainActor.run {
-                            ScrollExperienceConfigurator.applyToVisibleScrollViews()
-                        }
-
-                        // LOCATION FIX: Immediately refresh widgets when app becomes active
-                        // This ensures widget shows current location state
-                        WidgetCenter.shared.reloadAllTimelines()
-                        print("🔄 Widget refresh on app active")
-                        
-                        // LOCATION FIX: Ensure geofences are up to date
-                        GeofenceManager.shared.setupGeofences(for: LocationsManager.shared.savedPlaces)
-                        
-                        // Perform background refresh check for emails
-                        await EmailService.shared.handleBackgroundRefresh()
-
-                        await searchService.refreshTrackerThreadsFromSupabase()
-
-                        // Update app badge with current unread count
-                        let unreadCount = EmailService.shared.inboxEmails.filter { !$0.isRead }.count
-                        notificationService.updateAppBadge(count: unreadCount)
-
-                        // Sync new calendar events when app resumes (real-time refresh)
-                        // Only sync if last sync was > 1 minute ago (prevents over-syncing)
-                        let timeSinceLastSync = Date().timeIntervalSince(lastCalendarSyncTime)
-                        if timeSinceLastSync > 60 && !isCalendarSyncing { // 60 seconds = 1 minute
-                            isCalendarSyncing = true
-                            lastCalendarSyncTime = Date()
-
-                            await taskManager.syncCalendarEvents()
-
-                            isCalendarSyncing = false
-                        }
-
-                        // OPTIMIZATION: Background cache warming - preload commonly needed data
-                        Task.detached(priority: .utility) {
-                            // Warm up task caches
-                            _ = await taskManager.getAllFlattenedTasks()
-
-                            // Warm up today's visits cache
-                            _ = await LocationVisitAnalytics.shared.getTodaysVisitsWithDuration()
-
-                            // Refresh widget spending data to ensure it's up-to-date
-                            await MainActor.run {
-                                SpendingAndETAWidget.refreshWidgetSpendingData()
-                            }
-
-                            // CRITICAL: Run visit cleanup to fix any midnight-spanning issues
-                            // This runs in the background and won't block the UI
-                            let midnightResult = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
-                            if midnightResult.fixed > 0 {
-                                print("🌙 Startup cleanup: Fixed \(midnightResult.fixed) midnight-spanning visits")
-                            }
-                            
-                            // NEW: Sync vector embeddings for semantic search
-                            // This keeps embeddings up-to-date for fast, relevant LLM context
-                            await VectorSearchService.shared.syncEmbeddingsIfNeeded()
-
-                            print("🔥 Cache warming complete")
-                        }
-                    }
+                    handleAppDidBecomeActive()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                    foregroundMaintenanceTask?.cancel()
+                    foregroundWarmupTask?.cancel()
+                    EmailService.shared.suspendForegroundRefresh()
                     // App entered background - save current state
                     // Save current conversation to history before app closes
                     if !searchService.conversationHistory.isEmpty {
@@ -177,6 +125,78 @@ struct SelineApp: App {
 
     private func configureSupabase() {
         // TODO: Configure Supabase when we integrate it
+    }
+
+    @MainActor
+    private func handleAppDidBecomeActive() {
+        foregroundMaintenanceTask?.cancel()
+        foregroundWarmupTask?.cancel()
+
+        ScrollExperienceConfigurator.applyToVisibleScrollViews()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "app_active")
+        updateUnreadBadge()
+
+        foregroundMaintenanceTask = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+
+            GeofenceManager.shared.setupGeofences(for: LocationsManager.shared.savedPlaces)
+            await EmailService.shared.activateForegroundRefresh()
+            guard !Task.isCancelled else { return }
+
+            await searchService.loadConversationsFromSupabase()
+            guard !Task.isCancelled else { return }
+
+            await searchService.refreshTrackerThreadsFromSupabase()
+            guard !Task.isCancelled else { return }
+
+            updateUnreadBadge()
+            await syncCalendarEventsIfNeeded()
+
+            scheduleForegroundWarmups()
+        }
+    }
+
+    @MainActor
+    private func updateUnreadBadge() {
+        let unreadCount = EmailService.shared.inboxEmails.filter { !$0.isRead }.count
+        notificationService.updateAppBadge(count: unreadCount)
+    }
+
+    @MainActor
+    private func syncCalendarEventsIfNeeded() async {
+        let timeSinceLastSync = Date().timeIntervalSince(lastCalendarSyncTime)
+        guard timeSinceLastSync > 60, !isCalendarSyncing else { return }
+
+        isCalendarSyncing = true
+        lastCalendarSyncTime = Date()
+        defer { isCalendarSyncing = false }
+
+        await taskManager.syncCalendarEvents()
+    }
+
+    @MainActor
+    private func scheduleForegroundWarmups() {
+        foregroundWarmupTask?.cancel()
+        foregroundWarmupTask = Task.detached(priority: .utility) {
+            await MainActor.run {
+                _ = TaskManager.shared.getAllFlattenedTasks()
+            }
+            _ = await LocationVisitAnalytics.shared.getTodaysVisitsWithDuration()
+
+            await MainActor.run {
+                SpendingAndETAWidget.refreshWidgetSpendingData()
+            }
+
+            let midnightResult = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
+            if midnightResult.fixed > 0 {
+                print("🌙 Startup cleanup: Fixed \(midnightResult.fixed) midnight-spanning visits")
+            }
+
+            await VectorSearchService.shared.syncEmbeddingsIfNeeded()
+
+            print("🔥 Cache warming complete")
+        }
     }
 
     private func configureGoogleSignIn() {

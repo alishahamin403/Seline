@@ -173,7 +173,7 @@ class LocationBackgroundTaskService {
                 await geofenceManager.handleGeofenceEntry(region: syntheticRegion)
                 
                 // Refresh widgets immediately
-                WidgetCenter.shared.reloadAllTimelines()
+                WidgetInvalidationCoordinator.shared.requestReload(reason: "background_visit_started")
                 
                 // Only start one visit at a time
                 break
@@ -186,7 +186,7 @@ class LocationBackgroundTaskService {
                 await endVisitFromBackground(for: place.id, placeName: place.displayName)
                 
                 // Refresh widgets immediately
-                WidgetCenter.shared.reloadAllTimelines()
+                WidgetInvalidationCoordinator.shared.requestReload(reason: "background_visit_ended")
             }
         }
         

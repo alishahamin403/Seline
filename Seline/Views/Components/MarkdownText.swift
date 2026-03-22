@@ -5,6 +5,8 @@ import SwiftUI
 struct MarkdownText: View {
     let markdown: String
     let colorScheme: ColorScheme
+    private let bodyTextSize: CGFloat = 15
+    private let bodyLineSpacing: CGFloat = 4
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -57,14 +59,14 @@ struct MarkdownText: View {
         case .heading4(let text):
             headingView(level: 4, text: text)
         case .bold(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .bold)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: bodyTextSize, weight: .bold)
         case .italic(let text):
-            renderItalicText(stripMarkdownFormatting(text), size: 14)
+            renderItalicText(stripMarkdownFormatting(text), size: bodyTextSize)
         case .underline(let text):
-            renderUnderlinedText(stripMarkdownFormatting(text), size: 14)
+            renderUnderlinedText(stripMarkdownFormatting(text), size: bodyTextSize)
         case .code(let text):
             Text(text)
-                .font(FontManager.geist(size: 14, weight: .regular))
+                .font(FontManager.geist(size: 15, weight: .regular))
                 .foregroundColor(.primary)
                 .padding(4)
                 .background(colorScheme == .dark ? Color.black.opacity(0.3) : Color.gray.opacity(0.1))
@@ -87,13 +89,13 @@ struct MarkdownText: View {
         case .bulletPoint(let level, let text):
             bulletRow(level: level, text: text)
         case .numberedPoint(let number, let text):
-            HStack(alignment: .top, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
                 Text("\(number).")
-                    .font(FontManager.geist(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: bodyTextSize, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                    .frame(width: 20, alignment: .leading)
+                    .frame(width: 24, alignment: .leading)
                 VStack(alignment: .leading, spacing: 0) {
-                    renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
+                    renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: bodyTextSize, weight: .regular)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -110,11 +112,11 @@ struct MarkdownText: View {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.35) : Color.black.opacity(0.25))
                     .frame(width: 3)
-                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
+                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: bodyTextSize, weight: .regular)
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.85))
             }
         case .paragraph(let text):
-            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: bodyTextSize, weight: .regular)
         case .empty:
             Spacer()
                 .frame(height: 4)
@@ -126,14 +128,14 @@ struct MarkdownText: View {
     private func bulletRow(level: Int, text: String) -> some View {
         let bulletChar = level == 0 ? "•" : "◦"
         let leadingPadding: CGFloat = 16 + CGFloat(level) * 20
-        let bulletWidth: CGFloat = level == 0 ? 12 : 14
-        HStack(alignment: .top, spacing: 6) {
+        let bulletWidth: CGFloat = level == 0 ? 14 : 16
+        HStack(alignment: .top, spacing: 8) {
             Text(bulletChar)
-                .font(FontManager.geist(size: 14, weight: level == 0 ? .bold : .medium))
+                .font(FontManager.geist(size: bodyTextSize, weight: level == 0 ? .bold : .medium))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(level == 0 ? 0.6 : 0.5) : .black.opacity(level == 0 ? 0.6 : 0.5))
                 .frame(width: bulletWidth, alignment: .leading)
             VStack(alignment: .leading, spacing: 0) {
-                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 14, weight: .regular)
+                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: bodyTextSize, weight: .regular)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -142,7 +144,7 @@ struct MarkdownText: View {
 
     /// ChatGPT-style heading hierarchy: size/weight/color steps + H1 accent
     private func headingView(level: Int, text: String) -> some View {
-        let (size, weight): (CGFloat, Font.Weight) = level == 1 ? (22, .bold) : level == 2 ? (18, .semibold) : level == 3 ? (16, .semibold) : (15, .medium)
+        let (size, weight): (CGFloat, Font.Weight) = level == 1 ? (24, .bold) : level == 2 ? (20, .semibold) : level == 3 ? (17, .semibold) : (15, .medium)
         let opacity: Double = level == 1 ? 1.0 : level == 2 ? 0.92 : level == 3 ? 0.82 : 0.75
         let content = renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: size, weight: weight)
         let contentWithOpacity = level == 1 ? AnyView(content) : AnyView(content.opacity(opacity))
@@ -294,10 +296,13 @@ struct MarkdownText: View {
                 .font(FontManager.geist(size: size, systemWeight: weight))
                 .foregroundColor(colorScheme == .dark ? .white : .black.opacity(0.88))
                 .textSelection(.enabled)
+                .lineSpacing(bodyLineSpacing)
+                .fixedSize(horizontal: false, vertical: true)
         } else {
             richText(components: components, size: size, baseWeight: weight)
                 .textSelection(.enabled)
                 .lineLimit(nil)
+                .lineSpacing(bodyLineSpacing)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -317,6 +322,10 @@ struct MarkdownText: View {
             token = token.italic()
         }
 
+        if component.isStrikethrough {
+            token = token.strikethrough(true)
+        }
+
         if component.isPhone {
             token = token.foregroundColor(.blue).underline()
         } else {
@@ -329,6 +338,7 @@ struct MarkdownText: View {
         let text: String
         let isBold: Bool
         let isItalic: Bool
+        let isStrikethrough: Bool
         let isPhone: Bool
         let phoneNumber: String?
     }
@@ -341,7 +351,16 @@ struct MarkdownText: View {
         // 2. Then process each component for markdown
         for pc in phoneComponents {
             if pc.isPhone {
-                components.append(RichTextComponent(text: pc.text, isBold: false, isItalic: false, isPhone: true, phoneNumber: pc.phoneNumber))
+                components.append(
+                    RichTextComponent(
+                        text: pc.text,
+                        isBold: false,
+                        isItalic: false,
+                        isStrikethrough: false,
+                        isPhone: true,
+                        phoneNumber: pc.phoneNumber
+                    )
+                )
             } else {
                 components.append(contentsOf: parseMarkdownStyles(pc.text))
             }
@@ -350,33 +369,67 @@ struct MarkdownText: View {
     }
     
     private func parseMarkdownStyles(_ text: String) -> [RichTextComponent] {
-        // Simple parser for **bold** and *italic*
-        // Note: Regex in Swift for nested groups isn't great, better to scan
-        // This is a simplified version handling **...** first then *...*
-        
         var results: [RichTextComponent] = []
-        
-        // Split by **
-        let boldParts = text.components(separatedBy: "**")
-        for (i, part) in boldParts.enumerated() {
-            let isBold = (i % 2 == 1) // Every odd part is inside **
-            
-            // Now handle * inside this part
-            let italicParts = part.components(separatedBy: "*")
-            for (j, subPart) in italicParts.enumerated() {
-                if subPart.isEmpty { continue }
-                let isItalic = (j % 2 == 1) // Every odd part is inside *
-                
-                results.append(RichTextComponent(
-                    text: subPart,
+
+        func flushBuffer(
+            _ buffer: inout String,
+            isBold: Bool,
+            isItalic: Bool,
+            isStrikethrough: Bool
+        ) {
+            guard !buffer.isEmpty else { return }
+            results.append(
+                RichTextComponent(
+                    text: buffer,
                     isBold: isBold,
                     isItalic: isItalic,
+                    isStrikethrough: isStrikethrough,
                     isPhone: false,
                     phoneNumber: nil
-                ))
-            }
+                )
+            )
+            buffer = ""
         }
-        
+
+        var buffer = ""
+        var index = text.startIndex
+        var isBold = false
+        var isItalic = false
+        var isStrikethrough = false
+
+        while index < text.endIndex {
+            let character = text[index]
+
+            if character == "~" {
+                let nextIndex = text.index(after: index)
+                if nextIndex < text.endIndex && text[nextIndex] == "~" {
+                    flushBuffer(&buffer, isBold: isBold, isItalic: isItalic, isStrikethrough: isStrikethrough)
+                    isStrikethrough.toggle()
+                    index = text.index(after: nextIndex)
+                    continue
+                }
+            }
+
+            if character == "*" {
+                let nextIndex = text.index(after: index)
+                if nextIndex < text.endIndex && text[nextIndex] == "*" {
+                    flushBuffer(&buffer, isBold: isBold, isItalic: isItalic, isStrikethrough: isStrikethrough)
+                    isBold.toggle()
+                    index = text.index(after: nextIndex)
+                    continue
+                } else {
+                    flushBuffer(&buffer, isBold: isBold, isItalic: isItalic, isStrikethrough: isStrikethrough)
+                    isItalic.toggle()
+                    index = text.index(after: index)
+                    continue
+                }
+            }
+
+            buffer.append(character)
+            index = text.index(after: index)
+        }
+
+        flushBuffer(&buffer, isBold: isBold, isItalic: isItalic, isStrikethrough: isStrikethrough)
         return results
     }
 
@@ -395,10 +448,12 @@ struct MarkdownText: View {
             Text(component.text)
                 .font(FontManager.geist(size: size, systemWeight: weight))
                 .italic()
+                .strikethrough(component.isStrikethrough)
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         } else {
             Text(component.text)
                 .font(FontManager.geist(size: size, systemWeight: weight))
+                .strikethrough(component.isStrikethrough)
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         }
     }
@@ -412,6 +467,8 @@ struct MarkdownText: View {
             .italic()
             .foregroundColor(colorScheme == .dark ? .white : .black.opacity(0.88))
             .textSelection(.enabled)
+            .lineSpacing(bodyLineSpacing)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Underlined Text Rendering
@@ -423,6 +480,8 @@ struct MarkdownText: View {
             .underline()
             .foregroundColor(colorScheme == .dark ? .white : .black.opacity(0.88))
             .textSelection(.enabled)
+            .lineSpacing(bodyLineSpacing)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Text Rendering with Phone Links (Legacy Wrapper)

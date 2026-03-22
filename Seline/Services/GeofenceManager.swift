@@ -893,7 +893,7 @@ class GeofenceManager: NSObject, ObservableObject {
                 NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
 
                 // Reload widgets
-                WidgetCenter.shared.reloadAllTimelines()
+                WidgetInvalidationCoordinator.shared.requestReload(reason: "visit_upserted")
                 print("🔄 Widget timelines reloaded after visit upsert")
 
                 // Send arrival notification (only for newly created visits, not merged ones)
@@ -1125,7 +1125,7 @@ class GeofenceManager: NSObject, ObservableObject {
                 }
 
                 // Reload widgets so they reflect the visit has ended
-                WidgetCenter.shared.reloadAllTimelines()
+                WidgetInvalidationCoordinator.shared.requestReload(reason: "visit_exited")
                 print("🔄 Widget timelines reloaded after visit exit")
 
                 // Close session when all visits for this place are done
@@ -1251,7 +1251,7 @@ class GeofenceManager: NSObject, ObservableObject {
                 NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
 
                 // Reload widgets so they show the new location
-                WidgetCenter.shared.reloadAllTimelines()
+                WidgetInvalidationCoordinator.shared.requestReload(reason: "visit_created_after_validation")
 
                 print("✅ Visit created after dwell validation: \(placeId)")
             }
@@ -1616,7 +1616,7 @@ class GeofenceManager: NSObject, ObservableObject {
         NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
 
         // Reload widgets so they show the new location
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "manual_visit_created")
 
         // Start validation timer
         if !LocationBackgroundValidationService.shared.isValidationRunning() {

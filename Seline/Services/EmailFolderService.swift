@@ -4,6 +4,11 @@ import PostgREST
 actor EmailFolderService {
     static let shared = EmailFolderService()
 
+    private enum MirrorStore {
+        static let folderName = "__seline_email_mirror__"
+        static let folderColor = "#111111"
+    }
+
     private let supabaseManager = SupabaseManager.shared
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -11,6 +16,34 @@ actor EmailFolderService {
     init() {
         decoder.dateDecodingStrategy = .iso8601
         encoder.dateEncodingStrategy = .iso8601
+    }
+
+    private struct SavedEmailIdentifier: Decodable {
+        let id: UUID
+    }
+
+    private struct MirroredSummaryRecord: Decodable {
+        let gmailMessageId: String
+        let aiSummary: String?
+
+        enum CodingKeys: String, CodingKey {
+            case gmailMessageId = "gmail_message_id"
+            case aiSummary = "ai_summary"
+        }
+    }
+
+    private struct SavedEmailUpdatePayload: Encodable {
+        let subject: String
+        let sender_name: String?
+        let sender_email: String
+        let recipients: [String]
+        let cc_recipients: [String]
+        let body: String?
+        let snippet: String?
+        let ai_summary: String?
+        let timestamp: String
+        let updated_at: String
+        let gmail_label_ids: [String]?
     }
 
     // MARK: - Folder Operations
@@ -57,7 +90,7 @@ actor EmailFolderService {
             .execute()
 
         let folders = try decoder.decode([CustomEmailFolder].self, from: response.data)
-        return folders
+        return folders.filter { $0.name != MirrorStore.folderName }
     }
 
     /// Fetch a specific folder by ID
@@ -442,6 +475,196 @@ actor EmailFolderService {
             .delete()
             .eq("id", value: id.uuidString)
             .execute()
+    }
+
+    // MARK: - Hidden Mirror Store
+
+    private func findMirrorFolder() async throws -> CustomEmailFolder? {
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
+            throw NSError(domain: "EmailFolderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+
+        let client = await supabaseManager.getPostgrestClient()
+        let existingResponse = try await client
+            .from("email_folders")
+            .select()
+            .eq("user_id", value: userId.uuidString)
+            .eq("name", value: MirrorStore.folderName)
+            .limit(1)
+            .execute()
+
+        let existingFolders = try decoder.decode([CustomEmailFolder].self, from: existingResponse.data)
+        if let existingFolder = existingFolders.first {
+            return existingFolder
+        }
+
+        return nil
+    }
+
+    private func ensureMirrorFolder() async throws -> CustomEmailFolder {
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
+            throw NSError(domain: "EmailFolderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+
+        if let existingFolder = try await findMirrorFolder() {
+            return existingFolder
+        }
+
+        let client = await supabaseManager.getPostgrestClient()
+
+        let folder = CustomEmailFolder(
+            id: UUID(),
+            userId: userId,
+            name: MirrorStore.folderName,
+            color: MirrorStore.folderColor,
+            createdAt: Date(),
+            updatedAt: Date(),
+            isImportedLabel: false,
+            gmailLabelId: nil,
+            lastSyncedAt: nil,
+            syncEnabled: false
+        )
+
+        let createResponse = try await client
+            .from("email_folders")
+            .insert(folder)
+            .select()
+            .single()
+            .execute()
+
+        return try decoder.decode(CustomEmailFolder.self, from: createResponse.data)
+    }
+
+    func fetchMirroredAISummaries(messageIds: [String]) async throws -> [String: String] {
+        let uniqueIds = Array(Set(messageIds.filter { !$0.isEmpty }))
+        guard !uniqueIds.isEmpty else { return [:] }
+
+        guard let mirrorFolder = try await findMirrorFolder() else { return [:] }
+        let client = await supabaseManager.getPostgrestClient()
+        let response = try await client
+            .from("saved_emails")
+            .select("gmail_message_id,ai_summary")
+            .eq("email_folder_id", value: mirrorFolder.id.uuidString)
+            .in("gmail_message_id", values: uniqueIds)
+            .execute()
+
+        let records = try decoder.decode([MirroredSummaryRecord].self, from: response.data)
+        return Dictionary(
+            uniqueKeysWithValues: records.compactMap { record in
+                guard let summary = record.aiSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !summary.isEmpty else {
+                    return nil
+                }
+                return (record.gmailMessageId, summary)
+            }
+        )
+    }
+
+    func upsertMirroredEmail(_ email: Email) async throws {
+        let summary = email.aiSummary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let summary, !summary.isEmpty else { return }
+
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
+            throw NSError(domain: "EmailFolderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+
+        let mirrorFolder = try await ensureMirrorFolder()
+        let client = await supabaseManager.getPostgrestClient()
+        let remoteMessageId = email.gmailMessageId ?? email.id
+        let now = Date()
+
+        let existingResponse = try await client
+            .from("saved_emails")
+            .select("id")
+            .eq("email_folder_id", value: mirrorFolder.id.uuidString)
+            .eq("gmail_message_id", value: remoteMessageId)
+            .limit(1)
+            .execute()
+
+        let existingRows = try decoder.decode([SavedEmailIdentifier].self, from: existingResponse.data)
+        let recipients = email.recipients.map(\.email)
+        let ccRecipients = email.ccRecipients.map(\.email)
+
+        if let existingRow = existingRows.first {
+            let payload = SavedEmailUpdatePayload(
+                subject: email.subject,
+                sender_name: email.sender.name,
+                sender_email: email.sender.email,
+                recipients: recipients,
+                cc_recipients: ccRecipients,
+                body: email.body,
+                snippet: email.snippet,
+                ai_summary: summary,
+                timestamp: ISO8601DateFormatter().string(from: email.timestamp),
+                updated_at: ISO8601DateFormatter().string(from: now),
+                gmail_label_ids: email.labels.isEmpty ? nil : email.labels
+            )
+
+            try await client
+                .from("saved_emails")
+                .update(payload)
+                .eq("id", value: existingRow.id.uuidString)
+                .execute()
+            return
+        }
+
+        let savedEmail = SavedEmail(
+            id: UUID(),
+            userId: userId,
+            emailFolderId: mirrorFolder.id,
+            gmailMessageId: remoteMessageId,
+            subject: email.subject,
+            senderName: email.sender.name,
+            senderEmail: email.sender.email,
+            recipients: recipients,
+            ccRecipients: ccRecipients,
+            body: email.body,
+            snippet: email.snippet,
+            aiSummary: summary,
+            timestamp: email.timestamp,
+            savedAt: now,
+            updatedAt: now,
+            gmailLabelIds: email.labels.isEmpty ? nil : email.labels
+        )
+
+        _ = try await client
+            .from("saved_emails")
+            .insert(savedEmail)
+            .execute()
+    }
+
+    func deleteAllSavedEmailRecords(gmailMessageId: String) async throws {
+        guard !gmailMessageId.isEmpty else { return }
+
+        let client = await supabaseManager.getPostgrestClient()
+        let response = try await client
+            .from("saved_emails")
+            .select("id")
+            .eq("gmail_message_id", value: gmailMessageId)
+            .execute()
+
+        let rows = try decoder.decode([SavedEmailIdentifier].self, from: response.data)
+
+        for row in rows {
+            let attachments = (try? await fetchAttachments(for: row.id)) ?? []
+            if !attachments.isEmpty {
+                let storage = await supabaseManager.getStorageClient()
+                let storagePaths = attachments.map(\.storagePath)
+                _ = try? await storage
+                    .from("email-attachments")
+                    .remove(paths: storagePaths)
+            }
+        }
+
+        try await client
+            .from("saved_emails")
+            .delete()
+            .eq("gmail_message_id", value: gmailMessageId)
+            .execute()
+
+        await MainActor.run {
+            EmailService.shared.clearFolderCache()
+        }
     }
 
     // MARK: - Statistics

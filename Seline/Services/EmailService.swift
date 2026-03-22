@@ -27,9 +27,6 @@ class EmailService: ObservableObject {
     private var searchTask: Task<Void, Never>?
     private let searchDebounceDelay: TimeInterval = 0.5 // 500ms delay
 
-    // Cache for searchable emails (used by LLM search)
-    @Published var cachedSearchableEmails: [SearchableItem] = []
-
     // Cache management
     private var cacheTimestamps: [EmailFolder: Date] = [:]
     private let cacheExpirationTime: TimeInterval = 604800 // 7 days for longer persistence
@@ -71,6 +68,7 @@ class EmailService: ObservableObject {
     let notificationService = NotificationService.shared // Made public for access from EmailView
     private let openAIService = GeminiService.shared
     private let emailIntelligence = EmailNotificationIntelligence.shared
+    private let emailFolderService = EmailFolderService.shared
     private let persistenceCoordinator = DeferredPersistenceCoordinator.shared
 
     private init() {
@@ -83,14 +81,6 @@ class EmailService: ObservableObject {
         }
         if !sentEmails.isEmpty {
             sentLoadingState = .loaded(sentEmails)
-        }
-        // Start observing lifecycle immediately.
-        setupAppLifecycleObservers()
-
-        // If the service is initialized while app is already active, lifecycle
-        // notifications may have already fired. Ensure live updates still start.
-        if UIApplication.shared.applicationState == .active {
-            ensureAutomaticRefreshActive()
         }
     }
 
@@ -164,10 +154,11 @@ class EmailService: ObservableObject {
                 // CRITICAL FIX: Preserve AI summaries from existing cached emails
                 let existingEmails = getEmails(for: folder)
                 let mergedEmails = mergeWithExistingAISummaries(newEmails: sortedEmails, existingEmails: existingEmails)
+                let hydratedEmails = await hydrateWithMirroredAISummaries(mergedEmails)
 
                 // Update the appropriate email list
-                updateEmailsForFolder(folder, emails: mergedEmails)
-                setLoadingState(for: folder, state: .loaded(mergedEmails))
+                updateEmailsForFolder(folder, emails: hydratedEmails)
+                setLoadingState(for: folder, state: .loaded(hydratedEmails))
 
                 // Update cache timestamp and save to persistent storage
                 updateCacheTimestamp(for: folder)
@@ -176,7 +167,7 @@ class EmailService: ObservableObject {
                 // Generate AI summaries in background when emails are loaded
                 // This ensures summaries are ready when user opens emails
                 Task.detached(priority: .background) {
-                    await self.preloadAISummaries(for: mergedEmails)
+                    await self.preloadAISummaries(for: hydratedEmails)
                 }
 
             } catch {
@@ -235,11 +226,12 @@ class EmailService: ObservableObject {
 
                 // Keep full fetched page; only sort by recency.
                 let sortedEmails = sortEmailsByRecency(emails)
+                let hydratedNewEmails = await hydrateWithMirroredAISummaries(sortedEmails)
 
                 // Merge with existing emails (append new ones)
                 let existingEmails = getEmails(for: folder)
                 let mergedEmails = mergeWithExistingAISummaries(
-                    newEmails: existingEmails + sortedEmails,
+                    newEmails: existingEmails + hydratedNewEmails,
                     existingEmails: existingEmails
                 )
 
@@ -252,7 +244,7 @@ class EmailService: ObservableObject {
 
                 // Generate AI summaries in background
                 Task.detached(priority: .background) {
-                    await self.preloadAISummaries(for: sortedEmails)
+                    await self.preloadAISummaries(for: hydratedNewEmails)
                 }
 
             } catch {
@@ -500,7 +492,6 @@ class EmailService: ObservableObject {
         inboxEmails = []
         sentEmails = []
         searchResults = []
-        cachedSearchableEmails = []
 
         // Clear cache timestamps
         cacheTimestamps = [:]
@@ -634,14 +625,13 @@ class EmailService: ObservableObject {
     /// The row is removed from local state immediately, then remote trash call is retried in background.
     func deleteEmailImmediately(_ email: Email) {
         _ = removeEmailFromLocalStorage(email)
-
-        guard let gmailMessageId = email.gmailMessageId else {
-            print("⚠️ Missing Gmail message ID for email \(email.id). Kept local delete only.")
-            return
-        }
+        let remoteMessageId = remoteMirrorMessageId(for: email)
 
         Task {
-            await trashEmailInBackground(messageId: gmailMessageId)
+            try? await emailFolderService.deleteAllSavedEmailRecords(gmailMessageId: remoteMessageId)
+            if let gmailMessageId = email.gmailMessageId {
+                await trashEmailInBackground(messageId: gmailMessageId)
+            }
         }
     }
 
@@ -885,6 +875,7 @@ class EmailService: ObservableObject {
     func updateEmailWithAISummary(_ email: Email, summary: String) async {
         let normalizedSummary = normalizeSummary(summary)
         var wasUpdated = false
+        var updatedEmailForMirror: Email? = emailByUpdatingSummary(email, summary: normalizedSummary)
 
         // Update in inbox emails
         if let inboxIndex = inboxEmails.firstIndex(where: { $0.id == email.id }) {
@@ -911,6 +902,7 @@ class EmailService: ObservableObject {
             )
             inboxEmails[inboxIndex] = updatedEmail
             wasUpdated = true
+            updatedEmailForMirror = updatedEmail
         }
 
         // Update in sent emails if it exists there too
@@ -938,6 +930,9 @@ class EmailService: ObservableObject {
             )
             sentEmails[sentIndex] = updatedEmail
             wasUpdated = true
+            if updatedEmailForMirror == nil {
+                updatedEmailForMirror = updatedEmail
+            }
         }
 
         // Only save if something actually changed
@@ -945,6 +940,10 @@ class EmailService: ObservableObject {
             // Save updated data to persistent cache
             saveCachedData(for: .inbox)
             saveCachedData(for: .sent)
+        }
+
+        if let updatedEmailForMirror {
+            try? await emailFolderService.upsertMirroredEmail(updatedEmailForMirror)
         }
     }
 
@@ -983,43 +982,6 @@ class EmailService: ObservableObject {
     }
 
     // MARK: - App Lifecycle Management
-
-    private func setupAppLifecycleObservers() {
-        // Observe when app becomes active
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appDidBecomeActive),
-            name: UIApplication.didBecomeActiveNotification,
-            object: nil
-        )
-
-        // Observe when app goes to background
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appDidEnterBackground),
-            name: UIApplication.didEnterBackgroundNotification,
-            object: nil
-        )
-    }
-
-    @objc private func appDidBecomeActive() {
-        isAppActive = true
-
-        // Fetch emails when app opens
-        Task { @MainActor in
-            await loadTodaysEmails()
-        }
-
-        // Start polling for new emails at a short interval
-        // This enables automatic UI refresh and real-time notifications
-        startNewEmailPolling()
-    }
-
-    @objc private func appDidEnterBackground() {
-        isAppActive = false
-        // Stop email polling when app goes to background to save battery
-        stopNewEmailPolling()
-    }
 
     // MARK: - New Email Polling
 
@@ -1075,17 +1037,23 @@ class EmailService: ObservableObject {
         notificationService.updateAppBadge(count: unreadCount)
     }
 
+    func activateForegroundRefresh() async {
+        guard UIApplication.shared.applicationState == .active else { return }
+        isAppActive = true
+        await loadTodaysEmails()
+        startNewEmailPolling()
+    }
+
+    func suspendForegroundRefresh() {
+        isAppActive = false
+        stopNewEmailPolling()
+    }
+
     /// Ensures email polling and near-real-time inbox updates are active while app is foregrounded.
     func ensureAutomaticRefreshActive() {
         guard UIApplication.shared.applicationState == .active else { return }
-        isAppActive = true
-
-        if newEmailTimer == nil {
-            startNewEmailPolling()
-        } else {
-            Task { @MainActor [weak self] in
-                await self?.checkForNewEmailsIfNeeded()
-            }
+        Task { @MainActor [weak self] in
+            await self?.activateForegroundRefresh()
         }
     }
     
@@ -1515,6 +1483,36 @@ class EmailService: ObservableObject {
         }
     }
 
+    private func hydrateWithMirroredAISummaries(_ emails: [Email]) async -> [Email] {
+        let idsNeedingSummary = Array(
+            Set(
+                emails.compactMap { email in
+                    let currentSummary = email.aiSummary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    return currentSummary.isEmpty ? remoteMirrorMessageId(for: email) : nil
+                }
+            )
+        )
+
+        guard !idsNeedingSummary.isEmpty else { return emails }
+        guard let mirroredSummaries = try? await emailFolderService.fetchMirroredAISummaries(messageIds: idsNeedingSummary),
+              !mirroredSummaries.isEmpty else {
+            return emails
+        }
+
+        return emails.map { email in
+            let currentSummary = email.aiSummary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard currentSummary.isEmpty,
+                  let mirroredSummary = mirroredSummaries[remoteMirrorMessageId(for: email)] else {
+                return email
+            }
+            return emailByUpdatingSummary(email, summary: normalizeSummary(mirroredSummary))
+        }
+    }
+
+    private func remoteMirrorMessageId(for email: Email) -> String {
+        email.gmailMessageId ?? email.id
+    }
+
     private func sortEmailsByRecency(_ emails: [Email]) -> [Email] {
         emails.sorted { $0.timestamp > $1.timestamp }
     }
@@ -1571,346 +1569,16 @@ class EmailService: ObservableObject {
         return data
     }
 
-    // MARK: - Save Email to Folder
-
-    /// Save an email to a custom folder with attachments
-    func saveEmailToFolder(_ email: Email, folderId: UUID) async throws -> SavedEmail {
-        let emailFolderService = EmailFolderService.shared
-        var emailToSave = email
-
-        // First, fetch full email body if needed
-        // CRITICAL: Preserve attachments from original email when fetching full body
-        let originalAttachments = emailToSave.attachments
-        let originalHasAttachments = emailToSave.hasAttachments
-        
-        do {
-            if emailToSave.body == nil || emailToSave.body?.isEmpty == true {
-                if let messageId = emailToSave.gmailMessageId {
-                    if let fetchedEmail = try await GmailAPIClient.shared.fetchFullEmailBody(messageId: messageId) {
-                        // CRITICAL FIX: If fetched email has no attachments but original does, preserve them
-                        if originalHasAttachments && !originalAttachments.isEmpty && fetchedEmail.attachments.isEmpty {
-                            // Create new Email with preserved attachments and fetched body
-                            emailToSave = Email(
-                                id: fetchedEmail.id,
-                                threadId: fetchedEmail.threadId,
-                                sender: fetchedEmail.sender,
-                                recipients: fetchedEmail.recipients,
-                                ccRecipients: fetchedEmail.ccRecipients,
-                                subject: fetchedEmail.subject,
-                                snippet: fetchedEmail.snippet,
-                                body: fetchedEmail.body,
-                                timestamp: fetchedEmail.timestamp,
-                                isRead: fetchedEmail.isRead,
-                                isImportant: fetchedEmail.isImportant,
-                                hasAttachments: originalHasAttachments,
-                                attachments: originalAttachments,
-                                labels: fetchedEmail.labels,
-                                aiSummary: fetchedEmail.aiSummary,
-                                gmailMessageId: fetchedEmail.gmailMessageId,
-                                gmailThreadId: fetchedEmail.gmailThreadId,
-                                unsubscribeInfo: fetchedEmail.unsubscribeInfo
-                            )
-                            print("✅ Fetched full email body and preserved \(originalAttachments.count) attachment(s)")
-                        } else {
-                            // Use fetched email (it has attachments or no attachments needed)
-                            emailToSave = fetchedEmail
-                            print("✅ Fetched full email body for saving")
-                        }
-                    }
-                }
-            }
-        } catch {
-            print("⚠️ Warning: Failed to fetch full email body: \(error)")
-            // Continue with current email data
-        }
-
-        // Generate AI summary
-        var aiSummary: String? = nil
-        do {
-            let context = await EmailSummaryBuilderService.shared.buildContext(for: emailToSave)
-            let plainTextContent = Self.stripHTMLTags(from: context.bodyForSummary)
-
-            if plainTextContent.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).count >= 20 {
-                let summary = try await openAIService.summarizeEmail(
-                    subject: emailToSave.subject,
-                    body: context.bodyForSummary,
-                    analyzedSources: context.analyzedSources,
-                    confidenceHint: context.confidenceHint
-                )
-                aiSummary = normalizeSummary(summary)
-                print("✅ Generated AI summary for email")
-            }
-        } catch {
-            print("⚠️ Warning: Failed to generate AI summary: \(error)")
-            // Continue saving email even if summary generation fails
-        }
-
-        // Download and upload attachments if any
-        var savedAttachments: [SavedEmailAttachment] = []
-        if emailToSave.hasAttachments && !emailToSave.attachments.isEmpty {
-            do {
-                savedAttachments = try await downloadAndSaveAttachments(
-                    from: emailToSave,
-                    toFolderId: folderId
-                )
-            } catch {
-                print("⚠️ Warning: Failed to download some attachments: \(error)")
-                // Continue saving email even if attachments fail
-            }
-        }
-
-        // Save email to folder with full body and AI summary
-        let savedEmail = try await emailFolderService.saveEmail(
-            from: emailToSave,
-            to: folderId,
-            with: savedAttachments,
-            aiSummary: aiSummary
-        )
-
-        return savedEmail
-    }
-
-    /// Download email attachments and save to Supabase Storage
-    func downloadAndSaveAttachments(
-        from email: Email,
-        toFolderId: UUID
-    ) async throws -> [SavedEmailAttachment] {
-        var savedAttachments: [SavedEmailAttachment] = []
-        let emailFolderService = EmailFolderService.shared
-
-        for attachment in email.attachments {
-            do {
-                // Download attachment from Gmail
-                guard let messageId = email.gmailMessageId else {
-                    print("⚠️ Warning: No Gmail message ID for email, skipping attachments")
-                    continue
-                }
-
-                guard let fileData = try await gmailAPIClient.downloadAttachment(
-                    messageId: messageId,
-                    attachmentId: attachment.id
-                ) else {
-                    print("⚠️ Warning: Failed to download attachment '\(attachment.name)' - no data returned")
-                    continue
-                }
-
-                print("✅ Downloaded attachment '\(attachment.name)' (\(fileData.count) bytes)")
-
-                // Upload to Supabase Storage
-                let storagePath = "email-attachments/\(messageId)/\(attachment.id)/\(attachment.name)"
-                try await SupabaseManager.shared.uploadFile(
-                    data: fileData,
-                    bucket: "email-attachments",
-                    path: storagePath
-                )
-
-                print("✅ Uploaded attachment '\(attachment.name)' to Supabase Storage")
-
-                // Create attachment record in database
-                // Note: This will be saved when SavedEmail is saved via EmailFolderService
-                let savedAttachment = SavedEmailAttachment(
-                    id: UUID(),
-                    savedEmailId: UUID(), // Will be updated after SavedEmail is created
-                    fileName: attachment.name,
-                    fileSize: Int64(fileData.count),
-                    mimeType: attachment.mimeType,
-                    storagePath: storagePath,
-                    uploadedAt: Date()
-                )
-                savedAttachments.append(savedAttachment)
-
-            } catch {
-                print("⚠️ Warning: Failed to download attachment '\(attachment.name)': \(error)")
-                // Continue with other attachments
-            }
-        }
-
-        return savedAttachments
-    }
-
-    // MARK: - Custom Folder Caching
-
-    /// Check if custom folder cache is valid (not expired)
-    private func isFolderCacheValid() -> Bool {
-        guard let timestamp = UserDefaults.standard.object(forKey: CacheKeys.customFoldersTimestamp) as? Date else {
-            return false
-        }
-        return Date().timeIntervalSince(timestamp) < cacheExpirationTime
-    }
-
-    /// Load cached custom folders
-    private func loadCachedFolders() -> [CustomEmailFolder]? {
-        guard let data = UserDefaults.standard.data(forKey: CacheKeys.customFolders) else {
-            return nil
-        }
-        do {
-            return try JSONDecoder().decode([CustomEmailFolder].self, from: data)
-        } catch {
-            print("⚠️ Failed to decode cached folders: \(error)")
-            return nil
-        }
-    }
-
-    /// Save custom folders to cache
-    private func saveCachedFolders(_ folders: [CustomEmailFolder]) {
-        let snapshot = folders
-        persistenceCoordinator.schedule(id: "EmailService.customFolders") {
-            do {
-                let data = try JSONEncoder().encode(snapshot)
-                UserDefaults.standard.set(data, forKey: CacheKeys.customFolders)
-                UserDefaults.standard.set(Date(), forKey: CacheKeys.customFoldersTimestamp)
-                print("✅ Saved \(snapshot.count) folders to cache")
-            } catch {
-                print("❌ Failed to cache folders: \(error)")
-            }
-        }
-    }
-
-    /// Load cached emails for a specific folder
-    private func loadCachedFolderEmails(_ folderId: UUID) -> [SavedEmail]? {
-        guard let data = UserDefaults.standard.data(forKey: CacheKeys.emailsInFolder(folderId)) else {
-            return nil
-        }
-        do {
-            return try JSONDecoder().decode([SavedEmail].self, from: data)
-        } catch {
-            print("⚠️ Failed to decode cached emails for folder \(folderId): \(error)")
-            return nil
-        }
-    }
-
-    /// Check if folder emails cache is valid
-    private func isFolderEmailsCacheValid(_ folderId: UUID) -> Bool {
-        guard let timestamp = UserDefaults.standard.object(forKey: CacheKeys.emailsInFolderTimestamp(folderId)) as? Date else {
-            return false
-        }
-        return Date().timeIntervalSince(timestamp) < cacheExpirationTime
-    }
-
-    /// Save folder emails to cache
-    private func saveCachedFolderEmails(_ emails: [SavedEmail], for folderId: UUID) {
-        let snapshot = emails
-        persistenceCoordinator.schedule(id: "EmailService.folderEmails.\(folderId.uuidString)") {
-            do {
-                let data = try JSONEncoder().encode(snapshot)
-                UserDefaults.standard.set(data, forKey: CacheKeys.emailsInFolder(folderId))
-                UserDefaults.standard.set(Date(), forKey: CacheKeys.emailsInFolderTimestamp(folderId))
-            } catch {
-                print("❌ Failed to cache emails for folder \(folderId): \(error)")
-            }
-        }
-    }
-
-    /// Get all saved email folders (with caching)
-    func fetchSavedFolders(forceRefresh: Bool = false) async throws -> [CustomEmailFolder] {
-        // Check cache first (unless force refresh is requested)
-        if !forceRefresh && isFolderCacheValid(), let cachedFolders = loadCachedFolders() {
-            print("📂 Using cached folders (\(cachedFolders.count) folders)")
-            return cachedFolders
-        }
-
-        // If cache is invalid or empty, fetch from Supabase
-        print("🔄 Fetching folders from Supabase...")
-        let emailFolderService = EmailFolderService.shared
-        do {
-            let folders = try await emailFolderService.fetchFolders()
-            print("📂 Fetched \(folders.count) folders from Supabase")
-
-            // Cache the results
-            saveCachedFolders(folders)
-
-            return folders
-        } catch {
-            print("❌ Error fetching folders from Supabase: \(error)")
-            // If Supabase fetch fails, try to use cache as fallback
-            if let cachedFolders = loadCachedFolders() {
-                print("⚠️ Using stale cache as fallback (\(cachedFolders.count) folders)")
-                return cachedFolders
-            }
-            throw error
-        }
-    }
-
     /// Force clear the folder cache (useful for debugging/recovery)
     func clearFolderCache() {
         UserDefaults.standard.removeObject(forKey: CacheKeys.customFolders)
         UserDefaults.standard.removeObject(forKey: CacheKeys.customFoldersTimestamp)
-        print("🗑️ Folder cache cleared")
-    }
 
-    /// Create a new email folder
-    func createEmailFolder(name: String, color: String = "#84cae9") async throws -> CustomEmailFolder {
-        let emailFolderService = EmailFolderService.shared
-        return try await emailFolderService.createFolder(name: name, color: color)
-    }
-
-    /// Rename an email folder
-    func renameEmailFolder(id: UUID, newName: String) async throws -> CustomEmailFolder {
-        let emailFolderService = EmailFolderService.shared
-        return try await emailFolderService.renameFolder(id: id, newName: newName)
-    }
-
-    /// Update email folder color
-    func updateEmailFolderColor(id: UUID, color: String) async throws -> CustomEmailFolder {
-        let emailFolderService = EmailFolderService.shared
-        return try await emailFolderService.updateFolderColor(id: id, color: color)
-    }
-
-    /// Delete an email folder
-    func deleteEmailFolder(id: UUID) async throws {
-        let emailFolderService = EmailFolderService.shared
-        try await emailFolderService.deleteFolder(id: id)
-    }
-
-    /// Get all saved emails in a folder (with caching)
-    func fetchSavedEmails(in folderId: UUID, forceRefresh: Bool = false) async throws -> [SavedEmail] {
-        // Check cache first
-        if !forceRefresh && isFolderEmailsCacheValid(folderId), let cachedEmails = loadCachedFolderEmails(folderId) {
-            print("📧 Using cached emails for folder (\(cachedEmails.count) emails)")
-            return cachedEmails
+        let keys = UserDefaults.standard.dictionaryRepresentation().keys
+        for key in keys where key.hasPrefix("cached_folder_emails_") || key.hasPrefix("cached_folder_emails_timestamp_") {
+            UserDefaults.standard.removeObject(forKey: key)
         }
-
-        // If cache is invalid or force refresh, fetch from Supabase
-        print("🔄 Fetching emails from Supabase for folder...")
-        let emailFolderService = EmailFolderService.shared
-        let emails = try await emailFolderService.fetchEmailsInFolder(folderId: folderId)
-
-        // Cache the results
-        saveCachedFolderEmails(emails, for: folderId)
-
-        return emails
     }
-
-    /// Search saved emails in a folder
-    func searchSavedEmails(in folderId: UUID, query: String) async throws -> [SavedEmail] {
-        let emailFolderService = EmailFolderService.shared
-        return try await emailFolderService.searchEmailsInFolder(folderId: folderId, query: query)
-    }
-
-    /// Move saved email to a different folder
-    func moveSavedEmail(id: UUID, toFolder folderId: UUID) async throws -> SavedEmail {
-        let emailFolderService = EmailFolderService.shared
-        return try await emailFolderService.moveEmail(id: id, toFolder: folderId)
-    }
-
-    /// Delete a saved email
-    func deleteSavedEmail(id: UUID) async throws {
-        let emailFolderService = EmailFolderService.shared
-        try await emailFolderService.deleteSavedEmail(id: id)
-    }
-
-    /// Get email count in a folder (uses cached data if available)
-    func getSavedEmailCount(in folderId: UUID) async throws -> Int {
-        // Try to use cached emails first
-        if isFolderEmailsCacheValid(folderId), let cachedEmails = loadCachedFolderEmails(folderId) {
-            return cachedEmails.count
-        }
-
-        // If cache invalid, fetch emails (which also caches them)
-        let emails = try await fetchSavedEmails(in: folderId)
-        return emails.count
-    }
-
 
     // MARK: - Error Handling
     private func getUserFriendlyErrorMessage(_ error: Error) -> String {
@@ -1935,35 +1603,6 @@ class EmailService: ObservableObject {
         return "Failed to load emails. Pull down to retry"
     }
 
-    // MARK: - Helper Methods
-    private static func stripHTMLTags(from html: String) -> String {
-        var text = html
-
-        // Remove script and style tags with their content
-        text = text.replacingOccurrences(
-            of: "<(script|style)[^>]*>[\\s\\S]*?</\\1>",
-            with: "",
-            options: .regularExpression
-        )
-
-        // Remove all HTML tags
-        text = text.replacingOccurrences(
-            of: "<[^>]+>",
-            with: "",
-            options: .regularExpression
-        )
-
-        // Decode common HTML entities
-        let entities = [
-            "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
-            "&quot;": "\"", "&apos;": "'"
-        ]
-        for (entity, replacement) in entities {
-            text = text.replacingOccurrences(of: entity, with: replacement)
-        }
-
-        return text
-    }
 }
 
 enum EmailServiceError: LocalizedError {
@@ -1985,92 +1624,6 @@ enum EmailServiceError: LocalizedError {
             return "Failed to parse email data"
         case .missingGmailId:
             return "Email missing Gmail message ID"
-        }
-    }
-}
-
-// MARK: - Searchable Conformance for Saved Emails
-
-extension EmailService: Searchable {
-    /// Provide saved emails from all folders as searchable content for the LLM
-    /// Note: This uses cached data to avoid blocking the main thread
-    func getSearchableContent() -> [SearchableItem] {
-        // Load saved emails asynchronously in the background
-        Task {
-            await self.loadSavedEmailsForSearch()
-        }
-
-        // Return cached searchable emails immediately (non-blocking)
-        // This will be populated by the background task
-        return self.cachedSearchableEmails
-    }
-
-    /// Load saved emails for search in the background (non-blocking)
-    private func loadSavedEmailsForSearch() async {
-        var searchableEmails: [SearchableItem] = []
-        let emailFolderService = EmailFolderService.shared
-
-        do {
-            // Fetch all folders
-            let folders = try await emailFolderService.fetchFolders()
-
-            // Fetch emails from each folder
-            for folder in folders {
-                do {
-                    let emails = try await emailFolderService.fetchEmailsInFolder(folderId: folder.id)
-
-                    // Convert each email to a SearchableItem
-                    for email in emails {
-                        let emailContent = """
-                        From: \(email.senderName ?? email.senderEmail)
-                        To: \(email.recipients.joined(separator: ", "))
-                        Subject: \(email.subject)
-
-                        \(email.body ?? email.snippet ?? "")
-
-                        Summary: \(email.aiSummary ?? "No summary available")
-                        """
-
-                        let tags = [
-                            "email",
-                            "saved",
-                            folder.name,
-                            email.senderName ?? email.senderEmail
-                        ].filter { !$0.isEmpty }
-
-                        let metadata: [String: String] = [
-                            "folder": folder.name,
-                            "sender": email.senderEmail,
-                            "senderName": email.senderName ?? "",
-                            "recipients": email.recipients.joined(separator: ";"),
-                            "subject": email.subject,
-                            "hasAISummary": email.aiSummary != nil ? "yes" : "no"
-                        ]
-
-                        let searchItem = SearchableItem(
-                            title: email.subject,
-                            content: emailContent,
-                            type: .email,
-                            identifier: email.id.uuidString,
-                            metadata: metadata,
-                            tags: tags,
-                            relatedItems: [],
-                            date: email.timestamp
-                        )
-
-                        searchableEmails.append(searchItem)
-                    }
-                } catch {
-                    print("⚠️ Error fetching emails from folder \(folder.name): \(error)")
-                }
-            }
-
-            // Update cache on main thread
-            await MainActor.run {
-                self.cachedSearchableEmails = searchableEmails
-            }
-        } catch {
-            print("⚠️ Error fetching folders for search: \(error)")
         }
     }
 }

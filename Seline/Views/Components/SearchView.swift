@@ -1,404 +1,707 @@
 import SwiftUI
 
 struct SearchView: View {
-    @Environment(\.colorScheme) var colorScheme
-    @StateObject private var emailService = EmailService.shared
-    @StateObject private var taskManager = TaskManager.shared
-    @StateObject private var notesManager = NotesManager.shared
-    @StateObject private var searchService = SearchService.shared
-    @Binding var isPresented: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    private let searchIndex = SearchIndexState.shared
+
+    let isVisible: Bool
+    @Binding var selectedTab: PrimaryTab
+    @Binding var selectedFolder: String?
+    var onOpenEmail: (Email) -> Void
+    var onOpenTask: (TaskItem) -> Void
+    var onOpenNote: (Note) -> Void
+    var onOpenPlace: (SavedPlace) -> Void
+    var onOpenPerson: (Person) -> Void
+    var onOpenChat: ((String) -> Void)? = nil
+
     @State private var searchText = ""
+    @State private var searchResults: [OverlaySearchResult] = []
+    @State private var searchTask: Task<Void, Never>?
+    @State private var preview = SearchPreviewData.empty
+    @State private var recentSearches = SearchRecentQueryStore.load()
     @FocusState private var isSearchFocused: Bool
-    @State private var selectedEmail: Email?
-    @State private var selectedTask: TaskItem?
-    @State private var selectedNote: Note?
-    @State private var showingEditTask = false
 
-    enum SearchResultType {
-        case email, event, note
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    struct SearchResult: Identifiable {
-        let id = UUID()
-        let type: SearchResultType
-        let title: String
-        let subtitle: String
-        let icon: String
-        let data: Any
+    private var landingRecentQueries: [String] {
+        Array(recentSearches.prefix(4))
     }
 
-    private var searchResults: [SearchResult] {
-        guard !searchText.isEmpty else { return [] }
-
-        var results: [SearchResult] = []
-        let lowercasedSearch = searchText.lowercased()
-
-        // Search emails
-        let matchingEmails = emailService.inboxEmails.filter {
-            $0.subject.lowercased().contains(lowercasedSearch) ||
-            $0.sender.displayName.lowercased().contains(lowercasedSearch) ||
-            $0.snippet.lowercased().contains(lowercasedSearch)
-        }
-        results += matchingEmails.map { email in
-            SearchResult(
-                type: .email,
-                title: email.subject,
-                subtitle: "from \(email.sender.displayName)",
-                icon: "envelope.fill",
-                data: email
-            )
-        }
-
-        // Search tasks/events
-        let allTasks = taskManager.getAllTasksIncludingArchived()
-        let matchingTasks = allTasks.filter {
-            $0.title.lowercased().contains(lowercasedSearch)
-        }
-        results += matchingTasks.map { task in
-            SearchResult(
-                type: .event,
-                title: task.title,
-                subtitle: task.scheduledTime != nil ? formatDateAndTime(task.scheduledTime!) : "No time set",
-                icon: "calendar",
-                data: task
-            )
-        }
-
-        // Search notes
-        let allNotes = notesManager.notes
-        let matchingNotes = allNotes.filter {
-            $0.title.lowercased().contains(lowercasedSearch) ||
-            $0.content.lowercased().contains(lowercasedSearch)
-        }
-        results += matchingNotes.map { note in
-            SearchResult(
-                type: .note,
-                title: note.title,
-                subtitle: note.formattedDateModified,
-                icon: "note.text",
-                data: note
-            )
-        }
-
-        return results
+    private var searchResultsSummary: String {
+        let matchLabel = searchResults.count == 1 ? "match" : "matches"
+        return "\(searchResults.count) \(matchLabel) across Seline"
     }
 
-    private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+    private var contentHorizontalPadding: CGFloat {
+        16
     }
 
-    private func formatDateAndTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+    private func openChat() {
+        let query = trimmedSearchText
+        guard !query.isEmpty else { return }
+
+        rememberSearchQuery(query)
+        HapticManager.shared.selection()
+        isSearchFocused = false
+        selectedTab = .chat
+        onOpenChat?(query)
     }
 
-    // MARK: - Extracted Subviews
-    
-    private var headerView: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Button(action: {
-                    HapticManager.shared.selection()
-                    isPresented = false
-                }) {
-                    Image(systemName: "xmark")
-                        .font(FontManager.geist(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                }
-                .buttonStyle(PlainButtonStyle())
+    private func handleSelection(_ result: OverlaySearchResult) {
+        rememberSearchQuery()
+        HapticManager.shared.selection()
+        isSearchFocused = false
 
-                Spacer()
-
-                Text("Search")
-                    .font(FontManager.geist(size: 17, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-
-                Spacer()
-
-                // Invisible spacer for centering
-                Image(systemName: "xmark")
-                    .font(FontManager.geist(size: 16, weight: .medium))
-                    .opacity(0)
+        switch result.type {
+        case .email:
+            if let email = result.email {
+                onOpenEmail(email)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-
-            searchFieldView
+        case .event:
+            if let task = result.task {
+                onOpenTask(task)
+            }
+        case .note, .receipt:
+            if let note = result.note {
+                onOpenNote(note)
+            }
+        case .location:
+            if let place = result.location {
+                onOpenPlace(place)
+            }
+        case .folder:
+            if let folder = result.category {
+                selectedFolder = folder
+                selectedTab = .maps
+            }
+        case .person:
+            if let person = result.person {
+                onOpenPerson(person)
+            }
+        case .recurringExpense:
+            selectedTab = .notes
+            NotificationCenter.default.post(name: .openRecurringFromMainApp, object: nil)
         }
-        .padding(.bottom, 16)
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
     }
-    
-    private var searchFieldView: some View {
-        HStack {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-            TextField("Search emails, events, notes...", text: $searchText)
+    private func refreshSupplementaryState() {
+        preview = searchIndex.preview
+        recentSearches = SearchRecentQueryStore.load()
+    }
+
+    private func rememberSearchQuery(_ rawQuery: String? = nil) {
+        let query = (rawQuery ?? trimmedSearchText)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        recentSearches = SearchRecentQueryStore.record(query)
+    }
+
+    private func applyRecentSearch(_ query: String) {
+        searchText = query
+        recentSearches = SearchRecentQueryStore.record(query)
+        isSearchFocused = true
+        scheduleSearchRefresh()
+    }
+
+    private func removeRecentSearch(_ query: String) {
+        recentSearches = SearchRecentQueryStore.remove(query)
+    }
+
+    private func clearRecentSearches() {
+        recentSearches = SearchRecentQueryStore.clear()
+    }
+
+    private func scheduleSearchRefresh() {
+        searchTask?.cancel()
+
+        let query = trimmedSearchText
+        guard isVisible, !query.isEmpty else {
+            searchResults = []
+            return
+        }
+
+        searchTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+
+            searchResults = searchIndex.results(
+                for: query,
+                scopes: .searchPageScopes,
+                limit: 36
+            )
+        }
+    }
+
+    private var titleRow: some View {
+        HStack(spacing: 10) {
+            Color.clear
+                .frame(width: 42, height: 42)
+
+            Spacer(minLength: 0)
+
+            Text("Search")
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            Color.clear
+                .frame(width: 42, height: 42)
+        }
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.top, -4)
+        .padding(.bottom, 10)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+
+            TextField("Search mail, events, notes, places, people...", text: $searchText)
+                .font(FontManager.geist(size: 15, weight: .regular))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
                 .focused($isSearchFocused)
-                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                .autocapitalization(.none)
+                .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
-                .onChange(of: searchText) { newValue in
-                    searchService.searchQuery = newValue
+                .submitLabel(.search)
+                .onSubmit {
+                    rememberSearchQuery()
+                    scheduleSearchRefresh()
                 }
 
             if !searchText.isEmpty {
-                Button(action: {
+                Button {
                     searchText = ""
-                    searchService.searchQuery = ""
-                }) {
+                    searchResults = []
+                } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
                 }
-                .buttonStyle(PlainButtonStyle())
+                .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-        .cornerRadius(10)
         .padding(.horizontal, 16)
+        .frame(height: 50)
+        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 24)
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(
+                    isSearchFocused
+                        ? Color.homeGlassAccent.opacity(colorScheme == .dark ? 0.42 : 0.26)
+                        : Color.clear,
+                    lineWidth: 1
+                )
+        )
+        .shadow(
+            color: isSearchFocused
+                ? Color.homeGlassAccent.opacity(colorScheme == .dark ? 0.12 : 0.09)
+                : .clear,
+            radius: 18,
+            x: 0,
+            y: 8
+        )
+        .animation(.easeOut(duration: 0.18), value: isSearchFocused)
     }
-    
-    private var emptySearchView: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(FontManager.geist(size: 48, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
-                .padding(.top, 60)
 
-            Text("Search your emails, events, and notes")
-                .font(FontManager.geist(size: 15, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+    private var header: some View {
+        VStack(spacing: 0) {
+            titleRow
+
+            searchField
+                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.bottom, 14)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    
+
+    private var emptyStateView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 24) {
+                if !landingRecentQueries.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        sectionHeader("Recent")
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(landingRecentQueries, id: \.self) { query in
+                                    recentSearchChip(query)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !preview.highlights.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        sectionHeader("Right Now")
+
+                        VStack(spacing: 10) {
+                            ForEach(preview.highlights) { highlight in
+                                Button {
+                                    handleSelection(highlight.result)
+                                } label: {
+                                    previewHighlightRow(highlight)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, contentHorizontalPadding)
+            .padding(.bottom, 110)
+        }
+        .selinePrimaryPageScroll()
+    }
+
+    private var recentSearchesView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 24) {
+                if !recentSearches.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            sectionHeader("Jump Back In")
+
+                            Spacer(minLength: 0)
+
+                            Button("Clear") {
+                                clearRecentSearches()
+                            }
+                            .font(FontManager.geist(size: 13, weight: .medium))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                            .buttonStyle(.plain)
+                        }
+
+                        VStack(spacing: 10) {
+                            ForEach(recentSearches, id: \.self) { query in
+                                HStack(spacing: 10) {
+                                    Button {
+                                        applyRecentSearch(query)
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                                                .font(.system(size: 14, weight: .medium))
+                                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                                .frame(width: 18)
+
+                                            Text(query)
+                                                .font(FontManager.geist(size: 15, weight: .medium))
+                                                .foregroundColor(Color.appTextPrimary(colorScheme))
+                                                .lineLimit(1)
+
+                                            Spacer(minLength: 0)
+
+                                            Image(systemName: "arrow.up.left")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                        }
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 14)
+                                        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 20)
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Button {
+                                        removeRecentSearch(query)
+                                    } label: {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                                            .frame(width: 28, height: 28)
+                                            .background(
+                                                Circle()
+                                                    .fill(Color.appChip(colorScheme))
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !preview.highlights.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        sectionHeader("Right Now")
+
+                        VStack(spacing: 10) {
+                            ForEach(preview.highlights) { highlight in
+                                Button {
+                                    handleSelection(highlight.result)
+                                } label: {
+                                    previewHighlightRow(highlight)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, contentHorizontalPadding)
+            .padding(.bottom, 110)
+        }
+        .selinePrimaryPageScroll()
+    }
+
     private var noResultsView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "sparkles")
-                .font(FontManager.geist(size: 48, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                .padding(.top, 60)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 18) {
+                VStack(spacing: 18) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.homeGlassAccent.opacity(colorScheme == .dark ? 0.24 : 0.14))
+                            .frame(width: 74, height: 74)
 
-            Text("No results found")
-                .font(FontManager.geist(size: 15, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 28, weight: .medium))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                    }
 
-            Text("Ask AI about this instead")
-                .font(FontManager.geist(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    VStack(spacing: 8) {
+                        Text("No direct matches")
+                            .font(FontManager.geist(size: 22, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
 
-            chatWithAIButton
+                        Text("Try a broader keyword, or send this search to chat for a looser pass across your context.")
+                            .font(FontManager.geist(size: 14, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                            .multilineTextAlignment(.center)
+                    }
 
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    
-    private var chatWithAIButton: some View {
-        Button(action: {
-            HapticManager.shared.selection()
-            let messageToAdd = searchText
-            Task {
-                await searchService.addConversationMessage(messageToAdd)
+                    Button(action: openChat) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 14, weight: .semibold))
+
+                            Text("Chat with AI")
+                                .font(FontManager.geist(size: 15, weight: .semibold))
+                        }
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.homeGlassAccent)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 22)
+                .padding(.vertical, 26)
+                .appAmbientCardStyle(
+                    colorScheme: colorScheme,
+                    variant: .topLeading,
+                    cornerRadius: 28,
+                    highlightStrength: 0.8
+                )
             }
-            isPresented = false
-        }) {
+            .padding(.horizontal, contentHorizontalPadding)
+            .padding(.top, 26)
+            .padding(.bottom, 110)
+        }
+        .selinePrimaryPageScroll()
+    }
+
+    private var resultsListView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 14) {
+                resultsHeroCard
+
+                LazyVStack(spacing: 10) {
+                    ForEach(searchResults) { result in
+                        Button {
+                            handleSelection(result)
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.appChip(colorScheme))
+                                        .frame(width: 44, height: 44)
+
+                                    Image(systemName: result.icon)
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                }
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(result.title)
+                                        .font(FontManager.geist(size: 15, weight: .medium))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .lineLimit(1)
+
+                                    Text(result.subtitle)
+                                        .font(FontManager.geist(size: 13, weight: .regular))
+                                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                                        .lineLimit(2)
+                                }
+
+                                Spacer(minLength: 0)
+
+                                VStack(alignment: .trailing, spacing: 10) {
+                                    Text(result.type.badgeLabel)
+                                        .font(FontManager.geist(size: 11, weight: .semibold))
+                                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color.appChip(colorScheme))
+                                        )
+
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.7))
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 20)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.horizontal, contentHorizontalPadding)
+            .padding(.bottom, 110)
+        }
+        .selinePrimaryPageScroll()
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(FontManager.geist(size: 13, weight: .semibold))
+            .foregroundColor(Color.appTextSecondary(colorScheme))
+            .textCase(.uppercase)
+            .tracking(0.8)
+    }
+
+    private var resultsHeroCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("RESULTS")
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .tracking(1.1)
+
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(trimmedSearchText)
+                        .font(FontManager.geist(size: 24, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .lineLimit(2)
+
+                    Text(searchResultsSummary)
+                        .font(FontManager.geist(size: 14, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                }
+
+                Spacer(minLength: 0)
+
+                if onOpenChat != nil {
+                    Button(action: openChat) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 12, weight: .semibold))
+
+                            Text("Chat")
+                                .font(FontManager.geist(size: 13, weight: .semibold))
+                        }
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(18)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topTrailing,
+            cornerRadius: 24,
+            highlightStrength: 0.6
+        )
+    }
+
+    private func recentSearchChip(_ query: String) -> some View {
+        Button {
+            applyRecentSearch(query)
+        } label: {
             HStack(spacing: 8) {
-                Image(systemName: "bubble.left.fill")
-                    .font(FontManager.geist(size: 14, weight: .medium))
+                Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
 
-                Text("Chat with AI")
-                    .font(FontManager.geist(size: 15, weight: .semibold))
+                Text(query)
+                    .font(FontManager.geist(size: 13, weight: .medium))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .lineLimit(1)
             }
-            .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(colorScheme == .dark ? Color.white : Color.black)
-            )
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
         }
-        .padding(.horizontal, 40)
+        .buttonStyle(.plain)
     }
-    
-    private var searchResultsListView: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(searchResults) { result in
-                    searchResultRow(result)
-                    
-                    Divider()
-                        .padding(.leading, 52)
-                }
-            }
-        }
-    }
-    
-    private func searchResultRow(_ result: SearchResult) -> some View {
-        Button(action: {
-            HapticManager.shared.selection()
-            handleResultTap(result)
-        }) {
-            HStack(spacing: 12) {
-                Image(systemName: result.icon)
-                    .font(FontManager.geist(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .frame(width: 24)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(result.title)
-                        .font(FontManager.geist(size: 15, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .lineLimit(1)
+    private func previewHighlightRow(_ highlight: SearchPreviewHighlight) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.appChip(colorScheme))
+                    .frame(width: 46, height: 46)
 
-                    Text(result.subtitle)
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        .lineLimit(1)
-                }
+                Image(systemName: highlight.result.icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+            }
 
-                Spacer()
+            VStack(alignment: .leading, spacing: 5) {
+                Text(highlight.eyebrow.uppercased())
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .tracking(0.8)
 
-                Image(systemName: "chevron.right")
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                Text(highlight.result.title)
+                    .font(FontManager.geist(size: 16, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .lineLimit(2)
+
+                Text(highlight.result.subtitle)
+                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .lineLimit(2)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-    
-    private func handleResultTap(_ result: SearchResult) {
-        switch result.type {
-        case .email:
-            if let email = result.data as? Email {
-                selectedEmail = email
-            }
-        case .event:
-            if let task = result.data as? TaskItem {
-                showingEditTask = false
-                selectedTask = task
-            }
-        case .note:
-            if let note = result.data as? Note {
-                selectedNote = note
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: 10) {
+                Text(highlight.result.type.badgeLabel)
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(Color.appChip(colorScheme))
+                    )
+
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.7))
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .appAmbientCardStyle(
+            colorScheme: colorScheme,
+            variant: .topTrailing,
+            cornerRadius: 24,
+            highlightStrength: 0.5
+        )
     }
-    
+
     @ViewBuilder
-    private var searchContentView: some View {
-        if searchText.isEmpty {
-            emptySearchView
+    private var content: some View {
+        if trimmedSearchText.isEmpty {
+            if isSearchFocused {
+                recentSearchesView
+            } else {
+                emptyStateView
+            }
         } else if searchResults.isEmpty {
             noResultsView
         } else {
-            searchResultsListView
+            resultsListView
         }
     }
-    
-    @ViewBuilder
-    private func taskSheetContent(task: TaskItem) -> some View {
-        if showingEditTask {
-            NavigationView {
-                EditTaskView(
-                    task: task,
-                    onSave: { updatedTask in
-                        taskManager.editTask(updatedTask)
-                        selectedTask = nil
-                        showingEditTask = false
-                    },
-                    onSaveRecurring: { updatedTask, scope, occurrenceDate in
-                        taskManager.editTask(
-                            updatedTask,
-                            recurringEditScope: scope,
-                            recurringOccurrenceDate: occurrenceDate
-                        )
-                        selectedTask = nil
-                        showingEditTask = false
-                    },
-                    onCancel: {
-                        selectedTask = nil
-                        showingEditTask = false
-                    },
-                    onDelete: { taskToDelete in
-                        taskManager.deleteTask(taskToDelete)
-                        selectedTask = nil
-                        showingEditTask = false
-                    },
-                    onDeleteRecurringSeries: { taskToDelete in
-                        taskManager.deleteRecurringTask(taskToDelete)
-                        selectedTask = nil
-                        showingEditTask = false
-                    }
-                )
-            }
-        } else {
-            NavigationView {
-                ViewEventView(
-                    task: task,
-                    onEdit: {
-                        showingEditTask = true
-                    },
-                    onDelete: { taskToDelete in
-                        taskManager.deleteTask(taskToDelete)
-                        selectedTask = nil
-                    },
-                    onDeleteRecurringSeries: { taskToDelete in
-                        taskManager.deleteRecurringTask(taskToDelete)
-                        selectedTask = nil
-                    }
-                )
-            }
-        }
-    }
-    
-    // MARK: - Body
-    
+
     var body: some View {
         VStack(spacing: 0) {
-            headerView
-            Divider()
-            searchContentView
+            header
+            content
         }
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .bottomTrailing)
+        )
         .onAppear {
-            isSearchFocused = true
+            isSearchFocused = false
+            refreshSupplementaryState()
+            scheduleSearchRefresh()
         }
-        .fullScreenCover(item: $selectedEmail) { email in
-            NavigationView {
-                EmailDetailView(email: email)
+        .onChange(of: searchText) { _ in
+            scheduleSearchRefresh()
+        }
+        .onChange(of: isSearchFocused) { focused in
+            if focused {
+                recentSearches = SearchRecentQueryStore.load()
             }
-            .presentationBg()
         }
-        .sheet(item: $selectedTask) { task in
-            taskSheetContent(task: task)
-                .presentationBg()
+        .onChange(of: isVisible) { _ in
+            isSearchFocused = false
+            scheduleSearchRefresh()
         }
-        .sheet(item: $selectedNote) { note in
-            NoteEditView(
-                note: note,
-                isPresented: Binding(
-                    get: { selectedNote != nil },
-                    set: { if !$0 { selectedNote = nil } }
-                ),
-                initialFolderId: nil
-            )
-            .presentationBg()
+        .onReceive(searchIndex.$snapshotVersion) { _ in
+            refreshSupplementaryState()
+            scheduleSearchRefresh()
+        }
+        .onDisappear {
+            searchTask?.cancel()
         }
     }
 }
 
+private enum SearchRecentQueryStore {
+    private static let key = "search.view.recentQueries"
+    private static let maxCount = 8
+
+    static func load() -> [String] {
+        UserDefaults.standard.stringArray(forKey: key) ?? []
+    }
+
+    static func record(_ query: String) -> [String] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else { return load() }
+
+        var queries = load().filter {
+            $0.localizedCaseInsensitiveCompare(normalizedQuery) != .orderedSame
+        }
+        queries.insert(normalizedQuery, at: 0)
+        queries = Array(queries.prefix(maxCount))
+        UserDefaults.standard.set(queries, forKey: key)
+        return queries
+    }
+
+    static func remove(_ query: String) -> [String] {
+        let queries = load().filter {
+            $0.localizedCaseInsensitiveCompare(query) != .orderedSame
+        }
+        UserDefaults.standard.set(queries, forKey: key)
+        return queries
+    }
+
+    static func clear() -> [String] {
+        UserDefaults.standard.removeObject(forKey: key)
+        return []
+    }
+}
+
 #Preview {
-    SearchView(isPresented: .constant(true))
+    SearchView(
+        isVisible: true,
+        selectedTab: .constant(.search),
+        selectedFolder: .constant(nil),
+        onOpenEmail: { _ in },
+        onOpenTask: { _ in },
+        onOpenNote: { _ in },
+        onOpenPlace: { _ in },
+        onOpenPerson: { _ in },
+        onOpenChat: { _ in }
+    )
 }

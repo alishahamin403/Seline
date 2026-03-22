@@ -51,6 +51,7 @@ struct MapsViewNew: View, Searchable {
     private let supabaseManager = SupabaseManager.shared
     private let peopleManager = PeopleManager.shared
     private let pageRefreshCoordinator = PageRefreshCoordinator.shared
+    @StateObject private var floatingActionCoordinator = FloatingActionCoordinator.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
 
@@ -78,7 +79,7 @@ struct MapsViewNew: View, Searchable {
     @Binding var externalSelectedFolder: String?
     @State private var topLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
     @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
-    @State private var showAllLocationsSheet = false
+    @State private var selectedSavedFolder: SavedPlacesFolderSelection? = nil
     @State private var showActivePlacesSheet = false
     @State private var showAllHeroFavourites = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast  // Time debounce for location updates
@@ -89,6 +90,8 @@ struct MapsViewNew: View, Searchable {
     @State private var placeToMove: SavedPlace? = nil  // Place being moved to different folder
     @State private var showNewFolderAlert = false  // Controls new folder alert
     @State private var newFolderName = ""  // Name for the new folder
+    @State private var showingFolderSidebar = false
+    @State private var folderSidebarSearchText = ""
     @State private var showingRenameAlert = false  // Controls rename alert
     @State private var placeToRename: SavedPlace? = nil  // Place being renamed
     @State private var newPlaceName = ""  // New name for the place
@@ -130,17 +133,19 @@ struct MapsViewNew: View, Searchable {
                 .presentationDragIndicator(.visible)
                 .presentationBg()
             }
-            .sheet(isPresented: $showAllLocationsSheet) {
-                FolderBreakdownSheet(
+            .sheet(item: $selectedSavedFolder) { folder in
+                SavedPlacesFolderSheet(
                     colorScheme: colorScheme,
-                    folders: savedFolderBreakdownRows,
+                    folder: folder,
                     onPlaceTap: { place in
                         selectedPlace = place
                     },
                     onDismiss: {
-                        showAllLocationsSheet = false
+                        selectedSavedFolder = nil
                     }
                 )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
                 .presentationBg()
             }
             .sheet(isPresented: $showActivePlacesSheet) {
@@ -232,7 +237,7 @@ struct MapsViewNew: View, Searchable {
                 }
                 updateCurrentLocation()
                 Task {
-                    await loadHubPeriodVisits()
+                    await refreshHubData(forceRefresh: true)
                     await MainActor.run {
                         pageRefreshCoordinator.markValidated(.maps)
                     }
@@ -245,7 +250,7 @@ struct MapsViewNew: View, Searchable {
                 }
                 updateCurrentLocation()
                 Task {
-                    await loadHubPeriodVisits()
+                    await refreshHubData(forceRefresh: true)
                     await MainActor.run {
                         pageRefreshCoordinator.markValidated(.maps)
                     }
@@ -253,6 +258,9 @@ struct MapsViewNew: View, Searchable {
             }
             .onChange(of: externalSelectedFolder) { newFolder in
                 handleExternalFolderSelection(newFolder)
+            }
+            .onChange(of: isVisible) { _ in
+                syncFloatingActionState()
             }
             .onChange(of: scenePhase) { newPhase in
                 handleScenePhaseChange(newPhase)
@@ -262,15 +270,11 @@ struct MapsViewNew: View, Searchable {
                     pageRefreshCoordinator.markDirty(.maps, reason: .locationDataChanged)
                     return
                 }
-                // Only reload if we have no data yet, or debounce to avoid excessive reloads
-                if topLocations.isEmpty {
-                    loadTopLocations()
-                } else {
-                    // Debounce: reload after a short delay to batch multiple changes
-                    Task {
-                        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                        loadTopLocations()
-                    }
+                updateCurrentLocation()
+                // Debounce to batch multiple place edits together.
+                Task {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    await refreshDerivedLocationData(forceRefresh: true)
                 }
             }
             .onChange(of: hubPeriod) { _ in
@@ -292,23 +296,65 @@ struct MapsViewNew: View, Searchable {
             .onChange(of: hubPeriodVisits) { _ in
                 syncPageStateInputs()
             }
+            .onChange(of: selectedHubDetail) { _ in
+                syncFloatingActionState()
+            }
+            .onChange(of: isLocationSearchActive) { _ in
+                syncFloatingActionState()
+            }
+            .onChange(of: isPeopleSearchActive) { _ in
+                syncFloatingActionState()
+            }
+            .onChange(of: showingFolderSidebar) { _ in
+                if !showingFolderSidebar {
+                    folderSidebarSearchText = ""
+                }
+                syncFloatingActionState()
+            }
+            .onChange(of: selectedCategory) { _ in
+                syncFloatingActionState()
+            }
             .onChange(of: colorScheme) { _ in
                 // Force view refresh when system theme changes
+            }
+            .onAppear {
+                syncFloatingActionState()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .mapsShellAddRequested)) { _ in
+                performFloatingMapsAddAction()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .mapsShellNewFolderRequested)) { _ in
+                HapticManager.shared.selection()
+                newFolderName = ""
+                showNewFolderAlert = true
             }
     }
     
     // MARK: - Main Content View
     
     private var mainContentView: some View {
-        ZStack {
-            AppAmbientBackgroundLayer(
-                colorScheme: colorScheme,
-                variant: activeAmbientVariant
-            )
+        GeometryReader { geometry in
+            ZStack {
+                AppAmbientBackgroundLayer(
+                    colorScheme: colorScheme,
+                    variant: activeAmbientVariant
+                )
 
-            VStack(spacing: 0) {
-                headerSection
-                mainScrollContent
+                VStack(spacing: 0) {
+                    headerSection
+                    mainScrollContent
+                }
+
+                folderOverlay
+
+                InteractiveSidebarOverlay(
+                    isPresented: $showingFolderSidebar,
+                    canOpen: isVisible && selectedCategory == nil && !isLocationSearchActive,
+                    sidebarWidth: min(336, geometry.size.width * 0.86),
+                    colorScheme: colorScheme
+                ) {
+                    placesFolderSidebarContent
+                }
             }
         }
     }
@@ -317,111 +363,42 @@ struct MapsViewNew: View, Searchable {
     
     private var headerSection: some View {
         VStack(spacing: 0) {
-            // Keep People search overlay full-screen when active.
-            if !isPeopleSearchActive {
-                if !isLocationSearchActive {
-                    hubHeader
-                }
+            if !isLocationSearchActive {
+                placesHeader
+            }
 
-                // Search bar (appears when active)
-                if isLocationSearchActive && selectedHubDetail == .places {
-                    locationSearchBar
-                        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                        .padding(.top, 8)
-                        .padding(.bottom, 12)
-                        .background(Color.clear)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
+            if isLocationSearchActive {
+                locationSearchBar
+                    .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
+                    .background(Color.clear)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .background(Color.clear)
         .zIndex(20)
     }
-    
-    private var hubHeader: some View {
-        Group {
-            if selectedHubDetail == .places {
-                locationsHubHeader
-            } else if selectedHubDetail == .people {
-                peopleHubHeader
-            } else {
-                HStack(spacing: 10) {
-                    Color.clear
-                        .frame(width: 42, height: 42)
 
-                    hubMainPagePicker
-                        .frame(maxWidth: .infinity)
+    private var placesHeader: some View {
+        ZStack {
+            Text("Places")
+                .font(FontManager.geist(size: 16, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
 
-                    if selectedHubDetail == .places || selectedHubDetail == .people {
-                        Button(action: activateCurrentSectionSearch) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.black)
-                                .frame(width: 34, height: 34)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .fill(Color.appMonochromeAccentFill(colorScheme))
-                                )
-                        }
-                        .frame(width: 42, height: 42)
-                        .buttonStyle(PlainButtonStyle())
-                        .accessibilityLabel(selectedHubDetail == .places ? "Search locations" : "Search people")
-                    } else {
-                        Color.clear
-                            .frame(width: 42, height: 42)
-                    }
+            HStack(spacing: 10) {
+                overviewIconActionPill(systemImage: "line.3.horizontal", accessibilityLabel: "Open folders") {
+                    toggleFolderSidebar()
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .padding(.top, -4)
-                .padding(.bottom, 10)
+                .frame(width: 42, height: 42)
+
+                Spacer(minLength: 0)
+
+                overviewIconActionPill(systemImage: "magnifyingglass", accessibilityLabel: "Search locations") {
+                    activateLocationSearch()
+                }
+                .frame(width: 42, height: 42)
             }
-        }
-    }
-
-    private var locationsHubHeader: some View {
-        HStack(spacing: 10) {
-            overviewIconActionPill(systemImage: "folder.badge.plus", accessibilityLabel: "Create folder") {
-                newFolderName = ""
-                showNewFolderAlert = true
-            }
-            .frame(width: 42, height: 42)
-
-            hubMainPagePicker
-
-            overviewPrimaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add location") {
-                showSearchModal = true
-            }
-            .frame(width: 42, height: 42)
-
-            overviewIconActionPill(systemImage: "magnifyingglass", accessibilityLabel: "Search locations") {
-                activateLocationSearch()
-            }
-            .frame(width: 42, height: 42)
-        }
-        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.top, -4)
-        .padding(.bottom, 10)
-    }
-
-    private var peopleHubHeader: some View {
-        HStack(spacing: 10) {
-            overviewIconActionPill(systemImage: "magnifyingglass", accessibilityLabel: "Search people") {
-                activatePeopleSearch()
-            }
-            .frame(width: 42, height: 42)
-
-            hubMainPagePicker
-
-            overviewPrimaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add person") {
-                NotificationCenter.default.post(name: .peopleHubAddRequested, object: nil)
-            }
-            .frame(width: 42, height: 42)
-
-            overviewIconActionPill(systemImage: "person.crop.rectangle.stack", accessibilityLabel: "Import contacts") {
-                NotificationCenter.default.post(name: .peopleHubImportRequested, object: nil)
-            }
-            .frame(width: 42, height: 42)
         }
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
         .padding(.top, -4)
@@ -575,57 +552,17 @@ struct MapsViewNew: View, Searchable {
         withAnimation(.easeInOut(duration: 0.2)) {
             isLocationSearchActive = true
             isSearchFocused = true
+            showingFolderSidebar = false
         }
     }
 
-    private func activatePeopleSearch() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            isPeopleSearchActive = true
-        }
-    }
-
-    private func activateCurrentSectionSearch() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            if selectedHubDetail == .places {
-                isLocationSearchActive = true
-                isSearchFocused = true
-            } else if selectedHubDetail == .people {
-                isPeopleSearchActive = true
-            }
-        }
-    }
-    
     // MARK: - Main Scroll Content
 
-    @ViewBuilder
     private var mainScrollContent: some View {
-        detailContent(for: selectedHubDetail)
-    }
-
-    private var hubScrollContent: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 14) {
-                unifiedHubContent
-
-                Spacer()
-                    .frame(height: 100)
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
+            locationsTabContent
         }
-    }
-
-    @ViewBuilder
-    private func detailContent(for detail: HubDetailSection) -> some View {
-        if detail == .places {
-            ScrollView(.vertical, showsIndicators: false) {
-                locationsTabContent
-            }
-        } else if detail == .people {
-            peopleTabContent
-        } else {
-            timelineTabContent
-        }
+        .selinePrimaryPageScroll()
     }
 
     // MARK: - Unified Hub
@@ -1203,14 +1140,7 @@ struct MapsViewNew: View, Searchable {
     }
 
     private var activeAmbientVariant: AppAmbientBackgroundVariant {
-        switch selectedHubDetail {
-        case .places:
-            return .topLeading
-        case .people:
-            return .bottomTrailing
-        case .timeline:
-            return .centerRight
-        }
+        .topLeading
     }
 
     private var locationsAmbientVariant: AppAmbientBackgroundVariant {
@@ -1223,10 +1153,6 @@ struct MapsViewNew: View, Searchable {
 
     private var filteredFavouritePlacesForQuery: [SavedPlace] {
         pageState.filteredFavouritePlaces
-    }
-
-    private var savedFolderRows: [(name: String, count: Int)] {
-        savedFolderBreakdownRows.map { (name: $0.name, count: $0.places.count) }
     }
 
     private var savedFolderBreakdownRows: [(name: String, places: [SavedPlace], favourites: Int)] {
@@ -1380,10 +1306,26 @@ struct MapsViewNew: View, Searchable {
         }
     }
 
+    private func invalidateMapsDerivedCaches() {
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.topLocations)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.recentlyVisitedPlaces)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.allLocationsRanking)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.weeklyVisitsSummary)
+    }
+
     @MainActor
-    private func refreshHubData() async {
+    private func refreshDerivedLocationData(forceRefresh: Bool = false) {
+        if forceRefresh {
+            invalidateMapsDerivedCaches()
+        }
+
         loadTopLocations()
         loadRecentlyVisited()
+    }
+
+    @MainActor
+    private func refreshHubData(forceRefresh: Bool = false) async {
+        refreshDerivedLocationData(forceRefresh: forceRefresh)
         await loadHubPeriodVisits()
     }
 
@@ -1452,20 +1394,38 @@ struct MapsViewNew: View, Searchable {
     
     @ViewBuilder
     private var folderOverlay: some View {
-        if let category = selectedCategory {
-            let filteredPlaces = getFilteredPlaces().filter { $0.category == category }
-            FolderOverlayView(
-                category: category,
-                places: filteredPlaces,
+        if let category = selectedCategory,
+           let folder = savedFolderSelection(for: category) {
+            SavedPlacesFolderPage(
                 colorScheme: colorScheme,
-                onClose: {
+                folder: folder,
+                onPlaceTap: { place in
+                    selectedPlace = place
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedCategory = nil
+                    }
+                },
+                onDismiss: {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         selectedCategory = nil
                     }
                 }
             )
             .zIndex(999)
-            .transition(.opacity)
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
+    }
+
+    private func savedFolderSelection(for category: String) -> SavedPlacesFolderSelection? {
+        savedFolderBreakdownRows.first(where: { $0.name == category }).map { folder in
+            SavedPlacesFolderSelection(
+                id: folder.name,
+                name: folder.name,
+                places: folder.places.sorted {
+                    $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+                },
+                favourites: folder.favourites
+            )
         }
     }
     
@@ -1530,6 +1490,7 @@ struct MapsViewNew: View, Searchable {
             withAnimation(.spring(response: 0.3)) {
                 selectedHubDetail = .places
                 selectedCategory = folder
+                showingFolderSidebar = false
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 externalSelectedFolder = nil
@@ -1547,14 +1508,10 @@ struct MapsViewNew: View, Searchable {
             pageRefreshCoordinator.pageBecameVisible(.maps)
             updateCurrentLocation()
             Task {
-                if pageRefreshCoordinator.shouldRevalidate(
-                    .maps,
-                    maxAge: pageRefreshCoordinator.defaultMaxAge(for: .maps)
-                ) {
-                    await refreshHubData()
-                    await MainActor.run {
-                        pageRefreshCoordinator.markValidated(.maps)
-                    }
+                guard pageRefreshCoordinator.isDirty(.maps) else { return }
+                await refreshHubData(forceRefresh: true)
+                await MainActor.run {
+                    pageRefreshCoordinator.markValidated(.maps)
                 }
             }
             if let currentLoc = locationService.currentLocation {
@@ -1576,25 +1533,20 @@ struct MapsViewNew: View, Searchable {
 
         syncPageStateInputs()
         pageRefreshCoordinator.pageBecameVisible(.maps)
+        updateCurrentLocation()
 
         Task {
-            if pageRefreshCoordinator.shouldRevalidate(
-                .maps,
-                maxAge: pageRefreshCoordinator.defaultMaxAge(for: .maps)
-            ) {
-                await refreshHubData()
-                await MainActor.run {
-                    pageRefreshCoordinator.markValidated(.maps)
-                }
+            guard pageRefreshCoordinator.isDirty(.maps) else { return }
+            await refreshHubData(forceRefresh: true)
+            await MainActor.run {
+                pageRefreshCoordinator.markValidated(.maps)
             }
         }
     }
 
     @ViewBuilder
     private var locationsTabContent: some View {
-        VStack(spacing: 14) {
-            locationsHeroCard()
-
+        LazyVStack(spacing: 14) {
             if filteredSavedPlacesForQuery.isEmpty {
                 mapsSectionCard {
                     VStack(spacing: 14) {
@@ -1617,10 +1569,12 @@ struct MapsViewNew: View, Searchable {
             } else {
                 locationsMapCutoutSection
                     .id(LocationsSectionAnchor.map.rawValue)
-
-                locationsSavedPlacesSection
-                    .id(LocationsSectionAnchor.saved.rawValue)
             }
+
+            LocationTimelineView(
+                colorScheme: colorScheme,
+                displayMode: .embedded
+            )
 
             Spacer().frame(height: 100)
         }
@@ -1745,6 +1699,37 @@ struct MapsViewNew: View, Searchable {
             .joined(separator: " ")
     }
 
+    private var movementHeadlineText: String {
+        guard hasResolvedHubPeriodVisits else {
+            return "Loading your \(hubPeriodDisplayText.lowercased()) movement"
+        }
+
+        if hubPeriodVisits.isEmpty {
+            return "No tracked movement \(hubPeriodDisplayText.lowercased())"
+        }
+
+        return "\(hubPeriodVisits.count) visit\(hubPeriodVisits.count == 1 ? "" : "s") in \(hubPeriodDisplayText.lowercased())"
+    }
+
+    private var movementSupportingText: String {
+        guard hasResolvedHubPeriodVisits else {
+            return "We are stitching together your saved-place timeline."
+        }
+
+        if hubPeriodVisits.isEmpty {
+            return "Once saved-place visits land, this section will summarize where your time actually went."
+        }
+
+        let topPlace = hubVisitedPlacesByCount.first?.place.displayName
+        let lead = topPlace.map { "Most active at \($0)." }
+        let revisit = hubRevisitedPlacesCount > 0 ? "\(hubRevisitedPlacesCount) revisited place\(hubRevisitedPlacesCount == 1 ? "" : "s")." : nil
+        let duration = hubTotalVisitMinutes > 0 ? "\(formatDuration(minutes: hubTotalVisitMinutes)) tracked in total." : nil
+
+        return [lead, revisit, duration]
+            .compactMap { $0 }
+            .joined(separator: " ")
+    }
+
     private var locationsHeroFavouritePlaces: [SavedPlace] {
         filteredFavouritePlacesForQuery
             .sorted { lhs, rhs in
@@ -1777,53 +1762,47 @@ struct MapsViewNew: View, Searchable {
 
     private func locationsHeroCard() -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("LOCATIONS")
-                        .font(FontManager.geist(size: 11, weight: .semibold))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                        .tracking(1.1)
+            Text("LOCATIONS")
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .tracking(1.1)
 
-                    Button(action: {
-                        guard hasResolvedHubPeriodVisits, !hubActivePlaces.isEmpty else { return }
-                        HapticManager.shared.selection()
-                        showActivePlacesSheet = true
-                    }) {
-                        Text(locationsHeroHeadline)
-                            .font(FontManager.geist(size: 29, weight: .semibold))
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-                            .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PlainButtonStyle())
+            Button(action: {
+                guard hasResolvedHubPeriodVisits, !hubActivePlaces.isEmpty else { return }
+                HapticManager.shared.selection()
+                showActivePlacesSheet = true
+            }) {
+                Text(locationsHeroHeadline)
+                    .font(FontManager.geist(size: 29, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
 
-                    Text(locationsHeroSupportingText)
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            Text(locationsHeroSupportingText)
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .fixedSize(horizontal: false, vertical: true)
 
-                Spacer(minLength: 8)
-
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(hubPeriodDisplayText)
-                        .font(FontManager.geist(size: 11, weight: .medium))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-
-                    Text("\(hubPeriodVisits.count)")
-                        .font(FontManager.geist(size: 28, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                    Text("visits")
-                        .font(FontManager.geist(size: 11, weight: .medium))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-
-                    Text(formatDuration(minutes: hubTotalVisitMinutes))
-                        .font(FontManager.geist(size: 18, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                        .padding(.top, 4)
-                }
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10)
+                ],
+                spacing: 10
+            ) {
+                locationsHeroSummaryMetric(
+                    title: hubPeriodDisplayText,
+                    value: "\(hubPeriodVisits.count)",
+                    detail: "Visits"
+                )
+                locationsHeroSummaryMetric(
+                    title: "Tracked",
+                    value: formatDuration(minutes: hubTotalVisitMinutes),
+                    detail: "Time"
+                )
             }
 
             if !locationsHeroFavouritePlaces.isEmpty {
@@ -1843,6 +1822,33 @@ struct MapsViewNew: View, Searchable {
             y: 6
         )
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+    }
+
+    private func locationsHeroSummaryMetric(title: String, value: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineLimit(1)
+
+            Text(value)
+                .font(FontManager.geist(size: 22, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
+            Text(detail)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.appInnerSurface(colorScheme))
+        )
     }
 
     private var locationsMapCutoutSection: some View {
@@ -1998,52 +2004,51 @@ struct MapsViewNew: View, Searchable {
 
     private var locationsSavedPlacesSection: some View {
         mapsSectionCard {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Saved places")
-                        .font(FontManager.geist(size: 18, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Saved places")
+                    .font(FontManager.geist(size: 18, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
 
-                    Spacer()
+                Text("Folders")
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .tracking(1.0)
 
-                    Button(action: {
-                        showAllLocationsSheet = true
-                    }) {
-                        Text("See all")
-                            .font(FontManager.geist(size: 13, weight: .medium))
-                            .foregroundColor(Color.appTextSecondary(colorScheme))
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
+                if savedFolderBreakdownRows.isEmpty {
+                    Text("Create folders to group the places you save here.")
+                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .padding(.vertical, 4)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(savedFolderBreakdownRows.enumerated()), id: \.element.name) { index, folder in
+                            locationsSavedFolderRow(folder)
 
-                HStack(spacing: 10) {
-                    mapsMiniMetric(title: "Folders", value: "\(savedFolderBreakdownRows.count)")
-                    mapsMiniMetric(title: "Saved", value: "\(filteredSavedPlacesForQuery.count)")
-                    mapsMiniMetric(title: "Favourites", value: "\(filteredFavouritePlacesForQuery.count)")
-                }
-
-                VStack(spacing: 0) {
-                    ForEach(Array(savedFolderBreakdownRows.prefix(6).enumerated()), id: \.element.name) { index, folder in
-                        locationsSavedFolderRow(folder)
-
-                        if index < min(savedFolderBreakdownRows.count, 6) - 1 {
-                            Divider()
-                                .overlay(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.65 : 1))
-                                .padding(.leading, 52)
+                            if index < savedFolderBreakdownRows.count - 1 {
+                                Divider()
+                                    .overlay(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.65 : 1))
+                                    .padding(.leading, 52)
+                            }
                         }
                     }
+                    .background(
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(Color.appInnerSurface(colorScheme))
+                    )
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 18)
-                        .fill(Color.appInnerSurface(colorScheme))
-                )
             }
         }
     }
 
     private func locationsSavedFolderRow(_ folder: (name: String, places: [SavedPlace], favourites: Int)) -> some View {
         Button(action: {
-            showAllLocationsSheet = true
+            HapticManager.shared.selection()
+            selectedSavedFolder = SavedPlacesFolderSelection(
+                id: folder.name,
+                name: folder.name,
+                places: folder.places.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending },
+                favourites: folder.favourites
+            )
         }) {
             HStack(spacing: 12) {
                 ZStack {
@@ -2062,7 +2067,7 @@ struct MapsViewNew: View, Searchable {
                         .foregroundColor(Color.appTextPrimary(colorScheme))
                         .lineLimit(1)
 
-                    Text(folderSubtitle(for: folder))
+                    Text(folderMeta(for: folder))
                         .font(FontManager.geist(size: 11, weight: .regular))
                         .foregroundColor(Color.appTextSecondary(colorScheme))
                         .lineLimit(1)
@@ -2070,17 +2075,9 @@ struct MapsViewNew: View, Searchable {
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("\(folder.places.count)")
-                        .font(FontManager.geist(size: 17, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                    if folder.favourites > 0 {
-                        Text("\(folder.favourites) fav")
-                            .font(FontManager.geist(size: 10, weight: .semibold))
-                            .foregroundColor(Color(red: 0.98, green: 0.64, blue: 0.41))
-                    }
-                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.8))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 13)
@@ -2088,26 +2085,19 @@ struct MapsViewNew: View, Searchable {
         .buttonStyle(PlainButtonStyle())
     }
 
-    private func folderSubtitle(for folder: (name: String, places: [SavedPlace], favourites: Int)) -> String {
-        guard !folder.places.isEmpty else {
-            return "No saved places in this folder"
+    private func folderMeta(for folder: (name: String, places: [SavedPlace], favourites: Int)) -> String {
+        let placeCount = folder.places.count
+        let placesText = "\(placeCount) place\(placeCount == 1 ? "" : "s")"
+        guard folder.favourites > 0 else {
+            return placesText
         }
-
-        let names = folder.places.prefix(2).map(\.displayName).joined(separator: ", ")
-        if folder.places.count > 2 {
-            return "\(names) +\(folder.places.count - 2) more"
-        }
-        return names
+        return "\(placesText) • \(folder.favourites) favourite\(folder.favourites == 1 ? "" : "s")"
     }
 
     private var savedOverviewCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Locations")
-                        .font(FontManager.geist(size: 28, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-
                     hubCurrentLocationSummaryView(lineLimit: 2)
                         .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(Color.appTextSecondary(colorScheme))
@@ -2119,10 +2109,6 @@ struct MapsViewNew: View, Searchable {
                     overviewIconActionPill(systemImage: "folder.badge.plus", accessibilityLabel: "Create folder") {
                         newFolderName = ""
                         showNewFolderAlert = true
-                    }
-
-                    overviewPrimaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add location") {
-                        showSearchModal = true
                     }
                 }
             }
@@ -2152,96 +2138,281 @@ struct MapsViewNew: View, Searchable {
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
     }
 
-    private var savedFoldersSection: some View {
-        mapsSectionCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    Text("Folders")
-                        .font(FontManager.geist(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        .textCase(.uppercase)
-                        .tracking(0.5)
-                    Spacer()
+    private var placesFolderSidebarContent: some View {
+        ZStack {
+            placesSidebarBackgroundColor
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
+
+                        TextField("Search", text: $folderSidebarSearchText)
+                            .textFieldStyle(.plain)
+                            .font(FontManager.geist(size: 15, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        Capsule()
+                            .fill(placesSidebarTopControlFillColor)
+                            .overlay(
+                                Capsule()
+                                    .stroke(placesSidebarTopControlBorderColor, lineWidth: 0.8)
+                            )
+                    )
+
+                    Button(action: {
+                        HapticManager.shared.buttonTap()
+                        newFolderName = ""
+                        showNewFolderAlert = true
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+                            .frame(width: 44, height: 44)
+                            .background(
+                                Circle()
+                                    .fill(placesSidebarTopControlFillColor)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(placesSidebarTopControlBorderColor, lineWidth: 0.8)
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("New folder")
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(placesSidebarBackgroundColor)
+                .frame(maxWidth: .infinity)
 
-                if savedFolderRows.isEmpty {
-                    Text("No folders match this search.")
-                        .font(FontManager.geist(size: 12, weight: .regular))
-                        .foregroundColor(hubSecondaryTextColor)
-                        .padding(.vertical, 6)
-                } else {
-                    ForEach(savedFolderRows, id: \.name) { folder in
-                        let isExpanded = selectedCategory == folder.name
-                        let folderPlaces = filteredSavedPlacesForQuery
-                            .filter { $0.category == folder.name }
-                            .sorted { $0.displayName < $1.displayName }
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if !isFolderSidebarSearching {
+                            VStack(alignment: .leading, spacing: 2) {
+                                placesSidebarSectionLabel("BROWSE")
 
-                        Button(action: {
-                            HapticManager.shared.selection()
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedCategory = isExpanded ? nil : folder.name
-                            }
-                        }) {
-                            HStack(spacing: 10) {
-                                Text(folder.name)
-                                    .font(FontManager.geist(size: 14, weight: .medium))
-                                    .foregroundColor(hubPrimaryTextColor)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text("\(folder.count)")
-                                    .font(FontManager.geist(size: 13, weight: .semibold))
-                                    .foregroundColor(hubSecondaryTextColor)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 11)
-                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 12)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-
-                        if isExpanded {
-                            VStack(spacing: 8) {
-                                if folderPlaces.isEmpty {
-                                    Text("No locations in this folder")
-                                        .font(FontManager.geist(size: 12, weight: .regular))
-                                        .foregroundColor(hubSecondaryTextColor)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 10)
-                                } else {
-                                    ForEach(folderPlaces, id: \.id) { place in
-                                        Button(action: {
-                                            selectedPlace = place
-                                        }) {
-                                            HStack(spacing: 10) {
-                                                PlaceImageView(place: place, size: 28, cornerRadius: 8)
-
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    Text(place.displayName)
-                                                        .font(FontManager.geist(size: 13, weight: .medium))
-                                                        .foregroundColor(hubPrimaryTextColor)
-                                                        .lineLimit(1)
-                                                    Text(place.address)
-                                                        .font(FontManager.geist(size: 11, weight: .regular))
-                                                        .foregroundColor(hubSecondaryTextColor)
-                                                        .lineLimit(1)
-                                                }
-
-                                                Spacer()
-                                            }
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
-                                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 10)
-                                        }
-                                        .buttonStyle(PlainButtonStyle())
+                                placesSidebarBrowseRow(
+                                    title: "All Places",
+                                    countText: "\(filteredSavedPlacesForQuery.count)",
+                                    isSelected: true
+                                ) {
+                                    HapticManager.shared.selection()
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showingFolderSidebar = false
                                     }
                                 }
                             }
-                            .padding(.top, 4)
-                            .padding(.bottom, 6)
                         }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            placesSidebarSectionLabel("FOLDERS")
+
+                            if filteredFolderSidebarRows.isEmpty {
+                                if isFolderSidebarSearching {
+                                    VStack(spacing: 8) {
+                                        Text("No folders found")
+                                            .font(FontManager.geist(size: 15, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.6))
+                                        Text("Try another search term")
+                                            .font(FontManager.geist(size: 13, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.45) : .black.opacity(0.45))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.top, 12)
+                                } else {
+                                    VStack(spacing: 12) {
+                                        Image(systemName: "folder")
+                                            .font(.system(size: 36, weight: .light))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.25) : .black.opacity(0.2))
+
+                                        Text("No folders yet")
+                                            .font(FontManager.geist(size: 15, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.5))
+
+                                        Text("Create a folder to organize your saved places.")
+                                            .font(FontManager.geist(size: 13, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                            .multilineTextAlignment(.center)
+                                            .padding(.horizontal, 32)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.top, 40)
+                                }
+                            } else {
+                                ForEach(filteredFolderSidebarRows, id: \.name) { folder in
+                                    placesSidebarBrowseRow(
+                                        title: folder.name,
+                                        countText: "\(folder.places.count)",
+                                        isSelected: false
+                                    ) {
+                                        openFolderCategory(folder.name)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer()
+                            .frame(height: 100)
                     }
+                    .padding(.vertical, 16)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(placesSidebarBackgroundColor)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.5 : 0.12), radius: 24, x: 4, y: 0)
+    }
+
+    private var placesSidebarBackgroundColor: Color {
+        colorScheme == .dark ? Color.black : .white
+    }
+
+    private var placesSidebarTopControlFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.045)
+    }
+
+    private var placesSidebarTopControlBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.05)
+    }
+
+    private var placesSidebarSectionLabelColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.42) : Color.black.opacity(0.40)
+    }
+
+    private var isFolderSidebarSearching: Bool {
+        !folderSidebarSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var filteredFolderSidebarRows: [(name: String, places: [SavedPlace], favourites: Int)] {
+        let query = folderSidebarSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return savedFolderBreakdownRows }
+        return savedFolderBreakdownRows.filter { $0.name.lowercased().contains(query) }
+    }
+
+    private func placesSidebarSectionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(FontManager.geist(size: 11, weight: .medium))
+            .foregroundColor(placesSidebarSectionLabelColor)
+            .textCase(.uppercase)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 6)
+    }
+
+    private func placesSidebarBrowseRow(
+        title: String,
+        countText: String?,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Text(title)
+                    .font(FontManager.geist(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
+
+                Spacer()
+
+                if let countText {
+                    Text(countText)
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(
+                        isSelected
+                            ? (colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.055))
+                            : Color.clear
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func placesFolderSidebarButton(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.appChip(colorScheme))
+                        .frame(width: 36, height: 36)
+
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(FontManager.geist(size: 17, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .lineLimit(1)
+
+                    Text(subtitle)
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 58)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var floatingActionMode: MapsFloatingActionMode {
+        .places
+    }
+
+    private func syncFloatingActionState() {
+        floatingActionCoordinator.updateMaps(
+            isVisible: true,
+            mode: floatingActionMode
+        )
+    }
+
+    private func performFloatingMapsAddAction() {
+        HapticManager.shared.selection()
+        showSearchModal = true
+    }
+
+    private func toggleFolderSidebar() {
+        HapticManager.shared.selection()
+        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
+            showingFolderSidebar.toggle()
+        }
+    }
+
+    private func openFolderCategory(_ category: String) {
+        HapticManager.shared.selection()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selectedCategory = category
+            showingFolderSidebar = false
+            isLocationSearchActive = false
+            isSearchFocused = false
         }
     }
 
@@ -4042,22 +4213,34 @@ struct MiniMapAnnotationView: View {
     }
 }
 
-struct FolderBreakdownSheet: View {
+private struct SavedPlacesFolderSelection: Identifiable {
+    let id: String
+    let name: String
+    let places: [SavedPlace]
+    let favourites: Int
+}
+
+private struct SavedPlacesFolderSheet: View {
     let colorScheme: ColorScheme
-    let folders: [(name: String, places: [SavedPlace], favourites: Int)]
+    let folder: SavedPlacesFolderSelection
     let onPlaceTap: (SavedPlace) -> Void
     let onDismiss: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var expandedFolders: Set<String> = []
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 0) {
-                HStack {
-                    Text("Folder breakdown")
-                        .font(FontManager.geist(size: 16, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(folder.name)
+                            .font(FontManager.geist(size: 16, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                        Text(folderMetaText)
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                    }
 
                     Spacer()
 
@@ -4072,30 +4255,74 @@ struct FolderBreakdownSheet: View {
                 .padding(.vertical, 16)
                 .background(Color.appSurface(colorScheme))
 
-                if folders.isEmpty {
+                if folder.places.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "folder")
-                            .font(FontManager.geist(size: 42, weight: .regular))
+                            .font(FontManager.geist(size: 40, weight: .regular))
                             .foregroundColor(Color.appTextSecondary(colorScheme))
 
-                        Text("No folders yet")
+                        Text("No saved places in this folder")
                             .font(FontManager.geist(size: 14, weight: .medium))
                             .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                        Text("Your saved places will be grouped here once folders are available.")
-                            .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(Color.appTextSecondary(colorScheme))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 40)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
-                        VStack(spacing: 12) {
-                            ForEach(folders, id: \.name) { folder in
-                                folderSection(folder)
+                        VStack(spacing: 0) {
+                            ForEach(Array(folder.places.enumerated()), id: \.element.id) { index, place in
+                                Button(action: {
+                                    onPlaceTap(place)
+                                    close()
+                                }) {
+                                    HStack(spacing: 12) {
+                                        PlaceImageView(place: place, size: 38, cornerRadius: 12)
+
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            HStack(spacing: 6) {
+                                                Text(place.displayName)
+                                                    .font(FontManager.geist(size: 14, weight: .medium))
+                                                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                                                    .lineLimit(1)
+
+                                                if place.isFavourite {
+                                                    Image(systemName: "bookmark.fill")
+                                                        .font(.system(size: 11, weight: .semibold))
+                                                        .foregroundColor(Color(red: 0.98, green: 0.64, blue: 0.41))
+                                                }
+                                            }
+
+                                            Text(place.address)
+                                                .font(FontManager.geist(size: 11, weight: .regular))
+                                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                                .lineLimit(1)
+                                        }
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.8))
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 14)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+
+                                if index < folder.places.count - 1 {
+                                    Divider()
+                                        .overlay(Color.appBorder(colorScheme))
+                                        .padding(.leading, 66)
+                                }
                             }
                         }
+                        .background(
+                            RoundedRectangle(cornerRadius: 18)
+                                .fill(Color.appSectionCard(colorScheme))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+                        )
                         .padding(.horizontal, 16)
                         .padding(.vertical, 16)
                     }
@@ -4104,122 +4331,9 @@ struct FolderBreakdownSheet: View {
             .background(Color.appBackground(colorScheme))
             .navigationBarHidden(true)
         }
-        .onAppear {
-            expandedFolders = Set(folders.map(\.name))
-        }
     }
 
-    private func folderSection(_ folder: (name: String, places: [SavedPlace], favourites: Int)) -> some View {
-        let isExpanded = expandedFolders.contains(folder.name)
-
-        return VStack(spacing: 0) {
-            Button(action: {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    if isExpanded {
-                        expandedFolders.remove(folder.name)
-                    } else {
-                        expandedFolders.insert(folder.name)
-                    }
-                }
-            }) {
-                HStack(spacing: 12) {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                        .frame(width: 34, height: 34)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color.appChip(colorScheme))
-                        )
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(folder.name)
-                            .font(FontManager.geist(size: 15, weight: .semibold))
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                        Text(folderMeta(for: folder))
-                            .font(FontManager.geist(size: 11, weight: .regular))
-                            .foregroundColor(Color.appTextSecondary(colorScheme))
-                    }
-
-                    Spacer()
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 14)
-            }
-            .buttonStyle(PlainButtonStyle())
-
-            if isExpanded {
-                VStack(spacing: 0) {
-                    if folder.places.isEmpty {
-                        Text("No saved places in this folder")
-                            .font(FontManager.geist(size: 12, weight: .regular))
-                            .foregroundColor(Color.appTextSecondary(colorScheme))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                    } else {
-                        ForEach(Array(folder.places.enumerated()), id: \.element.id) { index, place in
-                            Button(action: {
-                                onPlaceTap(place)
-                                close()
-                            }) {
-                                HStack(spacing: 12) {
-                                    PlaceImageView(place: place, size: 36, cornerRadius: 10)
-
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        HStack(spacing: 6) {
-                                            Text(place.displayName)
-                                                .font(FontManager.geist(size: 14, weight: .medium))
-                                                .foregroundColor(Color.appTextPrimary(colorScheme))
-                                                .lineLimit(1)
-
-                                            if place.isFavourite {
-                                                Image(systemName: "bookmark.fill")
-                                                    .font(.system(size: 11, weight: .semibold))
-                                                    .foregroundColor(Color(red: 0.98, green: 0.64, blue: 0.41))
-                                            }
-                                        }
-
-                                        Text(place.address)
-                                            .font(FontManager.geist(size: 11, weight: .regular))
-                                            .foregroundColor(Color.appTextSecondary(colorScheme))
-                                            .lineLimit(1)
-                                    }
-
-                                    Spacer()
-                                }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-
-                            if index < folder.places.count - 1 {
-                                Divider()
-                                    .overlay(Color.appBorder(colorScheme))
-                                    .padding(.leading, 62)
-                            }
-                        }
-                    }
-                }
-                .background(Color.appInnerSurface(colorScheme))
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color.appSectionCard(colorScheme))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(Color.appBorder(colorScheme), lineWidth: 1)
-        )
-    }
-
-    private func folderMeta(for folder: (name: String, places: [SavedPlace], favourites: Int)) -> String {
+    private var folderMetaText: String {
         let placeCount = folder.places.count
         let placesText = "\(placeCount) place\(placeCount == 1 ? "" : "s")"
         guard folder.favourites > 0 else { return placesText }
@@ -4229,6 +4343,220 @@ struct FolderBreakdownSheet: View {
     private func close() {
         onDismiss()
         dismiss()
+    }
+}
+
+private struct SavedPlacesFolderPage: View {
+    let colorScheme: ColorScheme
+    let folder: SavedPlacesFolderSelection
+    let onPlaceTap: (SavedPlace) -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        ZStack {
+            AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .topLeading)
+
+            VStack(spacing: 0) {
+                header
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 16) {
+                        summaryCard
+
+                        if folder.places.isEmpty {
+                            emptyStateCard
+                        } else {
+                            placesCard
+                        }
+
+                        Spacer(minLength: 100)
+                    }
+                    .padding(.top, 14)
+                    .padding(.bottom, 20)
+                }
+                .selinePrimaryPageScroll()
+            }
+        }
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    private var header: some View {
+        HStack {
+            Button(action: onDismiss) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle()
+                            .fill(Color.appChip(colorScheme))
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+
+            Text(folder.name)
+                .font(FontManager.geist(size: 16, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            Color.clear
+                .frame(width: 36, height: 36)
+        }
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+        .padding(.top, 6)
+        .padding(.bottom, 12)
+        .background(Color.appBackground(colorScheme).opacity(0.94))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.12))
+                .frame(height: 0.5)
+        }
+    }
+
+    private var summaryCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("FOLDER")
+                .font(FontManager.geist(size: 11, weight: .semibold))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .tracking(1.1)
+
+            Text(folder.name)
+                .font(FontManager.geist(size: 28, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+                .lineLimit(2)
+
+            Text(folderMetaText)
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+
+            HStack(spacing: 10) {
+                folderMetric(title: "Places", value: "\(folder.places.count)")
+                folderMetric(title: "Favorites", value: "\(folder.favourites)")
+            }
+        }
+        .padding(20)
+        .background(
+            AppAmbientCardBackground(
+                colorScheme: colorScheme,
+                variant: .topLeading,
+                cornerRadius: 24,
+                highlightStrength: 0.84
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+        )
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+    }
+
+    private var emptyStateCard: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "folder")
+                .font(FontManager.geist(size: 40, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+
+            Text("No saved places in this folder")
+                .font(FontManager.geist(size: 14, weight: .medium))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.appSectionCard(colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+    }
+
+    private var placesCard: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(folder.places.enumerated()), id: \.element.id) { index, place in
+                Button(action: { onPlaceTap(place) }) {
+                    HStack(spacing: 12) {
+                        PlaceImageView(place: place, size: 42, cornerRadius: 12)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Text(place.displayName)
+                                    .font(FontManager.geist(size: 14, weight: .medium))
+                                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                                    .lineLimit(1)
+
+                                if place.isFavourite {
+                                    Image(systemName: "bookmark.fill")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(Color.homeGlassAccent)
+                                }
+                            }
+
+                            Text(place.address)
+                                .font(FontManager.geist(size: 11, weight: .regular))
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.8))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(.plain)
+
+                if index < folder.places.count - 1 {
+                    Divider()
+                        .overlay(Color.appBorder(colorScheme))
+                        .padding(.leading, 70)
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.appSectionCard(colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+    }
+
+    private var folderMetaText: String {
+        let placeCount = folder.places.count
+        let placesText = "\(placeCount) place\(placeCount == 1 ? "" : "s")"
+        guard folder.favourites > 0 else { return placesText }
+        return "\(placesText) • \(folder.favourites) favourite\(folder.favourites == 1 ? "" : "s")"
+    }
+
+    private func folderMetric(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(FontManager.geist(size: 11, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+
+            Text(value)
+                .font(FontManager.geist(size: 20, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.appInnerSurface(colorScheme))
+        )
     }
 }
 

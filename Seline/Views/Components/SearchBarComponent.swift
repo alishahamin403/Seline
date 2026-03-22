@@ -3,10 +3,12 @@ import SwiftUI
 struct SearchBarComponent: View {
     @ObservedObject var searchService = SearchService.shared
     @Environment(\.colorScheme) var colorScheme
-    @Binding var selectedTab: TabSelection
+    @Binding var selectedTab: PrimaryTab
+    var onOpenPlanInbox: (() -> Void)?
 
-    init(selectedTab: Binding<TabSelection>) {
+    init(selectedTab: Binding<PrimaryTab>, onOpenPlanInbox: (() -> Void)? = nil) {
         self._selectedTab = selectedTab
+        self.onOpenPlanInbox = onOpenPlanInbox
     }
 
     var body: some View {
@@ -48,7 +50,8 @@ struct SearchBarComponent: View {
                 SearchResultsView(
                     results: searchService.searchResults,
                     isSearching: searchService.isSearching,
-                    selectedTab: $selectedTab
+                    selectedTab: $selectedTab,
+                    onOpenPlanInbox: onOpenPlanInbox
                 )
             }
         }

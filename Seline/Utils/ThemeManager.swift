@@ -49,6 +49,11 @@ class ThemeManager: ObservableObject {
         didSet {
             selectedThemeRawValue = selectedTheme.rawValue
             updateEffectiveColorScheme()
+            if selectedTheme == .auto {
+                scheduleNextAutoThemeBoundaryCheck()
+            } else {
+                cancelAutoThemeBoundaryCheck()
+            }
         }
     }
 
@@ -57,11 +62,12 @@ class ThemeManager: ObservableObject {
         didSet {
             if selectedTheme == .auto {
                 updateEffectiveColorScheme()
+                scheduleNextAutoThemeBoundaryCheck()
             }
         }
     }
 
-    private var timer: Timer?
+    private var autoThemeBoundaryTimer: Timer?
     private var systemThemeObserver: NSObjectProtocol?
 
     private init() {
@@ -132,7 +138,7 @@ class ThemeManager: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.detectSystemTheme() // Re-detect system theme when app becomes active
                 self?.updateEffectiveColorScheme()
-                self?.startTimer()
+                self?.scheduleNextAutoThemeBoundaryCheck()
             }
         }
 
@@ -143,7 +149,7 @@ class ThemeManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.stopTimer()
+                self?.cancelAutoThemeBoundaryCheck()
             }
         }
 
@@ -156,24 +162,45 @@ class ThemeManager: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.detectSystemTheme() // Re-detect system theme on time changes
                 self?.updateEffectiveColorScheme()
+                self?.scheduleNextAutoThemeBoundaryCheck()
             }
         }
 
-        // Start timer for periodic checks
-        startTimer()
+        scheduleNextAutoThemeBoundaryCheck()
     }
 
-    private func startTimer() {
-        stopTimer()
-        // Check every minute for theme changes
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.updateEffectiveColorScheme()
+    private func scheduleNextAutoThemeBoundaryCheck() {
+        cancelAutoThemeBoundaryCheck()
+
+        guard selectedTheme == .auto, systemColorScheme == nil else { return }
+
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfToday = calendar.startOfDay(for: now)
+        let sixAM = calendar.date(byAdding: .hour, value: 6, to: startOfToday) ?? now
+        let sixPM = calendar.date(byAdding: .hour, value: 18, to: startOfToday) ?? now
+
+        let nextBoundary: Date
+        if now < sixAM {
+            nextBoundary = sixAM
+        } else if now < sixPM {
+            nextBoundary = sixPM
+        } else {
+            nextBoundary = calendar.date(byAdding: .day, value: 1, to: sixAM) ?? sixAM
+        }
+
+        let interval = max(1, nextBoundary.timeIntervalSince(now))
+        autoThemeBoundaryTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateEffectiveColorScheme()
+                self?.scheduleNextAutoThemeBoundaryCheck()
+            }
         }
     }
 
-    private func stopTimer() {
-        timer?.invalidate()
-        timer = nil
+    private func cancelAutoThemeBoundaryCheck() {
+        autoThemeBoundaryTimer?.invalidate()
+        autoThemeBoundaryTimer = nil
     }
 
     // Observe system color scheme changes (from widget or system settings)
@@ -227,7 +254,8 @@ class ThemeManager: ObservableObject {
     }
 
     deinit {
-        timer?.invalidate()
+        autoThemeBoundaryTimer?.invalidate()
+        autoThemeBoundaryTimer = nil
         if let observer = systemThemeObserver {
             NotificationCenter.default.removeObserver(observer)
         }

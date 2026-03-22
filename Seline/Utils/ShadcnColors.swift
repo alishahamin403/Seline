@@ -103,6 +103,14 @@ extension Color {
         colorScheme == .dark ? appBorder(colorScheme) : Color.black.opacity(0.035)
     }
 
+    static func searchResultsSurface(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? wsDarkSectionCard : .white
+    }
+
+    static func searchResultsRowSurface(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? wsDarkInnerSurface : Color(red: 0.965, green: 0.969, blue: 0.976)
+    }
+
     // MARK: - Email Glass Tokens
     static let emailGlassAccent = Color(red: 0.94, green: 0.62, blue: 0.40)
 
@@ -305,6 +313,42 @@ extension View {
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
+            )
+    }
+
+    func searchResultsCardStyle(
+        colorScheme: ColorScheme,
+        cornerRadius: CGFloat = 22
+    ) -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.searchResultsSurface(colorScheme))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+            )
+            .shadow(
+                color: colorScheme == .dark ? .black.opacity(0.36) : Color.black.opacity(0.08),
+                radius: colorScheme == .dark ? 16 : 12,
+                x: 0,
+                y: colorScheme == .dark ? 8 : 6
+            )
+    }
+
+    func searchResultsRowStyle(
+        colorScheme: ColorScheme,
+        cornerRadius: CGFloat = 14
+    ) -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.searchResultsRowSurface(colorScheme))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.appBorder(colorScheme).opacity(colorScheme == .dark ? 0.8 : 1), lineWidth: 1)
             )
     }
 

@@ -1245,10 +1245,9 @@ class OpenAIService: ObservableObject {
         return try await makeOpenAIRequest(url: url, requestBody: requestBody)
     }
 
-    // MARK: - Simplified Chat Methods (for SelineChat)
+    // MARK: - Simplified Chat Methods
 
-    /// Simple chat completion with a system prompt and messages
-    /// Used by SelineChat for direct LLM interactions
+    /// Simple chat completion with a system prompt and messages.
     func simpleChatCompletion(
         systemPrompt: String,
         messages: [[String: String]]
@@ -1268,7 +1267,7 @@ class OpenAIService: ObservableObject {
         return try await makeOpenAIRequest(url: url, requestBody: requestBody)
     }
 
-    /// Simple streaming chat completion for SelineChat
+    /// Simple streaming chat completion helper.
     func simpleChatCompletionStreaming(
         systemPrompt: String,
         messages: [[String: String]],

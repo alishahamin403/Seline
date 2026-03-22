@@ -15,6 +15,7 @@ struct EmailListByDay: View {
 
     @State private var expandedSections: Set<Date> = []
     @State private var isLoadingMore = false
+    @State private var lastPaginationTriggerSectionID: String?
     @Environment(\.colorScheme) var colorScheme
 
     init(
@@ -80,8 +81,19 @@ struct EmailListByDay: View {
             .padding(.top, 10)
             .padding(.bottom, 80) // Extra padding for compose button
         }
+        .selinePrimaryPageScroll()
         .refreshable {
             await onRefresh()
+        }
+        .onChange(of: daySections.count) { _ in
+            if !isLoadingMore {
+                lastPaginationTriggerSectionID = nil
+            }
+        }
+        .onChange(of: hasMoreEmails) { hasMore in
+            if !hasMore {
+                lastPaginationTriggerSectionID = nil
+            }
         }
     }
     
@@ -96,7 +108,7 @@ struct EmailListByDay: View {
                         let startOfDay = calendar.startOfDay(for: section.date)
                         return expandedSections.contains(startOfDay)
                     },
-                    set: { newValue in
+                    set: { (newValue: Bool) in
                         let calendar = Calendar.current
                         let startOfDay = calendar.startOfDay(for: section.date)
                         if newValue {
@@ -118,8 +130,13 @@ struct EmailListByDay: View {
                     onMarkAsUnread: onMarkAsUnread
                 )
                 .onAppear {
-                    // Trigger load more when user scrolls to last few sections
-                    if hasMoreEmails && !isLoadingMore && index >= daySections.count - 2 {
+                    let shouldTriggerPagination = hasMoreEmails
+                        && !isLoadingMore
+                        && index >= daySections.count - 2
+                        && lastPaginationTriggerSectionID != section.id
+
+                    if shouldTriggerPagination {
+                        lastPaginationTriggerSectionID = section.id
                         isLoadingMore = true
                         Task {
                             await onLoadMore()

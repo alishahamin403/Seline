@@ -752,7 +752,7 @@ class TaskManager: ObservableObject {
 
         invalidateAllCaches()
         saveTasks()
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "task_completion_toggled")
 
         // Notify observers of change
         objectWillChange.send()
@@ -788,7 +788,7 @@ class TaskManager: ObservableObject {
         self.invalidateAllCaches()
         saveTasks()
         self.objectWillChange.send()
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "task_deleted")
 
         // Persist remotely in background. Restore if remote deletion fails.
         Task {
@@ -803,7 +803,7 @@ class TaskManager: ObservableObject {
                     self.invalidateAllCaches()
                     saveTasks()
                     self.objectWillChange.send()
-                    WidgetCenter.shared.reloadAllTimelines()
+                    WidgetInvalidationCoordinator.shared.requestReload(reason: "task_delete_restore")
                     print("⚠️ Restored task locally because Supabase deletion failed")
                 }
             }
@@ -890,7 +890,7 @@ class TaskManager: ObservableObject {
 
         invalidateAllCaches()
         saveTasks()
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "task_edited")
 
         // Notify observers of change
         objectWillChange.send()
@@ -1056,7 +1056,7 @@ class TaskManager: ObservableObject {
         saveTasks()
         
         // Immediately update widgets to reflect changes
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "task_updated")
 
         // Cancel old reminder and schedule new one if needed
         NotificationService.shared.cancelTaskReminder(taskId: finalTask.id)
@@ -1231,7 +1231,7 @@ class TaskManager: ObservableObject {
 
         invalidateAllCaches()
         saveTasks()
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "recurring_override_saved")
         objectWillChange.send()
 
         Task {
@@ -1298,7 +1298,7 @@ class TaskManager: ObservableObject {
         // Save changes locally
         invalidateAllCaches()
         saveTasks()
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "recurring_series_updated")
 
         // Notify observers of change
         objectWillChange.send()
@@ -1470,100 +1470,32 @@ class TaskManager: ObservableObject {
     }
 
     func getTasksForDate(_ date: Date) -> [TaskItem] {
-        // OPTIMIZATION: Check cache first
         let calendar = Calendar.current
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        dateFormatter.timeZone = calendar.timeZone // CRITICAL: Match calendar timezone to ensure consistent cache keys
-
-        // TEMPORARILY DISABLED CACHE TO FIX SORTING ISSUE
-        // if let cached = dateTaskCache[dateKey] {
-        //     return cached
-        // }
-
         let targetDate = calendar.startOfDay(for: date)
+        let dateKey = allTasksDateCacheKey(for: targetDate, calendar: calendar)
+
+        if let cached = dateTaskCache[dateKey] {
+            return cached
+        }
 
         // Get the weekday from the date
-        let weekdayComponent = calendar.component(.weekday, from: date)
+        let weekdayComponent = calendar.component(.weekday, from: targetDate)
         guard let weekday = weekdayFromCalendarComponent(weekdayComponent) else {
             return []
         }
 
-        // Get all tasks that should appear on this specific date
-        let allTasks = getFlattenedTasks()
-        let recurringTasks = allTasks.filter { $0.isRecurring }
-
-        if !recurringTasks.isEmpty {
+        let filteredTasks = getFlattenedTasks().filter { task in
+            taskAppearsOnDate(
+                task,
+                date: targetDate,
+                calendar: calendar,
+                fallbackWeekday: weekday,
+                includeLegacyWeekdayTasks: true
+            )
         }
 
-        let filteredTasks = allTasks.filter { task in
-            // First filter out deleted tasks
-            guard !task.isDeleted else { return false }
-
-            // For recurring tasks, use the recurring logic
-            if task.isRecurring {
-                let shouldAppear = shouldRecurringTaskAppearOn(task: task, date: targetDate)
-                if shouldAppear {
-                }
-                return shouldAppear
-            } else {
-                // For non-recurring tasks, check weekday match
-                if task.weekday == weekday {
-                    if let taskTargetDate = task.targetDate {
-                        let taskStartDate = calendar.startOfDay(for: taskTargetDate)
-                        
-                        // Check if this is a multi-day event
-                        if let endTime = task.endTime {
-                            let taskEndDate = calendar.startOfDay(for: endTime)
-                            
-                            // For multi-day events, check if requested date falls within the range
-                            if taskEndDate > taskStartDate {
-                                // Multi-day event: show on all days from start to end (inclusive)
-                                return targetDate >= taskStartDate && targetDate <= taskEndDate
-                            } else {
-                                // Single-day event: only show on the start date
-                                return calendar.isDate(taskTargetDate, inSameDayAs: targetDate)
-                            }
-                        } else {
-                            // No end time: single-day event, only show on start date
-                            return calendar.isDate(taskTargetDate, inSameDayAs: targetDate)
-                        }
-                    } else {
-                        // For tasks without target dates (legacy tasks), check if the weekday matches
-                        // Get the weekday of the target date
-                        let targetWeekdayComponent = calendar.component(.weekday, from: targetDate)
-                        guard let targetWeekday = weekdayFromCalendarComponent(targetWeekdayComponent) else {
-                            return false
-                        }
-                        // Task appears if its weekday matches the target date's weekday
-                        return task.weekday == targetWeekday
-                    }
-                }
-                return false
-            }
-        }
-
-        // Removed repetitive logging - this was printing hundreds of times per app session
-        // if !recurringTasks.isEmpty {
-        //     print("📋 Returning \(filteredTasks.count) tasks for \(weekday.displayName)")
-        // }
-
-        let sortedTasks = filteredTasks.sorted { task1, task2 in
-            // Sort by scheduled time if available, otherwise by creation date
-            if let time1 = task1.scheduledTime, let time2 = task2.scheduledTime {
-                return time1 < time2
-            } else if task1.scheduledTime != nil {
-                return true
-            } else if task2.scheduledTime != nil {
-                return false
-            } else {
-                return task1.createdAt < task2.createdAt
-            }
-        }
-
-        // OPTIMIZATION: Cache the result for this date
-        // TEMPORARILY DISABLED TO FIX SORTING ISSUE
-        // dateTaskCache[dateKey] = sortedTasks
+        let sortedTasks = sortedTasksByScheduledTime(filteredTasks)
+        dateTaskCache[dateKey] = sortedTasks
         return sortedTasks
     }
 
@@ -1609,48 +1541,7 @@ class TaskManager: ObservableObject {
     }
 
     func getTasksForToday() -> [TaskItem] {
-        let calendar = Calendar.current
-        let today = Date()
-
-        // Get all tasks that should appear today (including recurring tasks)
-        let allTasks = getFlattenedTasks()
-
-        return allTasks.filter { task in
-            // First filter out deleted tasks
-            guard !task.isDeleted else { return false }
-
-            // For recurring tasks, use the recurring logic
-            if task.isRecurring {
-                return shouldRecurringTaskAppearOn(task: task, date: today)
-            } else {
-                // For non-recurring tasks, use the original logic
-                let todayWeekdayComponent = calendar.component(.weekday, from: today)
-                guard let todayWeekday = weekdayFromCalendarComponent(todayWeekdayComponent),
-                      task.weekday == todayWeekday else {
-                    return false
-                }
-
-                if let targetDate = task.targetDate {
-                    // For tasks with specific target dates, check if they match today
-                    return calendar.isDate(targetDate, inSameDayAs: today)
-                } else {
-                    // For tasks without target dates (legacy tasks), check if they belong to today's week
-                    let currentWeekDate = todayWeekday.dateForCurrentWeek()
-                    return calendar.isDate(currentWeekDate, inSameDayAs: today)
-                }
-            }
-        }.sorted { task1, task2 in
-            // Sort by scheduled time if available, otherwise by creation date
-            if let time1 = task1.scheduledTime, let time2 = task2.scheduledTime {
-                return time1 < time2
-            } else if task1.scheduledTime != nil {
-                return true
-            } else if task2.scheduledTime != nil {
-                return false
-            } else {
-                return task1.createdAt < task2.createdAt
-            }
-        }
+        getTasksForDate(Date())
     }
 
     func getCompletedTasks(for date: Date) -> [TaskItem] {
@@ -1683,7 +1574,6 @@ class TaskManager: ObservableObject {
 
     func getAllTasks(for date: Date) -> [TaskItem] {
         let calendar = Calendar.current
-        let allTasks = getFlattenedTasks()
         let requestedDate = calendar.startOfDay(for: date)
         let dateKey = allTasksDateCacheKey(for: requestedDate, calendar: calendar)
 
@@ -1691,46 +1581,18 @@ class TaskManager: ObservableObject {
             return cached
         }
 
-        let filtered = allTasks.filter { task in
-            guard !task.isDeleted else { return false }
-
-            // Check if task should appear on this date
-            let shouldAppear: Bool
-            if task.isRecurring {
-                shouldAppear = shouldRecurringTaskAppearOn(task: task, date: date)
-            } else {
-                // For regular tasks, check target date if available, otherwise use weekday matching
-                if let targetDate = task.targetDate {
-                    let taskStartDate = calendar.startOfDay(for: targetDate)
-                    
-                    // Check if this is a multi-day event
-                    if let endTime = task.endTime {
-                        let taskEndDate = calendar.startOfDay(for: endTime)
-                        
-                        // For multi-day events, check if requested date falls within the range
-                        if taskEndDate > taskStartDate {
-                            // Multi-day event: show on all days from start to end (inclusive)
-                            shouldAppear = requestedDate >= taskStartDate && requestedDate <= taskEndDate
-                        } else {
-                            // Single-day event: only show on the start date
-                            shouldAppear = calendar.isDate(targetDate, inSameDayAs: date)
-                        }
-                    } else {
-                        // No end time: single-day event, only show on start date
-                        shouldAppear = calendar.isDate(targetDate, inSameDayAs: date)
-                    }
-                } else {
-                    // For tasks without target dates, don't show them in timeline view
-                    // They need an explicit targetDate to appear on specific dates
-                    shouldAppear = false
-                }
-            }
-
-            return shouldAppear
+        let filtered = getFlattenedTasks().filter { task in
+            taskAppearsOnDate(
+                task,
+                date: requestedDate,
+                calendar: calendar,
+                fallbackWeekday: nil,
+                includeLegacyWeekdayTasks: false
+            )
         }.sorted { task1, task2 in
             // Check completion status for this specific date
-            let isCompleted1 = task1.isCompletedOn(date: date)
-            let isCompleted2 = task2.isCompletedOn(date: date)
+            let isCompleted1 = task1.isCompletedOn(date: requestedDate)
+            let isCompleted2 = task2.isCompletedOn(date: requestedDate)
 
             // Sort completed tasks first
             if isCompleted1 != isCompleted2 {
@@ -1748,6 +1610,53 @@ class TaskManager: ObservableObject {
     private func allTasksDateCacheKey(for date: Date, calendar: Calendar) -> String {
         Self.dayCacheKeyFormatter.timeZone = calendar.timeZone
         return Self.dayCacheKeyFormatter.string(from: date)
+    }
+
+    private func taskAppearsOnDate(
+        _ task: TaskItem,
+        date: Date,
+        calendar: Calendar,
+        fallbackWeekday: WeekDay?,
+        includeLegacyWeekdayTasks: Bool
+    ) -> Bool {
+        guard !task.isDeleted else { return false }
+
+        if task.isRecurring {
+            return shouldRecurringTaskAppearOn(task: task, date: date)
+        }
+
+        if let targetDate = task.targetDate {
+            let taskStartDate = calendar.startOfDay(for: targetDate)
+
+            if let endTime = task.endTime {
+                let taskEndDate = calendar.startOfDay(for: endTime)
+                if taskEndDate > taskStartDate {
+                    return date >= taskStartDate && date <= taskEndDate
+                }
+            }
+
+            return calendar.isDate(targetDate, inSameDayAs: date)
+        }
+
+        guard includeLegacyWeekdayTasks, let fallbackWeekday else {
+            return false
+        }
+
+        return task.weekday == fallbackWeekday
+    }
+
+    private func sortedTasksByScheduledTime(_ tasks: [TaskItem]) -> [TaskItem] {
+        tasks.sorted { task1, task2 in
+            if let time1 = task1.scheduledTime, let time2 = task2.scheduledTime {
+                return time1 < time2
+            } else if task1.scheduledTime != nil {
+                return true
+            } else if task2.scheduledTime != nil {
+                return false
+            } else {
+                return task1.createdAt < task2.createdAt
+            }
+        }
     }
 
     private func shouldRecurringTaskAppearOn(task: TaskItem, date: Date) -> Bool {
@@ -2037,7 +1946,7 @@ class TaskManager: ObservableObject {
         invalidateAllCaches()
         saveTasks()
         self.objectWillChange.send()
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetInvalidationCoordinator.shared.requestReload(reason: "recurring_series_deleted")
 
         // Persist remote deletions in background. Restore snapshot if any deletion fails.
         Task {
@@ -2055,7 +1964,7 @@ class TaskManager: ObservableObject {
                     self.invalidateAllCaches()
                     saveTasks()
                     self.objectWillChange.send()
-                    WidgetCenter.shared.reloadAllTimelines()
+                    WidgetInvalidationCoordinator.shared.requestReload(reason: "recurring_series_restore")
                     print("❌ Some recurring deletions failed in Supabase, restored local tasks")
                 }
             }

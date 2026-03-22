@@ -32,6 +32,13 @@ struct UnifiedNoteEditor: UIViewRepresentable {
     private let h3Font = UIFont.systemFont(ofSize: 16, weight: .bold)
     private let boldFont = UIFont.systemFont(ofSize: 15, weight: .bold)
     private let italicFont = UIFont.italicSystemFont(ofSize: 15)
+    private let boldItalicFont: UIFont = {
+        let baseFont = UIFont.systemFont(ofSize: 15, weight: .regular)
+        if let descriptor = baseFont.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
+            return UIFont(descriptor: descriptor, size: 15)
+        }
+        return UIFont.boldSystemFont(ofSize: 15)
+    }()
     
     func makeUIView(context: Context) -> MarkdownTextView {
         let textView = MarkdownTextView()
@@ -562,6 +569,98 @@ struct UnifiedNoteEditor: UIViewRepresentable {
         func updatePlaceholder(textView: UITextView) {
             // Placeholder removed
         }
+
+        private func hideMarkdownSyntax(
+            in attributedString: NSMutableAttributedString,
+            ranges: [NSRange]
+        ) {
+            for range in ranges where range.location != NSNotFound && range.length > 0 {
+                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
+                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: range)
+            }
+        }
+
+        private func overlapsProcessedRanges(_ range: NSRange, processedRanges: [NSRange]) -> Bool {
+            processedRanges.contains { NSIntersectionRange($0, range).length > 0 }
+        }
+
+        private func applyInlineMarkdownFormatting(
+            to attributedString: NSMutableAttributedString,
+            text: String,
+            fullRange: NSRange
+        ) {
+            var processedEmphasisRanges: [NSRange] = []
+
+            let boldItalicRegex = try? NSRegularExpression(
+                pattern: #"(?<!\*)(\*\*\*)([^*\n]+?)(\*\*\*)(?!\*)"#,
+                options: []
+            )
+            boldItalicRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
+                guard let match = match else { return }
+                let fullMatchRange = match.range(at: 0)
+                guard !self.overlapsProcessedRanges(fullMatchRange, processedRanges: processedEmphasisRanges) else { return }
+
+                processedEmphasisRanges.append(fullMatchRange)
+                self.hideMarkdownSyntax(
+                    in: attributedString,
+                    ranges: [match.range(at: 1), match.range(at: 3)]
+                )
+                attributedString.addAttribute(.font, value: self.parent.boldItalicFont, range: match.range(at: 2))
+            }
+
+            let boldRegex = try? NSRegularExpression(
+                pattern: #"(?<!\*)(\*\*)(?!\*)([^*\n]+?)(?<!\*)(\*\*)(?!\*)"#,
+                options: []
+            )
+            boldRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
+                guard let match = match else { return }
+                let fullMatchRange = match.range(at: 0)
+                guard !self.overlapsProcessedRanges(fullMatchRange, processedRanges: processedEmphasisRanges) else { return }
+
+                processedEmphasisRanges.append(fullMatchRange)
+                self.hideMarkdownSyntax(
+                    in: attributedString,
+                    ranges: [match.range(at: 1), match.range(at: 3)]
+                )
+                attributedString.addAttribute(.font, value: self.parent.boldFont, range: match.range(at: 2))
+            }
+
+            let italicRegex = try? NSRegularExpression(
+                pattern: #"(?<!\*)(\*)([^*\n]+?)(\*)(?!\*)"#,
+                options: []
+            )
+            italicRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
+                guard let match = match else { return }
+                let fullMatchRange = match.range(at: 0)
+                guard !self.overlapsProcessedRanges(fullMatchRange, processedRanges: processedEmphasisRanges) else { return }
+
+                processedEmphasisRanges.append(fullMatchRange)
+                self.hideMarkdownSyntax(
+                    in: attributedString,
+                    ranges: [match.range(at: 1), match.range(at: 3)]
+                )
+                attributedString.addAttribute(.font, value: self.parent.italicFont, range: match.range(at: 2))
+            }
+
+            let strikeRegex = try? NSRegularExpression(pattern: #"(~~)(.+?)(~~)"#, options: [])
+            strikeRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
+                guard let match = match else { return }
+                self.hideMarkdownSyntax(
+                    in: attributedString,
+                    ranges: [match.range(at: 1), match.range(at: 3)]
+                )
+                attributedString.addAttribute(
+                    .strikethroughStyle,
+                    value: NSUnderlineStyle.single.rawValue,
+                    range: match.range(at: 2)
+                )
+                attributedString.addAttribute(
+                    .strikethroughColor,
+                    value: UIColor.label,
+                    range: match.range(at: 2)
+                )
+            }
+        }
         
         // MARK: - Markdown Styling Engine
         func applyStyling(to textView: UITextView) {
@@ -609,73 +708,8 @@ struct UnifiedNoteEditor: UIViewRepresentable {
                 attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: syntaxRange)
                 attributedString.addAttribute(.font, value: parent.h3Font, range: contentRange)
             }
-            
-            // 3. Bold (**bold**) - Track ranges to avoid double-processing for italic
-            var boldRanges: [NSRange] = []
-            let boldRegex = try? NSRegularExpression(pattern: "(\\*\\*)(.+?)(\\*\\*)", options: [])
-            boldRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                let leadingSyntax = match.range(at: 1)
-                let contentRange = match.range(at: 2)
-                let trailingSyntax = match.range(at: 3)
-                
-                // Track the full bold range including markers
-                boldRanges.append(match.range(at: 0))
-                
-                // Hide Syntax
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: leadingSyntax)
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: trailingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: leadingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: trailingSyntax)
-                
-                // Style Content
-                attributedString.addAttribute(.font, value: parent.boldFont, range: contentRange)
-            }
-            
-            // 4. Italic (*italic*) - Simple single asterisk pattern, skip if inside a bold range
-            let italicRegex = try? NSRegularExpression(pattern: "(?<!\\*)(\\*)([^*\\n]+?)(\\*)(?!\\*)", options: [])
-            italicRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                let matchFullRange = match.range(at: 0)
-                
-                // Skip if this range overlaps with any bold range
-                let overlapsWithBold = boldRanges.contains { boldRange in
-                    NSIntersectionRange(matchFullRange, boldRange).length > 0
-                }
-                if overlapsWithBold { return }
-                
-                let leadingSyntax = match.range(at: 1)
-                let contentRange = match.range(at: 2)
-                let trailingSyntax = match.range(at: 3)
-                
-                // Hide Syntax
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: leadingSyntax)
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: trailingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: leadingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: trailingSyntax)
-                
-                // Style Content with Italic
-                attributedString.addAttribute(.font, value: parent.italicFont, range: contentRange)
-            }
-            
-            // 5. Strikethrough (~~text~~)
-            let strikeRegex = try? NSRegularExpression(pattern: "(~~)(.+?)(~~)", options: [])
-            strikeRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                let leadingSyntax = match.range(at: 1)
-                let contentRange = match.range(at: 2)
-                let trailingSyntax = match.range(at: 3)
-                
-                // Hide Syntax
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: leadingSyntax)
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: trailingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: leadingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: trailingSyntax)
-                
-                // Style Content with Strikethrough
-                attributedString.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
-                attributedString.addAttribute(.strikethroughColor, value: UIColor.label, range: contentRange)
-            }
+
+            applyInlineMarkdownFormatting(to: attributedString, text: text, fullRange: fullRange)
             
             // 6. Todos
             applyTodoMarkerStyling(to: attributedString, text: text)
@@ -765,52 +799,7 @@ struct UnifiedNoteEditor: UIViewRepresentable {
                 attributedString.addAttribute(.font, value: parent.h3Font, range: contentRange)
             }
 
-            // Bold (**bold**)
-            var boldRanges: [NSRange] = []
-            let boldRegex = try? NSRegularExpression(pattern: "(\\*\\*)(.+?)(\\*\\*)", options: [])
-            boldRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                let leadingSyntax = match.range(at: 1)
-                let contentRange = match.range(at: 2)
-                let trailingSyntax = match.range(at: 3)
-                boldRanges.append(match.range)
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: leadingSyntax)
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: trailingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: leadingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: trailingSyntax)
-                attributedString.addAttribute(.font, value: parent.boldFont, range: contentRange)
-            }
-
-            // Italic (*italic*) - skip ranges already processed as bold
-            let italicRegex = try? NSRegularExpression(pattern: "(?<!\\*)(\\*)([^*\\n]+?)(\\*)(?!\\*)", options: [])
-            italicRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                let isInsideBold = boldRanges.contains { NSIntersectionRange($0, match.range).length > 0 }
-                if isInsideBold { return }
-                let leadingSyntax = match.range(at: 1)
-                let contentRange = match.range(at: 2)
-                let trailingSyntax = match.range(at: 3)
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: leadingSyntax)
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: trailingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: leadingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: trailingSyntax)
-                attributedString.addAttribute(.font, value: parent.italicFont, range: contentRange)
-            }
-
-            // Strikethrough (~~text~~)
-            let strikeRegex = try? NSRegularExpression(pattern: "(~~)(.+?)(~~)", options: [])
-            strikeRegex?.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match = match else { return }
-                let leadingSyntax = match.range(at: 1)
-                let contentRange = match.range(at: 2)
-                let trailingSyntax = match.range(at: 3)
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: leadingSyntax)
-                attributedString.addAttribute(.foregroundColor, value: UIColor.clear, range: trailingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: leadingSyntax)
-                attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 1), range: trailingSyntax)
-                attributedString.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
-                attributedString.addAttribute(.strikethroughColor, value: UIColor.label, range: contentRange)
-            }
+            applyInlineMarkdownFormatting(to: attributedString, text: text, fullRange: fullRange)
 
             applyTodoMarkerStyling(to: attributedString, text: text)
 
@@ -1435,6 +1424,24 @@ class MarkdownTextView: UITextView {
         return (leading, core, trailing)
     }
 
+    private enum InlineStyleKind {
+        case bold
+        case italic
+        case strikethrough
+    }
+
+    private struct InlineStyleState {
+        var isBold = false
+        var isItalic = false
+        var isStrikethrough = false
+    }
+
+    private struct InlineStyleResult {
+        let text: String
+        let selectionStart: Int
+        let selectionLength: Int
+    }
+
     private func isWrapped(_ text: String, with syntax: String) -> Bool {
         guard !text.isEmpty else { return false }
 
@@ -1454,28 +1461,185 @@ class MarkdownTextView: UITextView {
         }
     }
 
-    private func stripOuterSyntax(_ text: String, syntax: String) -> (text: String, removedCount: Int) {
-        let syntaxCount = syntax.count
-        guard syntaxCount > 0 else { return (text, 0) }
-
+    private func normalizedInlineStyle(from text: String) -> (core: String, state: InlineStyleState) {
         var current = text
-        var removedCount = 0
+        var state = InlineStyleState()
 
-        while isWrapped(current, with: syntax) && current.count >= syntaxCount * 2 {
-            current = String(current.dropFirst(syntaxCount).dropLast(syntaxCount))
-            removedCount += 1
+        while true {
+            if isWrapped(current, with: "~~") {
+                current = String(current.dropFirst(2).dropLast(2))
+                state.isStrikethrough = true
+                continue
+            }
+
+            if state.isStrikethrough && current.hasPrefix("~") && current.hasSuffix("~") && current.count >= 2 {
+                current = String(current.dropFirst().dropLast())
+                continue
+            }
+
+            if isWrapped(current, with: "**") {
+                current = String(current.dropFirst(2).dropLast(2))
+                state.isBold = true
+                continue
+            }
+
+            if isWrapped(current, with: "*") {
+                current = String(current.dropFirst().dropLast())
+                state.isItalic = true
+                continue
+            }
+
+            break
         }
 
-        return (current, removedCount)
+        return (current, state)
     }
 
-    private func isLineWrapped(_ line: String, with syntax: String) -> Bool {
+    private func inlineMarkerLength(for state: InlineStyleState) -> Int {
+        let emphasisLength: Int
+        if state.isBold && state.isItalic {
+            emphasisLength = 3
+        } else if state.isBold {
+            emphasisLength = 2
+        } else if state.isItalic {
+            emphasisLength = 1
+        } else {
+            emphasisLength = 0
+        }
+
+        return emphasisLength + (state.isStrikethrough ? 2 : 0)
+    }
+
+    private func buildInlineStyleResult(
+        for text: String,
+        style: InlineStyleKind,
+        forcedState: Bool? = nil
+    ) -> InlineStyleResult {
+        let whitespaceParts = splitOuterWhitespace(text)
+        let normalized = normalizedInlineStyle(from: whitespaceParts.core)
+        var state = normalized.state
+
+        switch style {
+        case .bold:
+            state.isBold = forcedState ?? !state.isBold
+        case .italic:
+            state.isItalic = forcedState ?? !state.isItalic
+        case .strikethrough:
+            state.isStrikethrough = forcedState ?? !state.isStrikethrough
+        }
+
+        var styledCore = normalized.core
+        if state.isBold && state.isItalic {
+            styledCore = "***\(styledCore)***"
+        } else if state.isBold {
+            styledCore = "**\(styledCore)**"
+        } else if state.isItalic {
+            styledCore = "*\(styledCore)*"
+        }
+
+        if state.isStrikethrough {
+            styledCore = "~~\(styledCore)~~"
+        }
+
+        let replacement = whitespaceParts.leading + styledCore + whitespaceParts.trailing
+        let selectionStart = (whitespaceParts.leading as NSString).length + inlineMarkerLength(for: state)
+        let selectionLength = (normalized.core as NSString).length
+
+        return InlineStyleResult(
+            text: replacement,
+            selectionStart: selectionStart,
+            selectionLength: selectionLength
+        )
+    }
+
+    private func lineHasInlineStyle(_ line: String, style: InlineStyleKind) -> Bool {
         let parts = splitOuterWhitespace(line)
-        guard !parts.core.isEmpty else { return false }
-        return isWrapped(parts.core, with: syntax)
+        let normalized = normalizedInlineStyle(from: parts.core)
+
+        switch style {
+        case .bold:
+            return normalized.state.isBold
+        case .italic:
+            return normalized.state.isItalic
+        case .strikethrough:
+            return normalized.state.isStrikethrough
+        }
     }
 
-    private func toggleInlineStylePerLine(_ selectedText: String, syntax: String) -> String {
+    private func isInlineMarker(_ character: unichar) -> Bool {
+        character == 42 || character == 126
+    }
+
+    private func isWordLikeCharacter(_ character: unichar) -> Bool {
+        guard let scalar = UnicodeScalar(character) else { return false }
+        return !CharacterSet.whitespacesAndNewlines.contains(scalar) && !isInlineMarker(character)
+    }
+
+    private func wordRangeNearCursor(in text: NSString, cursorLocation: Int) -> NSRange? {
+        guard text.length > 0 else { return nil }
+
+        let boundedCursor = min(max(0, cursorLocation), text.length)
+        let anchor: Int
+        if boundedCursor < text.length && isWordLikeCharacter(text.character(at: boundedCursor)) {
+            anchor = boundedCursor
+        } else if boundedCursor > 0 && isWordLikeCharacter(text.character(at: boundedCursor - 1)) {
+            anchor = boundedCursor - 1
+        } else {
+            return nil
+        }
+
+        var start = anchor
+        var end = anchor + 1
+
+        while start > 0 && isWordLikeCharacter(text.character(at: start - 1)) {
+            start -= 1
+        }
+
+        while end < text.length && isWordLikeCharacter(text.character(at: end)) {
+            end += 1
+        }
+
+        return NSRange(location: start, length: max(0, end - start))
+    }
+
+    private func expandedInlineRange(_ range: NSRange, in text: NSString) -> NSRange {
+        var start = range.location
+        var end = range.location + range.length
+
+        while start > 0 && isInlineMarker(text.character(at: start - 1)) {
+            start -= 1
+        }
+
+        while end < text.length && isInlineMarker(text.character(at: end)) {
+            end += 1
+        }
+
+        return NSRange(location: start, length: max(0, end - start))
+    }
+
+    private func resolvedInlineSelectionRange(for selection: NSRange, in text: NSString) -> NSRange? {
+        if selection.length > 0 {
+            return expandedInlineRange(selection, in: text)
+        }
+
+        guard let wordRange = wordRangeNearCursor(in: text, cursorLocation: selection.location) else {
+            return nil
+        }
+        return expandedInlineRange(wordRange, in: text)
+    }
+
+    private func emptyInlineInsertion(for style: InlineStyleKind) -> (text: String, cursorOffset: Int) {
+        switch style {
+        case .bold:
+            return ("****", 2)
+        case .italic:
+            return ("**", 1)
+        case .strikethrough:
+            return ("~~~~", 2)
+        }
+    }
+
+    private func toggleInlineStylePerLine(_ selectedText: String, style: InlineStyleKind) -> String {
         var lines = selectedText.components(separatedBy: "\n")
         let hasTrailingNewline = selectedText.hasSuffix("\n")
 
@@ -1490,17 +1654,18 @@ class MarkdownTextView: UITextView {
         }
         let targetIndices = nonEmptyIndices.isEmpty ? editableLineIndices : nonEmptyIndices
 
-        let shouldToggleOff = targetIndices.allSatisfy { isLineWrapped(lines[$0], with: syntax) }
+        let shouldEnableStyle = !targetIndices.allSatisfy { lineHasInlineStyle(lines[$0], style: style) }
 
         for index in editableLineIndices {
             if lines[index].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 continue
             }
 
-            let parts = splitOuterWhitespace(lines[index])
-            let stripped = stripOuterSyntax(parts.core, syntax: syntax).text
-            let styledCore = shouldToggleOff ? stripped : "\(syntax)\(stripped)\(syntax)"
-            lines[index] = parts.leading + styledCore + parts.trailing
+            lines[index] = buildInlineStyleResult(
+                for: lines[index],
+                style: style,
+                forcedState: shouldEnableStyle
+            ).text
         }
 
         return lines.joined(separator: "\n")
@@ -1562,14 +1727,25 @@ class MarkdownTextView: UITextView {
     private func toggleWrappedSelection(with syntax: String) {
         guard let text = self.text else { return }
         let nsString = text as NSString
-        let range = self.selectedRange
-        let syntaxLength = (syntax as NSString).length
+        let originalRange = self.selectedRange
 
-        if range.length == 0 {
-            let insertion = "\(syntax)\(syntax)"
-            replaceCharacters(in: range, with: insertion)
+        let style: InlineStyleKind
+        switch syntax {
+        case "**":
+            style = .bold
+        case "*":
+            style = .italic
+        case "~~":
+            style = .strikethrough
+        default:
+            return
+        }
+
+        guard let range = resolvedInlineSelectionRange(for: originalRange, in: nsString) else {
+            let insertion = emptyInlineInsertion(for: style)
+            replaceCharacters(in: originalRange, with: insertion.text)
             let totalLength = (self.text as NSString?)?.length ?? 0
-            let cursorLocation = min(range.location + syntaxLength, totalLength)
+            let cursorLocation = min(originalRange.location + insertion.cursorOffset, totalLength)
             self.selectedRange = NSRange(location: cursorLocation, length: 0)
             return
         }
@@ -1579,25 +1755,19 @@ class MarkdownTextView: UITextView {
         // Inline markdown markers should not span multiple lines in this editor model.
         // Apply style per line to avoid malformed marker stacks and visible syntax artifacts.
         if selectedText.contains("\n") {
-            let replacement = toggleInlineStylePerLine(selectedText, syntax: syntax)
+            let replacement = toggleInlineStylePerLine(selectedText, style: style)
             replaceCharacters(in: range, with: replacement)
             let replacementLength = (replacement as NSString).length
             self.selectedRange = NSRange(location: range.location, length: replacementLength)
             return
         }
 
-        let whitespaceParts = splitOuterWhitespace(selectedText)
-        let stripped = stripOuterSyntax(whitespaceParts.core, syntax: syntax)
-        let shouldToggleOff = stripped.removedCount > 0
-        let core = shouldToggleOff ? stripped.text : "\(syntax)\(stripped.text)\(syntax)"
-        let replacement = whitespaceParts.leading + core + whitespaceParts.trailing
-
-        replaceCharacters(in: range, with: replacement)
-
-        let leadingLength = (whitespaceParts.leading as NSString).length
-        let strippedLength = (stripped.text as NSString).length
-        let cursorStart = range.location + leadingLength + (shouldToggleOff ? 0 : syntaxLength)
-        self.selectedRange = NSRange(location: cursorStart, length: strippedLength)
+        let replacement = buildInlineStyleResult(for: selectedText, style: style)
+        replaceCharacters(in: range, with: replacement.text)
+        self.selectedRange = NSRange(
+            location: range.location + replacement.selectionStart,
+            length: replacement.selectionLength
+        )
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {

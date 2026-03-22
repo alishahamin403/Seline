@@ -32,10 +32,15 @@ extension View {
     }
 
     /// Add selection change haptic (for filters, pickers)
-    func hapticSelection() -> some View {
-        self.onChange(of: UUID()) { _ in
+    func hapticSelection<Value: Equatable>(value: Value) -> some View {
+        self.onChange(of: value) { _ in
             HapticManager.shared.selection()
         }
+    }
+
+    /// Kept for source compatibility; use `hapticSelection(value:)` for value-driven feedback.
+    func hapticSelection() -> some View {
+        self
     }
 
     /// Add navigation haptic feedback

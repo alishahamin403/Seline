@@ -234,12 +234,7 @@ struct LocationEditView: View {
                                     }
                                 }
                                 .frame(maxHeight: 250)
-                                .appAmbientCardStyle(
-                                    colorScheme: colorScheme,
-                                    variant: .bottomTrailing,
-                                    cornerRadius: 16,
-                                    highlightStrength: 0.44
-                                )
+                                .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 16)
                                 .padding(.top, 4)
                             }
                         }

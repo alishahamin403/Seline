@@ -10,6 +10,101 @@ enum NavigationSwipeBack {
         didInstall = true
         UINavigationController.selineInstallInteractivePopSupport()
     }
+
+    static func canPerformBackNavigation() -> Bool {
+        backNavigationTarget() != nil
+    }
+
+    @discardableResult
+    static func performBackNavigation() -> Bool {
+        guard let target = backNavigationTarget() else { return false }
+
+        switch target {
+        case .pop(let navigationController):
+            navigationController.popViewController(animated: true)
+        case .dismiss(let viewController):
+            viewController.dismiss(animated: true)
+        }
+
+        return true
+    }
+
+    private enum BackNavigationTarget {
+        case pop(UINavigationController)
+        case dismiss(UIViewController)
+    }
+
+    private static func backNavigationTarget() -> BackNavigationTarget? {
+        guard let topViewController = topViewController() else { return nil }
+
+        if let navigationController = navigationController(for: topViewController),
+           navigationController.viewControllers.count > 1,
+           topViewController !== navigationController.viewControllers.first {
+            return .pop(navigationController)
+        }
+
+        if let dismissibleController = dismissibleController(for: topViewController) {
+            return .dismiss(dismissibleController)
+        }
+
+        return nil
+    }
+
+    private static func topViewController() -> UIViewController? {
+        activeWindow()?.rootViewController.flatMap(topViewController(from:))
+    }
+
+    private static func activeWindow() -> UIWindow? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
+    }
+
+    private static func topViewController(from base: UIViewController) -> UIViewController {
+        if let presentedViewController = base.presentedViewController {
+            return topViewController(from: presentedViewController)
+        }
+
+        if let navigationController = base as? UINavigationController,
+           let visibleViewController = navigationController.visibleViewController {
+            return topViewController(from: visibleViewController)
+        }
+
+        if let tabBarController = base as? UITabBarController,
+           let selectedViewController = tabBarController.selectedViewController {
+            return topViewController(from: selectedViewController)
+        }
+
+        return base
+    }
+
+    private static func navigationController(for viewController: UIViewController) -> UINavigationController? {
+        if let navigationController = viewController as? UINavigationController {
+            return navigationController
+        }
+
+        return viewController.navigationController
+    }
+
+    private static func dismissibleController(for viewController: UIViewController) -> UIViewController? {
+        if let navigationController = viewController as? UINavigationController,
+           navigationController.presentingViewController != nil {
+            return navigationController
+        }
+
+        if let navigationController = viewController.navigationController,
+           navigationController.presentingViewController != nil,
+           navigationController.viewControllers.first === viewController {
+            return navigationController
+        }
+
+        if viewController.presentingViewController != nil {
+            return viewController
+        }
+
+        return nil
+    }
 }
 
 private extension UINavigationController {
@@ -82,7 +177,8 @@ private extension UINavigationController {
 }
 
 private struct EdgeSwipeBackModifier: ViewModifier {
-    @Environment(\.dismiss) private var dismiss
+    let action: (() -> Void)?
+    let isEnabled: Bool
     @State private var isTrackingFromEdge = false
     @State private var hasTriggeredDismiss = false
     @State private var dragX: CGFloat = 0
@@ -103,6 +199,7 @@ private struct EdgeSwipeBackModifier: ViewModifier {
                         guard !hasTriggeredDismiss else { return }
 
                         if !isTrackingFromEdge {
+                            guard canBeginGesture else { return }
                             guard value.startLocation.x <= edgeWidth else { return }
                             guard value.translation.width > 0 else { return }
                             isTrackingFromEdge = true
@@ -126,7 +223,9 @@ private struct EdgeSwipeBackModifier: ViewModifier {
                             dragX = UIScreen.main.bounds.width
                         }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-                            dismiss()
+                            if !NavigationSwipeBack.performBackNavigation() {
+                                action?()
+                            }
                             resetGestureState()
                         }
                     }
@@ -142,6 +241,11 @@ private struct EdgeSwipeBackModifier: ViewModifier {
             .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.85), value: dragX)
     }
 
+    private var canBeginGesture: Bool {
+        guard isEnabled else { return false }
+        return NavigationSwipeBack.canPerformBackNavigation() || action != nil
+    }
+
     private var currentOffsetX: CGFloat {
         isAnimatingOffscreen ? UIScreen.main.bounds.width : dragX
     }
@@ -155,7 +259,10 @@ private struct EdgeSwipeBackModifier: ViewModifier {
 }
 
 extension View {
-    func edgeSwipeBackEnabled() -> some View {
-        modifier(EdgeSwipeBackModifier())
+    func edgeSwipeBackEnabled(
+        action: (() -> Void)? = nil,
+        isEnabled: Bool = true
+    ) -> some View {
+        modifier(EdgeSwipeBackModifier(action: action, isEnabled: isEnabled))
     }
 }

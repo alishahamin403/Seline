@@ -246,39 +246,8 @@ class SelineAppContext {
         }
         print("📅 Filtered to \(self.events.count) recent/upcoming events (last 90 days)")
 
-        // Collect custom email folders and their saved emails (optimized with parallel loading)
-        do {
-            self.customEmailFolders = try await emailService.fetchSavedFolders()
-            print("📧 Found \(self.customEmailFolders.count) custom email folders")
-
-            // Load emails for each folder in parallel (non-blocking)
-            await withTaskGroup(of: (UUID, [SavedEmail]?).self) { [self] group in
-                for folder in self.customEmailFolders {
-                    group.addTask {
-                        do {
-                            let savedEmails = try await self.emailService.fetchSavedEmails(in: folder.id)
-                            return (folder.id, savedEmails)
-                        } catch {
-                            print("  ⚠️  Error loading emails for folder '\(folder.name)': \(error)")
-                            return (folder.id, nil)
-                        }
-                    }
-                }
-                
-                var foldersByEmail: [UUID: [SavedEmail]] = [:]
-                for await (folderId, emails) in group {
-                    foldersByEmail[folderId] = emails ?? []
-                    if let emails = emails, !emails.isEmpty {
-                        if let folder = self.customEmailFolders.first(where: { $0.id == folderId }) {
-                            print("  • \(folder.name): \(emails.count) emails")
-                        }
-                    }
-                }
-                self.savedEmailsByFolder = foldersByEmail
-            }
-        } catch {
-            print("⚠️  Error loading custom email folders: \(error)")
-        }
+        self.customEmailFolders = []
+        self.savedEmailsByFolder = [:]
 
         // Debug: Log recurring events and their next occurrence
         let recurringEvents = self.events.filter { $0.isRecurring }
@@ -304,28 +273,14 @@ class SelineAppContext {
             }
         }
 
-        // Collect all receipts from notes
-        let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
-        print("📂 Receipts folder ID: \(receiptsFolderId)")
-
-        let receiptNotes = notesManager.notes.filter { note in
-            isUnderReceiptsFolderHierarchy(folderId: note.folderId, receiptsFolderId: receiptsFolderId)
-        }
-        print("📝 Found \(receiptNotes.count) receipt notes in folder")
-
-        // Extract transaction dates from receipt notes
-        self.receipts = receiptNotes.compactMap { note -> ReceiptStat? in
-            // Extract date from note title - that's the transaction date
-            guard let transactionDate = extractDateFromTitle(note.title) else {
-                // Skip receipts where we can't extract a date from the title
-                // This prevents fallback to dateModified which could be from wrong month
-                print("⚠️  Skipping receipt with no extractable date: \(note.title)")
-                return nil
-            }
-
-            return ReceiptStat(from: note, date: transactionDate, category: "Other")
-        }
-        print("✅ Extracted \(self.receipts.count) receipts with valid dates")
+        // Use the shared receipt statistics pipeline so chat context matches the home
+        // widgets and Supabase-backed receipt hierarchy exactly.
+        let receiptSummaries = notesManager.getReceiptStatistics()
+        self.receipts = receiptSummaries
+            .flatMap(\.monthlySummaries)
+            .flatMap(\.receipts)
+            .sorted { $0.date > $1.date }
+        print("✅ Loaded \(self.receipts.count) receipts from shared receipt statistics")
 
         // Collect recent notes (optimized filtering)
         // Load pinned notes (unlimited) + notes from last 90 days (unlimited)
@@ -811,8 +766,8 @@ class SelineAppContext {
 
     /// Populate lastRelevantContent and lastEventCreationInfo for chat UI pills. Call before sending the user message so the response message gets pill data.
     func prepareRelevantContentForChat(userQuery: String) async {
-        // Kept for backward compatibility. Citation evidence now comes only from
-        // VectorContextBuilder/VectorSearch so sources and retrieval stay aligned.
+        // Kept for backward compatibility. Citation evidence now comes from the
+        // structured agent evidence bundle, while this hook still prepares event cards.
         await prepareEventCreationInfoForChat(userQuery: userQuery)
     }
 
@@ -951,6 +906,8 @@ class SelineAppContext {
                     )
 
                 case .person:
+                    continue
+                case .recurringExpense, .attachment, .tracker, .budget:
                     continue
                 }
             }
@@ -1668,12 +1625,11 @@ class SelineAppContext {
     }
 
     // ============================================================================
-    // DEPRECATED: buildContextPrompt() methods moved to LLMArchitecture_deprecated/
-    // These methods are NEVER called - SelineChat uses VectorContextBuilder instead
+    // DEPRECATED: legacy context-prompt helpers retained only as commented archive.
+    // These methods are not used by the current chat architecture.
     // ============================================================================
     /*
     /// DEPRECATED: Build context with intelligent filtering based on user query
-    /// This method is NEVER called - SelineChat uses VectorContextBuilder.buildContext() instead
     func buildContextPrompt(forQuery userQuery: String) async -> String {
         // Reset ETA location info for each new query - prevents map card from persisting on unrelated follow-ups
         self.lastETALocationInfo = nil
@@ -3175,7 +3131,7 @@ class SelineAppContext {
     }
     */
 
-    // DEPRECATED: buildContextPrompt() - Never called, use VectorContextBuilder instead
+    // DEPRECATED: buildContextPrompt() - not used by the current chat architecture.
     /*
     func buildContextPrompt() async -> String {
         return await buildContextPromptInternal()
@@ -4002,45 +3958,6 @@ class SelineAppContext {
         return result
     }
 
-    /// Extract date from receipt note title
-    /// The title contains the transaction date like "Mazaj Lounge - October 31, 2025"
-    /// Searches for date patterns within the title, not the whole title as a date
-    private func extractDateFromTitle(_ title: String) -> Date? {
-        // Look for date pattern: "Month DD, YYYY" or "Month DD YYYY" within the title
-        // Example: "Mazaj Lounge - October 31, 2025" → extract "October 31, 2025"
-
-        let dateFormatter = DateFormatter()
-
-        // Split by common separators and check each part for a date
-        let parts = title.components(separatedBy: CharacterSet(charactersIn: "-–—•"))
-
-        for part in parts {
-            let trimmedPart = part.trimmingCharacters(in: .whitespaces)
-
-            // Try each date format on this part
-            let formats = [
-                "MMMM dd, yyyy",   // October 31, 2025
-                "MMMM d, yyyy",    // October 1, 2025
-                "MMMM dd yyyy",    // October 31 2025
-                "MMMM d yyyy",     // October 1 2025
-                "MMM dd, yyyy",    // Oct 31, 2025
-                "MMM d, yyyy",     // Oct 1, 2025
-                "MMM dd yyyy",     // Oct 31 2025
-                "MMM d yyyy",      // Oct 1 2025
-            ]
-
-            for format in formats {
-                dateFormatter.dateFormat = format
-                if let date = dateFormatter.date(from: trimmedPart) {
-                    return date
-                }
-            }
-        }
-
-        // If no date found, return nil and let ReceiptStat use dateModified as fallback
-        return nil
-    }
-
     /// Get the category name for an event given its tagId
     private func getCategoryName(for tagId: String?) -> String {
         guard let tagId = tagId else { return "Personal" }
@@ -4781,53 +4698,12 @@ class SelineAppContext {
     // ACTIVE HELPER METHODS - Needed by active code (refresh, etc.)
     // ============================================================================
     
-    private func isUnderReceiptsFolderHierarchy(folderId: UUID?, receiptsFolderId: UUID) -> Bool {
-        guard let folderId = folderId else { return false }
-
-        if folderId == receiptsFolderId {
-            return true
-        }
-
-        if let folder = notesManager.folders.first(where: { $0.id == folderId }),
-           let parentId = folder.parentFolderId {
-            return isUnderReceiptsFolderHierarchy(folderId: parentId, receiptsFolderId: receiptsFolderId)
-        }
-
-        return false
-    }
-
     private func formatDate(_ date: Date) -> String {
         return mediumDateFormatter.string(from: date)
     }
 
     private func formatTime(_ date: Date) -> String {
         return timeFormatter.string(from: date)
-    }
-
-    private func extractDateFromTitle(_ title: String) -> Date? {
-        let datePatterns = [
-            "\\w+ \\d{1,2}(?:st|nd|rd|th)?",  // "January 15th" or "Jan 15"
-            "\\d{1,2}/\\d{1,2}/\\d{2,4}",      // "01/15/2024"
-            "\\d{4}-\\d{2}-\\d{2}"              // "2024-01-15"
-        ]
-
-        for pattern in datePatterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
-               let match = regex.firstMatch(in: title, options: [], range: NSRange(title.startIndex..., in: title)),
-               let range = Range(match.range, in: title) {
-                let dateString = String(title[range])
-                let formatter = DateFormatter()
-                formatter.dateFormat = "MMMM d"
-                if let date = formatter.date(from: dateString) {
-                    return date
-                }
-                formatter.dateFormat = "MMM d"
-                if let date = formatter.date(from: dateString) {
-                    return date
-                }
-            }
-        }
-        return nil
     }
 
     private func getNextOccurrenceDate(for event: TaskItem, after minimumDate: Date = Date.distantPast) -> Date? {

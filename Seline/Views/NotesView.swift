@@ -20,6 +20,7 @@ struct NotesView: View, Searchable {
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var journalService = JournalService.shared
     private let pageRefreshCoordinator = PageRefreshCoordinator.shared
+    @StateObject private var floatingActionCoordinator = FloatingActionCoordinator.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
     @State private var searchText = ""
@@ -31,6 +32,7 @@ struct NotesView: View, Searchable {
     @State private var showingFolderSidebar = false
     @State private var selectedFolderId: UUID? = nil
     @State private var showUnfiledNotesOnly = false
+    @State private var showSidebarNotesSelection = false
     @State private var showReceiptStats = false
     @State private var selectedReceiptDrilldownMonth: Date? = nil
     @State private var showRecurringOverview = false
@@ -57,12 +59,7 @@ struct NotesView: View, Searchable {
     @State private var didLoadRecurringHubData = false
     @StateObject private var hubState = NotesHubState()
 
-    private var filteredPinnedNotes: [Note] { hubState.filteredPinnedNotes }
-    private var allUnpinnedNotes: [Note] { hubState.allUnpinnedNotes }
-    private var recentNotes: [Note] { hubState.recentNotes }
-    private var notesByMonth: [(month: String, notes: [Note])] { hubState.notesByMonth }
     private var cachedFilteredPinned: [Note] { hubState.filteredPinnedNotes }
-    private var cachedAllUnpinned: [Note] { hubState.allUnpinnedNotes }
     private var cachedRecentNotes: [Note] { hubState.recentNotes }
     private var cachedNotesByMonth: [(month: String, notes: [Note])] { hubState.notesByMonth }
 
@@ -73,22 +70,6 @@ struct NotesView: View, Searchable {
             showUnfiledNotesOnly: showUnfiledNotesOnly,
             showsCurrentMonthOnly: hubPeriod == .thisMonth
         )
-    }
-
-    var hasReceipts: Bool {
-        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
-        guard let receiptsFolderId = receiptsFolder?.id else { return false }
-        return notesManager.notes.contains { note in
-            guard let folderId = note.folderId else { return false }
-            var currentFolderId: UUID? = folderId
-            while let currentId = currentFolderId {
-                if currentId == receiptsFolderId {
-                    return true
-                }
-                currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
-            }
-            return false
-        }
     }
 
     private var hubReceiptMonthlySummaries: [MonthlyReceiptSummary] {
@@ -119,41 +100,12 @@ struct NotesView: View, Searchable {
         hubState.upcomingRecurringCount
     }
 
-    private var hubPinnedNotes: [Note] {
-        notesManager.pinnedNotes
-            .filter(isStandardNotesListNote)
-            .sorted { $0.dateModified > $1.dateModified }
-    }
-
-    private var hubUnfiledNotes: [Note] {
-        notesManager.notes
-            .filter { !$0.isPinned && $0.folderId == nil && isStandardNotesListNote($0) }
-            .sorted { $0.dateModified > $1.dateModified }
-    }
-
-    private var hubLooseNotes: [Note] {
-        notesManager.notes
-            .filter { $0.folderId == nil && isStandardNotesListNote($0) }
-            .sorted { $0.dateModified > $1.dateModified }
-    }
-
-    private var hubFolderNotes: [Note] {
-        guard let selectedFolderId else { return [] }
-        return notesManager.notes
-            .filter { $0.folderId == selectedFolderId && isStandardNotesListNote($0) }
-            .sorted { $0.dateModified > $1.dateModified }
-    }
-
     private var hubDisplayedNotes: [Note] {
-        if showUnfiledNotesOnly {
-            return hubUnfiledNotes
-        }
+        hubState.displayedNotes
+    }
 
-        if selectedFolderId != nil {
-            return hubFolderNotes
-        }
-
-        return hubPinnedNotes
+    private var isShowingNotesBrowseSelection: Bool {
+        selectedMainPage == .notes && (showSidebarNotesSelection || selectedFolderId != nil || showUnfiledNotesOnly)
     }
 
     private var notesSectionTitle: String {
@@ -175,14 +127,14 @@ struct NotesView: View, Searchable {
 
     private var notesHeroContextMetric: (title: String, value: String) {
         if showUnfiledNotesOnly {
-            return ("Visible", "\(hubLooseNotes.count)")
+            return ("Visible", "\(hubState.looseNotesCount)")
         }
 
         if selectedFolderId != nil {
-            return ("In folder", "\(hubFolderNotes.count)")
+            return ("In folder", "\(hubState.folderNotesCount)")
         }
 
-        return ("Unfiled", "\(hubLooseNotes.count)")
+        return ("Unfiled", "\(hubState.looseNotesCount)")
     }
 
     private var notesHeroPinnedNotes: [Note] {
@@ -190,35 +142,52 @@ struct NotesView: View, Searchable {
     }
 
     private var latestJournalRecap: Note? {
-        notesManager.latestJournalRecap()
+        hubState.latestJournalRecap
     }
 
     private var journalOverviewStats: JournalStats {
-        journalService.stats(referenceDate: Date())
+        hubState.journalOverviewStats
     }
 
     private var journalOverviewWeekProgress: String {
         "\(journalOverviewStats.completedThisWeek) / 7"
     }
 
+    private var floatingActionPage: NotesFloatingActionPage {
+        switch selectedMainPage {
+        case .notes:
+            return .notes
+        case .receipts:
+            return .receipts
+        case .recurring:
+            return .recurring
+        }
+    }
+
     private var shouldShowJournalOverview: Bool {
         selectedFolderId == nil && !showUnfiledNotesOnly
     }
 
-    private func isStandardNotesListNote(_ note: Note) -> Bool {
-        !isReceiptNote(note) && !note.isJournalEntry && !note.isJournalWeeklyRecap
+    private var isShellFloatingActionVisible: Bool {
+        navigationPath.isEmpty &&
+        !showReceiptStats &&
+        !showRecurringOverview &&
+        !showJournalHub &&
+        !showAllNotesArchive &&
+        noteForReminder == nil &&
+        journalDraftToOpen == nil &&
+        journalExistingNoteToOpen == nil
     }
 
-    private func isReceiptNote(_ note: Note) -> Bool {
-        guard let receiptsFolderId = notesManager.folders.first(where: { $0.name == "Receipts" })?.id,
-              let folderId = note.folderId else { return false }
+    private var headerTitle: String {
+        "Notes"
+    }
 
-        var currentFolderId: UUID? = folderId
-        while let currentId = currentFolderId {
-            if currentId == receiptsFolderId { return true }
-            currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
-        }
-        return false
+    private func syncFloatingActionState() {
+        floatingActionCoordinator.updateNotes(
+            isVisible: isShellFloatingActionVisible,
+            page: floatingActionPage
+        )
     }
 
     var body: some View {
@@ -245,25 +214,17 @@ struct NotesView: View, Searchable {
                                 .buttonStyle(PlainButtonStyle())
                                 .frame(width: 42, height: 42)
 
-                                notesPageTabSelector
-                                    .frame(maxWidth: .infinity)
+                                Spacer(minLength: 0)
 
-                                mainPageAddButton
-                                .frame(width: 42, height: 42)
+                                Text(headerTitle)
+                                    .font(FontManager.geist(size: 18, weight: .semibold))
+                                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                                    .lineLimit(1)
 
-                                Button(action: activateNotesSearch) {
-                                    Image(systemName: "magnifyingglass")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                                        .frame(width: 34, height: 34)
-                                        .background(
-                                            Circle()
-                                                .fill(Color.appChip(colorScheme))
-                                        )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .accessibilityLabel("Search")
-                                .frame(width: 42, height: 42)
+                                Spacer(minLength: 0)
+
+                                Color.clear
+                                    .frame(width: 42, height: 42)
                             }
                             .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                             .padding(.top, -4)
@@ -301,7 +262,6 @@ struct NotesView: View, Searchable {
 
                     mainTabContent
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .blur(radius: isSearchActive && !searchText.isEmpty ? 8 : 0)
                         .allowsHitTesting(!(isSearchActive && !searchText.isEmpty))
                 }
                 .frame(maxWidth: .infinity)
@@ -378,9 +338,21 @@ struct NotesView: View, Searchable {
         }
         .onAppear {
             handleVisibilityChange(isVisible, reason: "appear")
+            selectedMainPage = .notes
+            isSearchActive = false
+            isSearchFocused = false
+            searchText = ""
+            syncFloatingActionState()
         }
         .onChange(of: isVisible) { newValue in
             handleVisibilityChange(newValue, reason: "visibility")
+            if newValue {
+                selectedMainPage = .notes
+                isSearchActive = false
+                isSearchFocused = false
+                searchText = ""
+            }
+            syncFloatingActionState()
         }
         .onChange(of: scenePhase) { newPhase in
             guard newPhase == .active else { return }
@@ -390,6 +362,9 @@ struct NotesView: View, Searchable {
         .onChange(of: selectedFolderId) { _ in refreshNoteCaches() }
         .onChange(of: showUnfiledNotesOnly) { _ in refreshNoteCaches() }
         .onChange(of: hubPeriod) { _ in refreshNoteCaches() }
+        .onChange(of: selectedMainPage) { _ in syncFloatingActionState() }
+        .onChange(of: isSearchActive) { _ in syncFloatingActionState() }
+        .onChange(of: showingFolderSidebar) { _ in syncFloatingActionState() }
         .onChange(of: notesManager.notes.count) { _ in
             guard !isVisible else { return }
             pageRefreshCoordinator.markDirty([.home, .notes], reason: .noteDataChanged)
@@ -402,9 +377,44 @@ struct NotesView: View, Searchable {
             selectedMainPage = .notes
             selectedFolderId = nil
             showUnfiledNotesOnly = false
+            showSidebarNotesSelection = false
+            isSearchActive = false
+            isSearchFocused = false
+            searchText = ""
             journalOpenTodayOnHubAppear = (notification.userInfo?["openToday"] as? Bool) ?? false
             journalScrollToHistoryOnHubAppear = false
             showJournalHub = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openReceiptsFromMainApp)) { _ in
+            selectedMainPage = .notes
+            selectedFolderId = nil
+            showUnfiledNotesOnly = false
+            showSidebarNotesSelection = false
+            isSearchActive = false
+            isSearchFocused = false
+            searchText = ""
+            showRecurringOverview = false
+            showReceiptStats = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openRecurringFromMainApp)) { _ in
+            selectedMainPage = .notes
+            selectedFolderId = nil
+            showUnfiledNotesOnly = false
+            showSidebarNotesSelection = false
+            isSearchActive = false
+            isSearchFocused = false
+            searchText = ""
+            showReceiptStats = false
+            showRecurringOverview = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .notesShellAddRequested)) { _ in
+            performMainPageAddAction()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .notesShellNewNoteRequested)) { _ in
+            openNewNoteEditor()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .notesShellNewJournalRequested)) { _ in
+            openTodayJournalEntry()
         }
         .fullScreenCover(isPresented: $showingNewNoteSheet, onDismiss: {
             notesManager.isViewingNoteInNavigation = false
@@ -610,6 +620,14 @@ struct NotesView: View, Searchable {
 
         pageRefreshCoordinator.pageBecameVisible(.notes)
 
+        hubState.updateInputs(
+            searchText: searchText,
+            selectedFolderId: selectedFolderId,
+            showUnfiledNotesOnly: showUnfiledNotesOnly,
+            showsCurrentMonthOnly: hubPeriod == .thisMonth,
+            forceRefresh: true
+        )
+
         guard pageRefreshCoordinator.shouldRevalidate(
             .notes,
             maxAge: pageRefreshCoordinator.defaultMaxAge(for: .notes)
@@ -617,9 +635,9 @@ struct NotesView: View, Searchable {
             return
         }
 
-        refreshNoteCaches()
-
         Task {
+            await notesManager.ensureReceiptDataAvailable()
+
             if !didLoadRecurringHubData || selectedMainPage == .recurring {
                 await refreshRecurringHubData()
             }
@@ -744,6 +762,7 @@ struct NotesView: View, Searchable {
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
             }
+            .selinePrimaryPageScroll()
         case .receipts:
             receiptsTabContent
         case .recurring:
@@ -759,7 +778,13 @@ struct NotesView: View, Searchable {
                 Button(action: {
                     HapticManager.shared.selection()
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                        selectedMainPage = page
+                        if page == .notes && selectedMainPage == .notes {
+                            showSidebarNotesSelection = false
+                            selectedFolderId = nil
+                            showUnfiledNotesOnly = false
+                        } else {
+                            selectedMainPage = page
+                        }
                     }
                 }) {
                     Text(page.rawValue)
@@ -813,13 +838,17 @@ struct NotesView: View, Searchable {
             if hubDisplayedNotes.isEmpty {
                 hubEmptyState(
                     icon: "note.text",
-                    title: showUnfiledNotesOnly ? "No unfiled notes" : "No pinned notes",
-                    subtitle: showUnfiledNotesOnly ? "All loose notes are cleared" : "Pin notes to keep them here"
+                    title: showUnfiledNotesOnly
+                        ? "No unfiled notes"
+                        : (selectedFolderId != nil ? "No notes in folder" : "No pinned notes"),
+                    subtitle: showUnfiledNotesOnly
+                        ? "All loose notes are cleared"
+                        : (selectedFolderId != nil ? "This folder does not have any notes yet" : "Pin notes to keep them here")
                 )
                 .padding(.horizontal, 14)
                 .padding(.bottom, 14)
             } else {
-                ForEach(Array(hubDisplayedNotes.prefix(6)), id: \.id) { note in
+                ForEach(hubDisplayedNotes, id: \.id) { note in
                     NoteRow(
                         note: note,
                         onPinToggle: { note in
@@ -939,11 +968,7 @@ struct NotesView: View, Searchable {
         VStack(spacing: 0) {
             hubCardHeader(
                 title: hubPeriod == .thisMonth ? "RECURRING · THIS MONTH" : "RECURRING · THIS YEAR",
-                count: hubRecurringExpenses.count,
-                addAction: {
-                    HapticManager.shared.buttonTap()
-                    showingRecurringExpenseForm = true
-                }
+                count: hubRecurringExpenses.count
             )
 
             if hubRecurringExpenses.isEmpty {
@@ -1187,9 +1212,7 @@ struct NotesView: View, Searchable {
             return "Tomorrow"
         }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: date)
+        return FormatterCache.shortMonthDay.string(from: date)
     }
 
     private func loadRecurringHubDataIfNeeded() {
@@ -1215,33 +1238,37 @@ struct NotesView: View, Searchable {
 
     private var notesTabContent: some View {
         VStack(spacing: 14) {
-            notesOverviewCard
-            if shouldShowJournalOverview {
-                journalOverviewCard
-            }
-
-            if cachedFilteredPinned.isEmpty &&
-                cachedRecentNotes.isEmpty &&
-                cachedNotesByMonth.isEmpty &&
-                (!shouldShowJournalOverview ||
-                    (notesManager.journalEntries.isEmpty && notesManager.journalWeeklyRecaps.isEmpty)) {
-                VStack(spacing: 16) {
-                    Image(systemName: "note.text")
-                        .font(FontManager.geist(size: 48, weight: .light))
-                        .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.6))
-
-                    Text(searchText.isEmpty ? "No notes yet" : "No notes found")
-                        .font(FontManager.geist(size: 18, weight: .medium))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                    if searchText.isEmpty {
-                        Text("Tap the + button to create your first note")
-                            .font(FontManager.geist(size: 14, weight: .regular))
-                            .foregroundColor(Color.appTextSecondary(colorScheme))
-                            .multilineTextAlignment(.center)
-                    }
+            if isShowingNotesBrowseSelection {
+                hubNotesSection
+            } else {
+                notesOverviewCard
+                if shouldShowJournalOverview {
+                    journalOverviewCard
                 }
-                .padding(.top, 60)
+
+                if cachedFilteredPinned.isEmpty &&
+                    cachedRecentNotes.isEmpty &&
+                    cachedNotesByMonth.isEmpty &&
+                    (!shouldShowJournalOverview ||
+                        (notesManager.journalEntries.isEmpty && notesManager.journalWeeklyRecaps.isEmpty)) {
+                    VStack(spacing: 16) {
+                        Image(systemName: "note.text")
+                            .font(FontManager.geist(size: 48, weight: .light))
+                            .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.6))
+
+                        Text(searchText.isEmpty ? "No notes yet" : "No notes found")
+                            .font(FontManager.geist(size: 18, weight: .medium))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                        if searchText.isEmpty {
+                            Text("Tap the + button to create your first note")
+                                .font(FontManager.geist(size: 14, weight: .regular))
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .padding(.top, 60)
+                }
             }
         }
     }
@@ -1250,10 +1277,10 @@ struct NotesView: View, Searchable {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
                 Text("Notes")
-                    .font(FontManager.geist(size: 28, weight: .semibold))
+                    .font(FontManager.geist(size: 24, weight: .semibold))
                     .foregroundColor(Color.appTextPrimary(colorScheme))
 
-                Spacer(minLength: 12)
+                Spacer(minLength: 0)
 
                 Button(action: {
                     HapticManager.shared.selection()
@@ -1293,18 +1320,61 @@ struct NotesView: View, Searchable {
         )
     }
 
+    @ViewBuilder
+    private var notesFloatingAddButton: some View {
+        if selectedMainPage == .notes {
+            Menu {
+                Button(action: {
+                    HapticManager.shared.selection()
+                    openNewNoteEditor()
+                }) {
+                    Label("New Note", systemImage: "note.text.badge.plus")
+                }
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    openTodayJournalEntry()
+                }) {
+                    Label("New Journal", systemImage: "book.closed")
+                }
+            } label: {
+                floatingAddButtonLabel
+            }
+            .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
+        } else if selectedMainPage == .receipts {
+            Menu {
+                receiptAddMenuItems
+            } label: {
+                floatingAddButtonLabel
+            }
+            .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
+        } else {
+            Button(action: performMainPageAddAction) {
+                floatingAddButtonLabel
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
+        }
+    }
+
+    private var floatingAddButtonLabel: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 24, weight: .regular))
+            .foregroundColor(.black)
+            .frame(width: 56, height: 56)
+            .background(
+                Circle()
+                    .fill(Color.homeGlassAccent)
+            )
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.42 : 0.18), radius: 18, x: 0, y: 10)
+    }
+
     private var journalOverviewCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Journal")
-                        .font(FontManager.geist(size: 24, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                    Text(journalOverviewStats.todayStatus == .complete ? "Today's entry is saved." : "A quick daily reflection that stays inside Notes.")
-                        .font(FontManager.geist(size: 13, weight: .regular))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                }
+                Text("Journal")
+                    .font(FontManager.geist(size: 24, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
 
                 Spacer(minLength: 12)
 
@@ -1472,7 +1542,7 @@ struct NotesView: View, Searchable {
     // MARK: - Search Results Dropdown
     private var searchResultsOverlay: some View {
         ZStack(alignment: .top) {
-            Color.black.opacity(colorScheme == .dark ? 0.45 : 0.14)
+            Color.black.opacity(colorScheme == .dark ? 0.58 : 0.16)
                 .onTapGesture {
                     isSearchFocused = false
                 }
@@ -1487,11 +1557,11 @@ struct NotesView: View, Searchable {
                         recurringExpenseSearchResults
                     }
                 }
-                .padding(.top, 8)
+                .padding(.top, 4)
                 .padding(.bottom, 120)
             }
         }
-        .padding(.top, 64)
+        .padding(.top, 52)
         .ignoresSafeArea(edges: .bottom)
         .transition(.opacity)
         .zIndex(200)
@@ -1561,15 +1631,11 @@ struct NotesView: View, Searchable {
         }
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color.appSurface(colorScheme))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.appBorder(colorScheme), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0 : 0.06), radius: 8, x: 0, y: 4)
+                .fill(Color.clear)
         )
+        .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 12)
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.top, 8)
+        .padding(.top, 4)
     }
 
     private var receiptSearchResults: some View {
@@ -1602,9 +1668,9 @@ struct NotesView: View, Searchable {
                 receiptResultsList(filteredReceipts: filteredReceipts)
             }
         }
-        .background(searchResultsBackground)
+        .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 12)
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.top, 8)
+        .padding(.top, 4)
     }
 
     private var emptyReceiptState: some View {
@@ -1670,16 +1736,6 @@ struct NotesView: View, Searchable {
         .padding(.vertical, 10)
     }
 
-    private var searchResultsBackground: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .fill(Color.appSurface(colorScheme))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0 : 0.06), radius: 8, x: 0, y: 4)
-    }
-
     private var recurringExpenseSearchResults: some View {
         let filtered = recurringExpenses.filter { expense in
             let lowercased = searchText.lowercased()
@@ -1700,9 +1756,9 @@ struct NotesView: View, Searchable {
                 recurringExpenseResultsList(filtered: filtered)
             }
         }
-        .background(searchResultsBackground)
+        .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 12)
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.top, 8)
+        .padding(.top, 4)
         .onAppear {
             Task {
                 do {
@@ -1834,6 +1890,7 @@ struct NotesView: View, Searchable {
         selectedMainPage = .notes
         selectedFolderId = nil
         showUnfiledNotesOnly = false
+        showSidebarNotesSelection = false
         journalOpenTodayOnHubAppear = openToday
         journalScrollToHistoryOnHubAppear = scrollToHistory
         showJournalHub = true
@@ -1889,9 +1946,7 @@ struct NotesView: View, Searchable {
             return "Tomorrow"
         }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: date)
+        return FormatterCache.shortMonthDay.string(from: date)
     }
 
     @ViewBuilder
@@ -2037,13 +2092,27 @@ struct NotesView: View, Searchable {
         InteractiveSidebarOverlay(
             isPresented: $showingFolderSidebar,
             canOpen: true,
-            sidebarWidth: min(300, geometry.size.width * 0.82),
+            sidebarWidth: min(336, geometry.size.width * 0.86),
             colorScheme: colorScheme
         ) {
             FolderSidebarView(
                 isPresented: $showingFolderSidebar,
                 selectedFolderId: $selectedFolderId,
                 showUnfiledNotesOnly: $showUnfiledNotesOnly,
+                showSidebarNotesSelection: $showSidebarNotesSelection,
+                isNotesHomeSelected: selectedMainPage == .notes
+                    && !showSidebarNotesSelection
+                    && selectedFolderId == nil
+                    && !showUnfiledNotesOnly,
+                onOpenHome: {
+                    selectedMainPage = .notes
+                    selectedFolderId = nil
+                    showUnfiledNotesOnly = false
+                    showSidebarNotesSelection = false
+                },
+                onActivateNotesPage: {
+                    selectedMainPage = .notes
+                },
                 onOpenJournal: {
                     openJournalHub(openToday: false)
                 }
@@ -5171,84 +5240,8 @@ struct NoteEditView: View {
     }
 
     private func convertMarkdownToAttributedString(_ text: String) -> NSAttributedString {
-        let mutableAttributedString = NSMutableAttributedString()
-
-        // Default attributes
-        let defaultAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-            .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-        ]
-
-        // Split text into lines
-        let lines = text.components(separatedBy: .newlines)
-
-        for (index, line) in lines.enumerated() {
-            let currentLine = line
-            let lineAttributedString = NSMutableAttributedString()
-            var lastIndex = 0
-
-            // Find all **text** patterns for bold
-            let boldPattern = "\\*\\*([^*]+)\\*\\*"
-            if let regex = try? NSRegularExpression(pattern: boldPattern, options: []) {
-                let matches = regex.matches(in: currentLine, options: [], range: NSRange(currentLine.startIndex..., in: currentLine))
-
-                for match in matches {
-                    // Add text before the match
-                    if match.range.location > lastIndex {
-                        let beforeRange = NSRange(location: lastIndex, length: match.range.location - lastIndex)
-                        if let range = Range(beforeRange, in: currentLine) {
-                            let beforeText = String(currentLine[range])
-                            lineAttributedString.append(NSAttributedString(string: beforeText, attributes: defaultAttributes))
-                        }
-                    }
-
-                    // Add the bold text
-                    if let range = Range(match.range(at: 1), in: currentLine) {
-                        let boldText = String(currentLine[range])
-                        let boldAttributes: [NSAttributedString.Key: Any] = [
-                            .font: UIFont.systemFont(ofSize: 15, weight: .bold),
-                            .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-                        ]
-                        lineAttributedString.append(NSAttributedString(string: boldText, attributes: boldAttributes))
-                    }
-
-                    lastIndex = match.range.location + match.range.length
-                }
-
-                // Add remaining text after last match
-                if lastIndex < currentLine.count {
-                    let remainingRange = NSRange(location: lastIndex, length: currentLine.count - lastIndex)
-                    if let range = Range(remainingRange, in: currentLine) {
-                        let remainingText = String(currentLine[range])
-                        lineAttributedString.append(NSAttributedString(string: remainingText, attributes: defaultAttributes))
-                    }
-                }
-            }
-
-            // If no matches found, add the whole line with default attributes
-            if lineAttributedString.length == 0 {
-                lineAttributedString.append(NSAttributedString(string: currentLine, attributes: defaultAttributes))
-            }
-
-            // Add to main string
-            mutableAttributedString.append(lineAttributedString)
-
-            // Add newline if not last line
-            if index < lines.count - 1 {
-                // Add extra spacing before section headers for better readability
-                let isNextLineHeader = (index + 1 < lines.count) &&
-                    (lines[index + 1].contains("**Items") ||
-                     lines[index + 1].contains("**Summary") ||
-                     lines[index + 1].contains("**Payment") ||
-                     lines[index + 1].trimmingCharacters(in: .whitespaces).hasPrefix("📍") ||
-                     lines[index + 1].trimmingCharacters(in: .whitespaces).hasPrefix("💳"))
-
-                let spacing = isNextLineHeader ? "\n\n" : "\n"
-                mutableAttributedString.append(NSAttributedString(string: spacing, attributes: defaultAttributes))
-            }
-        }
-
-        return mutableAttributedString
+        let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
+        return MarkdownParser.shared.parseMarkdown(text, fontSize: 14, textColor: textColor)
     }
 
     // MARK: - File Attachment Handling
@@ -6033,170 +6026,168 @@ struct NotesArchiveView: View {
     let onSetReminder: (Note) -> Void
 
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var archiveState = NotesArchiveState()
     @Environment(\.colorScheme) private var colorScheme
     @State private var expandedMonths: Set<String> = []
+    @State private var didInitializeExpandedMonths = false
 
-    private var archiveMonthGroups: [(month: String, notes: [Note])] {
-        let standardNotes = notesManager.notes
-            .filter { note in
-                !isReceiptNote(note) && !note.isJournalEntry && !note.isJournalWeeklyRecap
-            }
-
-        let grouped = Dictionary(grouping: standardNotes) { note -> String in
-            let formatter = DateFormatter()
-            formatter.dateFormat = "MMMM yyyy"
-            return formatter.string(from: note.dateModified)
-        }
-
-        return grouped
-            .map { (month: $0.key, notes: $0.value.sorted { $0.dateModified > $1.dateModified }) }
-            .sorted { lhs, rhs in
-                guard let lhsDate = lhs.notes.first?.dateModified,
-                      let rhsDate = rhs.notes.first?.dateModified else {
-                    return false
-                }
-                return lhsDate > rhsDate
-            }
+    private var archiveMonthGroups: [NotesArchiveMonthGroup] {
+        archiveState.monthGroups
     }
 
     private var totalVisibleNotes: Int {
-        archiveMonthGroups.reduce(0) { $0 + $1.notes.count }
+        archiveState.totalVisibleNotes
+    }
+
+    private var archiveFavoriteNotes: [Note] {
+        archiveMonthGroups
+            .flatMap(\.notes)
+            .filter(\.isPinned)
+            .sorted { $0.dateModified > $1.dateModified }
     }
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 14) {
-                archiveHeroCard
+        Group {
+            if #available(iOS 16.4, *) {
+                archiveScrollView
+                    .scrollBounceBehavior(.basedOnSize)
+            } else {
+                archiveScrollView
+            }
+        }
+        .background(Color.appBackground(colorScheme).ignoresSafeArea())
+        .navigationTitle("All Notes")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            initializeExpandedMonthsIfNeeded()
+        }
+        .onChange(of: archiveMonthGroups.map(\.month)) { _ in
+            initializeExpandedMonthsIfNeeded()
+        }
+    }
 
+    private var archiveScrollView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 20) {
                 if archiveMonthGroups.isEmpty {
                     emptyState
                 } else {
+                    if !archiveFavoriteNotes.isEmpty {
+                        archiveFavoritesSection
+                    }
+
+                    archiveSummaryRow
+
                     ForEach(archiveMonthGroups, id: \.month) { monthGroup in
                         monthSectionCard(monthGroup)
                     }
                 }
 
                 Spacer()
-                    .frame(height: 40)
+                    .frame(height: 48)
             }
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-        }
-        .background(Color.appBackground(colorScheme).ignoresSafeArea())
-        .navigationTitle("All Notes")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            if expandedMonths.isEmpty {
-                expandedMonths = Set(archiveMonthGroups.map { $0.month })
-            }
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
         }
     }
 
-    private var archiveHeroCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("All Notes")
-                .font(FontManager.geist(size: 28, weight: .semibold))
-                .foregroundColor(Color.appTextPrimary(colorScheme))
-
-            Text("Browse every standard note by month.")
-                .font(FontManager.geist(size: 13, weight: .regular))
-                .foregroundColor(Color.appTextSecondary(colorScheme))
-
+    private var archiveFavoritesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                archiveMetricTile(title: "Months", value: "\(archiveMonthGroups.count)")
-                archiveMetricTile(title: "Notes", value: "\(totalVisibleNotes)")
-            }
-        }
-        .padding(16)
-        .background(archiveHeroCardBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(Color.appBorder(colorScheme), lineWidth: 1)
-        )
-        .shadow(
-            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
-            radius: 16,
-            x: 0,
-            y: 6
-        )
-    }
+                Text("FAVORITES")
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .tracking(0.8)
 
-    private var archiveHeroCardBackground: some View {
-        RoundedRectangle(cornerRadius: 24)
-            .fill(Color.appSurface(colorScheme))
-            .overlay(alignment: .topTrailing) {
-                Circle()
-                    .fill(Color(red: 0.98, green: 0.64, blue: 0.41).opacity(colorScheme == .dark ? 0.14 : 0.22))
-                    .frame(width: 220, height: 220)
-                    .blur(radius: 8)
-                    .offset(x: 60, y: -48)
-            }
-            .overlay(alignment: .bottomLeading) {
-                Circle()
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.06 : 0.5))
-                    .frame(width: 220, height: 220)
-                    .blur(radius: 12)
-                    .offset(x: -24, y: 90)
-            }
-    }
-
-    private func archiveMetricTile(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(FontManager.geist(size: 11, weight: .medium))
-                .foregroundColor(Color.appTextSecondary(colorScheme))
-
-            Text(value)
-                .font(FontManager.geist(size: 18, weight: .semibold))
-                .foregroundColor(Color.appTextPrimary(colorScheme))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.appInnerSurface(colorScheme))
-        )
-    }
-
-    private func monthSectionCard(_ monthGroup: (month: String, notes: [Note])) -> some View {
-        VStack(spacing: 0) {
-            NoteSectionHeader(
-                title: monthGroup.month.uppercased(),
-                count: monthGroup.notes.count,
-                isExpanded: Binding(
-                    get: { expandedMonths.contains(monthGroup.month) },
-                    set: { isExpanded in
-                        if isExpanded {
-                            expandedMonths.insert(monthGroup.month)
-                        } else {
-                            expandedMonths.remove(monthGroup.month)
-                        }
-                    }
-                )
-            )
-
-            if expandedMonths.contains(monthGroup.month) {
-                ForEach(monthGroup.notes) { note in
-                    NoteRow(
-                        note: note,
-                        onPinToggle: { note in
-                            notesManager.togglePinStatus(note)
-                        },
-                        onTap: { note in
-                            onOpenNote(note)
-                        },
-                        onDelete: { note in
-                            notesManager.deleteNote(note)
-                        },
-                        onSetReminder: { note in
-                            onSetReminder(note)
-                        }
+                Text("\(archiveFavoriteNotes.count)")
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.appChip(colorScheme))
                     )
+
+                Spacer()
+            }
+            .padding(.horizontal, 4)
+
+            VStack(spacing: 10) {
+                ForEach(archiveFavoriteNotes) { note in
+                    archiveNoteRow(note)
                 }
             }
+            .padding(8)
+            .background(monthSectionBackground)
         }
-        .background(sectionCardBackground)
+    }
+
+    private var archiveSummaryRow: some View {
+        HStack(spacing: 8) {
+            Text("\(totalVisibleNotes) \(totalVisibleNotes == 1 ? "note" : "notes")")
+                .font(FontManager.geist(size: 13, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            Circle()
+                .fill(Color.appBorder(colorScheme))
+                .frame(width: 4, height: 4)
+
+            Text("\(archiveMonthGroups.count) \(archiveMonthGroups.count == 1 ? "month" : "months")")
+                .font(FontManager.geist(size: 13, weight: .medium))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func monthSectionCard(_ monthGroup: NotesArchiveMonthGroup) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    if expandedMonths.contains(monthGroup.month) {
+                        expandedMonths.remove(monthGroup.month)
+                    } else {
+                        expandedMonths.insert(monthGroup.month)
+                    }
+                }
+            }) {
+                HStack(spacing: 10) {
+                    Text(monthGroup.month.uppercased())
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .tracking(0.8)
+
+                    Text("\(monthGroup.notes.count)")
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule()
+                                .fill(Color.appChip(colorScheme))
+                        )
+
+                    Spacer()
+
+                    Image(systemName: expandedMonths.contains(monthGroup.month) ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                }
+                .padding(.horizontal, 4)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .allowsParentScrolling()
+
+            if expandedMonths.contains(monthGroup.month) {
+                VStack(spacing: 10) {
+                    ForEach(monthGroup.notes) { note in
+                        archiveNoteRow(note)
+                    }
+                }
+                .padding(8)
+                .background(monthSectionBackground)
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -6211,14 +6202,98 @@ struct NotesArchiveView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
-        .background(sectionCardBackground)
+        .background(monthSectionBackground)
     }
 
-    private var sectionCardBackground: some View {
-        RoundedRectangle(cornerRadius: 16)
+    private func archiveNoteRow(_ note: Note) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    if note.isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(archiveMetaColor)
+                    }
+
+                    if !note.imageUrls.isEmpty {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(archiveMetaColor)
+                    }
+
+                    if note.reminderDate != nil {
+                        Image(systemName: note.isReminderDue ? "bell.badge.fill" : "bell.fill")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(note.isReminderDue ? Color.claudeAccent : archiveMetaColor)
+                    }
+
+                    Text(note.title.isEmpty ? "Untitled" : note.title)
+                        .font(FontManager.geist(size: 15, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+
+                HStack(spacing: 8) {
+                    Text(note.formattedDateModified)
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(archiveMetaColor)
+
+                    if let folderId = note.folderId {
+                        Circle()
+                            .fill(Color.appBorder(colorScheme))
+                            .frame(width: 3, height: 3)
+
+                        Text(notesManager.getFolderName(for: folderId))
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(archiveMetaColor)
+                            .lineLimit(1)
+                    }
+
+                    if let reminderDate = note.reminderDate {
+                        Circle()
+                            .fill(Color.appBorder(colorScheme))
+                            .frame(width: 3, height: 3)
+
+                        Text(formatReminderDate(reminderDate))
+                            .font(FontManager.geist(size: 12, weight: .regular))
+                            .foregroundColor(note.isReminderDue ? Color.claudeAccent : archiveMetaColor)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            Image(systemName: note.isPinned ? "pin.fill" : "arrow.up.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(note.isPinned ? Color.appTextPrimary(colorScheme) : archiveMetaColor)
+                .frame(width: 20, height: 20)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.appInnerSurface(colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+                )
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .scrollSafeTapAction(minimumDragDistance: 10) {
+            onOpenNote(note)
+        }
+        .allowsParentScrolling()
+    }
+
+    private var monthSectionBackground: some View {
+        RoundedRectangle(cornerRadius: 24)
             .fill(Color.appSectionCard(colorScheme))
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: 24)
                     .stroke(Color.appBorder(colorScheme), lineWidth: 1)
             )
             .shadow(
@@ -6229,18 +6304,30 @@ struct NotesArchiveView: View {
             )
     }
 
-    private func isReceiptNote(_ note: Note) -> Bool {
-        guard let receiptsFolderId = notesManager.folders.first(where: { $0.name == "Receipts" })?.id,
-              let folderId = note.folderId else { return false }
+    private var archiveMetaColor: Color {
+        Color.appTextSecondary(colorScheme)
+    }
 
-        var currentFolderId: UUID? = folderId
-        while let currentId = currentFolderId {
-            if currentId == receiptsFolderId {
-                return true
-            }
-            currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+    private func formatReminderDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let now = Date()
+
+        if calendar.isDate(date, inSameDayAs: now) {
+            return "Today"
+        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
+                  calendar.isDate(date, inSameDayAs: tomorrow) {
+            return "Tomorrow"
+        } else {
+            return FormatterCache.shortMonthDay.string(from: date)
         }
-        return false
+    }
+
+    private func initializeExpandedMonthsIfNeeded() {
+        guard !didInitializeExpandedMonths else { return }
+        guard !archiveMonthGroups.isEmpty else { return }
+
+        expandedMonths = Set(archiveMonthGroups.map(\.month))
+        didInitializeExpandedMonths = true
     }
 }
 

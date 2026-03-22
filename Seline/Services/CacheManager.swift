@@ -134,8 +134,13 @@ extension CacheManager {
         // Receipts
         static let todaysReceipts = "cache.receipts.today"
         static let todaysSpending = "cache.spending.today"
+        static let receiptStatsAll = "cache.receipts.stats.all"
         static func receiptStats(year: Int) -> String {
             return "cache.receipts.stats.\(year)"
+        }
+        static let lastKnownReceiptStatsAll = "cache.receipts.lastKnownStats.all"
+        static func lastKnownReceiptStats(year: Int) -> String {
+            return "cache.receipts.lastKnownStats.\(year)"
         }
         static func categoryBreakdown(year: Int, month: Int) -> String {
             return "cache.receipts.categoryBreakdown.\(year).\(month)"

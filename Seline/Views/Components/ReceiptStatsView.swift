@@ -26,6 +26,7 @@ struct ReceiptStatsView: View {
     @State private var availableYearsSnapshot: [Int] = []
     @State private var currentYearStatsSnapshot: YearlyReceiptSummary? = nil
     @State private var previousYearTotalSnapshot: Double? = nil
+    @State private var isLoadingReceiptData = false
 
     var searchText: String? = nil
     var initialMonthDate: Date? = nil
@@ -236,7 +237,7 @@ struct ReceiptStatsView: View {
                 RecurringExpenseStatsContent(searchText: searchText, onActivateSearch: onActivateSearch)
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 12) {
+                    LazyVStack(spacing: 12) {
                         if drilldownMode == .monthly {
                             monthlyContent
                         } else {
@@ -246,6 +247,7 @@ struct ReceiptStatsView: View {
                     .padding(.top, isPopup ? 8 : 10)
                     .padding(.bottom, 18)
                 }
+                .selinePrimaryPageScroll()
             }
         }
         .onAppear {
@@ -267,12 +269,19 @@ struct ReceiptStatsView: View {
             applyInitialMonthSelectionIfNeeded()
             loadCategoryBreakdown()
         }
+        .task {
+            await ensureReceiptDataLoaded()
+        }
         .onChange(of: currentYear) { _ in
             refreshSummaryCache()
             selectedMonthDate = monthlySummaries.first?.monthDate
             monthlyCategoryFilter = nil
             drilldownMode = .overview
             applyInitialMonthSelectionIfNeeded()
+            loadCategoryBreakdown()
+        }
+        .onChange(of: notesManager.folders.count) { _ in
+            refreshSummaryCache()
             loadCategoryBreakdown()
         }
         .onChange(of: notesManager.notes.count) { _ in
@@ -852,26 +861,20 @@ struct ReceiptStatsView: View {
 
                 Spacer()
 
-                HStack(spacing: 8) {
-                    Button(action: {
-                        showMonthlyCategoryBreakdown = true
-                    }) {
-                        Text("Categories")
-                            .font(FontManager.geist(size: 12, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .black : primaryTextColor)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                Capsule().fill(colorScheme == .dark ? Color.white : mutedFillColor)
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(selectedMonthCategorizedReceipts.isEmpty)
-
-                    if hasReceiptAddActions {
-                        addReceiptCircleButton
-                    }
+                Button(action: {
+                    showMonthlyCategoryBreakdown = true
+                }) {
+                    Text("Categories")
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .black : primaryTextColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule().fill(colorScheme == .dark ? Color.white : mutedFillColor)
+                        )
                 }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(selectedMonthCategorizedReceipts.isEmpty)
             }
         }
         .padding(16)
@@ -1135,12 +1138,20 @@ struct ReceiptStatsView: View {
 
     private var emptyReceiptsCard: some View {
         VStack(spacing: 8) {
-            Image(systemName: "doc.text")
-                .font(FontManager.geist(size: 30, weight: .light))
-                .foregroundColor(tertiaryTextColor)
-            Text("No receipts found")
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(secondaryTextColor)
+            if isLoadingReceiptData {
+                ProgressView()
+                    .tint(primaryTextColor)
+                Text("Loading receipts...")
+                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .foregroundColor(secondaryTextColor)
+            } else {
+                Image(systemName: "doc.text")
+                    .font(FontManager.geist(size: 30, weight: .light))
+                    .foregroundColor(tertiaryTextColor)
+                Text("No receipts found")
+                    .font(FontManager.geist(size: 14, weight: .regular))
+                    .foregroundColor(secondaryTextColor)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 26)
@@ -1170,9 +1181,59 @@ struct ReceiptStatsView: View {
 
     private func refreshSummaryCache() {
         let availableYears = notesManager.getAvailableReceiptYears()
-        availableYearsSnapshot = availableYears
-        currentYearStatsSnapshot = notesManager.getReceiptStatistics(year: currentYear).first
-        previousYearTotalSnapshot = notesManager.getReceiptStatistics(year: currentYear - 1).first?.yearlyTotal
+        let currentYearStats = notesManager.getReceiptStatistics(year: currentYear).first
+        let previousYearTotal = notesManager.getReceiptStatistics(year: currentYear - 1).first?.yearlyTotal
+        let shouldPreserveSnapshots = notesManager.shouldPreserveVisibleReceiptStats
+
+        if !availableYears.isEmpty || availableYearsSnapshot.isEmpty || !shouldPreserveSnapshots {
+            availableYearsSnapshot = availableYears
+        }
+
+        if let currentYearStats {
+            currentYearStatsSnapshot = currentYearStats
+        } else if !shouldPreserveSnapshots || currentYearStatsSnapshot?.year != currentYear {
+            currentYearStatsSnapshot = nil
+        }
+
+        if let previousYearTotal {
+            previousYearTotalSnapshot = previousYearTotal
+        } else if !shouldPreserveSnapshots {
+            previousYearTotalSnapshot = nil
+        }
+    }
+
+    private func ensureReceiptDataLoaded() async {
+        await MainActor.run {
+            isLoadingReceiptData = true
+        }
+
+        await MainActor.run {
+            refreshSummaryCache()
+        }
+
+        await notesManager.ensureReceiptDataAvailable()
+
+        await MainActor.run {
+            refreshSummaryCache()
+
+            let calendar = Calendar.current
+            if let initialMonthDate {
+                let initialYear = calendar.component(.year, from: initialMonthDate)
+                if availableYears.contains(initialYear) {
+                    currentYear = initialYear
+                } else if !availableYears.isEmpty {
+                    currentYear = availableYears.first ?? calendar.component(.year, from: Date())
+                }
+            } else if !availableYears.isEmpty, !availableYears.contains(currentYear) {
+                currentYear = availableYears.first ?? calendar.component(.year, from: Date())
+            }
+
+            refreshSummaryCache()
+            selectedMonthDate = monthlySummaries.first?.monthDate
+            applyInitialMonthSelectionIfNeeded()
+            loadCategoryBreakdown()
+            isLoadingReceiptData = false
+        }
     }
 
     private func loadCategoryBreakdown() {
@@ -1443,7 +1504,7 @@ struct RecurringExpenseStatsContent: View {
                         .padding(.vertical, 24)
                 } else {
                     ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 12) {
+                        LazyVStack(spacing: 12) {
                             recurringControlCard
 
                             if filteredRecurringExpenses.isEmpty {
@@ -1466,6 +1527,7 @@ struct RecurringExpenseStatsContent: View {
                         .padding(.top, 10)
                         .padding(.bottom, 8)
                     }
+                    .selinePrimaryPageScroll()
                 }
             }
         }
@@ -1500,11 +1562,7 @@ struct RecurringExpenseStatsContent: View {
 
                 Spacer(minLength: 12)
 
-                if let onAddRecurring {
-                    recurringHeroPrimaryIconActionPill(systemImage: "plus", accessibilityLabel: "Add recurring expense") {
-                        onAddRecurring()
-                    }
-                } else if dueNowCount > 0 {
+                if dueNowCount > 0 {
                     Text("\(dueNowCount) due")
                         .font(FontManager.geist(size: 11, weight: .semibold))
                         .foregroundColor(primaryTextColor)

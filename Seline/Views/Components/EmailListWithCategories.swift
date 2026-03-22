@@ -13,7 +13,7 @@ struct EmailListWithCategories: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            LazyVStack(spacing: 12) {
                 switch loadingState {
                 case .idle:
                     EmptyView()
@@ -65,6 +65,7 @@ struct EmailListWithCategories: View {
             .padding(.bottom, 80) // Extra padding at bottom for compose button
         }
         .hideScrollContentInsetIfAvailable()
+        .selinePrimaryPageScroll()
         .refreshable {
             await onRefresh()
         }

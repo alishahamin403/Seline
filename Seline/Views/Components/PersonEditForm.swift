@@ -35,27 +35,39 @@ struct PersonEditForm: View {
     @State private var photoURL: String? = nil
     
     private var primaryTextColor: Color {
-        colorScheme == .dark ? .white : .black
+        Color.appTextPrimary(colorScheme)
     }
 
     private var secondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.66) : Color.black.opacity(0.64)
+        Color.appTextSecondary(colorScheme)
     }
 
     private var tertiaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.52) : Color.black.opacity(0.5)
+        Color.appTextSecondary(colorScheme).opacity(0.72)
     }
 
     private var cardFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.white
+        Color.appSurface(colorScheme)
     }
 
     private var cardBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)
+        Color.appBorder(colorScheme)
     }
 
     private var isEditing: Bool {
         person != nil
+    }
+
+    private var heroEyebrowText: String {
+        isEditing ? "EDIT PERSON" : "NEW PERSON"
+    }
+
+    private var heroTitleText: String {
+        isEditing ? "Refine this person card" : "Create a cleaner people card"
+    }
+
+    private var heroSupportingText: String {
+        "Keep it lightweight: start with a photo, name, relationship, and only the details you actually revisit."
     }
     
     private var isValid: Bool {
@@ -94,75 +106,88 @@ struct PersonEditForm: View {
     }
     
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
-                topActionBar
+        ZStack {
+            AppAmbientBackgroundLayer(colorScheme: colorScheme, variant: .topLeading)
 
-                // Photo picker section
-                photoPickerSection
-
-                // Basic info section
-                basicInfoSection
-
-                // Personal attributes section
-                personalAttributesSection
-
-                // Contact info section
-                contactInfoSection
-
-                // Notes section
-                notesSection
-
-                Spacer().frame(height: 24)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    topActionBar
+                    photoPickerSection
+                    basicInfoSection
+                    personalAttributesSection
+                    contactInfoSection
+                    notesSection
+                    Spacer().frame(height: 24)
+                }
+                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.top, 12)
+                .padding(.bottom, 20)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
+            .selinePrimaryPageScroll()
         }
-        .background(colorScheme == .dark ? Color.black : Color(uiColor: .systemGroupedBackground))
     }
 
     private var topActionBar: some View {
         HStack(spacing: 12) {
-            topPillButton(title: "Cancel", action: onCancel)
+            topPillButton(title: "Cancel", systemImage: "xmark", action: onCancel)
 
             Spacer(minLength: 8)
 
             Text(isEditing ? "Edit Person" : "Add Person")
-                .font(FontManager.geist(size: 22, weight: .bold))
+                .font(FontManager.geist(size: 18, weight: .semibold))
                 .foregroundColor(primaryTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
 
             Spacer(minLength: 8)
 
-            topPillButton(title: "Save", action: savePerson, isDisabled: !isValid)
+            topPillButton(title: "Save", systemImage: "checkmark", action: savePerson, isDisabled: !isValid, isPrimary: true)
         }
     }
 
-    private func topPillButton(title: String, action: @escaping () -> Void, isDisabled: Bool = false) -> some View {
+    private func topPillButton(
+        title: String,
+        systemImage: String,
+        action: @escaping () -> Void,
+        isDisabled: Bool = false,
+        isPrimary: Bool = false
+    ) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(FontManager.geist(size: 15, weight: .semibold))
-                .foregroundColor(isDisabled ? tertiaryTextColor : primaryTextColor)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 10)
-                .background(
-                    Capsule()
-                        .fill(cardFillColor)
-                )
-                .overlay(
-                    Capsule()
-                        .stroke(cardBorderColor, lineWidth: 1)
-                )
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text(title)
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+            }
+            .foregroundColor(
+                isPrimary
+                    ? .black.opacity(isDisabled ? 0.4 : 1)
+                    : (isDisabled ? tertiaryTextColor : primaryTextColor)
+            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .fill(
+                        isPrimary
+                            ? Color.homeGlassAccent.opacity(isDisabled ? 0.45 : 1)
+                            : Color.appChip(colorScheme)
+                    )
+            )
+            .overlay(
+                Capsule()
+                    .stroke(isPrimary ? Color.clear : cardBorderColor, lineWidth: 1)
+            )
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
         .disabled(isDisabled)
     }
     
     // MARK: - Photo Picker Section
     
     private var photoPickerSection: some View {
-        VStack(spacing: 16) {
+        HStack(alignment: .center, spacing: 18) {
             PhotosPicker(
                 selection: $selectedPhotoItem,
                 matching: .images,
@@ -180,48 +205,67 @@ struct PersonEditForm: View {
                                 .aspectRatio(contentMode: .fill)
                         } placeholder: {
                             Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                .fill(Color.appChip(colorScheme))
                                 .overlay(
                                     Image(systemName: "person.fill")
-                                        .font(FontManager.geist(size: 40, weight: .light))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+                                        .font(FontManager.geist(size: 38, weight: .light))
+                                        .foregroundColor(tertiaryTextColor)
                                 )
                         }
                     } else {
                         Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                            .fill(Color.appChip(colorScheme))
                             .overlay(
                                 Image(systemName: "person.fill")
-                                    .font(FontManager.geist(size: 40, weight: .light))
+                                    .font(FontManager.geist(size: 38, weight: .light))
                                     .foregroundColor(tertiaryTextColor)
                             )
                     }
                     
-                    // Overlay with edit icon
                     Circle()
-                        .fill(colorScheme == .dark ? Color.black.opacity(0.45) : Color.white.opacity(0.92))
+                        .fill(Color.homeGlassAccent)
                         .overlay(
                             Image(systemName: selectedImage != nil || photoURL != nil ? "pencil.circle.fill" : "camera.fill")
-                                .font(FontManager.geist(size: 22, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .font(FontManager.geist(size: 18, weight: .medium))
+                                .foregroundColor(.black)
                         )
-                        .frame(width: 42, height: 42)
+                        .frame(width: 40, height: 40)
                 }
-                .frame(width: 116, height: 116)
+                .frame(width: 104, height: 104)
                 .overlay(
                     Circle()
                         .stroke(cardBorderColor, lineWidth: 1.2)
                 )
             }
-            .buttonStyle(PlainButtonStyle())
-            
-            Text(selectedImage != nil || photoURL != nil ? "Tap to change photo" : "Tap to add photo")
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(tertiaryTextColor)
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(heroEyebrowText)
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(secondaryTextColor)
+                    .tracking(1.2)
+
+                Text(heroTitleText)
+                    .font(FontManager.geist(size: 24, weight: .semibold))
+                    .foregroundColor(primaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(heroSupportingText)
+                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .foregroundColor(secondaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(selectedImage != nil || photoURL != nil ? "Tap the photo to replace it." : "Tap the photo to add one.")
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(tertiaryTextColor)
+            }
+
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
-        .background(sectionCardBackground(cornerRadius: 20))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 20)
+        .padding(.horizontal, 18)
+        .background(sectionCardBackground(cornerRadius: 28))
         .onChange(of: selectedPhotoItem) { newItem in
             Task {
                 if let newItem = newItem {
@@ -243,7 +287,6 @@ struct PersonEditForm: View {
             sectionHeader(title: "Basic Info", icon: "person.fill")
             
             VStack(spacing: 12) {
-                // Name (required)
                 formTextField(
                     title: "Name",
                     placeholder: "Enter name",
@@ -252,7 +295,6 @@ struct PersonEditForm: View {
                     isRequired: true
                 )
                 
-                // Nickname
                 formTextField(
                     title: "Nickname",
                     placeholder: "Optional nickname",
@@ -260,11 +302,10 @@ struct PersonEditForm: View {
                     icon: "quote.bubble.fill"
                 )
                 
-                // Relationship picker
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Relationship")
                         .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        .foregroundColor(secondaryTextColor)
                     
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
@@ -275,7 +316,6 @@ struct PersonEditForm: View {
                     }
                 }
                 
-                // Custom relationship (if "Other" is selected)
                 if relationship == .other {
                     formTextField(
                         title: "Custom Relationship",
@@ -285,21 +325,21 @@ struct PersonEditForm: View {
                     )
                 }
                 
-                // Favourite toggle
                 Toggle(isOn: $isFavourite) {
                     HStack(spacing: 8) {
                         Image(systemName: "star.fill")
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                            .foregroundColor(Color.homeGlassAccent)
                         Text("Mark as Favourite")
                             .font(FontManager.geist(size: 14, weight: .medium))
+                            .foregroundColor(primaryTextColor)
                     }
                 }
-                .tint(colorScheme == .dark ? .white : .black)
-                .padding(12)
+                .tint(Color.homeGlassAccent)
+                .padding(14)
                 .background(fieldCardBackground(cornerRadius: 12))
             }
-            .padding(12)
-            .background(sectionCardBackground(cornerRadius: 16))
+            .padding(14)
+            .background(sectionCardBackground(cornerRadius: 22))
         }
     }
     
@@ -319,19 +359,15 @@ struct PersonEditForm: View {
             .padding(.vertical, 8)
             .background(
                 Capsule()
-                    .fill(relationship == type ?
-                          (colorScheme == .dark ? Color.white : Color.black) :
-                          (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)))
+                    .fill(relationship == type ? Color.homeGlassAccent : Color.appChip(colorScheme))
             )
-            .foregroundColor(relationship == type ?
-                             (colorScheme == .dark ? Color.black : Color.white) :
-                             secondaryTextColor)
+            .foregroundColor(relationship == type ? .black : secondaryTextColor)
             .overlay(
                 Capsule()
                     .stroke(relationship == type ? Color.clear : cardBorderColor, lineWidth: 0.8)
             )
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
     }
     
     // MARK: - Personal Attributes Section
@@ -346,12 +382,13 @@ struct PersonEditForm: View {
                     Toggle(isOn: $hasBirthday) {
                         HStack(spacing: 8) {
                             Image(systemName: "gift.fill")
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .foregroundColor(Color.homeGlassAccent)
                             Text("Birthday")
                                 .font(FontManager.geist(size: 14, weight: .medium))
+                                .foregroundColor(primaryTextColor)
                         }
                     }
-                    .tint(colorScheme == .dark ? .white : .black)
+                    .tint(Color.homeGlassAccent)
                     
                     if hasBirthday {
                         DatePicker(
@@ -398,8 +435,8 @@ struct PersonEditForm: View {
                     icon: "heart.fill"
                 )
             }
-            .padding(12)
-            .background(sectionCardBackground(cornerRadius: 16))
+            .padding(14)
+            .background(sectionCardBackground(cornerRadius: 22))
         }
     }
     
@@ -452,8 +489,8 @@ struct PersonEditForm: View {
                     icon: "link"
                 )
             }
-            .padding(12)
-            .background(sectionCardBackground(cornerRadius: 16))
+            .padding(14)
+            .background(sectionCardBackground(cornerRadius: 22))
         }
     }
     
@@ -480,8 +517,8 @@ struct PersonEditForm: View {
                     icon: "note.text"
                 )
             }
-            .padding(12)
-            .background(sectionCardBackground(cornerRadius: 16))
+            .padding(14)
+            .background(sectionCardBackground(cornerRadius: 22))
         }
     }
     
@@ -491,17 +528,17 @@ struct PersonEditForm: View {
         HStack(spacing: 8) {
             ZStack {
                 Circle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+                    .fill(Color.appChip(colorScheme))
                 Image(systemName: icon)
                     .font(FontManager.geist(size: 10, weight: .semibold))
                     .foregroundColor(secondaryTextColor)
             }
-            .frame(width: 20, height: 20)
+            .frame(width: 24, height: 24)
 
             Text(title)
                 .font(FontManager.geist(size: 13, weight: .semibold))
                 .textCase(.uppercase)
-                .tracking(0.55)
+                .tracking(1.1)
         }
         .foregroundColor(secondaryTextColor)
     }
@@ -511,16 +548,22 @@ struct PersonEditForm: View {
             .fill(cardFillColor)
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(cardBorderColor, lineWidth: 0.8)
+                    .stroke(cardBorderColor, lineWidth: 1)
+            )
+            .shadow(
+                color: colorScheme == .dark ? .black.opacity(0.18) : Color.black.opacity(0.05),
+                radius: colorScheme == .dark ? 10 : 16,
+                x: 0,
+                y: colorScheme == .dark ? 6 : 10
             )
     }
 
     private func fieldCardBackground(cornerRadius: CGFloat = 10) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
+            .fill(Color.appInnerSurface(colorScheme))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 0.6)
+                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
             )
     }
     
@@ -557,13 +600,13 @@ struct PersonEditForm: View {
                     .keyboardType(keyboardType)
                     .autocapitalization(keyboardType == .emailAddress ? .none : .words)
             }
-            .padding(12)
+            .padding(14)
             .background(fieldCardBackground(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(
                         isRequired && text.wrappedValue.isEmpty ?
-                        (colorScheme == .dark ? Color.white.opacity(0.24) : Color.black.opacity(0.24)) :
+                        Color.homeGlassAccent.opacity(0.4) :
                         Color.clear,
                         lineWidth: 1
                     )
@@ -608,7 +651,7 @@ struct PersonEditForm: View {
                         alignment: .topLeading
                     )
             }
-            .padding(12)
+            .padding(14)
             .background(fieldCardBackground(cornerRadius: 12))
         }
     }

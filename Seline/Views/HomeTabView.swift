@@ -48,10 +48,17 @@ struct HomeWidgetStackView: View {
                     homeState: homeState,
                     isExpanded: $isDailyOverviewExpanded,
                     isVisible: isVisible,
+                    currentLocationName: currentLocationName,
+                    nearbyLocation: nearbyLocation,
+                    nearbyLocationPlace: nearbyLocationPlace,
+                    distanceToNearest: distanceToNearest,
                     onNoteSelected: onNoteSelected,
                     onEmailSelected: onEmailSelected,
                     onTaskSelected: onTaskSelected,
                     onPersonSelected: onPersonSelected,
+                    onLocationSelected: { place in
+                        selectedPlace = place
+                    },
                     onAddTask: onAddTask,
                     onAddTaskFromPhoto: onAddTaskFromPhoto,
                     onAddNote: onAddNote
@@ -68,27 +75,12 @@ struct HomeWidgetStackView: View {
                 .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                 .padding(.top, 4)
                 .padding(.bottom, 6)
-
-                CurrentLocationCardWidget(
-                    currentLocationName: currentLocationName,
-                    nearbyLocation: nearbyLocation,
-                    nearbyLocationFolder: nearbyLocationFolder,
-                    nearbyLocationPlace: nearbyLocationPlace,
-                    distanceToNearest: distanceToNearest,
-                    todaysVisits: homeState.todaysVisits,
-                    isVisible: isVisible,
-                    selectedPlace: $selectedPlace,
-                    showAllLocationsSheet: $showAllLocationsSheet
-                )
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                .allowsHitTesting(!isDailyOverviewExpanded)
             }
             .padding(.top, 12)
             .padding(.bottom, 20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .scrollDismissesKeyboard(.interactively)
-        .scrollContentBackground(.hidden)
+        .selinePrimaryPageScroll()
         .refreshable {
             onRefresh()
         }

@@ -54,18 +54,33 @@ struct FlipModifier: ViewModifier {
 
 extension View {
     /// Apply smooth spring animation to navigation transitions
-    func smoothNavigation() -> some View {
-        self.animation(.spring(response: 0.35, dampingFraction: 0.8), value: UUID())
+    func smoothNavigation<Value: Equatable>(value: Value) -> some View {
+        self.animation(.spring(response: 0.35, dampingFraction: 0.8), value: value)
     }
 
     /// Apply modal presentation animation
-    func modalAnimation() -> some View {
-        self.animation(.spring(response: 0.4, dampingFraction: 0.85), value: UUID())
+    func modalAnimation<Value: Equatable>(value: Value) -> some View {
+        self.animation(.spring(response: 0.4, dampingFraction: 0.85), value: value)
     }
 
     /// Apply card transition animation
+    func cardTransition<Value: Equatable>(value: Value) -> some View {
+        self.animation(.spring(response: 0.3, dampingFraction: 0.75), value: value)
+    }
+
+    /// Kept for source compatibility; callers should provide a stable value to animate against.
+    func smoothNavigation() -> some View {
+        self
+    }
+
+    /// Kept for source compatibility; callers should provide a stable value to animate against.
+    func modalAnimation() -> some View {
+        self
+    }
+
+    /// Kept for source compatibility; callers should provide a stable value to animate against.
     func cardTransition() -> some View {
-        self.animation(.spring(response: 0.3, dampingFraction: 0.75), value: UUID())
+        self
     }
 }
 
@@ -249,10 +264,15 @@ extension View {
     }
 
     /// Scale effect on button press
+    func pressAnimation(isPressed: Bool, pressedScale: CGFloat = 0.96) -> some View {
+        self
+            .scaleEffect(isPressed ? pressedScale : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isPressed)
+    }
+
+    /// Kept for source compatibility; callers should bind this to a stable pressed state.
     func pressAnimation() -> some View {
         self
-            .scaleEffect(1.0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: UUID())
     }
 }
 

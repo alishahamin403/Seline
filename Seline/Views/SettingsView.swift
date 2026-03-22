@@ -28,7 +28,7 @@ struct SettingsView: View {
             AppAmbientBackgroundLayer(colorScheme: resolvedColorScheme, variant: .bottomTrailing)
 
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 14) {
+                LazyVStack(spacing: 14) {
                     profileHeaderSection
                         .padding(.horizontal, 20)
                         .padding(.vertical, 22)
@@ -217,6 +217,7 @@ struct SettingsView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 50)
             }
+            .selinePrimaryPageScroll()
         }
         .sheet(isPresented: $showingFeedback) {
             FeedbackView()

@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct EventsView: View {
+struct ChatView: View {
     var isVisible: Bool = true
 
     var body: some View {
@@ -9,5 +9,5 @@ struct EventsView: View {
 }
 
 #Preview {
-    EventsView()
+    ChatView()
 }

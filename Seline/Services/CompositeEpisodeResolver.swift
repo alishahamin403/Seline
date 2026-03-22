@@ -1088,6 +1088,14 @@ final class CompositeEpisodeResolver {
             return 0.6
         case .person:
             return 0.5
+        case .tracker:
+            return 0.6
+        case .budget:
+            return 0.5
+        case .recurringExpense:
+            return 0.5
+        case .attachment:
+            return 0.4
         }
     }
 

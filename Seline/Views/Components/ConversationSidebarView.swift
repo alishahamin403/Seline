@@ -68,6 +68,9 @@ struct ConversationSidebarView: View {
         .onAppear {
             // Load saved conversations from local storage when sidebar appears
             searchService.loadConversationHistoryLocally()
+            Task {
+                await searchService.loadConversationsFromSupabase()
+            }
         }
     }
 

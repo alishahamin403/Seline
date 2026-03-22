@@ -21,9 +21,10 @@ struct SearchResultsListView<Item: Identifiable>: View {
                     }
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
         }
-        .background(colorScheme == .dark ? Color.black : Color.white)
+        .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 18)
     }
 }

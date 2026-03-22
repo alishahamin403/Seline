@@ -234,6 +234,9 @@ class ConversationActionHandler {
             time: action.extractedInfo.eventStartTime,
             endTime: action.extractedInfo.eventEndTime,
             recurrenceFrequency: action.extractedInfo.eventRecurrence,
+            reminderMinutes: action.extractedInfo.eventReminders.first?.minutesBefore,
+            category: action.extractedInfo.eventCategory ?? "Personal",
+            location: action.extractedInfo.eventLocation,
             isAllDay: action.extractedInfo.isAllDay,
             requiresFollowUp: false
         )
@@ -248,7 +251,9 @@ class ConversationActionHandler {
         return NoteCreationData(
             title: title,
             content: action.extractedInfo.noteContent,
-            formattedContent: action.extractedInfo.noteContent
+            formattedContent: action.extractedInfo.noteContent,
+            folderId: nil,
+            folderName: nil
         )
     }
 
@@ -315,16 +320,22 @@ struct EventCreationData: Codable, Equatable {
     let time: String?
     let endTime: String?
     let recurrenceFrequency: String?
+    let reminderMinutes: Int?
+    let category: String
+    let location: String?
     let isAllDay: Bool
     let requiresFollowUp: Bool
 
-    init(title: String, description: String? = nil, date: String, time: String? = nil, endTime: String? = nil, recurrenceFrequency: String? = nil, isAllDay: Bool = false, requiresFollowUp: Bool = false) {
+    init(title: String, description: String? = nil, date: String, time: String? = nil, endTime: String? = nil, recurrenceFrequency: String? = nil, reminderMinutes: Int? = nil, category: String = "Personal", location: String? = nil, isAllDay: Bool = false, requiresFollowUp: Bool = false) {
         self.title = title
         self.description = description
         self.date = date
         self.time = time
         self.endTime = endTime
         self.recurrenceFrequency = recurrenceFrequency
+        self.reminderMinutes = reminderMinutes
+        self.category = category
+        self.location = location
         self.isAllDay = isAllDay
         self.requiresFollowUp = requiresFollowUp
     }
@@ -334,11 +345,15 @@ struct NoteCreationData: Codable, Equatable {
     let title: String
     let content: String
     let formattedContent: String
+    let folderId: UUID?
+    let folderName: String?
 
-    init(title: String, content: String, formattedContent: String) {
+    init(title: String, content: String, formattedContent: String, folderId: UUID? = nil, folderName: String? = nil) {
         self.title = title
         self.content = content
         self.formattedContent = formattedContent
+        self.folderId = folderId
+        self.folderName = folderName
     }
 }
 
