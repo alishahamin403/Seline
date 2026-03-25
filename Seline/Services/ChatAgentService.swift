@@ -805,7 +805,12 @@ final class ChatAgentService {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return text }
 
-        if shouldConvertToClarification(trimmed) {
+        // Only attempt clarification conversion when there is no real evidence.
+        // If the bundle has records or aggregates the synthesizer worked from actual
+        // data — its answer (even if partial) is always more useful than a generic
+        // "can you narrow it down" message. Never shadow a real answer.
+        let hasRealEvidence = !evidenceBundle.records.isEmpty || !evidenceBundle.aggregates.isEmpty
+        if !hasRealEvidence && shouldConvertToClarification(trimmed) {
             return genericClarificationPrompt(for: userMessage, evidenceBundle: evidenceBundle)
         }
 
@@ -814,24 +819,20 @@ final class ChatAgentService {
 
     private func shouldConvertToClarification(_ text: String) -> Bool {
         let lowered = text.lowercased()
+        // Only match responses that are a total inability to answer — not partial
+        // answers that acknowledge some missing detail alongside real content.
         let phrases = [
             "i cannot answer",
             "i can't answer",
             "i cannot find any evidence",
             "i couldn't find any evidence",
             "i could not find any evidence",
-            "there is no information",
-            "there's no information",
             "provided evidence",
             "cannot directly retrieve",
             "cannot directly access",
             "tools do not allow",
-            "do not have information",
-            "don't have information",
             "i apologize, but i cannot",
-            "i apologize, but i can not",
-            "no information about",
-            "no evidence of"
+            "i apologize, but i can not"
         ]
 
         return phrases.contains(where: { lowered.contains($0) })
