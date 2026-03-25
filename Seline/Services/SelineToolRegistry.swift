@@ -27,6 +27,7 @@ final class SelineToolRegistry {
     private let episodeResolver = CompositeEpisodeResolver.shared
     private let gmailAPIClient = GmailAPIClient.shared
     private let geminiService = GeminiService.shared
+    private let daySummaryService = DaySummaryService.shared
 
     private init() {}
 
@@ -52,6 +53,16 @@ final class SelineToolRegistry {
                         ]
                     ],
                     "required": ["query"]
+                ]
+            ),
+            functionTool(
+                name: "get_day_context",
+                description: "Get a daily cross-touchpoint summary for one day, combining journal, tasks, visits, receipts, linked people, and inbox activity. Use this for questions like 'how was I doing yesterday' or 'what happened that day'.",
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "date_query": ["type": "string"]
+                    ]
                 ]
             ),
             functionTool(
@@ -296,6 +307,8 @@ final class SelineToolRegistry {
         switch name {
         case "resolve_episode_context":
             return try await ToolExecution(result: resolveEpisodeContext(arguments: arguments), locationInfo: nil)
+        case "get_day_context":
+            return try await ToolExecution(result: getDayContext(arguments: arguments), locationInfo: nil)
         case "search_seline_records":
             return try await ToolExecution(result: searchSelineRecords(arguments: arguments), locationInfo: nil)
         case "get_record_details":
@@ -409,7 +422,9 @@ final class SelineToolRegistry {
                 records: dedupedRecords,
                 aggregates: [aggregate],
                 ambiguities: [],
-                citations: dedupedRecords.map { ToolCitation(ref: $0.ref, label: $0.title) }
+                citations: dedupedRecords.map { ToolCitation(ref: $0.ref, label: $0.title) },
+                resolvedTimeRange: episodeDateRangeLabel(episode),
+                resolvedDateBounds: ResolvedDateBounds(start: episode.start, end: episode.end)
             )
         }
     }
@@ -420,12 +435,13 @@ final class SelineToolRegistry {
         let documentTypes = vectorDocumentTypes(for: scopes)
         let timeRange = stringValue(arguments["time_range"]) ?? query
         let limit = intValue(arguments["limit"]) ?? 10
+        let resolvedBounds = resolvedDateRange(from: timeRange)
 
         let results = try await vectorSearch.search(
             query: query,
             documentTypes: documentTypes,
             limit: limit,
-            dateRange: resolvedDateRange(from: timeRange),
+            dateRange: resolvedBounds,
             preferHistorical: true,
             retrievalMode: .exhaustive
         )
@@ -446,12 +462,76 @@ final class SelineToolRegistry {
         }
 
         let dedupedRecords = dedupeRecords(records)
-        return ToolResult(
+        let cappedRecords = Array(dedupedRecords.prefix(limit))
+        let result = ToolResult(
             toolName: "search_seline_records",
-            records: Array(dedupedRecords.prefix(limit)),
+            records: cappedRecords,
             aggregates: [],
             ambiguities: [],
-            citations: Array(dedupedRecords.prefix(limit)).map { ToolCitation(ref: $0.ref, label: $0.title) }
+            citations: cappedRecords.map { ToolCitation(ref: $0.ref, label: $0.title) },
+            isTruncated: results.count >= limit
+        )
+        return applyingResolvedDateContext(to: result, bounds: resolvedBounds)
+    }
+
+    private func getDayContext(arguments: [String: Any]) async throws -> ToolResult {
+        let rawDateQuery = stringValue(arguments["date_query"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let calendar = Calendar.current
+
+        let targetDate: Date
+        if let rawDateQuery, !rawDateQuery.isEmpty {
+            if let bounds = resolvedDateRange(from: rawDateQuery) {
+                let start = calendar.startOfDay(for: bounds.start)
+                let inclusiveEnd = bounds.end.addingTimeInterval(-1)
+                if !calendar.isDate(start, inSameDayAs: inclusiveEnd) {
+                    return ToolResult(
+                        toolName: "get_day_context",
+                        ambiguities: [ToolAmbiguity(question: "Which specific day should I focus on?", options: [])]
+                    )
+                }
+                targetDate = start
+            } else if let parsed = parseFlexibleDate(rawDateQuery) {
+                targetDate = calendar.startOfDay(for: parsed)
+            } else {
+                return ToolResult(
+                    toolName: "get_day_context",
+                    ambiguities: [ToolAmbiguity(question: "Which day should I look at?", options: [])]
+                )
+            }
+        } else {
+            targetDate = calendar.startOfDay(for: Date())
+        }
+
+        guard let summary = await daySummaryService.summary(for: targetDate) else {
+            return ToolResult(
+                toolName: "get_day_context",
+                ambiguities: [ToolAmbiguity(question: "I couldn’t assemble day context for that yet.", options: [])]
+            )
+        }
+
+        let record = daySummaryEvidenceRecord(summary)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: targetDate) ?? targetDate.addingTimeInterval(86_400)
+        let aggregate = ToolAggregate(
+            title: "Day context",
+            metric: "day_context",
+            rows: [
+                ToolAggregateRow(key: "Date", value: isoDate(targetDate)),
+                ToolAggregateRow(key: "Mood", value: summary.mood ?? "Unknown"),
+                ToolAggregateRow(key: "Highlights", value: "\(summary.highlights.count)", numericValue: Double(summary.highlights.count)),
+                ToolAggregateRow(key: "Open loops", value: "\(summary.openLoops.count)", numericValue: Double(summary.openLoops.count)),
+                ToolAggregateRow(key: "Anomalies", value: "\(summary.anomalies.count)", numericValue: Double(summary.anomalies.count))
+            ],
+            summary: summary.summaryText
+        )
+
+        return ToolResult(
+            toolName: "get_day_context",
+            records: [record],
+            aggregates: [aggregate],
+            ambiguities: [],
+            citations: [ToolCitation(ref: record.ref, label: record.title)],
+            resolvedTimeRange: dayAnchorLabel(for: targetDate),
+            resolvedDateBounds: ResolvedDateBounds(start: targetDate, end: dayEnd)
         )
     }
 
@@ -476,28 +556,33 @@ final class SelineToolRegistry {
         let scopes = stringArray(filters["scopes"])
         let query = stringValue(filters["query"])
         let timeRange = stringValue(filters["time_range"]) ?? query
+        let resolvedBounds = resolvedDateRange(from: timeRange)
         let explicitRefs = entityRefs(from: filters["entity_refs"])
         let resolvedRefs = explicitRefs
 
         if scopes.contains("receipt") || metric.contains("spend") || metric.contains("amount") {
-            return try await aggregateReceipts(metric: metric, groupBy: groupBy, query: query, timeRange: timeRange, refs: resolvedRefs)
+            let result = try await aggregateReceipts(metric: metric, groupBy: groupBy, query: query, timeRange: timeRange, refs: resolvedRefs)
+            return applyingResolvedDateContext(to: result, bounds: resolvedBounds)
         }
 
         if scopes.contains("event") || metric.contains("event") || metric.contains("calendar") {
-            return aggregateEvents(metric: metric, groupBy: groupBy, query: query, timeRange: timeRange)
+            let result = aggregateEvents(metric: metric, groupBy: groupBy, query: query, timeRange: timeRange)
+            return applyingResolvedDateContext(to: result, bounds: resolvedBounds)
         }
 
         if scopes.contains("email") || metric.contains("email") {
-            return aggregateEmails(metric: metric, groupBy: groupBy, query: query, timeRange: timeRange)
+            let result = aggregateEmails(metric: metric, groupBy: groupBy, query: query, timeRange: timeRange)
+            return applyingResolvedDateContext(to: result, bounds: resolvedBounds)
         }
 
-        return try await aggregateVisits(
+        let result = try await aggregateVisits(
             metric: metric,
             groupBy: groupBy,
             query: query,
             timeRange: timeRange,
             refs: resolvedRefs
         )
+        return applyingResolvedDateContext(to: result, bounds: resolvedBounds)
     }
 
     private func traverseRelations(arguments: [String: Any]) async throws -> ToolResult {
@@ -1139,9 +1224,10 @@ final class SelineToolRegistry {
         let allYearlyStats = notesManager.getReceiptStatistics()
         let allReceipts = allYearlyStats.flatMap { $0.monthlySummaries }.flatMap(\.receipts)
         let dateBounds = resolvedDateRange(from: timeRange)
-        let personIds = Set(refs.compactMap(personId(from:)))
-        let placeIds = Set(refs.compactMap(placeId(from:)))
-        let visitIds = Set(refs.compactMap(visitId(from:)))
+        let shouldApplyEntityScope = shouldApplyReceiptEntityScope(query: query, refs: refs, dateBounds: dateBounds)
+        let personIds = shouldApplyEntityScope ? Set(refs.compactMap(personId(from:))) : []
+        let placeIds = shouldApplyEntityScope ? Set(refs.compactMap(placeId(from:))) : []
+        let visitIds = shouldApplyEntityScope ? Set(refs.compactMap(visitId(from:))) : []
         let receiptIds = Set(refs.compactMap(receiptId(from:)))
         var receiptPeopleMap: [UUID: Set<UUID>] = [:]
         var linkedReceiptIds = receiptIds
@@ -1170,11 +1256,8 @@ final class SelineToolRegistry {
             }
         }
 
-        let filtered = allReceipts.filter { receipt in
+        let baseFiltered = allReceipts.filter { receipt in
             if let dateBounds, !(receipt.date >= dateBounds.start && receipt.date < dateBounds.end) {
-                return false
-            }
-            if !receiptMatchesQuery(receipt, query: query) {
                 return false
             }
             if !personIds.isEmpty {
@@ -1186,6 +1269,16 @@ final class SelineToolRegistry {
             }
             return true
         }
+        let queryFiltered = baseFiltered.filter { receiptMatchesQuery($0, query: query) }
+        let hasGroundedScope = dateBounds != nil
+            || !personIds.isEmpty
+            || !placeIds.isEmpty
+            || !visitIds.isEmpty
+            || !receiptIds.isEmpty
+        let trimmedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let filtered = hasGroundedScope && !trimmedQuery.isEmpty && queryFiltered.isEmpty
+            ? baseFiltered
+            : queryFiltered
 
         let rows = aggregateReceiptRows(receipts: filtered, groupBy: groupBy)
         let records = filtered.prefix(8).compactMap(receiptEvidenceRecord(_:))
@@ -1204,6 +1297,43 @@ final class SelineToolRegistry {
             ambiguities: [],
             citations: records.map { ToolCitation(ref: $0.ref, label: $0.title) }
         )
+    }
+
+    private func shouldApplyReceiptEntityScope(
+        query: String?,
+        refs: [EntityRef],
+        dateBounds: (start: Date, end: Date)?
+    ) -> Bool {
+        guard dateBounds != nil else {
+            return true
+        }
+
+        let scopedRefs = refs.filter { ref in
+            switch ref.type {
+            case .person, .location, .visit:
+                return true
+            default:
+                return false
+            }
+        }
+        guard !scopedRefs.isEmpty else {
+            return true
+        }
+
+        guard let query = query?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines), !query.isEmpty else {
+            return true
+        }
+
+        return scopedRefs.contains { ref in
+            guard let title = ref.title?.lowercased(), !title.isEmpty else {
+                return false
+            }
+            if query.contains(title) {
+                return true
+            }
+            let titleTerms = searchableTerms(from: title)
+            return !titleTerms.isEmpty && titleTerms.allSatisfy { query.contains($0) }
+        }
     }
 
     private func aggregateEvents(
@@ -1277,6 +1407,11 @@ final class SelineToolRegistry {
         var records: [EvidenceRecord] = []
         for ref in refs {
             switch ref.type {
+            case .daySummary:
+                if let summaryId = UUID(uuidString: ref.id),
+                   let summary = await daySummaryService.summary(id: summaryId) {
+                    records.append(daySummaryEvidenceRecord(summary))
+                }
             case .email:
                 if let email = (emailService.inboxEmails + emailService.sentEmails).first(where: { $0.id == ref.id }),
                    let record = emailEvidenceRecord(email) {
@@ -1338,6 +1473,9 @@ final class SelineToolRegistry {
 
     private func relatedEntityRefs(for ref: EntityRef, relationTypes: Set<String>) async throws -> [EntityRef] {
         switch ref.type {
+        case .daySummary:
+            guard let summaryId = UUID(uuidString: ref.id) else { return [] }
+            return await daySummaryService.relatedEntityRefs(for: summaryId, relationTypes: relationTypes)
         case .location:
             guard let placeId = UUID(uuidString: ref.id) else { return [] }
             let visits = try await fetchVisits(dateBounds: nil, placeIds: [placeId])
@@ -1388,6 +1526,33 @@ final class SelineToolRegistry {
                 .map(\.key)
             refs.append(contentsOf: linkedVisitIds.map { EntityRef(type: .visit, id: $0.uuidString, title: nil) })
             return refs
+        case .event:
+            // Semantically search for emails related to this event by its title.
+            // There is no explicit event↔email link table, so we use vector similarity
+            // with the event title as the query to surface confirmation emails, invitations,
+            // and any other communications about this event.
+            guard let title = ref.title, !title.isEmpty else { return [] }
+            let emailResults = (try? await vectorSearch.search(
+                query: title,
+                documentTypes: [.email],
+                limit: 5,
+                dateRange: nil,
+                preferHistorical: true,
+                retrievalMode: .exhaustive
+            )) ?? []
+            return emailResults.map { EntityRef(type: .email, id: $0.documentId, title: $0.title) }
+        case .email:
+            // Search for calendar events semantically related to this email's title/subject.
+            guard let title = ref.title, !title.isEmpty else { return [] }
+            let eventResults = (try? await vectorSearch.search(
+                query: title,
+                documentTypes: [.task],
+                limit: 5,
+                dateRange: nil,
+                preferHistorical: true,
+                retrievalMode: .exhaustive
+            )) ?? []
+            return eventResults.map { EntityRef(type: .event, id: $0.documentId, title: $0.title) }
         default:
             return []
         }
@@ -1492,6 +1657,43 @@ final class SelineToolRegistry {
         }
     }
 
+    private func daySummaryEvidenceRecord(_ summary: DaySummaryService.DaySummary) -> EvidenceRecord {
+        var attributes: [String: String] = [
+            "mood": summary.mood ?? ""
+        ]
+        // Expose actual content strings, not just counts — the LLM needs the text to synthesize a real answer
+        if !summary.highlights.isEmpty {
+            attributes["highlights"] = summary.highlights.joined(separator: " | ")
+        }
+        if !summary.openLoops.isEmpty {
+            attributes["open_loops"] = summary.openLoops.joined(separator: " | ")
+        }
+        if !summary.anomalies.isEmpty {
+            attributes["anomalies"] = summary.anomalies.joined(separator: " | ")
+        }
+
+        return EvidenceRecord(
+            ref: EntityRef(
+                type: .daySummary,
+                id: summary.id.uuidString,
+                title: summary.title
+            ),
+            title: summary.title,
+            summary: summary.summaryText,
+            timestamps: [
+                EvidenceTimestamp(label: "date", value: isoDate(summary.summaryDate))
+            ],
+            attributes: attributes.filter { !$0.value.isEmpty },
+            relations: summary.sourceRefs.map { source in
+                EvidenceRelation(
+                    type: source.relationType,
+                    label: source.label,
+                    target: source.entityRef
+                )
+            }
+        )
+    }
+
     private func noteEvidenceRecord(_ note: Note) -> EvidenceRecord? {
         EvidenceRecord(
             ref: EntityRef(type: .note, id: note.id.uuidString, title: note.title),
@@ -1530,16 +1732,33 @@ final class SelineToolRegistry {
 
     private func eventEvidenceRecord(_ task: TaskItem) -> EvidenceRecord? {
         let date = task.targetDate ?? task.scheduledTime ?? task.createdAt
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateStyle = .none
+        timeFormatter.timeStyle = .short
+        timeFormatter.timeZone = TimeZone.current
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEEE, MMMM d yyyy"
+        dateFormatter.timeZone = TimeZone.current
+
+        var attributes: [String: String] = [
+            "location": task.location ?? "",
+            "calendar": task.calendarTitle ?? "",
+            "completed": task.isCompleted ? "true" : "false",
+            "local_date": dateFormatter.string(from: date),
+            "timezone": TimeZone.current.identifier
+        ]
+        if let scheduledTime = task.scheduledTime {
+            attributes["local_time"] = timeFormatter.string(from: scheduledTime)
+        }
+
         return EvidenceRecord(
             ref: EntityRef(type: .event, id: task.id, title: task.title),
             title: task.title,
             summary: task.description ?? "",
             timestamps: [EvidenceTimestamp(label: "date", value: isoDate(date))],
-            attributes: [
-                "location": task.location ?? "",
-                "calendar": task.calendarTitle ?? "",
-                "completed": task.isCompleted ? "true" : "false"
-            ].filter { !$0.value.isEmpty }
+            attributes: attributes.filter { !$0.value.isEmpty }
         )
     }
 
@@ -1805,18 +2024,13 @@ final class SelineToolRegistry {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return nil
         }
+        let normalizedRaw = normalizedDateText(raw)
 
-        if raw.contains("/") {
-            let parts = raw.split(separator: "/", maxSplits: 1).map(String.init)
-            if
-                parts.count == 2,
-                let start = parseFlexibleDate(parts[0]),
-                let end = parseFlexibleDate(parts[1]) {
-                return (start, end)
-            }
+        if let explicitRange = parsedExplicitDateRange(normalizedRaw) {
+            return explicitRange
         }
 
-        if let extracted = temporalService.extractTemporalRange(from: raw) {
+        if let extracted = temporalService.extractTemporalRange(from: normalizedRaw) {
             return temporalService.normalizedBounds(for: extracted)
         }
 
@@ -1824,21 +2038,65 @@ final class SelineToolRegistry {
     }
 
     private func parseFlexibleDate(_ raw: String) -> Date? {
-        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = normalizedDateText(raw)
         let iso = ISO8601DateFormatter()
         if let date = iso.date(from: value) {
             return date
         }
 
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone.current
-        for format in ["yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss", "MMM d, yyyy", "MMMM d, yyyy"] {
+        for format in [
+            "yyyy-MM-dd",
+            "yyyy-MM-dd HH:mm:ss",
+            "MMM d, yyyy",
+            "MMMM d, yyyy",
+            "MMM d, yyyy 'at' h:mm a",
+            "MMMM d, yyyy 'at' h:mm a",
+            "MMM d, yyyy, h:mm a",
+            "MMMM d, yyyy, h:mm a"
+        ] {
             formatter.dateFormat = format
             if let date = formatter.date(from: value) {
                 return date
             }
         }
         return nil
+    }
+
+    private func parsedExplicitDateRange(_ raw: String) -> (start: Date, end: Date)? {
+        let separators = ["/", " to "]
+
+        for separator in separators {
+            let parts: [String]
+            if separator == "/" {
+                parts = raw.split(separator: "/", maxSplits: 1).map(String.init)
+            } else {
+                parts = raw.components(separatedBy: separator)
+            }
+
+            guard parts.count == 2 else { continue }
+            guard
+                let start = parseFlexibleDate(parts[0]),
+                let end = parseFlexibleDate(parts[1])
+            else {
+                continue
+            }
+            return (start, end)
+        }
+
+        return nil
+    }
+
+    private func normalizedDateText(_ raw: String) -> String {
+        raw
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "\u{202F}", with: " ")
+            .replacingOccurrences(of: "\u{2007}", with: " ")
+            .replacingOccurrences(of: "\u{2009}", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func entityRefs(from raw: Any?) -> [EntityRef] {
@@ -2675,7 +2933,10 @@ final class SelineToolRegistry {
             return true
         }
 
-        let searchTerms = Set(queryVariants.flatMap { searchableTerms(from: $0) })
+        let searchTerms = Set(queryVariants.flatMap { receiptSearchTerms(from: $0) })
+        if searchTerms.isEmpty {
+            return true
+        }
         if !searchTerms.isEmpty && searchTerms.allSatisfy({ content.contains($0) }) {
             return true
         }
@@ -2710,6 +2971,19 @@ final class SelineToolRegistry {
             .lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 3 }
+    }
+
+    private func receiptSearchTerms(from query: String) -> [String] {
+        let stopWords: Set<String> = [
+            "about", "again", "amount", "amounts", "average", "breakdown", "cost", "costs",
+            "day", "days", "did", "during", "for", "from", "had", "her", "his", "how",
+            "much", "many", "month", "months", "paid", "pay", "receipt", "receipts",
+            "same", "spend", "spent", "spending", "that", "the", "their", "them", "there",
+            "this", "those", "through", "time", "total", "totals", "trip", "visit",
+            "visits", "was", "week", "weekend", "weekends", "what", "with", "year", "years"
+        ]
+
+        return searchableTerms(from: query).filter { !stopWords.contains($0) }
     }
 
     private func filteredSavedPlacesForTravelQuery(
@@ -3067,6 +3341,55 @@ final class SelineToolRegistry {
         formatter.timeZone = TimeZone.current
         formatter.dateFormat = "EEEE"
         return formatter.string(from: date)
+    }
+
+    private func applyingResolvedDateContext(
+        to result: ToolResult,
+        bounds: (start: Date, end: Date)?
+    ) -> ToolResult {
+        guard let bounds else {
+            return result
+        }
+
+        return ToolResult(
+            toolName: result.toolName,
+            records: result.records,
+            aggregates: result.aggregates,
+            ambiguities: result.ambiguities,
+            citations: result.citations,
+            resolvedTimeRange: result.resolvedTimeRange ?? anchorDateRangeLabel(start: bounds.start, end: bounds.end),
+            resolvedDateBounds: result.resolvedDateBounds ?? ResolvedDateBounds(start: bounds.start, end: bounds.end),
+            actionDraft: result.actionDraft,
+            presentation: result.presentation,
+            isTruncated: result.isTruncated
+        )
+    }
+
+    private func dayAnchorLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+
+    private func anchorDateRangeLabel(start: Date, end: Date) -> String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+
+        let inclusiveEnd = end.addingTimeInterval(-1)
+        if calendar.isDate(start, inSameDayAs: inclusiveEnd) {
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            return formatter.string(from: start)
+        }
+
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return "\(formatter.string(from: start)) to \(formatter.string(from: inclusiveEnd))"
     }
 
     private func episodeDateRangeLabel(_ episode: CompositeEpisodeResolver.EpisodeResolution) -> String {

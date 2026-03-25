@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AudioToolbox
 
 struct ConversationSearchView: View {
     var isVisible: Bool = true
@@ -48,6 +49,10 @@ struct ConversationSearchView: View {
         pageState.isTrackerConversation
     }
 
+    private var visibleConversationHistory: [ConversationMessage] {
+        pageState.conversationHistory.filter { $0.proactiveQuestion == nil }
+    }
+
     private var trackerHeaderTitle: String {
         guard isTrackerConversation else { return "Chat" }
         guard
@@ -82,6 +87,8 @@ struct ConversationSearchView: View {
                 isStreamingResponse = true
                 streamingStartTime = Date()
                 shouldAutoScrollConversation = true
+                // Subtle click when LLM starts thinking
+                playLoadingStartSound()
             } else {
                 // Stopped streaming
                 isStreamingResponse = false
@@ -90,6 +97,8 @@ struct ConversationSearchView: View {
             }
         }
         .onAppear {
+            searchService.restoreMostRecentConversationIfNeeded()
+
             // Don't auto-focus on appear - let user see the greeting first
             // isInputFocused = true
 
@@ -140,13 +149,6 @@ struct ConversationSearchView: View {
                 DispatchQueue.main.async {
                     speechService.stopRecording()
                 }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
-            guard isVisible else { return }
-            // Trigger proactive question for new location visits
-            Task {
-                await showProactiveQuestionIfNeeded()
             }
         }
         .sheet(isPresented: $showingSettings) {
@@ -227,6 +229,7 @@ struct ConversationSearchView: View {
     @MainActor
     private func handleVisibilityChange(_ visible: Bool) {
         if visible {
+            searchService.restoreMostRecentConversationIfNeeded()
             if !isProcessingResponse {
                 speechService.shouldIgnoreTranscriptionUpdates = false
             }
@@ -267,6 +270,13 @@ struct ConversationSearchView: View {
     private func dismissKeyboard() {
         isInputFocused = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    private func playLoadingStartSound() {
+        // System sound 1519 ("Tock") — subtle, short, respects silent mode.
+        // Pair with a soft haptic so feedback is always felt even when silent.
+        AudioServicesPlaySystemSound(1519)
+        HapticManager.shared.soft()
     }
 
     private func startTrackerRuleEdit() {
@@ -526,25 +536,8 @@ struct ConversationSearchView: View {
         VStack(spacing: 0) {
             // Progress bar animation
             HStack(spacing: 12) {
-                VStack(spacing: 2) {
-                    streamingProgressBar
+                streamingProgressBar
                     .frame(height: 2)
-
-                    // Status text
-                    HStack(spacing: 6) {
-                        Text("Writing response...")
-                            .font(FontManager.geist(size: 11, weight: .medium))
-                            .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)))
-
-                        Spacer()
-
-                        if let startTime = streamingStartTime {
-                            Text(formatElapsedTime(since: startTime))
-                                .font(FontManager.geist(size: 10, weight: .regular))
-                                .foregroundColor((colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)))
-                        }
-                    }
-                }
 
                 // Stop button
                 Button(action: {
@@ -667,14 +660,14 @@ struct ConversationSearchView: View {
         ZStack(alignment: .bottomTrailing) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    if pageState.conversationHistory.isEmpty {
+                    if visibleConversationHistory.isEmpty {
                         // Empty state - ensure it's visible
                         emptyStateView
                             .frame(minHeight: UIScreen.main.bounds.height * 0.6)
                             .padding(.top, 60)
                     } else {
                         LazyVStack(alignment: .leading, spacing: 20) {
-                            ForEach(pageState.conversationHistory) { message in
+                            ForEach(visibleConversationHistory) { message in
                                 ConversationMessageView(
                                     message: message,
                                     isStreaming: pageState.isStreaming(message),
@@ -718,6 +711,11 @@ struct ConversationSearchView: View {
                     }
                 }
                 .selinePrimaryPageScroll()
+                .scrollDismissesKeyboard(.interactively)
+                // Tap anywhere in the conversation to dismiss keyboard — fires alongside message taps
+                .simultaneousGesture(TapGesture().onEnded {
+                    if isInputFocused { dismissKeyboard() }
+                })
                 .mask(
                     // Fade mask that creates smooth fade at top
                     LinearGradient(
@@ -736,7 +734,7 @@ struct ConversationSearchView: View {
                         if isAssistantStreamingActive {
                             guard !isInputFocused else { return }
                             proxy.scrollTo("assistant-status-row", anchor: .bottom)
-                        } else if let lastMessage = pageState.conversationHistory.last {
+                        } else if let lastMessage = visibleConversationHistory.last {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
@@ -753,7 +751,7 @@ struct ConversationSearchView: View {
                     // Scroll to bottom when user returns to LLM chat from another tab
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         guard shouldAutoScrollConversation else { return }
-                        if let lastMessage = pageState.conversationHistory.last {
+                        if let lastMessage = visibleConversationHistory.last {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
@@ -762,7 +760,7 @@ struct ConversationSearchView: View {
                     withAnimation(.easeOut(duration: 0.22)) {
                         if isAssistantStreamingActive {
                             proxy.scrollTo("assistant-status-row", anchor: .bottom)
-                        } else if let lastMessage = pageState.conversationHistory.last {
+                        } else if let lastMessage = visibleConversationHistory.last {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
@@ -775,7 +773,7 @@ struct ConversationSearchView: View {
                             if isAssistantStreamingActive {
                                 guard !isInputFocused else { return }
                                 proxy.scrollTo("assistant-status-row", anchor: .bottom)
-                            } else if let lastMessage = pageState.conversationHistory.last {
+                            } else if let lastMessage = visibleConversationHistory.last {
                                 proxy.scrollTo(lastMessage.id, anchor: .bottom)
                             }
                         }
@@ -823,7 +821,7 @@ struct ConversationSearchView: View {
     private var inputAreaView: some View {
         VStack(spacing: 0) {
             // Smart suggestions bar above input (only when typing in empty state)
-            if isInputFocused && !messageText.isEmpty && pageState.conversationHistory.isEmpty && !isChatUsageCapped {
+            if isInputFocused && !messageText.isEmpty && visibleConversationHistory.isEmpty && !isChatUsageCapped {
                 smartSuggestionsBar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .padding(.horizontal, 12)
@@ -1167,85 +1165,6 @@ struct ConversationSearchView: View {
             )
     }
     
-    // MARK: - Proactive Questioning
-    
-    private func showProactiveQuestionIfNeeded() async {
-        // Only show proactive questions if in conversation mode
-        guard searchService.isInConversationMode else { return }
-        
-        // Check for newly created active visits
-        let geofenceManager = GeofenceManager.shared
-        let locationsManager = LocationsManager.shared
-        
-        // Get active visits - use getActiveVisit for thread-safe access
-        // Find the most recently created active visit
-        let savedPlaces = locationsManager.savedPlaces
-        var mostRecentVisit: (placeId: UUID, visit: LocationVisitRecord)? = nil
-        
-        // Iterate through saved places and check for active visits
-        for place in savedPlaces {
-            if let visit = geofenceManager.getActiveVisit(for: place.id) {
-                if let current = mostRecentVisit {
-                    if visit.entryTime > current.visit.entryTime {
-                        mostRecentVisit = (place.id, visit)
-                    }
-                } else {
-                    mostRecentVisit = (place.id, visit)
-                }
-            }
-        }
-        
-        guard let (placeId, visit) = mostRecentVisit else { return }
-        
-        // Check if this visit is recent (created in last 30 seconds) to avoid duplicate questions
-        let visitAge = Date().timeIntervalSince(visit.entryTime)
-        guard visitAge < 30 else { return }
-        
-        // Check if we already asked about this visit recently
-        let recentMessages = searchService.conversationHistory.suffix(5)
-        let alreadyAsked = recentMessages.contains { message in
-            message.proactiveQuestion?.locationId == placeId
-        }
-        guard !alreadyAsked else { return }
-        
-        // Get location details
-        guard let place = locationsManager.savedPlaces.first(where: { $0.id == placeId }) else { return }
-        
-        // Check if this is first visit or returning visit
-        await LocationVisitAnalytics.shared.fetchStats(for: placeId)
-        let visitStats = LocationVisitAnalytics.shared.visitStats[placeId]
-        let isFirstVisit = (visitStats?.totalVisits ?? 0) <= 1
-        
-        // Generate proactive question
-        let question = ProactiveQuestionGenerator.generateQuestion(
-            for: place.displayName,
-            isFirstVisit: isFirstVisit
-        )
-        
-        // Create proactive question message
-        let questionInfo = ProactiveQuestionInfo(
-            locationId: placeId,
-            locationName: place.displayName,
-            question: question,
-            isFirstVisit: isFirstVisit
-        )
-        
-        // Add as assistant message with proactive question
-        let questionMessage = ConversationMessage(
-            isUser: false,
-            text: question,
-            timestamp: Date(),
-            intent: .general,
-            proactiveQuestion: questionInfo
-        )
-        
-        await MainActor.run {
-            searchService.conversationHistory.append(questionMessage)
-            // Note: saveConversationLocally is private, but appending to conversationHistory
-            // will be saved automatically when conversation is saved to Supabase
-        }
-    }
-
 }
 
 struct ConversationMessageView: View {
@@ -1317,10 +1236,19 @@ struct ConversationMessageView: View {
     }
 
     private var shouldShowLocationSnippetMap: Bool {
-        !message.isUser
-            && message.locationInfo == nil
-            && message.presentation?.livePlaceCard == nil
-            && !citedLocationResults.isEmpty
+        guard !message.isUser,
+              message.locationInfo == nil,
+              message.presentation?.livePlaceCard == nil,
+              !citedLocationResults.isEmpty
+        else { return false }
+        // Only show map when all cited records are location/visit type.
+        // Mixed responses (e.g. "describe my day") cite visits alongside
+        // receipts, notes, etc. — showing a map there is misleading.
+        let content = message.relevantContent ?? []
+        let nonLocationCount = content.filter {
+            $0.contentType != .visit && $0.contentType != .location
+        }.count
+        return nonLocationCount == 0
     }
 
     var body: some View {
@@ -1501,22 +1429,6 @@ struct ConversationMessageView: View {
                 .padding(.top, 4)
             }
             
-            // Proactive Question Card - shows when there's a proactive question
-            if let questionInfo = message.proactiveQuestion {
-                ProactiveQuestionCard(
-                    locationName: questionInfo.locationName,
-                    question: questionInfo.question,
-                    onAnswer: { answer in
-                        await handleProactiveQuestionAnswer(
-                            locationId: questionInfo.locationId,
-                            answer: answer,
-                            isFirstVisit: questionInfo.isFirstVisit
-                        )
-                    }
-                )
-                .padding(.top, 4)
-            }
-
             if let draft = message.trackerOperationDraft {
                 TrackerDraftCard(
                     draft: draft,
@@ -1614,53 +1526,6 @@ struct ConversationMessageView: View {
                 : "Successfully created \(events.count) events"
             eventCreationIsError = false
             showingEventCreationResult = true
-        }
-    }
-    
-    private func handleProactiveQuestionAnswer(locationId: UUID, answer: String, isFirstVisit: Bool) async {
-        let extractionService = NaturalLanguageExtractionService.shared
-        let memoryService = LocationMemoryService.shared
-        
-        // Extract information from user's answer
-        let extractedInfo = extractionService.extractInfo(from: answer)
-        
-        // Save to location memory based on visit type
-        do {
-            if isFirstVisit {
-                // For first visit, save as purpose
-                try await memoryService.saveMemory(
-                    placeId: locationId,
-                    type: .purpose,
-                    content: extractedInfo.rawText
-                )
-            } else {
-                // For returning visits, save as purchase if items mentioned
-                if !extractedInfo.items.isEmpty {
-                    try await memoryService.saveMemory(
-                        placeId: locationId,
-                        type: .purchase,
-                        content: extractedInfo.rawText,
-                        items: extractedInfo.items,
-                        frequency: extractedInfo.frequency
-                    )
-                } else if extractedInfo.purpose != nil {
-                    // If no items but purpose mentioned, save as purpose
-                    try await memoryService.saveMemory(
-                        placeId: locationId,
-                        type: .purpose,
-                        content: extractedInfo.rawText
-                    )
-                }
-            }
-            
-            // Add user's answer as a message in conversation
-            await onSendMessage(answer)
-            
-            print("✅ Saved location memory for \(locationId): \(extractedInfo.rawText)")
-        } catch {
-            print("❌ Failed to save location memory: \(error)")
-            // Still add the answer to conversation even if memory save fails
-            await onSendMessage(answer)
         }
     }
     
@@ -2056,13 +1921,14 @@ struct ConversationMessageView: View {
     }
 
     private func buildRenderCache() -> MessageRenderCache {
-        let displayedText = message.text
-        let hasComplexFormatting = message.text.contains("**")
-            || message.text.contains("*")
-            || message.text.contains("`")
-            || message.text.contains("- ")
-            || message.text.contains("• ")
-            || message.text.contains("\n")
+        let remappedText = remappedDisplayedCitationText(message.text)
+        let displayedText = sanitizeDisplayedMessageText(remappedText)
+        let hasComplexFormatting = displayedText.contains("**")
+            || displayedText.contains("*")
+            || displayedText.contains("`")
+            || displayedText.contains("- ")
+            || displayedText.contains("• ")
+            || displayedText.contains("\n")
         let maxCitationIndex = (message.relevantContent?.count ?? 0) - 1
         let segments = parseMessageSegments(displayedText, maxCitationIndex: maxCitationIndex)
 
@@ -2093,6 +1959,119 @@ struct ConversationMessageView: View {
         )
     }
 
+    private func remappedDisplayedCitationText(_ text: String) -> String {
+        guard
+            let evidenceBundle = message.evidenceBundle,
+            let relevantContent = message.relevantContent,
+            !relevantContent.isEmpty
+        else {
+            return text
+        }
+
+        let originalIndices = evidenceCitationIndices(
+            in: text,
+            maxIndex: evidenceBundle.records.count - 1
+        )
+        guard !originalIndices.isEmpty else {
+            return text
+        }
+
+        let expectedLocalOrder = Array(0..<min(originalIndices.count, relevantContent.count))
+        let alreadyLocal = Array(originalIndices.prefix(expectedLocalOrder.count)) == expectedLocalOrder
+        let isOneToOneReceiptStyleProjection = originalIndices.count == relevantContent.count
+        if alreadyLocal || !isOneToOneReceiptStyleProjection {
+            return text
+        }
+
+        var localCitationIndexByEvidenceIndex: [Int: Int] = [:]
+        for (localIndex, evidenceIndex) in originalIndices.enumerated() where localIndex < relevantContent.count {
+            localCitationIndexByEvidenceIndex[evidenceIndex] = localIndex
+        }
+
+        return remapEvidenceCitationMarkers(
+            in: text,
+            localCitationIndexByEvidenceIndex: localCitationIndexByEvidenceIndex,
+            maxEvidenceIndex: evidenceBundle.records.count - 1
+        )
+    }
+
+    private func sanitizeDisplayedMessageText(_ text: String) -> String {
+        let normalized = normalizeCitationMarkers(in: text)
+        return normalized
+            .components(separatedBy: "\n")
+            .map { line in
+                let leading = String(line.prefix { $0 == " " || $0 == "\t" })
+                let remainder = String(line.dropFirst(leading.count))
+                    .replacingOccurrences(of: "[ \t]{2,}", with: " ", options: .regularExpression)
+                    .replacingOccurrences(of: "[ \t]+$", with: "", options: .regularExpression)
+                return leading + remainder
+            }
+            .joined(separator: "\n")
+            .replacingOccurrences(of: "\\s+([,.!?;:])", with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func evidenceCitationIndices(in text: String, maxIndex: Int) -> [Int] {
+        guard maxIndex >= 0 else { return [] }
+        let normalized = normalizeCitationMarkers(in: text)
+        guard let regex = try? NSRegularExpression(pattern: "\\[\\s*(\\d+)\\s*\\]") else {
+            return []
+        }
+
+        let matches = regex.matches(in: normalized, range: NSRange(normalized.startIndex..<normalized.endIndex, in: normalized))
+        var ordered: [Int] = []
+        var seen = Set<Int>()
+
+        for match in matches {
+            guard
+                match.numberOfRanges > 1,
+                let range = Range(match.range(at: 1), in: normalized),
+                let value = Int(normalized[range]),
+                value >= 0,
+                value <= maxIndex,
+                seen.insert(value).inserted
+            else {
+                continue
+            }
+            ordered.append(value)
+        }
+
+        return ordered
+    }
+
+    private func remapEvidenceCitationMarkers(
+        in text: String,
+        localCitationIndexByEvidenceIndex: [Int: Int],
+        maxEvidenceIndex: Int
+    ) -> String {
+        let normalized = normalizeCitationMarkers(in: text)
+        guard let regex = try? NSRegularExpression(pattern: "\\[\\s*(\\d+)\\s*\\]") else {
+            return normalized
+        }
+
+        let mutable = NSMutableString(string: normalized)
+        let matches = regex.matches(in: normalized, range: NSRange(normalized.startIndex..<normalized.endIndex, in: normalized))
+
+        for match in matches.reversed() {
+            guard
+                match.numberOfRanges > 1,
+                let range = Range(match.range(at: 1), in: normalized),
+                let value = Int(normalized[range]),
+                value >= 0,
+                value <= maxEvidenceIndex
+            else {
+                continue
+            }
+
+            if let localIndex = localCitationIndexByEvidenceIndex[value] {
+                mutable.replaceCharacters(in: match.range, with: "[\(localIndex)]")
+            }
+        }
+
+        return mutable as String
+    }
+
     private enum InlineRun {
         case text(String)
         case citation(Int)
@@ -2108,7 +2087,12 @@ struct ConversationMessageView: View {
                 } else {
                     let parsed = parseBulletLine(from: lineRuns)
                     let heading = detectInlineHeading(from: parsed.runs)
+                    let effectiveLevel = effectiveInlineLineLevel(for: index, in: lines)
                     let showBullet = parsed.hasBullet && !heading.consumeBullet
+                    let lineLeadingPadding = inlineLineLeadingPadding(
+                        showBullet: showBullet,
+                        effectiveLevel: effectiveLevel
+                    )
                     if hasRenderableInlineContent(parsed.runs) {
                         VStack(alignment: .leading, spacing: 6) {
                             if shouldShowSectionDivider(for: index, in: lines) {
@@ -2120,8 +2104,8 @@ struct ConversationMessageView: View {
 
                             HStack(alignment: .top, spacing: 6) {
                                 if showBullet {
-                                    Text(parsed.level == 0 ? "•" : "◦")
-                                        .font(FontManager.geist(size: 15, weight: parsed.level == 0 ? .bold : .medium))
+                                    Text(effectiveLevel == 0 ? "•" : "◦")
+                                        .font(FontManager.geist(size: 15, weight: effectiveLevel == 0 ? .bold : .medium))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                         .padding(.top, 1)
                                 }
@@ -2153,7 +2137,7 @@ struct ConversationMessageView: View {
                                     }
                                 }
                             }
-                            .padding(.leading, showBullet ? CGFloat(parsed.level) * 18 : 0)
+                            .padding(.leading, lineLeadingPadding)
                             .padding(.top, heading.level == 1 ? 5 : heading.level == 2 ? 2 : 0)
                             .padding(.bottom, heading.level > 0 ? 2 : 0)
                         }
@@ -2251,6 +2235,68 @@ struct ConversationMessageView: View {
         return (true, level, mutableRuns)
     }
 
+    private func effectiveInlineLineLevel(for index: Int, in lines: [[InlineRun]]) -> Int {
+        var insideDayBreakdownSection = false
+        var lastBulletLevel = 0
+
+        for currentIndex in 0...index {
+            let lineRuns = lines[currentIndex]
+            if isInlineLineBlank(lineRuns) {
+                continue
+            }
+
+            let parsed = parseBulletLine(from: lineRuns)
+            if parsed.hasBullet {
+                if parsed.level > 0 {
+                    lastBulletLevel = parsed.level
+                } else if isDayBreakdownBullet(parsed.runs) {
+                    lastBulletLevel = 0
+                    insideDayBreakdownSection = true
+                } else if insideDayBreakdownSection {
+                    lastBulletLevel = 1
+                } else {
+                    lastBulletLevel = 0
+                    insideDayBreakdownSection = false
+                }
+
+                if currentIndex == index {
+                    return lastBulletLevel
+                }
+            } else if currentIndex == index {
+                if insideDayBreakdownSection {
+                    return max(lastBulletLevel, 1)
+                }
+                return lastBulletLevel
+            }
+        }
+
+        return 0
+    }
+
+    private func inlineLineLeadingPadding(showBullet: Bool, effectiveLevel: Int) -> CGFloat {
+        if showBullet {
+            return CGFloat(effectiveLevel) * 18
+        }
+        if effectiveLevel > 0 {
+            return CGFloat(effectiveLevel) * 18 + 22
+        }
+        return 0
+    }
+
+    private func isDayBreakdownBullet(_ runs: [InlineRun]) -> Bool {
+        let text = runs.compactMap { run -> String? in
+            if case .text(let token) = run { return token }
+            return nil
+        }.joined()
+
+        let cleaned = cleanInlineMarkdownToken(text)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"^\s*[-*•]\s*"#, with: "", options: .regularExpression)
+
+        let pattern = #"^(monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|yesterday|tomorrow)\b.*:\s*\$?\d"#
+        return cleaned.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
     private func cleanInlineMarkdownToken(_ token: String) -> String {
         var cleaned = token
         cleaned = cleaned.replacingOccurrences(of: "^\\s*#{1,6}\\s*", with: "", options: .regularExpression)
@@ -2258,6 +2304,8 @@ struct ConversationMessageView: View {
         cleaned = cleaned.replacingOccurrences(of: "__", with: "", options: .regularExpression)
         cleaned = cleaned.replacingOccurrences(of: "`", with: "")
         cleaned = cleaned.replacingOccurrences(of: "\\[\\s*\\d+\\s*\\]", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "\\[\\s*(?:evidenceBundle\\.)?aggregates\\.\\d+\\s*\\]", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "\\[\\s*(?:evidenceBundle\\.)?aggregate_rows\\.\\d+\\s*\\]", with: "", options: .regularExpression)
         cleaned = cleaned.replacingOccurrences(of: "\\*+", with: "", options: .regularExpression)
         cleaned = cleaned.replacingOccurrences(of: "\\s+([,.!?;:])", with: "$1", options: .regularExpression)
         return cleaned
@@ -2479,9 +2527,33 @@ struct ConversationMessageView: View {
     }
 
     private func normalizeCitationMarkers(in text: String) -> String {
-        let normalizedBrackets = text
+        var normalizedBrackets = text
             .replacingOccurrences(of: "[[", with: "[")
             .replacingOccurrences(of: "]]", with: "]")
+
+        let replacements: [(pattern: String, template: String)] = [
+            ("\\[\\s*(?:evidenceBundle\\.)?records\\.(\\d+)\\s*\\]", "[$1]"),
+            ("\\[\\s*(?:evidenceBundle\\.)?citations\\.(\\d+)\\s*\\]", "[$1]")
+        ]
+        for replacement in replacements {
+            normalizedBrackets = normalizedBrackets.replacingOccurrences(
+                of: replacement.pattern,
+                with: replacement.template,
+                options: .regularExpression
+            )
+        }
+
+        let stripPatterns = [
+            "\\[\\s*(?:evidenceBundle\\.)?aggregates\\.\\d+\\s*\\]",
+            "\\[\\s*(?:evidenceBundle\\.)?aggregate_rows\\.\\d+\\s*\\]"
+        ]
+        for pattern in stripPatterns {
+            normalizedBrackets = normalizedBrackets.replacingOccurrences(
+                of: pattern,
+                with: "",
+                options: .regularExpression
+            )
+        }
 
         let groupedCitationRegex = try! NSRegularExpression(pattern: "\\[(\\s*\\d+\\s*(?:,\\s*\\d+\\s*)+)\\]")
         let matches = groupedCitationRegex.matches(
@@ -2514,7 +2586,10 @@ struct ConversationMessageView: View {
     }
 
     private func shouldRenderTextSegment(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = text
+            .replacingOccurrences(of: "\\[\\s*(?:evidenceBundle\\.)?aggregates\\.\\d+\\s*\\]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\[\\s*(?:evidenceBundle\\.)?aggregate_rows\\.\\d+\\s*\\]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         let bracketJunk = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "[],"))
         return !bracketJunk.isEmpty
@@ -4214,23 +4289,18 @@ struct ModernLoadingIndicator: View {
             let elapsed = context.date.timeIntervalSinceReferenceDate
 
             HStack {
-                HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        ForEach(0..<3, id: \.self) { index in
-                            Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.55))
-                                .frame(width: 6, height: 6)
-                                .scaleEffect(dotScale(for: index, elapsed: elapsed))
-                        }
+                HStack(spacing: 4) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.55))
+                            .frame(width: 7, height: 7)
+                            .scaleEffect(dotScale(for: index, elapsed: elapsed))
                     }
-                    Text(label)
-                        .font(FontManager.geist(size: 13, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
                 .background(
-                    RoundedRectangle(cornerRadius: 14)
+                    RoundedRectangle(cornerRadius: 16)
                         .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
                 )
                 Spacer()
@@ -4323,16 +4393,7 @@ struct AlignedTextEditor: UIViewRepresentable {
     }
 
     private func updateTextInsets(for textView: UITextView) {
-        let lineHeight = textView.font?.lineHeight ?? 18
-        let fittingHeight = textView.sizeThatFits(CGSize(width: max(textView.bounds.width, 1), height: .greatestFiniteMagnitude)).height
-        let isSingleLine = !text.contains("\n") && fittingHeight <= lineHeight * 1.6
-
-        if isSingleLine {
-            let verticalInset = max(6, (height - lineHeight) / 2)
-            textView.textContainerInset = UIEdgeInsets(top: verticalInset, left: 0, bottom: verticalInset, right: 0)
-        } else {
-            textView.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
-        }
+        textView.textContainerInset = UIEdgeInsets(top: 9, left: 0, bottom: 9, right: 0)
     }
     
     class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {

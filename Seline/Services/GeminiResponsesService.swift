@@ -29,7 +29,7 @@ final class GeminiResponsesService {
 
     private let apiKey = Config.geminiAPIKey
     private let baseURL = "https://generativelanguage.googleapis.com/v1beta/models"
-    private let maxOutputTokens = 1400
+    private let maxOutputTokens = 2000
     private let maxStoredSessions = 12
 
     private var sessions: [String: StoredSession] = [:]

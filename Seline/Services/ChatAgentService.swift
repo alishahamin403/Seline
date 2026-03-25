@@ -17,6 +17,11 @@ final class ChatAgentService {
     private let responsesService = GeminiResponsesService.shared
     private let toolRegistry = SelineToolRegistry.shared
     private let diagnosticsStore = ChatAgentDiagnosticsStore.shared
+    private let userProfileService = UserProfileService.shared
+    private let locationsManager = LocationsManager.shared
+    private let peopleManager = PeopleManager.shared
+    private let emailService = EmailService.shared
+    private let taskManager = TaskManager.shared
 
     private let maxToolRounds = 5
 
@@ -114,7 +119,7 @@ final class ChatAgentService {
         includeLiveSearch: Bool
     ) async throws -> ToolPlanningOutcome {
         let toolDefinitions = toolRegistry.toolDefinitions(includeLiveSearch: includeLiveSearch)
-        let plannerInput = plannerMessages(
+        let plannerInput = await plannerMessages(
             userMessage: userMessage,
             conversationHistory: conversationHistory,
             anchorState: anchorState,
@@ -252,7 +257,8 @@ final class ChatAgentService {
         conversationHistory: [ConversationMessage],
         anchorState: ConversationAnchorState?,
         liveSearchEnabled: Bool
-    ) -> [[String: Any]] {
+    ) async -> [[String: Any]] {
+        let memoryContext = await UserMemoryService.shared.getMemoryContext()
         var messages: [[String: Any]] = [
             inputMessage(
                 role: "developer",
@@ -264,9 +270,23 @@ final class ChatAgentService {
                 - Interpret natural-language phrasing semantically. Do not require exact wording, exact grammar, or perfect spelling before using the right tool.
                 - Use search_seline_records first when you need broad context.
                 - Use resolve_episode_context first for questions about a weekend, trip, outing, or stay that combine a person and place, such as 'describe the weekend when I went to Niagara with Suju'.
+                - CRITICAL — when resolve_episode_context returns an ambiguity or empty result, do NOT surface that message as the answer. It means local name matching failed, not that the data does not exist. Immediately fall back to search_seline_records with the place name as the query, then again with the person name, then traverse_relations from any matching records to find connected visits. Exhaust all strategies before concluding evidence is missing.
+                - For ALL historical memory questions ("when did I", "what happened when", "what did we do", "tell me about the time", "describe the trip/weekend/visit") use a multi-strategy search pipeline:
+                  1. resolve_episode_context — fast local resolution via saved contacts and places
+                  2. If step 1 fails: search_seline_records with the place name (e.g. "Niagara Falls")
+                  3. search_seline_records with the person name (e.g. "Suju")
+                  4. traverse_relations from any visit or person records returned in steps 2–3 to find linked people, places, receipts
+                  5. get_record_details on any visit records found to pull full notes and linked data
+                  Only after completing all applicable steps should you conclude evidence is truly missing.
                 - Use aggregate_seline for counts, totals, trends, and time series.
                 - Use traverse_relations when the answer may depend on linked people, places, visits, or receipts.
-                - When search_seline_records returns visits that look relevant, call get_record_details before answering so you can use visit notes, linked people, and linked receipts instead of only shallow visit summaries.
+                - When search_seline_records returns visits, notes, or emails that look relevant, call get_record_details before answering so you can use the full content — visit notes, linked people, linked receipts, full note body, and full email body — instead of truncated previews.
+                - When the user asks "how was my day", "what happened today", "recap my day", "tell me about my day", or asks about a single specific day, call get_day_context for that date AND also call aggregate_seline with scope=[receipt] and time_range=that date to surface spending for that day. Always think holistically: visits, events/tasks, notes, receipts, emails, and people all belong in a complete day picture — never limit to whichever data type is most obvious.
+                - When get_day_context returns visit records for a day summary, call get_record_details on those visits to retrieve the full content — notes, highlights, open loops, linked people, linked receipts — before synthesizing. A shallow visit summary is not enough.
+                - When the user asks about their week, last N days, or a multi-day period of 1–7 days, call get_day_context for each individual day in that range to build a complete cross-touchpoint picture before synthesizing.
+                - When the user asks about a period longer than 7 days (month, quarter, year), use aggregate_seline with an appropriate group_by (day, month, category) to get bucketed totals, then drill into specific days or categories the user asks about.
+                - For spending, financial, or budget questions, FIRST check anchorState.resolvedTimeRange and anchorState.resolvedEntities in the structured context JSON. If a trip, visit, episode, or time period was recently resolved in the conversation, scope the aggregate_seline call to that exact time range and entity context — do NOT return all-time totals when a specific context is active. Only use an open-ended time range when no prior context exists.
+                - For spending, financial, or budget questions with no prior context, use aggregate_seline with scope=[receipt] to get accurate totals and breakdowns, then enrich with specific receipt records if the user wants itemization.
                 - When the user asks you to create an event, call prepare_event_draft.
                 - When the user asks you to create a note, call prepare_note_draft.
                 - When the user asks for the latest or newest email, call refresh_inbox_and_get_latest_email before answering.
@@ -283,8 +303,19 @@ final class ChatAgentService {
                 - Use web search only when live external information is actually needed and local tools are insufficient.
                 - When continuing a previous answer, reuse explicit refs from the structured context instead of re-inferring entities from loose wording.
                 - If the user's wording is ambiguous and the tools surface multiple plausible entities, ask for clarification instead of silently picking one.
+                - Think holistically across ALL Seline data types for every question. Visits, events/tasks, notes, receipts, emails, and people are all part of the same life. When the question is about a day, trip, or period, consider which of these data types are relevant and query them — don't stop at the first obvious one.
+                - Follow-up questions inherit the context of the previous turn. Always read anchorState.resolvedTimeRange and anchorState.resolvedEntities before deciding the scope of any tool call. A vague follow-up like "how much did I spend" or "who was I with" means: scoped to the active context, not all-time.
                 - Do not answer from memory. First gather evidence, then answer.
+                - The user context block below lists the user's saved places and known people by name. Use those exact names and relationships when formulating tool queries — this dramatically improves search precision.
                 """
+            ),
+            inputMessage(
+                role: "developer",
+                text: userContextBlock()
+            ),
+            inputMessage(
+                role: "developer",
+                text: dailyBriefingBlock()
             ),
             inputMessage(
                 role: "developer",
@@ -299,6 +330,10 @@ final class ChatAgentService {
                 """
             )
         ]
+
+        if !memoryContext.isEmpty {
+            messages.append(inputMessage(role: "developer", text: memoryContext))
+        }
 
         let priorTurns = conversationHistory.suffix(10).map { message in
             inputMessage(role: message.isUser ? "user" : "assistant", text: message.text)
@@ -330,9 +365,14 @@ final class ChatAgentService {
                 text: """
                 You are Seline's answer synthesizer.
 
+                \(userContextBlock())
+
+                \(dailyBriefingBlock())
+
                 Rules:
+                - Always address the user in second person: "you", "your", "you visited", "you had". Never say "Seline", "the user", or refer to the user in third person.
                 - Answer only from the evidence bundle. If evidence is missing, say so plainly.
-                - Cite concrete evidence inline as [0], [1], [2] using the zero-based index in evidenceBundle.records.
+                - Cite concrete evidence inline as [0], [1], [2] using the zero-based index in evidenceBundle.records. Never repeat the same citation number more than once.
                 - Use citations only for actual evidence records, not aggregate rows.
                 - Keep clarifying questions short when ambiguity remains.
                 - If aggregates are present, use them directly instead of narrating from loose snippets.
@@ -343,7 +383,10 @@ final class ChatAgentService {
                 - If the evidence is partial, weak, or does not clearly satisfy every part of the user's request, ask one short follow-up clarification question instead of giving a confident no-answer.
                 - Do not cite loose candidate records in a no-answer or clarification response.
                 - For place or proximity results with multiple matches, present them as a short bullet list with the place name first, then ETA or address.
+                - For day summary responses ("how was my day", "what happened today", etc.): structure the answer with clear sections using headers or bullets — first a one-line opening, then Events/Meetings, then Highlights, then Open loops/outstanding items, then any anomalies. Do not dump everything in one paragraph.
+                - For day summary evidence records, the highlights, open_loops, and anomalies attributes contain pipe-separated lists of the actual items. Present each item as a separate bullet point — do not say "3 highlights" when you have the actual text.
                 - For visit records, treat entry_local_date, entry_local_weekday, entry_local_time, exit_local_date, exit_local_weekday, and exit_local_time as authoritative local-time fields. Do not recompute weekdays from ISO timestamps if those local fields are present.
+                - For event records, always use the local_time and local_date attributes for display. Never convert the UTC ISO timestamp yourself — the local_time attribute already reflects the user's device timezone.
                 - Do not invent corrected dates. If the user questions a day/date, explain the recorded local timestamp/day from the evidence instead of fabricating a new date.
                 - If a visit happens just after midnight, you may describe it as early the next morning, but keep the actual recorded local date/weekday unchanged unless the evidence itself says otherwise.
                 """
@@ -441,7 +484,7 @@ final class ChatAgentService {
         let latestLivePlaces = toolResults.compactMap { $0.presentation?.livePlaceCard }.last?.results
 
         return ConversationAnchorState(
-            resolvedEntities: Array(orderedRefs.prefix(4)),
+            resolvedEntities: Array(orderedRefs.prefix(8)),
             resolvedTimeRange: temporalDescription,
             comparisonWindow: base?.comparisonWindow,
             lastLivePlaceResults: latestLivePlaces ?? base?.lastLivePlaceResults,
@@ -453,7 +496,7 @@ final class ChatAgentService {
         switch ref.type {
         case .currentContext, .aggregate, .webResult:
             return false
-        case .email, .note, .event, .location, .visit, .person, .receipt, .nearbyPlace:
+        case .email, .note, .event, .location, .visit, .person, .receipt, .nearbyPlace, .daySummary:
             return true
         }
     }
@@ -525,8 +568,21 @@ final class ChatAgentService {
     }
 
     private func selectedModel(for turn: AgentTurnInput) -> String {
-        let shouldEscalate = turn.conversationHistory.count >= 12
-            || turn.userMessage.count > 220
+        let analyticalKeywords = [
+            "week", "month", "year", "quarter",
+            "summary", "summarize", "overview", "recap",
+            "spending", "spent", "expenses", "budget", "financial",
+            "compare", "comparison", "trend", "trends", "pattern", "patterns",
+            "how much", "how many", "how often",
+            "most", "least", "average", "total",
+            "analyze", "analysis", "breakdown"
+        ]
+        let loweredMessage = turn.userMessage.lowercased()
+        let isAnalytical = analyticalKeywords.contains { loweredMessage.contains($0) }
+
+        let shouldEscalate = turn.conversationHistory.count >= 8
+            || turn.userMessage.count > 160
+            || isAnalytical
 
         return shouldEscalate ? GeminiResponsesService.escalatedChatModel : GeminiResponsesService.defaultChatModel
     }
@@ -871,5 +927,88 @@ final class ChatAgentService {
 
         let bulletList = options.map { "- \($0)" }.joined(separator: "\n")
         return "\(intro)\n\n\(bulletList)"
+    }
+
+    // MARK: - User context helpers
+
+    private func userContextBlock() -> String {
+        var lines: [String] = ["User context:"]
+
+        let profile = userProfileService.profile
+        if let name = profile.name, !name.isEmpty {
+            lines.append("• Name: \(name)")
+        }
+        lines.append("• Timezone: \(TimeZone.current.identifier)")
+        if !profile.knownFacts.isEmpty {
+            lines.append("• Known facts: \(profile.knownFacts.prefix(4).joined(separator: "; "))")
+        }
+        if !profile.interests.isEmpty {
+            lines.append("• Interests: \(profile.interests.prefix(3).joined(separator: ", "))")
+        }
+        if !profile.preferences.isEmpty {
+            lines.append("• Preferences: \(profile.preferences.prefix(3).joined(separator: "; "))")
+        }
+
+        let places = locationsManager.savedPlaces.prefix(8)
+        if !places.isEmpty {
+            lines.append("Saved places (top \(places.count)):")
+            for place in places {
+                let catLabel = place.category.isEmpty ? "" : " [\(place.category)]"
+                lines.append("  - \(place.displayName)\(catLabel): \(place.address)")
+            }
+        }
+
+        let people = peopleManager.people.prefix(8)
+        if !people.isEmpty {
+            lines.append("Known people (top \(people.count)):")
+            for person in people {
+                let rel = person.relationship.rawValue
+                lines.append("  - \(person.displayName) (\(rel))")
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func dailyBriefingBlock() -> String {
+        let now = Date()
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEEE, MMMM d yyyy"
+        dateFormatter.timeZone = TimeZone.current
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm a"
+        timeFormatter.timeZone = TimeZone.current
+
+        var lines: [String] = [
+            "Current moment:",
+            "• Date: \(dateFormatter.string(from: now))",
+            "• Time: \(timeFormatter.string(from: now))",
+            "• Timezone: \(TimeZone.current.identifier)"
+        ]
+
+        let unread = emailService.inboxEmails.filter { !$0.isRead }.count
+        if unread > 0 {
+            lines.append("• Unread inbox emails: \(unread)")
+        }
+
+        let next24h = now.addingTimeInterval(86_400)
+        let upcoming = taskManager.getAllTasksIncludingArchived().filter { task in
+            guard !task.isCompleted else { return false }
+            let date = task.scheduledTime ?? task.targetDate
+            guard let date else { return false }
+            return date >= now && date <= next24h
+        }.sorted { ($0.scheduledTime ?? $0.targetDate ?? now) < ($1.scheduledTime ?? $1.targetDate ?? now) }
+
+        if !upcoming.isEmpty {
+            lines.append("• Upcoming events (next 24h):")
+            for task in upcoming.prefix(5) {
+                let t = task.scheduledTime ?? task.targetDate
+                let timeStr = t.map { timeFormatter.string(from: $0) } ?? ""
+                let label = timeStr.isEmpty ? task.title : "\(task.title) at \(timeStr)"
+                lines.append("  - \(label)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
     }
 }
