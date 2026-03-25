@@ -239,14 +239,10 @@ struct SwipeableRowModifier: ViewModifier {
             offset = offset > 0 ? 400 : -400
         }
 
-        // Execute action after brief animation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        // Execute action once the slide-out animation is visually complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             action.action()
-
-            // Reset after action completes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                resetState()
-            }
+            resetState()
         }
     }
 

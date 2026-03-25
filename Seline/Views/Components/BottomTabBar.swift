@@ -89,6 +89,7 @@ struct TabButton: View {
 
     var body: some View {
         Button(action: {
+            HapticManager.shared.tabChange()
             selectedTab = tab
         }) {
             tabIcon

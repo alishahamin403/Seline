@@ -81,7 +81,7 @@ extension View {
     func hapticSwipe() -> some View {
         self.simultaneousGesture(
             DragGesture(minimumDistance: 20)
-                .onChanged { _ in
+                .onEnded { _ in
                     HapticManager.shared.swipe()
                 }
         )
@@ -116,8 +116,9 @@ struct HapticButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            // dampingFraction: 1.0 = critically damped, no overshoot bounce that reads as a second tap
+            .animation(.spring(response: 0.2, dampingFraction: 1.0), value: configuration.isPressed)
             .onChange(of: configuration.isPressed) { isPressed in
                 if isPressed {
                     hapticType.trigger()

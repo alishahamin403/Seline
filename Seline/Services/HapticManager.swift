@@ -96,16 +96,17 @@ class HapticManager {
         light()
     }
 
-    /// Navigation - medium feedback for moving between screens
+    /// Navigation - light feedback for moving between screens
     func navigation() {
-        medium()
+        light()
     }
 
     /// Delete action - double heavy impact
     func delete() {
         heavy()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.heavy()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+            heavy()
         }
     }
 
@@ -129,12 +130,9 @@ class HapticManager {
         light()
     }
 
-    /// Long press - medium then light
+    /// Long press - single soft tap
     func longPress() {
-        medium()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            self.light()
-        }
+        soft()
     }
 
     /// Swipe action - selection feedback
@@ -152,17 +150,14 @@ class HapticManager {
         light()
     }
 
-    /// Lock/Unlock - heavy impact
+    /// Lock/Unlock - medium impact
     func lockToggle() {
-        heavy()
+        medium()
     }
 
-    /// AI action start - medium + light pattern
+    /// AI action start - single light tap
     func aiActionStart() {
-        medium()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.light()
-        }
+        light()
     }
 
     /// AI action complete - success pattern
@@ -180,9 +175,9 @@ class HapticManager {
         selection()
     }
 
-    /// Folder action - medium feedback
+    /// Folder action - light feedback
     func folder() {
-        medium()
+        light()
     }
 
     /// Email action - light feedback
@@ -215,9 +210,9 @@ class HapticManager {
         light()
     }
 
-    /// Voice input - medium feedback
+    /// Voice input - light feedback
     func voiceInput() {
-        medium()
+        light()
     }
 }
 

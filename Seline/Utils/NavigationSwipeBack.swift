@@ -218,11 +218,11 @@ private struct EdgeSwipeBackModifier: ViewModifier {
 
                         hasTriggeredDismiss = true
                         HapticManager.shared.light()
-                        withAnimation(.easeOut(duration: 0.18)) {
+                        withAnimation(.easeOut(duration: 0.14)) {
                             isAnimatingOffscreen = true
                             dragX = UIScreen.main.bounds.width
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                             if !NavigationSwipeBack.performBackNavigation() {
                                 action?()
                             }
