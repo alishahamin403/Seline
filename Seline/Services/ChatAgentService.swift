@@ -33,14 +33,17 @@ final class ChatAgentService {
     ) async -> AgentTurnResult {
         let userMessage = turn.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let liveSearchEnabled = turn.allowLiveSearch && shouldAllowLiveSearch(for: userMessage)
-        let model = selectedModel(for: turn)
+        let synthesisModel = selectedModel(for: turn)
+        // Planning always uses the smarter model — it must follow complex multi-step
+        // enrichment instructions reliably regardless of question length or keywords.
+        let planningModel = GeminiResponsesService.escalatedChatModel
 
         do {
             let toolOutcome = try await planningOutcomeWithRetry(
                 userMessage: userMessage,
                 conversationHistory: turn.conversationHistory,
                 anchorState: turn.anchorState,
-                model: model,
+                model: planningModel,
                 includeLiveSearch: liveSearchEnabled
             )
 
@@ -72,7 +75,7 @@ final class ChatAgentService {
                     userMessage: userMessage,
                     conversationHistory: turn.conversationHistory,
                     evidenceBundle: evidenceBundle,
-                    model: model,
+                    model: synthesisModel,
                     onChunk: onSynthesisChunk
                 )
             }
@@ -85,13 +88,13 @@ final class ChatAgentService {
                 actionDraft: actionDraft,
                 presentation: presentation,
                 usedLiveWeb: toolOutcome.usedLiveWeb,
-                model: model
+                model: synthesisModel
             )
 
             diagnosticsStore.append(
                 ChatAgentDiagnosticEntry(
                     userMessage: userMessage,
-                    model: model,
+                    model: synthesisModel,
                     responseText: finalResponse,
                     toolTrace: toolOutcome.toolTrace,
                     evidenceBundle: evidenceBundle,
@@ -101,7 +104,7 @@ final class ChatAgentService {
 
             return result
         } catch {
-            return fallbackResult(for: userMessage, model: model, error: error)
+            return fallbackResult(for: userMessage, model: synthesisModel, error: error)
         }
     }
 
