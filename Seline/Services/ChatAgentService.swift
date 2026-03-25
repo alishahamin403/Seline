@@ -27,7 +27,10 @@ final class ChatAgentService {
 
     private init() {}
 
-    func respond(turn: AgentTurnInput) async -> AgentTurnResult {
+    func respond(
+        turn: AgentTurnInput,
+        onSynthesisChunk: ((String) -> Void)? = nil
+    ) async -> AgentTurnResult {
         let userMessage = turn.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let liveSearchEnabled = turn.allowLiveSearch && shouldAllowLiveSearch(for: userMessage)
         let model = selectedModel(for: turn)
@@ -69,7 +72,8 @@ final class ChatAgentService {
                     userMessage: userMessage,
                     conversationHistory: turn.conversationHistory,
                     evidenceBundle: evidenceBundle,
-                    model: model
+                    model: model,
+                    onChunk: onSynthesisChunk
                 )
             }
 
@@ -353,7 +357,8 @@ final class ChatAgentService {
         userMessage: String,
         conversationHistory: [ConversationMessage],
         evidenceBundle: EvidenceBundle,
-        model: String
+        model: String,
+        onChunk: ((String) -> Void)? = nil
     ) async throws -> String {
         let priorTurns = conversationHistory.suffix(8).map { message in
             "\(message.isUser ? "User" : "Assistant"): \(message.text)"
@@ -401,15 +406,25 @@ final class ChatAgentService {
             inputMessage(role: "user", text: userMessage)
         ]
 
-        let response = try await responsesService.createResponse(
-            model: model,
-            input: synthesisInput,
-            tools: []
-        )
+        let outputText: String
+        if let onChunk {
+            outputText = try await responsesService.streamSynthesisText(
+                model: model,
+                input: synthesisInput,
+                onChunk: onChunk
+            )
+        } else {
+            let response = try await responsesService.createResponse(
+                model: model,
+                input: synthesisInput,
+                tools: []
+            )
+            outputText = response.outputText
+        }
 
-        if !response.outputText.isEmpty {
+        if !outputText.isEmpty {
             return normalizedAssistantText(
-                response.outputText,
+                outputText,
                 userMessage: userMessage,
                 evidenceBundle: evidenceBundle
             )

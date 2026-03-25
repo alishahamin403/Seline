@@ -1,8 +1,19 @@
 import Foundation
 import Combine
 
+/// Wraps any Decodable so an array decode can recover from individual element failures.
+private struct AnySafeDecodable<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws {
+        value = try? T(from: decoder)
+    }
+}
+
 @MainActor
 class SearchService: ObservableObject {
+    private static let lastConversationStorageKey = "lastConversation"
+    private static let lastActiveConversationIdStorageKey = "lastActiveConversationId"
+
     enum ChatLoadingPhase: Equatable {
         case idle
         case retrieving
@@ -604,27 +615,94 @@ class SearchService: ObservableObject {
             VectorSearchService.shared.endInteractiveRequest(reason: "chat")
         }
 
+        let assistantId = UUID()
+        var streamStarted = false
+        var accumulatedStreamText = ""
+
         let turnInput = AgentTurnInput(
             userMessage: userMessage,
             conversationHistory: conversationHistory,
             anchorState: currentConversationAnchorState,
             allowLiveSearch: true
         )
-        let turnResult = await chatAgent.respond(turn: turnInput)
+
+        let turnResult = await chatAgent.respond(
+            turn: turnInput,
+            onSynthesisChunk: { [weak self] chunk in
+                guard let self else { return }
+                accumulatedStreamText += chunk
+                if !streamStarted {
+                    streamStarted = true
+                    self.chatLoadingPhase = .generating
+                    let placeholder = ConversationMessage(
+                        id: assistantId,
+                        isUser: false,
+                        text: accumulatedStreamText,
+                        timestamp: Date(),
+                        intent: .general,
+                        timeStarted: thinkStartTime
+                    )
+                    self.conversationHistory.append(placeholder)
+                } else if let index = self.conversationHistory.lastIndex(where: { $0.id == assistantId }) {
+                    self.conversationHistory[index] = ConversationMessage(
+                        id: assistantId,
+                        isUser: false,
+                        text: accumulatedStreamText,
+                        timestamp: self.conversationHistory[index].timestamp,
+                        intent: .general,
+                        timeStarted: thinkStartTime
+                    )
+                    self.lastMessageContentVersion += 1
+                }
+            }
+        )
+
         currentConversationAnchorState = turnResult.evidenceBundle.anchorState
-        await applyAgentTurnResult(turnResult, thinkStartTime: thinkStartTime)
+        await applyAgentTurnResult(
+            turnResult,
+            thinkStartTime: thinkStartTime,
+            existingMessageId: streamStarted ? assistantId : nil
+        )
     }
 
-    private func applyAgentTurnResult(_ turnResult: AgentTurnResult, thinkStartTime: Date) async {
-        let citedRecords = citedEvidenceRecords(
+    private func applyAgentTurnResult(
+        _ turnResult: AgentTurnResult,
+        thinkStartTime: Date,
+        existingMessageId: UUID? = nil
+    ) async {
+        let citationProjection = projectedCitations(
             in: turnResult.responseText,
             from: turnResult.evidenceBundle
         )
-        let relevantContent = relevantContent(from: citedRecords)
-        let relatedData = relatedData(from: citedRecords)
+        let relevantContent = citationProjection.relevantContent
+        let relatedData = citationProjection.relatedData
+        let displayResponseText = citationProjection.responseText
         let presentedEventDrafts = turnResult.presentation?.eventDraftCard ?? turnResult.actionDraft?.eventDrafts
 
-        if enableStreamingResponses {
+        // If real streaming already appended the placeholder, just do the final update.
+        if let assistantId = existingMessageId {
+            if let index = conversationHistory.lastIndex(where: { $0.id == assistantId }) {
+                conversationHistory[index] = ConversationMessage(
+                    id: assistantId,
+                    isUser: false,
+                    text: displayResponseText,
+                    timestamp: conversationHistory[index].timestamp,
+                    intent: .general,
+                    relatedData: relatedData.isEmpty ? nil : relatedData,
+                    timeStarted: thinkStartTime,
+                    timeFinished: Date(),
+                    locationInfo: turnResult.locationInfo,
+                    eventCreationInfo: presentedEventDrafts,
+                    relevantContent: relevantContent,
+                    evidenceBundle: turnResult.evidenceBundle,
+                    toolTrace: turnResult.toolTrace,
+                    actionDraft: turnResult.actionDraft,
+                    presentation: turnResult.presentation
+                )
+                lastMessageContentVersion += 1
+            }
+        } else if enableStreamingResponses {
+            // Fallback fake-streaming (used when synthesis was skipped, e.g. draft responses).
             let assistantId = UUID()
             let baseMessage = ConversationMessage(
                 id: assistantId,
@@ -644,7 +722,7 @@ class SearchService: ObservableObject {
             conversationHistory.append(baseMessage)
 
             var renderedText = ""
-            for chunk in streamingChunks(from: turnResult.responseText) {
+            for chunk in streamingChunks(from: displayResponseText) {
                 renderedText += chunk
                 if let index = conversationHistory.lastIndex(where: { $0.id == assistantId }) {
                     conversationHistory[index] = ConversationMessage(
@@ -672,7 +750,7 @@ class SearchService: ObservableObject {
                 conversationHistory[index] = ConversationMessage(
                     id: assistantId,
                     isUser: false,
-                    text: turnResult.responseText,
+                    text: displayResponseText,
                     timestamp: conversationHistory[index].timestamp,
                     intent: .general,
                     relatedData: relatedData.isEmpty ? nil : relatedData,
@@ -691,7 +769,7 @@ class SearchService: ObservableObject {
         } else {
             let assistantMessage = ConversationMessage(
                 isUser: false,
-                text: turnResult.responseText,
+                text: displayResponseText,
                 timestamp: Date(),
                 intent: .general,
                 relatedData: relatedData.isEmpty ? nil : relatedData,
@@ -712,6 +790,12 @@ class SearchService: ObservableObject {
         chatLoadingPhase = .idle
         saveConversationLocally()
         _ = upsertCurrentConversationInHistory()
+    }
+
+    private struct CitationProjection {
+        let responseText: String
+        let relevantContent: [RelevantContentInfo]?
+        let relatedData: [RelatedDataItem]
     }
 
     func confirmActionDraft(
@@ -967,12 +1051,59 @@ class SearchService: ObservableObject {
         }
     }
 
+    private func projectedCitations(
+        in responseText: String,
+        from evidenceBundle: EvidenceBundle
+    ) -> CitationProjection {
+        let indices = citationIndices(
+            in: responseText,
+            maxIndex: evidenceBundle.records.count - 1
+        )
+
+        guard !indices.isEmpty else {
+            return CitationProjection(
+                responseText: normalizedEvidenceCitationText(responseText),
+                relevantContent: nil,
+                relatedData: []
+            )
+        }
+
+        var flattenedRelevantContent: [RelevantContentInfo] = []
+        var seenContentKeys = Set<String>()
+        var relatedDataItems: [RelatedDataItem] = []
+        var localCitationIndexByEvidenceIndex: [Int: Int] = [:]
+
+        for index in indices {
+            guard evidenceBundle.records.indices.contains(index) else { continue }
+            let record = evidenceBundle.records[index]
+
+            if let related = relatedData(from: record) {
+                relatedDataItems.append(related)
+            }
+
+            let items = relevantContentItems(from: record)
+            // Deduplicate across ALL cited records, not just within a single record's relations.
+            let dedupedItems = items.filter { seenContentKeys.insert(relevantContentDedupKey(for: $0)).inserted }
+            guard !dedupedItems.isEmpty else { continue }
+            localCitationIndexByEvidenceIndex[index] = flattenedRelevantContent.count
+            flattenedRelevantContent.append(contentsOf: dedupedItems)
+        }
+
+        return CitationProjection(
+            responseText: remappedCitationText(
+                responseText,
+                localCitationIndexByEvidenceIndex: localCitationIndexByEvidenceIndex,
+                maxEvidenceIndex: evidenceBundle.records.count - 1
+            ),
+            relevantContent: flattenedRelevantContent.isEmpty ? nil : flattenedRelevantContent,
+            relatedData: relatedDataItems
+        )
+    }
+
     private func citationIndices(in responseText: String, maxIndex: Int) -> [Int] {
         guard maxIndex >= 0 else { return [] }
 
-        let normalized = responseText
-            .replacingOccurrences(of: "[[", with: "[")
-            .replacingOccurrences(of: "]]", with: "]")
+        let normalized = normalizedEvidenceCitationText(responseText)
         let pattern = #"\[(\d+)\]"#
 
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
@@ -1001,9 +1132,87 @@ class SearchService: ObservableObject {
         return orderedIndices
     }
 
+    private func remappedCitationText(
+        _ responseText: String,
+        localCitationIndexByEvidenceIndex: [Int: Int],
+        maxEvidenceIndex: Int
+    ) -> String {
+        let normalized = normalizedEvidenceCitationText(responseText)
+        guard let regex = try? NSRegularExpression(pattern: #"\[(\d+)\]"#) else {
+            return normalized
+        }
+
+        let mutable = NSMutableString(string: normalized)
+        let matches = regex.matches(in: normalized, range: NSRange(normalized.startIndex..<normalized.endIndex, in: normalized))
+
+        for match in matches.reversed() {
+            guard
+                match.numberOfRanges > 1,
+                let range = Range(match.range(at: 1), in: normalized),
+                let value = Int(normalized[range]),
+                value >= 0,
+                value <= maxEvidenceIndex
+            else {
+                continue
+            }
+
+            if let localIndex = localCitationIndexByEvidenceIndex[value] {
+                mutable.replaceCharacters(in: match.range, with: "[\(localIndex)]")
+            } else {
+                mutable.replaceCharacters(in: match.range, with: "")
+            }
+        }
+
+        return (mutable as String)
+            .components(separatedBy: "\n")
+            .map { line in
+                let leading = String(line.prefix { $0 == " " || $0 == "\t" })
+                let remainder = String(line.dropFirst(leading.count))
+                    .replacingOccurrences(of: "[ \t]{2,}", with: " ", options: .regularExpression)
+                    .replacingOccurrences(of: "[ \t]+$", with: "", options: .regularExpression)
+                return leading + remainder
+            }
+            .joined(separator: "\n")
+            .replacingOccurrences(of: "\\s+([,.!?;:])", with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func normalizedEvidenceCitationText(_ text: String) -> String {
+        var normalized = text
+            .replacingOccurrences(of: "[[", with: "[")
+            .replacingOccurrences(of: "]]", with: "]")
+
+        let replacements: [(pattern: String, template: String)] = [
+            (#"\[\s*(?:evidenceBundle\.)?records\.(\d+)\s*\]"#, "[$1]"),
+            (#"\[\s*(?:evidenceBundle\.)?citations\.(\d+)\s*\]"#, "[$1]")
+        ]
+        for replacement in replacements {
+            normalized = normalized.replacingOccurrences(
+                of: replacement.pattern,
+                with: replacement.template,
+                options: .regularExpression
+            )
+        }
+
+        let stripPatterns = [
+            #"\[\s*(?:evidenceBundle\.)?aggregates\.\d+\s*\]"#,
+            #"\[\s*(?:evidenceBundle\.)?aggregate_rows\.\d+\s*\]"#
+        ]
+        for pattern in stripPatterns {
+            normalized = normalized.replacingOccurrences(
+                of: pattern,
+                with: "",
+                options: .regularExpression
+            )
+        }
+
+        return normalized
+    }
+
     private func relevantContent(from records: [EvidenceRecord]) -> [RelevantContentInfo]? {
-        let mapped = records.compactMap { record in
-            relevantContent(from: record)
+        let mapped = records.flatMap { record in
+            relevantContentItems(from: record)
         }
         return mapped.isEmpty ? nil : mapped
     }
@@ -1013,6 +1222,18 @@ class SearchService: ObservableObject {
             relatedData(from: record)
         }
         return Array(mapped.prefix(6))
+    }
+
+    private func relevantContentItems(from record: EvidenceRecord) -> [RelevantContentInfo] {
+        if record.ref.type == .daySummary {
+            return daySummaryRelevantContent(from: record)
+        }
+
+        if let item = relevantContent(from: record) {
+            return [item]
+        }
+
+        return []
     }
 
     private func relevantContent(from record: EvidenceRecord) -> RelevantContentInfo? {
@@ -1079,8 +1300,116 @@ class SearchService: ObservableObject {
                 name: record.title,
                 relationship: record.attributes["relationship"]
             )
-        case .currentContext, .aggregate, .webResult:
+        case .daySummary, .currentContext, .aggregate, .webResult:
             return nil
+        }
+    }
+
+    private func daySummaryRelevantContent(from record: EvidenceRecord) -> [RelevantContentInfo] {
+        var items: [RelevantContentInfo] = []
+        var seen = Set<String>()
+
+        for relation in record.relations {
+            guard let item = relevantContent(from: relation) else { continue }
+            let key = relevantContentDedupKey(for: item)
+            guard seen.insert(key).inserted else { continue }
+            items.append(item)
+        }
+
+        return Array(items.prefix(8))
+    }
+
+    private func relevantContent(from relation: EvidenceRelation) -> RelevantContentInfo? {
+        switch relation.target.type {
+        case .email:
+            return RelevantContentInfo.email(
+                id: relation.target.id,
+                subject: relation.target.title ?? relation.label ?? "Email",
+                sender: relation.label ?? "Email",
+                snippet: relation.label ?? "",
+                date: Date()
+            )
+        case .note:
+            guard let noteId = UUID(uuidString: relation.target.id) else { return nil }
+            let folderName: String
+            switch relation.type {
+            case "journal":
+                folderName = "Journal"
+            case "weekly_recap":
+                folderName = "Journal Weekly Summary"
+            default:
+                folderName = relation.label ?? "Notes"
+            }
+            return RelevantContentInfo.note(
+                id: noteId,
+                title: relation.target.title ?? relation.label ?? "Note",
+                snippet: relation.label ?? "",
+                folder: folderName
+            )
+        case .receipt:
+            guard let receiptId = UUID(uuidString: relation.target.id) else { return nil }
+            return RelevantContentInfo.receipt(
+                id: receiptId,
+                title: relation.target.title ?? relation.label ?? "Receipt",
+                amount: nil,
+                date: nil,
+                category: relation.label
+            )
+        case .event:
+            guard let eventId = UUID(uuidString: relation.target.id) else { return nil }
+            return RelevantContentInfo.event(
+                id: eventId,
+                title: relation.target.title ?? relation.label ?? "Event",
+                date: Date(),
+                category: relation.label ?? "Calendar"
+            )
+        case .location:
+            guard let locationId = UUID(uuidString: relation.target.id) else { return nil }
+            return RelevantContentInfo.location(
+                id: locationId,
+                name: relation.target.title ?? relation.label ?? "Place",
+                address: relation.label ?? "",
+                category: "Place"
+            )
+        case .visit:
+            guard let visitId = UUID(uuidString: relation.target.id) else { return nil }
+            return RelevantContentInfo.visit(
+                id: visitId,
+                placeId: nil,
+                placeName: relation.target.title ?? relation.label ?? "Visit",
+                address: nil,
+                entryTime: nil,
+                exitTime: nil,
+                durationMinutes: nil
+            )
+        case .person:
+            guard let personId = UUID(uuidString: relation.target.id) else { return nil }
+            return RelevantContentInfo.person(
+                id: personId,
+                name: relation.target.title ?? relation.label ?? "Person",
+                relationship: relation.label
+            )
+        case .daySummary, .nearbyPlace, .currentContext, .aggregate, .webResult:
+            return nil
+        }
+    }
+
+    private func relevantContentDedupKey(for item: RelevantContentInfo) -> String {
+        switch item.contentType {
+        case .email:
+            return "email::\(item.emailId ?? item.id.uuidString)"
+        case .note:
+            return "note::\(item.noteId?.uuidString ?? item.id.uuidString)"
+        case .receipt:
+            return "receipt::\(item.receiptId?.uuidString ?? item.id.uuidString)"
+        case .event:
+            return "event::\(item.eventId?.uuidString ?? item.id.uuidString)"
+        case .location:
+            return "location::\(item.locationId?.uuidString ?? item.id.uuidString)"
+        case .visit:
+            return "visit::\(item.visitId?.uuidString ?? item.id.uuidString)"
+        case .person:
+            return "person::\(item.personId?.uuidString ?? item.id.uuidString)"
         }
     }
 
@@ -1121,7 +1450,7 @@ class SearchService: ObservableObject {
                 title: record.title,
                 subtitle: record.attributes["address"] ?? record.summary
             )
-        case .visit, .person, .nearbyPlace, .currentContext, .aggregate, .webResult:
+        case .visit, .person, .daySummary, .nearbyPlace, .currentContext, .aggregate, .webResult:
             return nil
         }
     }
@@ -1533,6 +1862,7 @@ class SearchService: ObservableObject {
                 createdAt: savedConversations[index].createdAt,
                 updatedAt: updatedAt
             )
+            persistLastActiveConversationId(loadedId)
             saveConversationHistoryLocally()
             return loadedId
         }
@@ -1551,6 +1881,7 @@ class SearchService: ObservableObject {
                 updatedAt: updatedAt
             )
             currentlyLoadedConversationId = existingId
+            persistLastActiveConversationId(existingId)
             saveConversationHistoryLocally()
             return existingId
         }
@@ -1568,6 +1899,7 @@ class SearchService: ObservableObject {
         )
         savedConversations.insert(saved, at: 0)
         currentlyLoadedConversationId = newId
+        persistLastActiveConversationId(newId)
         saveConversationHistoryLocally()
         return newId
     }
@@ -1585,7 +1917,7 @@ class SearchService: ObservableObject {
                 encoded = try JSONEncoder().encode(snapshot)
             }
 
-            defaults.set(encoded, forKey: "lastConversation")
+            defaults.set(encoded, forKey: Self.lastConversationStorageKey)
         } catch {
             print("❌ Error saving conversation locally: \(error)")
         }
@@ -1594,14 +1926,51 @@ class SearchService: ObservableObject {
     /// Load last conversation from local storage
     func loadLastConversation() {
         let defaults = UserDefaults.standard
-        guard let data = defaults.data(forKey: "lastConversation") else { return }
+        guard let data = defaults.data(forKey: Self.lastConversationStorageKey) else { return }
 
         do {
             conversationHistory = try JSONDecoder().decode([ConversationMessage].self, from: data)
+            guard !conversationHistory.isEmpty else { return }
             conversationTitle = provisionalConversationTitle(from: conversationHistory)
+            conversationKind = .standard
+            currentTrackerThread = nil
+            pendingTrackerDraft = nil
+            isInConversationMode = true
+            isNewConversation = false
+            currentlyLoadedConversationId = nil
+            lastGeneratedTitleMessageCount = conversationHistory.count
+            currentConversationAnchorState = conversationHistory.last(where: { !$0.isUser })?.evidenceBundle?.anchorState
         } catch {
             print("❌ Error loading conversation: \(error)")
         }
+    }
+
+    func restoreMostRecentConversationIfNeeded() {
+        if !conversationHistory.isEmpty {
+            isInConversationMode = true
+            return
+        }
+
+        loadConversationHistoryLocally()
+
+        if let loadedId = currentlyLoadedConversationId,
+           savedConversations.contains(where: { $0.id == loadedId }) {
+            loadConversation(withId: loadedId)
+            return
+        }
+
+        if let lastActiveId = persistedLastActiveConversationId(),
+           savedConversations.contains(where: { $0.id == lastActiveId }) {
+            loadConversation(withId: lastActiveId)
+            return
+        }
+
+        if let mostRecentConversation = savedConversations.first {
+            loadConversation(withId: mostRecentConversation.id)
+            return
+        }
+
+        loadLastConversation()
     }
 
     /// Save conversation to Supabase
@@ -1770,6 +2139,22 @@ class SearchService: ObservableObject {
         return nil
     }
 
+    private func persistedLastActiveConversationId() -> UUID? {
+        guard let rawValue = UserDefaults.standard.string(forKey: Self.lastActiveConversationIdStorageKey) else {
+            return nil
+        }
+        return UUID(uuidString: rawValue)
+    }
+
+    private func persistLastActiveConversationId(_ id: UUID?) {
+        let defaults = UserDefaults.standard
+        if let id {
+            defaults.set(id.uuidString, forKey: Self.lastActiveConversationIdStorageKey)
+        } else {
+            defaults.removeObject(forKey: Self.lastActiveConversationIdStorageKey)
+        }
+    }
+
     private func deduplicatedRemoteStandardConversations(from records: [RemoteConversationRecord]) -> [SavedConversation] {
         var bestConversationsByKey: [String: SavedConversation] = [:]
 
@@ -1795,7 +2180,16 @@ class SearchService: ObservableObject {
     private func remoteStandardConversation(from record: RemoteConversationRecord) -> SavedConversation? {
         let messagesData = record.messages.data(using: .utf8) ?? Data("[]".utf8)
         let decoder = JSONDecoder()
-        let messages = (try? decoder.decode([ConversationMessage].self, from: messagesData)) ?? []
+        // Decode each message individually so one malformed message doesn't silently
+        // wipe the entire conversation and produce a blank history page.
+        let messages: [ConversationMessage]
+        if let all = try? decoder.decode([ConversationMessage].self, from: messagesData) {
+            messages = all
+        } else if let raws = try? decoder.decode([AnySafeDecodable<ConversationMessage>].self, from: messagesData) {
+            messages = raws.compactMap(\.value)
+        } else {
+            messages = []
+        }
         let title = sanitizedStandardConversationTitle(record.title, messages: messages)
 
         return SavedConversation(
@@ -2117,6 +2511,8 @@ class SearchService: ObservableObject {
             pendingTrackerDraft = saved.messages.last(where: { !$0.isUser })?.trackerOperationDraft
             currentTrackerThread = trackerStore.thread(id: saved.trackerThreadId)
             currentConversationAnchorState = saved.messages.last(where: { !$0.isUser })?.evidenceBundle?.anchorState
+            persistLastActiveConversationId(id)
+            saveConversationLocally()
 
             if saved.kind == .standard {
                 // Restore the note being edited from conversation context
@@ -2436,6 +2832,8 @@ class SearchService: ObservableObject {
 
         // Clear conversation storage from UserDefaults
         UserDefaults.standard.removeObject(forKey: "SavedConversations")
+        UserDefaults.standard.removeObject(forKey: Self.lastConversationStorageKey)
+        UserDefaults.standard.removeObject(forKey: Self.lastActiveConversationIdStorageKey)
 
         print("🗑️ Cleared all search and conversation data on logout")
     }
@@ -2453,7 +2851,8 @@ class SearchService: ObservableObject {
         currentlyLoadedConversationId = nil
         lastGeneratedTitleMessageCount = 0
         currentConversationAnchorState = nil
-        UserDefaults.standard.removeObject(forKey: "lastConversation")
+        UserDefaults.standard.removeObject(forKey: Self.lastConversationStorageKey)
+        UserDefaults.standard.removeObject(forKey: Self.lastActiveConversationIdStorageKey)
     }
 
     private func deleteStandardConversationsFromSupabase(ids: [UUID]) async {

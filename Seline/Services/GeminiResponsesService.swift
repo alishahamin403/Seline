@@ -429,6 +429,86 @@ final class GeminiResponsesService {
         return string
     }
 
+    func streamSynthesisText(
+        model: String,
+        input: [[String: Any]],
+        onChunk: (String) -> Void
+    ) async throws -> String {
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ResponsesError.missingAPIKey
+        }
+
+        let preparedRequest = try prepareInitialRequest(input: input, tools: [], functionCallingMode: nil)
+
+        guard let url = URL(string: "\(baseURL)/\(model):streamGenerateContent?alt=sse&key=\(apiKey)") else {
+            throw ResponsesError.invalidURL
+        }
+
+        var requestBody: [String: Any] = [
+            "contents": preparedRequest.contents,
+            "generationConfig": [
+                "temperature": 0.25,
+                "maxOutputTokens": maxOutputTokens
+            ]
+        ]
+
+        if let systemInstruction = preparedRequest.systemInstruction, !systemInstruction.isEmpty {
+            requestBody["systemInstruction"] = [
+                "parts": [["text": systemInstruction]]
+            ]
+        }
+
+        LLMDiagnostics.logLLMRequest(
+            operation: "chat_synthesis_stream",
+            model: model,
+            payload: requestBody
+        )
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.timeoutInterval = 90
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: requestBody, options: [])
+
+        do {
+            let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw ResponsesError.invalidResponse
+            }
+            guard httpResponse.statusCode == 200 else {
+                throw ResponsesError.apiError("HTTP \(httpResponse.statusCode)")
+            }
+
+            var accumulatedText = ""
+            for try await line in bytes.lines {
+                guard line.hasPrefix("data: ") else { continue }
+                let jsonStr = String(line.dropFirst(6))
+                guard !jsonStr.isEmpty, jsonStr != "[DONE]" else { continue }
+                guard
+                    let data = jsonStr.data(using: .utf8),
+                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                    let candidates = json["candidates"] as? [[String: Any]],
+                    let firstCandidate = candidates.first,
+                    let content = firstCandidate["content"] as? [String: Any],
+                    let parts = content["parts"] as? [[String: Any]]
+                else { continue }
+
+                for part in parts {
+                    if let text = part["text"] as? String, !text.isEmpty {
+                        accumulatedText += text
+                        onChunk(text)
+                    }
+                }
+            }
+
+            return accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch let error as ResponsesError {
+            throw error
+        } catch {
+            throw ResponsesError.network(error)
+        }
+    }
+
     private func trimStoredSessions(keepingNewest newestId: String) {
         guard sessions.count > maxStoredSessions else { return }
 
