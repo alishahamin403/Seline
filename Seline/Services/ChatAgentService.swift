@@ -34,8 +34,6 @@ final class ChatAgentService {
         let userMessage = turn.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let liveSearchEnabled = turn.allowLiveSearch && shouldAllowLiveSearch(for: userMessage)
         let synthesisModel = selectedModel(for: turn)
-        // Planning always uses the smarter model — it must follow complex multi-step
-        // enrichment instructions reliably regardless of question length or keywords.
         let planningModel = GeminiResponsesService.escalatedChatModel
 
         do {
@@ -270,7 +268,7 @@ final class ChatAgentService {
             inputMessage(
                 role: "developer",
                 text: """
-                You are Seline's data agent. Your job is to gather evidence before answering, then enrich that evidence with connected data from other sources.
+                You are Seline's data agent. Your job is to gather the minimum evidence needed before answering.
 
                 Rules:
                 - Think holistically across Seline data. Do not assume the answer domain up front.
@@ -294,8 +292,6 @@ final class ChatAgentService {
                 - When the user asks about a period longer than 7 days (month, quarter, year), use aggregate_seline with an appropriate group_by (day, month, category) to get bucketed totals, then drill into specific days or categories the user asks about.
                 - For spending, financial, or budget questions, FIRST check anchorState.resolvedTimeRange and anchorState.resolvedEntities in the structured context JSON. If a trip, visit, episode, or time period was recently resolved in the conversation, scope the aggregate_seline call to that exact time range and entity context — do NOT return all-time totals when a specific context is active. Only use an open-ended time range when no prior context exists.
                 - For spending, financial, or budget questions with no prior context, use aggregate_seline with scope=[receipt] to get accurate totals and breakdowns, then enrich with specific receipt records if the user wants itemization.
-                - CRITICAL — When you find a specific event or appointment (dentist, doctor, gym class, meeting, etc.), always enrich it automatically by also querying: (1) aggregate_seline with scope=[receipt] for that same date to find related spending, (2) search_seline_records for visits/places on that date to find the physical location, (3) search_seline_records for notes or emails from that date that may contain related info. Do NOT stop after finding the event alone — the user benefits from the full picture of what happened around it.
-                - When the user asks about a specific appointment or activity and then asks "how much did I spend", that is a follow-up for the same event's date — scope aggregate_seline to that exact date and search for receipts related to that merchant/category, not all-time totals.
                 - When the user asks you to create an event, call prepare_event_draft.
                 - When the user asks you to create a note, call prepare_note_draft.
                 - When the user asks for the latest or newest email, call refresh_inbox_and_get_latest_email before answering.
@@ -311,9 +307,11 @@ final class ChatAgentService {
                 - When the user wants to save a live place, use prepare_saved_place_draft and never claim it is already saved before the user confirms.
                 - Use web search only when live external information is actually needed and local tools are insufficient.
                 - When continuing a previous answer, reuse explicit refs from the structured context instead of re-inferring entities from loose wording.
+                - If the user's wording is ambiguous and the tools surface multiple plausible entities, ask for clarification instead of silently picking one.
+                - Think holistically across ALL Seline data types for every question. Visits, events/tasks, notes, receipts, emails, and people are all part of the same life. When the question is about a day, trip, or period, consider which of these data types are relevant and query them — don't stop at the first obvious one.
+                - CRITICAL — When you find a specific event or appointment (dentist, doctor, gym class, meeting, etc.), always enrich it automatically by also querying: (1) aggregate_seline with scope=[receipt] for that same date to find related spending, (2) search_seline_records for visits/places on that date to find the physical location, (3) search_seline_records for notes or emails from that date that may contain related info. Do NOT stop after finding the event alone — the user benefits from the full picture of what happened around it.
+                - When the user asks about a specific appointment or activity and then asks "how much did I spend", that is a follow-up for the same event's date — scope aggregate_seline to that exact date and search for receipts related to that merchant/category, not all-time totals.
                 - Follow-up questions inherit the context of the previous turn. Always read anchorState.resolvedTimeRange and anchorState.resolvedEntities before deciding the scope of any tool call. A vague follow-up like "how much did I spend" or "who was I with" means: scoped to the active context, not all-time.
-                - NEVER ask the user which day, time period, or date range to focus on. "Last", "most recent", "latest", "previous" mean search for the most recent matching record — use the tools to find it.
-                - NEVER ask the user a clarifying question when a tool can answer it. Only ask for clarification when the query is genuinely ambiguous between two specific named options that tools cannot resolve.
                 - Do not answer from memory. First gather evidence, then answer.
                 - The user context block below lists the user's saved places and known people by name. Use those exact names and relationships when formulating tool queries — this dramatically improves search precision.
                 """
@@ -382,7 +380,7 @@ final class ChatAgentService {
                 Rules:
                 - Always address the user in second person: "you", "your", "you visited", "you had". Never say "Seline", "the user", or refer to the user in third person.
                 - Answer only from the evidence bundle. If evidence is missing, say so plainly.
-                - CRITICAL citation format: cite evidence inline as [0], [1], [2] — these are the ZERO-BASED INTEGER POSITIONS of records in evidenceBundle.records. NEVER write [visit:UUID], [receipt:UUID], or any other format. Only plain integer indices like [0], [1], [2]. Never repeat the same index more than once.
+                - CRITICAL citation format: cite evidence inline as [0], [1], [2] — the ZERO-BASED INTEGER POSITIONS of records in evidenceBundle.records. NEVER write [visit:UUID], [receipt:UUID], or any other format. Only plain integer indices. Never repeat the same index more than once.
                 - Use citations only for actual evidence records, not aggregate rows.
                 - Keep clarifying questions short when ambiguity remains.
                 - If aggregates are present, use them directly instead of narrating from loose snippets.
@@ -395,7 +393,7 @@ final class ChatAgentService {
                 - When answering about a specific event or appointment, if the evidence bundle also contains receipts, visits, or notes from the same day, surface those naturally in the answer — e.g. "You also spent $X at [merchant] that day" or "You visited [place] nearby". Weave related same-day context into the response rather than only answering the narrowest version of the question.
                 - For place or proximity results with multiple matches, present them as a short bullet list with the place name first, then ETA or address.
                 - For day summary responses ("how was my day", "what happened today", etc.): structure the answer with clear sections using headers or bullets — first a one-line opening, then Events/Meetings, then Highlights, then Open loops/outstanding items, then any anomalies. Do not dump everything in one paragraph.
-                - For day summary evidence records, the highlights, open_loops, and anomalies attributes contain pipe-separated lists of actual text items — split on "|" and present each as a separate bullet. NEVER say "X highlights" or "X open loops" — always show the actual text of each item.
+                - For day summary evidence records, the highlights, open_loops, and anomalies attributes contain pipe-separated lists of the actual items. Present each item as a separate bullet point — do not say "3 highlights" when you have the actual text.
                 - For visit records, treat entry_local_date, entry_local_weekday, entry_local_time, exit_local_date, exit_local_weekday, and exit_local_time as authoritative local-time fields. Do not recompute weekdays from ISO timestamps if those local fields are present.
                 - For event records, always use the local_time and local_date attributes for display. Never convert the UTC ISO timestamp yourself — the local_time attribute already reflects the user's device timezone.
                 - Do not invent corrected dates. If the user questions a day/date, explain the recorded local timestamp/day from the evidence instead of fabricating a new date.
@@ -404,12 +402,10 @@ final class ChatAgentService {
             ),
             inputMessage(
                 role: "developer",
-                text: citationIndexMap(for: evidenceBundle)
-            ),
-            inputMessage(
-                role: "developer",
                 text: """
                 Structured context JSON:
+                \(citationIndexMap(for: evidenceBundle))
+
                 \(synthesisContextJSON(conversationTail: priorTurns, evidenceBundle: evidenceBundle))
                 """
             ),
@@ -491,11 +487,10 @@ final class ChatAgentService {
         from toolResults: [ToolResult],
         userMessage: String
     ) -> ConversationAnchorState {
-        // Priority: explicit date in user message > date extracted from resolved records > inherited base
         let messageRange = TemporalUnderstandingService.shared
             .extractTemporalRange(from: userMessage)?
             .description
-        let resolvedRange = messageRange
+        let temporalDescription = messageRange
             ?? resolvedDateFromToolResults(toolResults)
             ?? base?.resolvedTimeRange
 
@@ -514,35 +509,11 @@ final class ChatAgentService {
 
         return ConversationAnchorState(
             resolvedEntities: Array(orderedRefs.prefix(8)),
-            resolvedTimeRange: resolvedRange,
+            resolvedTimeRange: temporalDescription,
             comparisonWindow: base?.comparisonWindow,
             lastLivePlaceResults: latestLivePlaces ?? base?.lastLivePlaceResults,
             lastActionDraft: toolResults.compactMap(\.actionDraft).last ?? base?.lastActionDraft
         )
-    }
-
-    /// Extract a human-readable date string from event/visit records returned by tools,
-    /// so follow-up questions can be scoped to that date without the user restating it.
-    private func resolvedDateFromToolResults(_ toolResults: [ToolResult]) -> String? {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "MMMM d, yyyy"
-        dateFormatter.timeZone = TimeZone.current
-        let isoParser = ISO8601DateFormatter()
-
-        for result in toolResults {
-            for record in result.records {
-                guard record.ref.type == .event || record.ref.type == .visit else { continue }
-                // Prefer local_date attribute (already formatted), fall back to ISO timestamp
-                if let localDate = record.attributes["local_date"], !localDate.isEmpty {
-                    return localDate
-                }
-                if let ts = record.timestamps.first(where: { !$0.value.isEmpty }),
-                   let date = isoParser.date(from: ts.value) {
-                    return dateFormatter.string(from: date)
-                }
-            }
-        }
-        return nil
     }
 
     private func shouldCarryForwardAnchor(_ ref: EntityRef) -> Bool {
@@ -670,14 +641,6 @@ final class ChatAgentService {
         return (try? encodedJSONString(snapshot)) ?? "{}"
     }
 
-    private func citationIndexMap(for evidenceBundle: EvidenceBundle) -> String {
-        guard !evidenceBundle.records.isEmpty else { return "No evidence records." }
-        let lines = evidenceBundle.records.enumerated().map { index, record in
-            "[\(index)] \(record.ref.type.rawValue): \(record.title)"
-        }
-        return "Citation index (use ONLY these integers in your answer):\n" + lines.joined(separator: "\n")
-    }
-
     private func synthesisContextJSON(
         conversationTail: [String],
         evidenceBundle: EvidenceBundle
@@ -687,6 +650,34 @@ final class ChatAgentService {
             evidenceBundle: evidenceBundle
         )
         return (try? encodedJSONString(snapshot)) ?? "{}"
+    }
+
+    private func citationIndexMap(for evidenceBundle: EvidenceBundle) -> String {
+        guard !evidenceBundle.records.isEmpty else { return "No evidence records." }
+        let lines = evidenceBundle.records.enumerated().map { index, record in
+            "[\(index)] \(record.ref.type.rawValue): \(record.title)"
+        }
+        return "Citation index (use ONLY these integers):\n" + lines.joined(separator: "\n")
+    }
+
+    private func resolvedDateFromToolResults(_ toolResults: [ToolResult]) -> String? {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMMM d, yyyy"
+        dateFormatter.timeZone = TimeZone.current
+        let isoParser = ISO8601DateFormatter()
+        for result in toolResults {
+            for record in result.records {
+                guard record.ref.type == .event || record.ref.type == .visit else { continue }
+                if let localDate = record.attributes["local_date"], !localDate.isEmpty {
+                    return localDate
+                }
+                if let ts = record.timestamps.first(where: { !$0.value.isEmpty }),
+                   let date = isoParser.date(from: ts.value) {
+                    return dateFormatter.string(from: date)
+                }
+            }
+        }
+        return nil
     }
 
     private func toolPreview(for result: ToolResult) -> String {
@@ -786,6 +777,7 @@ final class ChatAgentService {
             "because the evidence is missing",
             "based on the evidence provided",
             "i couldn’t complete that request cleanly",
+            "i couldn't complete that request cleanly",
             "try asking again",
             "more specificity",
             "narrow the time",
@@ -819,7 +811,8 @@ final class ChatAgentService {
             "i couldn't find any information",
             "i don't have enough information",
             "i do not have enough information",
-            "no information about"
+            "i cannot fulfill this request",
+            "i can't fulfill this request"
         ]
 
         if lowSignalPhrases.contains(where: { lowered.contains($0) }) {
@@ -837,12 +830,7 @@ final class ChatAgentService {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return text }
 
-        // Only attempt clarification conversion when there is no real evidence.
-        // If the bundle has records or aggregates the synthesizer worked from actual
-        // data — its answer (even if partial) is always more useful than a generic
-        // "can you narrow it down" message. Never shadow a real answer.
-        let hasRealEvidence = !evidenceBundle.records.isEmpty || !evidenceBundle.aggregates.isEmpty
-        if !hasRealEvidence && shouldConvertToClarification(trimmed) {
+        if shouldConvertToClarification(trimmed) {
             return genericClarificationPrompt(for: userMessage, evidenceBundle: evidenceBundle)
         }
 
@@ -851,27 +839,32 @@ final class ChatAgentService {
 
     private func shouldConvertToClarification(_ text: String) -> Bool {
         let lowered = text.lowercased()
-        // Only match responses that are a total inability to answer — not partial
-        // answers that acknowledge some missing detail alongside real content.
         let phrases = [
             "i cannot answer",
             "i can't answer",
             "i cannot find any evidence",
             "i couldn't find any evidence",
             "i could not find any evidence",
+            "there is no information",
+            "there's no information",
             "provided evidence",
             "cannot directly retrieve",
             "cannot directly access",
             "tools do not allow",
+            "do not have information",
+            "don't have information",
             "i apologize, but i cannot",
             "i apologize, but i can not",
+            "no information about",
+            "no evidence of",
             "cannot determine the exact date",
             "can't determine the exact date",
             "i cannot determine",
             "i can't determine",
             "unable to determine the exact",
-            "i am unable to determine",
-            "i'm unable to determine"
+            "i cannot fulfill this request",
+            "i can't fulfill this request",
+            "does not contain information about"
         ]
 
         return phrases.contains(where: { lowered.contains($0) })
