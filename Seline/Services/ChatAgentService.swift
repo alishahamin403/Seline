@@ -324,6 +324,8 @@ final class ChatAgentService {
                 ## Hard constraints
                 - Never answer from memory — always gather evidence first
                 - Interpret phrasing semantically — do not require exact grammar or spelling to trigger the right tool
+                - NEVER ask the user which day, time period, or date range to focus on. "Last", "most recent", "latest", "previous" mean search for the most recent matching record — use the tools to find it, do not ask the user to specify a date.
+                - NEVER ask the user a clarifying question when a tool can answer it. If you can search for the answer, search for it. Only ask for clarification when the query is genuinely ambiguous between two specific named options that tools cannot resolve.
                 - The user context block below lists saved places and known people by name — use those exact names in tool queries for better search precision
                 """
             ),
@@ -411,7 +413,7 @@ final class ChatAgentService {
 
                 ## Formatting
                 - For day summary responses: structure with clear sections — one-line opening, then Events/Meetings, then Highlights, then Open loops/outstanding items, then Anomalies/Spending. Do not dump everything in one paragraph.
-                - For day summary evidence records, highlights/open_loops/anomalies are pipe-separated lists — present each as a separate bullet, not a count.
+                - For day summary evidence records, highlights/open_loops/anomalies are pipe-separated lists of actual text items — split on "|" and present each as a separate bullet. NEVER say "X highlights" or "X open loops" — always show the actual text of each item.
                 - For proximity/nearby results with multiple matches: short bullet list, place name first, then ETA or address.
 
                 ## Dates and times
@@ -765,7 +767,6 @@ final class ChatAgentService {
             "because the evidence is missing",
             "based on the evidence provided",
             "i couldn’t complete that request cleanly",
-            "i couldn't complete that request cleanly",
             "try asking again",
             "more specificity",
             "narrow the time",
@@ -776,7 +777,17 @@ final class ChatAgentService {
             "cannot directly access",
             "tools do not allow",
             "provided evidence",
-            "comprehensive list of all your saved locations"
+            "comprehensive list of all your saved locations",
+            "which specific day",
+            "which day should i focus",
+            "what specific day",
+            "which date should i",
+            "could you specify the date",
+            "could you specify which day",
+            "please specify the date",
+            "please clarify the date",
+            "what time period",
+            "which time period should"
         ]
 
         if lowSignalPhrases.contains(where: { lowered.contains($0) }) {

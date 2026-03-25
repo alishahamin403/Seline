@@ -1742,16 +1742,15 @@ final class SelineToolRegistry {
         dateFormatter.dateFormat = "EEEE, MMMM d yyyy"
         dateFormatter.timeZone = TimeZone.current
 
+        let localTime = timeFormatter.string(from: date)
         var attributes: [String: String] = [
             "location": task.location ?? "",
             "calendar": task.calendarTitle ?? "",
             "completed": task.isCompleted ? "true" : "false",
             "local_date": dateFormatter.string(from: date),
+            "local_time": localTime,
             "timezone": TimeZone.current.identifier
         ]
-        if let scheduledTime = task.scheduledTime {
-            attributes["local_time"] = timeFormatter.string(from: scheduledTime)
-        }
 
         return EvidenceRecord(
             ref: EntityRef(type: .event, id: task.id, title: task.title),
