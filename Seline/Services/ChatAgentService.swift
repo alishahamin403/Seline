@@ -806,7 +806,20 @@ final class ChatAgentService {
             "please specify the date",
             "please clarify the date",
             "what time period",
-            "which time period should"
+            "which time period should",
+            "cannot determine the exact date",
+            "can't determine the exact date",
+            "i cannot determine",
+            "i can't determine",
+            "unable to determine the exact",
+            "i am unable to determine",
+            "i'm unable to determine",
+            "i was unable to find",
+            "i could not find any information",
+            "i couldn't find any information",
+            "i don't have enough information",
+            "i do not have enough information",
+            "no information about"
         ]
 
         if lowSignalPhrases.contains(where: { lowered.contains($0) }) {
@@ -851,7 +864,14 @@ final class ChatAgentService {
             "cannot directly access",
             "tools do not allow",
             "i apologize, but i cannot",
-            "i apologize, but i can not"
+            "i apologize, but i can not",
+            "cannot determine the exact date",
+            "can't determine the exact date",
+            "i cannot determine",
+            "i can't determine",
+            "unable to determine the exact",
+            "i am unable to determine",
+            "i'm unable to determine"
         ]
 
         return phrases.contains(where: { lowered.contains($0) })
