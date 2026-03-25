@@ -373,8 +373,6 @@ final class ChatAgentService {
             inputMessage(
                 role: "developer",
                 text: """
-                You are Seline's personal intelligence synthesizer. Your job is to give the user the richest, most connected answer possible from the evidence — not just the narrowest fact they asked for.
-
                 You are Seline's answer synthesizer.
 
                 \(userContextBlock())
@@ -384,7 +382,7 @@ final class ChatAgentService {
                 Rules:
                 - Always address the user in second person: "you", "your", "you visited", "you had". Never say "Seline", "the user", or refer to the user in third person.
                 - Answer only from the evidence bundle. If evidence is missing, say so plainly.
-                - Cite concrete evidence inline as [0], [1], [2] using the zero-based index in evidenceBundle.records. Never repeat the same citation number more than once.
+                - CRITICAL citation format: cite evidence inline as [0], [1], [2] — these are the ZERO-BASED INTEGER POSITIONS of records in evidenceBundle.records. NEVER write [visit:UUID], [receipt:UUID], or any other format. Only plain integer indices like [0], [1], [2]. Never repeat the same index more than once.
                 - Use citations only for actual evidence records, not aggregate rows.
                 - Keep clarifying questions short when ambiguity remains.
                 - If aggregates are present, use them directly instead of narrating from loose snippets.
@@ -403,6 +401,10 @@ final class ChatAgentService {
                 - Do not invent corrected dates. If the user questions a day/date, explain the recorded local timestamp/day from the evidence instead of fabricating a new date.
                 - If a visit happens just after midnight, you may describe it as early the next morning, but keep the actual recorded local date/weekday unchanged unless the evidence itself says otherwise.
                 """
+            ),
+            inputMessage(
+                role: "developer",
+                text: citationIndexMap(for: evidenceBundle)
             ),
             inputMessage(
                 role: "developer",
@@ -666,6 +668,14 @@ final class ChatAgentService {
             previousEvidenceBundle: previousEvidenceBundle
         )
         return (try? encodedJSONString(snapshot)) ?? "{}"
+    }
+
+    private func citationIndexMap(for evidenceBundle: EvidenceBundle) -> String {
+        guard !evidenceBundle.records.isEmpty else { return "No evidence records." }
+        let lines = evidenceBundle.records.enumerated().map { index, record in
+            "[\(index)] \(record.ref.type.rawValue): \(record.title)"
+        }
+        return "Citation index (use ONLY these integers in your answer):\n" + lines.joined(separator: "\n")
     }
 
     private func synthesisContextJSON(
