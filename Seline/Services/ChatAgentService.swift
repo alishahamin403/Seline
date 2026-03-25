@@ -508,9 +508,13 @@ final class ChatAgentService {
         from toolResults: [ToolResult],
         userMessage: String
     ) -> ConversationAnchorState {
-        let temporalDescription = TemporalUnderstandingService.shared
+        // Priority: explicit date in user message > date extracted from resolved records > inherited base
+        let messageRange = TemporalUnderstandingService.shared
             .extractTemporalRange(from: userMessage)?
-            .description ?? base?.resolvedTimeRange
+            .description
+        let resolvedRange = messageRange
+            ?? resolvedDateFromToolResults(toolResults)
+            ?? base?.resolvedTimeRange
 
         var orderedRefs: [EntityRef] = base?.resolvedEntities ?? []
         var seen = Set(orderedRefs.map(\.identifier))
@@ -527,11 +531,35 @@ final class ChatAgentService {
 
         return ConversationAnchorState(
             resolvedEntities: Array(orderedRefs.prefix(8)),
-            resolvedTimeRange: temporalDescription,
+            resolvedTimeRange: resolvedRange,
             comparisonWindow: base?.comparisonWindow,
             lastLivePlaceResults: latestLivePlaces ?? base?.lastLivePlaceResults,
             lastActionDraft: toolResults.compactMap(\.actionDraft).last ?? base?.lastActionDraft
         )
+    }
+
+    /// Extract a human-readable date string from event/visit records returned by tools,
+    /// so follow-up questions can be scoped to that date without the user restating it.
+    private func resolvedDateFromToolResults(_ toolResults: [ToolResult]) -> String? {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMMM d, yyyy"
+        dateFormatter.timeZone = TimeZone.current
+        let isoParser = ISO8601DateFormatter()
+
+        for result in toolResults {
+            for record in result.records {
+                guard record.ref.type == .event || record.ref.type == .visit else { continue }
+                // Prefer local_date attribute (already formatted), fall back to ISO timestamp
+                if let localDate = record.attributes["local_date"], !localDate.isEmpty {
+                    return localDate
+                }
+                if let ts = record.timestamps.first(where: { !$0.value.isEmpty }),
+                   let date = isoParser.date(from: ts.value) {
+                    return dateFormatter.string(from: date)
+                }
+            }
+        }
+        return nil
     }
 
     private func shouldCarryForwardAnchor(_ ref: EntityRef) -> Bool {

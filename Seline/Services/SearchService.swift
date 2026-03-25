@@ -1150,15 +1150,17 @@ class SearchService: ObservableObject {
                 match.numberOfRanges > 1,
                 let range = Range(match.range(at: 1), in: normalized),
                 let value = Int(normalized[range]),
-                value >= 0,
-                value <= maxEvidenceIndex
+                value >= 0
             else {
+                // Strip anything that doesn't parse as a valid non-negative integer
+                mutable.replaceCharacters(in: match.range, with: "")
                 continue
             }
 
-            if let localIndex = localCitationIndexByEvidenceIndex[value] {
+            if value <= maxEvidenceIndex, let localIndex = localCitationIndexByEvidenceIndex[value] {
                 mutable.replaceCharacters(in: match.range, with: "[\(localIndex)]")
             } else {
+                // Out-of-range or unmapped citation — strip it rather than leaving literal [N]
                 mutable.replaceCharacters(in: match.range, with: "")
             }
         }
