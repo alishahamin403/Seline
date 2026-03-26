@@ -730,7 +730,6 @@ struct ConversationSearchView: View {
                 .simultaneousGesture(TapGesture().onEnded {
                     if isInputFocused { dismissKeyboard() }
                 })
-                .drawingGroup()
                 .mask(
                     // Fade mask that creates smooth fade at top
                     LinearGradient(
