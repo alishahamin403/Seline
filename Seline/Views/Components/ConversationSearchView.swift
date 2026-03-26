@@ -76,12 +76,6 @@ struct ConversationSearchView: View {
                 }
                 conversationScrollView
 
-                if isStreamingResponse || pageState.isLoadingQuestionResponse {
-                    streamingIndicatorView
-                        .transition(.opacity)
-                        .animation(.easeInOut(duration: 0.2), value: isStreamingResponse)
-                }
-
                 inputAreaView
             }
         }
@@ -537,74 +531,8 @@ struct ConversationSearchView: View {
 
     // MARK: - Subviews
 
-    private var streamingIndicatorView: some View {
-        VStack(spacing: 0) {
-            // Thinking label + progress bar + stop button
-            HStack(spacing: 10) {
-                // Dynamic contextual label — updates as the agent switches phases
-                Text(pageState.chatLoadingStatusLabel)
-                    .font(FontManager.geist(size: 12, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.40))
-                    .lineLimit(1)
-                    .animation(.easeInOut(duration: 0.25), value: pageState.chatLoadingStatusLabel)
-
-                streamingProgressBar
-                    .frame(height: 2)
-
-                // Stop button
-                Button(action: {
-                    HapticManager.shared.medium()
-                    isStreamingResponse = false
-                    searchService.stopCurrentRequest()
-                }) {
-                    ZStack {
-                        Circle()
-                            .fill((colorScheme == .dark ? Color.white : Color.black))
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(chatBackgroundColor)
-                            .frame(width: 10, height: 10)
-                    }
-                    .frame(width: 28, height: 28)
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-
-            Divider()
-                .background((colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)))
-        }
-        .background(chatBackgroundColor)
-        .transition(.opacity)
-    }
-
-    private var streamingProgressBar: some View {
-        GeometryReader { geometry in
-            SwiftUI.TimelineView(.animation(minimumInterval: 0.12)) { context in
-                let phase = context.date.timeIntervalSinceReferenceDate * 2.4
-                let normalized = (sin(phase) + 1) / 2
-                let widthFactor = 0.28 + (normalized * 0.44)
-
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(
-                            LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color.blue.opacity(0.6),
-                                    Color.blue.opacity(0.8)
-                                ]),
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: geometry.size.width * widthFactor)
-                }
-            }
-        }
-    }
+    // Streaming indicator bar removed — loading status now shown inline
+    // inside ModernLoadingIndicator (three dots + label) in the conversation scroll.
 
     // MARK: - Subviews
 
@@ -4300,12 +4228,23 @@ struct ModernLoadingIndicator: View {
             let elapsed = context.date.timeIntervalSinceReferenceDate
 
             HStack {
-                HStack(spacing: 4) {
-                    ForEach(0..<3, id: \.self) { index in
-                        Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.55))
-                            .frame(width: 7, height: 7)
-                            .scaleEffect(dotScale(for: index, elapsed: elapsed))
+                HStack(spacing: 8) {
+                    // Three animated dots
+                    HStack(spacing: 4) {
+                        ForEach(0..<3, id: \.self) { index in
+                            Circle()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.55))
+                                .frame(width: 7, height: 7)
+                                .scaleEffect(dotScale(for: index, elapsed: elapsed))
+                        }
+                    }
+
+                    // Status label right of the dots
+                    if !label.isEmpty {
+                        Text(label)
+                            .font(FontManager.geist(size: 13, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.35))
+                            .lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 14)
