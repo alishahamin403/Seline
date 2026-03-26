@@ -1548,7 +1548,7 @@ struct NotesView: View, Searchable {
                 }
 
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 8) {
+                LazyVStack(spacing: 8) {
                     if selectedMainPage == .notes {
                         searchResultsDropdown
                     } else if selectedMainPage == .receipts {

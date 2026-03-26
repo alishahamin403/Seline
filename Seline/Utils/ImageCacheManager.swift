@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import CryptoKit
 
 /// Manages image caching to reduce network egress and improve performance
 class ImageCacheManager {
@@ -41,7 +42,7 @@ class ImageCacheManager {
         }
 
         // Check disk cache
-        let filename = url.hash.description
+        let filename = Insecure.MD5.hash(data: Data(url.utf8)).map { String(format: "%02x", $0) }.joined()
         let fileURL = cacheDirectory.appendingPathComponent(filename)
 
         if let imageData = try? Data(contentsOf: fileURL),

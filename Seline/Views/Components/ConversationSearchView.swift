@@ -75,6 +75,13 @@ struct ConversationSearchView: View {
                     trackerPinnedSummaryCard
                 }
                 conversationScrollView
+
+                if isStreamingResponse || pageState.isLoadingQuestionResponse {
+                    streamingIndicatorView
+                        .transition(.opacity)
+                        .animation(.easeInOut(duration: 0.2), value: isStreamingResponse)
+                }
+
                 inputAreaView
             }
         }
@@ -90,10 +97,11 @@ struct ConversationSearchView: View {
                 // Subtle click when LLM starts thinking
                 playLoadingStartSound()
             } else {
-                // Stopped streaming
+                // Stopped streaming — play a subtle completion sound + haptic
                 isStreamingResponse = false
                 streamingStartTime = nil
                 shouldAutoScrollConversation = true
+                playResponseCompleteSound()
             }
         }
         .onAppear {
@@ -272,12 +280,9 @@ struct ConversationSearchView: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
-    private func playLoadingStartSound() {
-        // System sound 1519 ("Tock") — subtle, short, respects silent mode.
-        // Pair with a soft haptic so feedback is always felt even when silent.
-        AudioServicesPlaySystemSound(1519)
-        HapticManager.shared.soft()
-    }
+    private func playLoadingStartSound() {}
+
+    private func playResponseCompleteSound() {}
 
     private func startTrackerRuleEdit() {
         HapticManager.shared.selection()
@@ -534,8 +539,15 @@ struct ConversationSearchView: View {
 
     private var streamingIndicatorView: some View {
         VStack(spacing: 0) {
-            // Progress bar animation
-            HStack(spacing: 12) {
+            // Thinking label + progress bar + stop button
+            HStack(spacing: 10) {
+                // Dynamic contextual label — updates as the agent switches phases
+                Text(pageState.chatLoadingStatusLabel)
+                    .font(FontManager.geist(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.40))
+                    .lineLimit(1)
+                    .animation(.easeInOut(duration: 0.25), value: pageState.chatLoadingStatusLabel)
+
                 streamingProgressBar
                     .frame(height: 2)
 
@@ -691,7 +703,9 @@ struct ConversationSearchView: View {
                                 )
                                     .id(message.id)
                                     .transition(.asymmetric(
-                                        insertion: .opacity.combined(with: .move(edge: .bottom)),
+                                        insertion: .opacity
+                                            .combined(with: .scale(scale: 0.96, anchor: .bottom))
+                                            .combined(with: .move(edge: .bottom)),
                                         removal: .opacity
                                     ))
                             }
@@ -716,6 +730,7 @@ struct ConversationSearchView: View {
                 .simultaneousGesture(TapGesture().onEnded {
                     if isInputFocused { dismissKeyboard() }
                 })
+                .drawingGroup()
                 .mask(
                     // Fade mask that creates smooth fade at top
                     LinearGradient(
@@ -846,8 +861,6 @@ struct ConversationSearchView: View {
         }
         .background(chatBackgroundColor)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isInputFocused)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: messageText.isEmpty)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: pageState.conversationHistory.count)
     }
 
     private var smartSuggestionsBar: some View {
@@ -1168,6 +1181,9 @@ struct ConversationSearchView: View {
 }
 
 struct ConversationMessageView: View {
+    // Pre-compiled regex for citation parsing — avoids recompiling on every streaming chunk
+    private static let citationRegex = try! NSRegularExpression(pattern: "\\[\\s*(\\d+)\\s*\\]")
+
     private struct MessageRenderCache {
         let version: Int
         let displayedText: String
@@ -2015,11 +2031,7 @@ struct ConversationMessageView: View {
     private func evidenceCitationIndices(in text: String, maxIndex: Int) -> [Int] {
         guard maxIndex >= 0 else { return [] }
         let normalized = normalizeCitationMarkers(in: text)
-        guard let regex = try? NSRegularExpression(pattern: "\\[\\s*(\\d+)\\s*\\]") else {
-            return []
-        }
-
-        let matches = regex.matches(in: normalized, range: NSRange(normalized.startIndex..<normalized.endIndex, in: normalized))
+        let matches = Self.citationRegex.matches(in: normalized, range: NSRange(normalized.startIndex..<normalized.endIndex, in: normalized))
         var ordered: [Int] = []
         var seen = Set<Int>()
 
@@ -4329,7 +4341,7 @@ struct AlignedTextEditor: UIViewRepresentable {
         let textView = UITextView()
         textView.delegate = context.coordinator
         textView.backgroundColor = .clear
-        textView.font = UIFont.systemFont(ofSize: 16, weight: .regular)
+        textView.font = UIFont(name: "Geist-Regular", size: 16) ?? UIFont.systemFont(ofSize: 16, weight: .regular)
         textView.text = text
         textView.textColor = colorScheme == .dark ? .white : .black
         textView.tintColor = colorScheme == .dark ? UIColor.white.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.8)
@@ -4367,7 +4379,7 @@ struct AlignedTextEditor: UIViewRepresentable {
             textView.text = text
         }
 
-        textView.font = UIFont.systemFont(ofSize: 16, weight: .regular)
+        textView.font = UIFont(name: "Geist-Regular", size: 16) ?? UIFont.systemFont(ofSize: 16, weight: .regular)
         textView.textColor = colorScheme == .dark ? .white : .black
         textView.tintColor = colorScheme == .dark ? UIColor.white.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.8)
         textView.layoutIfNeeded()

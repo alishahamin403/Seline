@@ -18,16 +18,43 @@ class SearchService: ObservableObject {
         case idle
         case retrieving
         case generating
+        // Tool-specific phases for richer UI feedback
+        case lookingUpDay
+        case searchingData
+        case checkingNearby
+        case searchingWeb
+        case crunchingNumbers
 
         var statusLabel: String {
             switch self {
             case .idle:
-                return "Thinking..."
+                return "Thinking…"
             case .retrieving:
-                return "Retrieving data..."
+                return "Looking up your data…"
             case .generating:
-                return "Generating answer..."
+                return "Writing your answer…"
+            case .lookingUpDay:
+                return "Looking up your day…"
+            case .searchingData:
+                return "Searching your data…"
+            case .checkingNearby:
+                return "Checking what's nearby…"
+            case .searchingWeb:
+                return "Searching the web…"
+            case .crunchingNumbers:
+                return "Crunching your numbers…"
             }
+        }
+
+        /// Pick a phase based on which tool names are in the active dispatch set
+        static func from(toolNames: [String]) -> ChatLoadingPhase {
+            let names = Set(toolNames)
+            if names.contains("get_day_context") { return .lookingUpDay }
+            if names.contains("search_nearby_places") || names.contains("resolve_live_place") { return .checkingNearby }
+            if names.contains("aggregate_seline") { return .crunchingNumbers }
+            if names.contains("web_search") { return .searchingWeb }
+            if names.contains("search_seline_records") || names.contains("resolve_episode_context") { return .searchingData }
+            return .retrieving
         }
     }
 
@@ -57,6 +84,7 @@ class SearchService: ObservableObject {
     @Published var pendingTrackerDraft: TrackerOperationDraft? = nil
     private var currentlyLoadedConversationId: UUID? = nil
     private var lastGeneratedTitleMessageCount: Int = 0
+    private var lastContentVersionUpdate: Date = .distantPast
 
     // NEW: Conversational action system
     @Published var currentInteractiveAction: InteractiveAction?
@@ -88,6 +116,7 @@ class SearchService: ObservableObject {
     private var searchableProviders: [SearchDestination: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
     private var cancellables = Set<AnyCancellable>()
+    private var currentSearchTask: Task<Void, Never>?
     private let conversationActionHandler = ConversationActionHandler.shared
     private let infoExtractor = InformationExtractor.shared
     private let trackerStore = TrackerStore.shared
@@ -116,7 +145,8 @@ class SearchService: ObservableObject {
         $searchQuery
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { [weak self] query in
-                Task {
+                self?.currentSearchTask?.cancel()
+                self?.currentSearchTask = Task {
                     await self?.performSearch(query: query)
                 }
             }
@@ -608,8 +638,32 @@ class SearchService: ObservableObject {
     
     // MARK: - ChatAgent Implementation
 
+    /// Lightweight heuristic that maps a user message to the tool names most likely
+    /// to be dispatched, so the UI can show a contextual thinking label immediately
+    /// (before the router even returns).
+    private func inferLikelyTools(for message: String) -> [String] {
+        let lower = message.lowercased()
+        if lower.contains("my day") || lower.contains("today") || lower.contains("yesterday") ||
+           lower.contains("what happened") || lower.contains("recap") || lower.contains("how was") {
+            return ["get_day_context"]
+        }
+        if lower.contains("near me") || lower.contains("nearby") || lower.contains("close to me") {
+            return ["search_nearby_places"]
+        }
+        if lower.contains("how much") || lower.contains("spent") || lower.contains("spending") ||
+           lower.contains("budget") || lower.contains("expense") {
+            return ["aggregate_seline"]
+        }
+        if lower.contains("week") || lower.contains("month") || lower.contains("year") {
+            return ["aggregate_seline"]
+        }
+        return ["search_seline_records"]
+    }
+
     private func addConversationMessageWithChatAgent(_ userMessage: String, thinkStartTime: Date) async {
-        chatLoadingPhase = .retrieving
+        // Pick a contextual thinking label based on the user's message so the UI
+        // shows something more meaningful than "Thinking…" while tools run.
+        chatLoadingPhase = ChatLoadingPhase.from(toolNames: inferLikelyTools(for: userMessage))
         VectorSearchService.shared.beginInteractiveRequest(reason: "chat")
         defer {
             VectorSearchService.shared.endInteractiveRequest(reason: "chat")
@@ -631,6 +685,11 @@ class SearchService: ObservableObject {
             onSynthesisChunk: { [weak self] chunk in
                 guard let self else { return }
                 accumulatedStreamText += chunk
+                // Suppress streaming output that contains clarifying-question phrases —
+                // the final response will replace it, but we don't want the user to see it mid-stream.
+                let lowered = accumulatedStreamText.lowercased()
+                let clarifyingPhrases = ["which specific day", "which day should i focus", "what specific day", "which date should i"]
+                if clarifyingPhrases.contains(where: { lowered.contains($0) }) { return }
                 if !streamStarted {
                     streamStarted = true
                     self.chatLoadingPhase = .generating
@@ -652,7 +711,10 @@ class SearchService: ObservableObject {
                         intent: .general,
                         timeStarted: thinkStartTime
                     )
-                    self.lastMessageContentVersion += 1
+                    if Date().timeIntervalSince(self.lastContentVersionUpdate) > 0.1 {
+                        self.lastMessageContentVersion += 1
+                        self.lastContentVersionUpdate = Date()
+                    }
                 }
             }
         )
@@ -740,9 +802,11 @@ class SearchService: ObservableObject {
                         actionDraft: turnResult.actionDraft,
                         presentation: turnResult.presentation
                     )
-                    lastMessageContentVersion += 1
+                    if Date().timeIntervalSince(lastContentVersionUpdate) > 0.1 {
+                        lastMessageContentVersion += 1
+                        lastContentVersionUpdate = Date()
+                    }
                 }
-                saveConversationLocally()
                 try? await Task.sleep(nanoseconds: 12_000_000)
             }
 
