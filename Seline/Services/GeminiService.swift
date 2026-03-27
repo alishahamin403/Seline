@@ -5,15 +5,15 @@ import UIKit
  * GeminiService - Google Gemini LLM Service
  *
  * Cost-optimized defaults:
- * - Uses Gemini 2.0 Flash by default
+ * - Uses Gemini 2.5 Flash-Lite by default
  * - Limits max output tokens for lower spend
  * - Logs per-request token usage and estimated USD cost
  */
 @MainActor
 class GeminiService: ObservableObject {
     static let shared = GeminiService()
-    nonisolated private static let defaultModelName = "gemini-2.0-flash"
-    nonisolated private static let fallbackModelName = "gemini-2.0-flash-lite"
+    nonisolated private static let defaultModelName = "gemini-2.5-flash-lite"
+    nonisolated private static let fallbackModelName = "gemini-2.5-flash"
     nonisolated private static let defaultMaxOutputTokens = 900
     nonisolated private static let defaultStreamingOutputTokens = 900
 
@@ -42,10 +42,11 @@ class GeminiService: ObservableObject {
         let outputUSDPerMillion: Double
     }
 
-    // These are pricing assumptions for log visibility. Update if your Gemini billing rates differ.
+    // These rates power estimated cost logs. Keep them aligned with the official Gemini pricing page.
     private static let modelPricingTable: [String: ModelPricing] = [
         "gemini-2.0-flash-lite": ModelPricing(inputUSDPerMillion: 0.075, outputUSDPerMillion: 0.30),
         "gemini-2.0-flash": ModelPricing(inputUSDPerMillion: 0.10, outputUSDPerMillion: 0.40),
+        "gemini-2.5-flash-lite": ModelPricing(inputUSDPerMillion: 0.10, outputUSDPerMillion: 0.40),
         "gemini-2.5-flash": ModelPricing(inputUSDPerMillion: 0.30, outputUSDPerMillion: 2.50)
     ]
 

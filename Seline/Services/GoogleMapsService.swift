@@ -212,7 +212,7 @@ class GoogleMapsService: ObservableObject {
         // - reviews: Only fetched by LLM when specifically asked (on-demand, cost-efficient)
         let fieldMask = minimizeFields ?
             "displayName,location,regularOpeningHours,currentOpeningHours" :
-            "displayName,formattedAddress,location,internationalPhoneNumber,rating,userRatingCount,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types,photos"
+            "displayName,formattedAddress,location,internationalPhoneNumber,rating,userRatingCount,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types,photos,reviews"
 
         request.setValue(fieldMask, forHTTPHeaderField: "X-Goog-FieldMask")
 
@@ -253,19 +253,28 @@ class GoogleMapsService: ObservableObject {
                 longitude = location["longitude"] ?? 0.0
             }
 
-            // Extract first photo only (cost optimization - only fetch on detail view)
+            // Extract a small gallery of photos for the detail view
             var photoURLs: [String] = []
-            if let photos = place["photos"] as? [[String: Any]],
-               let firstPhoto = photos.first,
-               let photoName = firstPhoto["name"] as? String {
-                // Google Places API returns photo resource names
-                // Format: https://places.googleapis.com/v1/{resourceName}/media?maxHeightPx=200&maxWidthPx=200&key={apiKey}
-                let photoURL = "https://places.googleapis.com/v1/\(photoName)/media?maxHeightPx=200&maxWidthPx=200&key=\(apiKey)"
-                photoURLs = [photoURL]
+            if let photos = place["photos"] as? [[String: Any]] {
+                photoURLs = photos.prefix(8).compactMap { photo in
+                    guard let photoName = photo["name"] as? String else { return nil }
+                    return "https://places.googleapis.com/v1/\(photoName)/media?maxHeightPx=900&maxWidthPx=900&key=\(apiKey)"
+                }
             }
 
-            // Reviews are fetched by LLM on-demand when users ask
-            let reviews: [PlaceReview] = []
+            let reviews: [PlaceReview]
+            if let rawReviews = place["reviews"] as? [[String: Any]] {
+                reviews = rawReviews.compactMap(parseReview).sorted {
+                    if $0.rating == $1.rating {
+                        let lhsLength = $0.text.trimmingCharacters(in: .whitespacesAndNewlines).count
+                        let rhsLength = $1.text.trimmingCharacters(in: .whitespacesAndNewlines).count
+                        return lhsLength > rhsLength
+                    }
+                    return $0.rating > $1.rating
+                }
+            } else {
+                reviews = []
+            }
 
             // Extract opening hours (new API structure)
             var isOpenNow: Bool? = nil
@@ -347,6 +356,63 @@ class GoogleMapsService: ObservableObject {
     private func getPhotoURL(photoReference: String, maxWidth: Int = 400) -> String {
         // Use legacy API for photos as new API has different structure
         return "https://maps.googleapis.com/maps/api/place/photo?maxwidth=\(maxWidth)&photo_reference=\(photoReference)&key=\(apiKey)"
+    }
+
+    private func parseReview(_ review: [String: Any]) -> PlaceReview? {
+        let authorAttribution = review["authorAttribution"] as? [String: Any]
+        let authorName =
+            (authorAttribution?["displayName"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Google user"
+
+        let ratingValue = review["rating"]
+        let rating: Int
+        if let intValue = ratingValue as? Int {
+            rating = intValue
+        } else if let doubleValue = ratingValue as? Double {
+            rating = Int(doubleValue.rounded())
+        } else {
+            rating = 0
+        }
+
+        let relativeTime =
+            (review["relativePublishTimeDescription"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let text = reviewText(from: review)
+        let profilePhotoUrl =
+            (authorAttribution?["photoUri"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !text.isEmpty || !authorName.isEmpty else { return nil }
+
+        return PlaceReview(
+            authorName: authorName.isEmpty ? "Google user" : authorName,
+            rating: max(0, min(5, rating)),
+            text: text.isEmpty ? "No written review provided." : text,
+            relativeTime: relativeTime?.isEmpty == true ? nil : relativeTime,
+            profilePhotoUrl: profilePhotoUrl?.isEmpty == true ? nil : profilePhotoUrl
+        )
+    }
+
+    private func reviewText(from review: [String: Any]) -> String {
+        if let text = review["text"] as? [String: Any],
+           let value = text["text"] as? String,
+           !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let text = review["originalText"] as? [String: Any],
+           let value = text["text"] as? String,
+           !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let text = review["text"] as? String,
+           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return ""
     }
 
     // MARK: - Open in Google Maps

@@ -177,6 +177,7 @@ final class CompositeEpisodeResolver {
     }
 
     private struct EpisodeConstraints {
+        let anchoredText: String
         let queryFacets: QueryFacets
         let requiredPeople: [Person]
         let matchedPlaces: [SavedPlace]
@@ -495,6 +496,7 @@ final class CompositeEpisodeResolver {
         )
 
         return EpisodeConstraints(
+            anchoredText: anchoredText,
             queryFacets: queryFacets,
             requiredPeople: requiredPeople,
             matchedPlaces: matchedPlaces,
@@ -697,18 +699,14 @@ final class CompositeEpisodeResolver {
     private func fetchCandidateVisits(for constraints: EpisodeConstraints) async -> [LocationVisitRecord] {
         guard SupabaseManager.shared.getCurrentUser()?.id != nil else { return [] }
 
-        if !constraints.geoAnchors.isEmpty && constraints.matchedPlaces.isEmpty {
-            var visits = await fetchAllVisits()
-            if let explicitDateRange = constraints.explicitDateRange {
-                visits = visits.filter { visit in
-                    let end = visit.exitTime ?? visit.entryTime
-                    return visit.entryTime < explicitDateRange.end && end >= explicitDateRange.start
-                }
-            }
-            return visits.sorted { $0.entryTime < $1.entryTime }
-        }
-
         var merged: [UUID: LocationVisitRecord] = [:]
+
+        if !constraints.geoAnchors.isEmpty && constraints.matchedPlaces.isEmpty {
+            let visits = await fetchAllVisits()
+            for visit in visits {
+                merged[visit.id] = visit
+            }
+        }
 
         if !constraints.requiredPeople.isEmpty {
             var peopleVisitIds = Set<UUID>()
@@ -725,6 +723,14 @@ final class CompositeEpisodeResolver {
 
         if !constraints.matchedPlaces.isEmpty {
             let visits = await fetchVisits(savedPlaceIds: constraints.matchedPlaces.map(\.id))
+            for visit in visits {
+                merged[visit.id] = visit
+            }
+        }
+
+        let semanticVisitIds = await fetchSemanticVisitIds(for: constraints)
+        if !semanticVisitIds.isEmpty {
+            let visits = await fetchVisits(visitIds: Array(semanticVisitIds))
             for visit in visits {
                 merged[visit.id] = visit
             }
@@ -766,18 +772,25 @@ final class CompositeEpisodeResolver {
 
         var candidates: [EpisodeCandidate] = []
         let requiredPersonIds = Set(constraints.requiredPeople.map(\.id))
+        let requiredPersonAliases = personAliasesById(for: constraints.requiredPeople)
 
         for group in grouped where !group.isEmpty {
             let groupPlaceIds = Set(group.map(\.savedPlaceId))
             let groupPlaces = groupPlaceIds.compactMap { placesById[$0] }.sorted { $0.displayName < $1.displayName }
+            let noteMatchedPersonIdsByVisit = Dictionary(uniqueKeysWithValues: group.map { visit in
+                (visit.id, matchedRequiredPersonIds(in: visit, aliasesByPersonId: requiredPersonAliases))
+            })
+            let noteMatchedPersonIdsInGroup = Set<UUID>(group.flatMap { Array(noteMatchedPersonIdsByVisit[$0.id] ?? Set<UUID>()) })
 
             let peopleInGroup = dedupePeople(
                 group.flatMap { visitPeopleMap[$0.id] ?? [] }
+                    + constraints.requiredPeople.filter { noteMatchedPersonIdsInGroup.contains($0.id) }
             )
             let peopleIdsInGroup = Set(peopleInGroup.map(\.id))
             let matchingPeopleSatisfied = requiredPersonIds.isEmpty || requiredPersonIds.isSubset(of: peopleIdsInGroup)
             let personMatchedVisits = group.filter { visit in
                 let ids = Set((visitPeopleMap[visit.id] ?? []).map(\.id))
+                    .union(noteMatchedPersonIdsByVisit[visit.id] ?? Set<UUID>())
                 return !requiredPersonIds.isEmpty && !requiredPersonIds.intersection(ids).isEmpty
             }
             let geoMatches: [(visit: LocationVisitRecord, match: GeoMatch)] = group.compactMap { visit in
@@ -797,6 +810,7 @@ final class CompositeEpisodeResolver {
             let personHitCount = personMatchedVisits.count
             let jointMatchCount = group.reduce(into: 0) { count, visit in
                 let ids = Set((visitPeopleMap[visit.id] ?? []).map(\.id))
+                    .union(noteMatchedPersonIdsByVisit[visit.id] ?? Set<UUID>())
                 let hasPerson = !requiredPersonIds.isEmpty && !requiredPersonIds.intersection(ids).isEmpty
                 let hasGeo = geoMatches.contains(where: { $0.visit.id == visit.id })
                 if hasPerson && hasGeo {
@@ -869,6 +883,31 @@ final class CompositeEpisodeResolver {
         }
 
         return candidates
+    }
+
+    private func fetchSemanticVisitIds(for constraints: EpisodeConstraints) async -> Set<UUID> {
+        let query = constraints.anchoredText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+
+        do {
+            let results = try await vectorSearch.search(
+                query: query,
+                documentTypes: [.visit],
+                limit: constraints.hasGeoSignal ? 36 : 24,
+                dateRange: constraints.explicitDateRange,
+                preferHistorical: true,
+                retrievalMode: .exhaustive
+            )
+
+            return Set(
+                results.compactMap { result in
+                    guard result.documentType == .visit else { return nil }
+                    return UUID(uuidString: result.documentId)
+                }
+            )
+        } catch {
+            return []
+        }
     }
 
     private func enrichCandidatesWithSemanticSupport(
@@ -1764,6 +1803,47 @@ final class CompositeEpisodeResolver {
         return deduped
     }
 
+    private func personAliasesById(for people: [Person]) -> [UUID: [String]] {
+        var aliasesById: [UUID: [String]] = [:]
+        for person in people {
+            let aliases = [person.name, person.nickname]
+                .compactMap { $0 }
+                .map(normalizedText)
+                .filter { !$0.isEmpty }
+            aliasesById[person.id] = Array(Set(aliases)).sorted()
+        }
+        return aliasesById
+    }
+
+    private func matchedRequiredPersonIds(
+        in visit: LocationVisitRecord,
+        aliasesByPersonId: [UUID: [String]]
+    ) -> Set<UUID> {
+        guard let notes = visit.visitNotes?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty else {
+            return []
+        }
+
+        let normalizedNotes = normalizedText(notes)
+        guard !normalizedNotes.isEmpty else { return [] }
+
+        let noteTokens = Set(normalizedNotes.split(separator: " ").map(String.init))
+        var matched = Set<UUID>()
+
+        for (personId, aliases) in aliasesByPersonId {
+            let found = aliases.contains { alias in
+                if alias.contains(" ") {
+                    return normalizedNotes.contains(alias)
+                }
+                return noteTokens.contains(alias)
+            }
+            if found {
+                matched.insert(personId)
+            }
+        }
+
+        return matched
+    }
+
     private func normalizedText(_ text: String) -> String {
         text
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
@@ -1780,6 +1860,11 @@ final class CompositeEpisodeResolver {
             "there",
             "those",
             "it",
+            "her",
+            "his",
+            "for her",
+            "for him",
+            "birthday",
             "one weekend",
             "that one",
             "summarize that",

@@ -77,8 +77,8 @@ struct MainAppView: View {
     private let searchService = SearchService.shared
     private let searchIndex = SearchIndexState.shared
     private let widgetManager = WidgetManager.shared
-    private let emailService = EmailService.shared
-    private let taskManager = TaskManager.shared
+    @StateObject private var emailService = EmailService.shared
+    @StateObject private var taskManager = TaskManager.shared
     private let notesManager = NotesManager.shared
     private let tagManager = TagManager.shared
     private let peopleManager = PeopleManager.shared
@@ -213,6 +213,15 @@ struct MainAppView: View {
         searchService.pendingEventCreation != nil ||
         searchService.pendingNoteCreation != nil ||
         searchService.pendingNoteUpdate != nil
+    }
+
+    private var unreadInboxCount: Int {
+        emailService.inboxEmails.filter { !$0.isRead }.count
+    }
+
+    private var todayTodoCount: Int {
+        let today = Date()
+        return taskManager.getTasksForToday().filter { !$0.isCompletedOn(date: today) }.count
     }
 
     private func clearHomeSearch() {
@@ -955,17 +964,16 @@ struct MainAppView: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 showingHomeDrawer = false
             }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                openRoute()
-            }
+            // Open immediately — sidebar slide and overlay slide-in animate simultaneously
+            openRoute()
         } else {
             openRoute()
         }
     }
 
     private func dismissOverlay() {
-        withAnimation(.smoothTabTransition) {
+        HapticManager.shared.soft()
+        withAnimation(.overlayDismiss) {
             activeOverlayRoute = nil
         }
     }
@@ -1535,7 +1543,13 @@ struct MainAppView: View {
 
     @ViewBuilder
     private var activeTabContent: some View {
-        RetainedTabContainer(selection: $selectedTab, allTabs: PrimaryTab.allCases) { tab, isVisible in
+        // Pre-warm .maps alongside .home so MapsViewNew is already initialized
+        // when the user first taps it — eliminates the cold-start lag.
+        RetainedTabContainer(
+            selection: $selectedTab,
+            allTabs: PrimaryTab.allCases,
+            initialTabs: [.home, .maps]
+        ) { tab, isVisible in
             tabContent(for: tab, isVisible: isVisible)
         }
     }
@@ -1576,7 +1590,7 @@ struct MainAppView: View {
                 onOpenChat: { query in
                     selectedTab = .chat
                     Task {
-                        await searchService.addConversationMessage(query)
+                        await ChatSessionStore.shared.send(query)
                     }
                 }
             )
@@ -1614,20 +1628,37 @@ struct MainAppView: View {
 
     @ViewBuilder
     private func overlayRouteView(in geometry: GeometryProxy) -> some View {
-        if let route = activeOverlayRoute {
+        let planActive = activeOverlayRoute == .plan
+
+        // PlanView is always in the hierarchy so it's pre-warmed — no cold-start cost on tap.
+        // When hidden it sits off-screen (offset = screen width), so the GPU skips compositing it.
+        // isVisible=false prevents email loading / avatar prefetch while hidden.
+        ZStack {
+            Color.appBackground(colorScheme)
+                .ignoresSafeArea()
+            PlanView(
+                isVisible: planActive,
+                selectedTab: $selectedPlanTab,
+                onDetailNavigationChanged: { isShowingDetail in
+                    isEmailDetailOpen = isShowingDetail
+                },
+                onClose: dismissOverlay
+            )
+        }
+        .offset(x: planActive ? 0 : geometry.size.width)
+        .opacity(planActive ? 1 : 0)
+        .allowsHitTesting(planActive)
+        // Asymmetric: spring for enter (natural push feel), easeOut for dismiss (clean, no bounce)
+        .animation(planActive ? .smoothTabTransition : .overlayDismiss, value: planActive)
+        .zIndex(planActive ? 20 : 0)
+
+        // All other overlays remain conditional — they are accessed infrequently
+        // and don't benefit from pre-warming.
+        if let route = activeOverlayRoute, route != .plan {
             ZStack {
                 Color.appBackground(colorScheme)
                     .ignoresSafeArea()
-
                 switch route {
-                case .plan:
-                    PlanView(
-                        selectedTab: $selectedPlanTab,
-                        onDetailNavigationChanged: { isShowingDetail in
-                            isEmailDetailOpen = isShowingDetail
-                        },
-                        onClose: dismissOverlay
-                    )
                 case .receipts:
                     receiptsOverlayContent(in: geometry)
                 case .recurring:
@@ -1636,9 +1667,11 @@ struct MainAppView: View {
                     peopleOverlayContent(in: geometry)
                 case .settings:
                     settingsOverlayContent
+                case .plan:
+                    EmptyView()
                 }
             }
-            .transition(.move(edge: .trailing).combined(with: .opacity))
+            .transition(.opacity)
             .zIndex(20)
         }
     }
@@ -2305,7 +2338,7 @@ struct MainAppView: View {
         HStack(spacing: 10) {
             appSearchBar
             homeQuickAddButton
-            homeProfileButton
+            homeProfileButton(size: 42)
         }
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
     }
@@ -2346,7 +2379,7 @@ struct MainAppView: View {
         .buttonStyle(PlainButtonStyle())
     }
 
-    private var homeProfileButton: some View {
+    private func homeProfileButton(size: CGFloat) -> some View {
         Button(action: {
             toggleHomeDrawer()
         }) {
@@ -2364,7 +2397,7 @@ struct MainAppView: View {
                     homeProfileFallbackAvatar
                 }
             }
-            .frame(width: 42, height: 42)
+            .frame(width: size, height: size)
             .clipShape(Circle())
             .overlay(
                 Circle()
@@ -2378,26 +2411,37 @@ struct MainAppView: View {
     }
 
     private var homeHeaderBar: some View {
-        HStack(spacing: 12) {
-            homeProfileButton
-                .frame(width: 42, height: 42)
+        let hasGreeting = !homeGreetingText.isEmpty
+        let avatarSize: CGFloat = hasGreeting ? 42 : 30
+        let topPadding: CGFloat = hasGreeting ? 6 : 1
+        let bottomPadding: CGFloat = hasGreeting ? 12 : 1
 
-            Spacer(minLength: 0)
+        return VStack(spacing: 0) {
+            HStack(spacing: hasGreeting ? 12 : 0) {
+                homeProfileButton(size: avatarSize)
 
-            Image("SelineLogo")
-                .resizable()
-                .scaledToFill()
-                .frame(width: 34, height: 24, alignment: .top)
-                .clipped()
+                if hasGreeting {
+                    Text(homeGreetingText)
+                        .font(FontManager.geist(size: 20, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                }
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+            .padding(.top, topPadding)
+            .padding(.bottom, bottomPadding)
 
-            Color.clear
-                .frame(width: 42, height: 42)
+            Rectangle()
+                .fill(Color.homeGlassInnerBorder(colorScheme))
+                .frame(height: 0.5)
         }
-        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
+    }
+
+    private var homeGreetingText: String {
+        ""
     }
 
     private var homeFloatingComposeButton: some View {
@@ -2623,11 +2667,19 @@ struct MainAppView: View {
                     }
                 }
 
-                homeDrawerButton(title: "Inbox", systemImage: "tray.fill") {
+                homeDrawerButton(
+                    title: "Inbox",
+                    systemImage: "tray.fill",
+                    badgeCount: unreadInboxCount
+                ) {
                     openPlanInbox()
                 }
 
-                homeDrawerButton(title: "Calendar", systemImage: "calendar") {
+                homeDrawerButton(
+                    title: "Calendar",
+                    systemImage: "calendar",
+                    badgeCount: todayTodoCount
+                ) {
                     openPlanCalendar()
                 }
 
@@ -2668,8 +2720,20 @@ struct MainAppView: View {
         }
     }
 
-    private func homeDrawerButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func formattedDrawerBadgeCount(_ count: Int) -> String {
+        count > 99 ? "99+" : "\(count)"
+    }
+
+    private func homeDrawerButton(
+        title: String,
+        systemImage: String,
+        badgeCount: Int = 0,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: {
+            HapticManager.shared.soft()
+            action()
+        }) {
             HStack(spacing: 14) {
                 Image(systemName: systemImage)
                     .font(.system(size: 16, weight: .semibold))
@@ -2679,6 +2743,18 @@ struct MainAppView: View {
                 Text(title)
                     .font(FontManager.geist(size: 18, weight: .semibold))
                     .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                if badgeCount > 0 {
+                    Text(formattedDrawerBadgeCount(badgeCount))
+                        .font(FontManager.geist(size: 13, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .padding(.horizontal, 10)
+                        .frame(minWidth: 28, minHeight: 28)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                }
 
                 Spacer(minLength: 0)
             }

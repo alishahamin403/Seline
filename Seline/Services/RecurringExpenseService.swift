@@ -283,6 +283,34 @@ class RecurringExpenseService {
 
     // MARK: - Instances
 
+    /// Fetch all recurring instances whose occurrenceDate falls on a specific calendar day.
+    /// Used by the LLM day-context tool to surface scheduled/completed recurring charges.
+    func fetchInstances(forDate date: Date) async throws -> [RecurringInstance] {
+        let calendar = Calendar.current
+        guard
+            let dayStart = calendar.date(bySettingHour: 0, minute: 0, second: 0, of: date),
+            let dayEnd   = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: date)
+        else { return [] }
+
+        let df = ISO8601DateFormatter()
+        df.formatOptions = [.withFullDate, .withDashSeparatorInDate]
+        let startStr = df.string(from: dayStart)
+        let endStr   = df.string(from: dayEnd)
+
+        let client = await supabaseManager.getPostgrestClient()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let response = try await client
+            .from("recurring_instances")
+            .select()
+            .gte("occurrence_date", value: startStr)
+            .lte("occurrence_date", value: endStr)
+            .execute()
+
+        return (try? decoder.decode([RecurringInstance].self, from: response.data)) ?? []
+    }
+
     /// Fetch instances for a recurring expense
     func fetchInstances(for recurringExpenseId: UUID) async throws -> [RecurringInstance] {
         // Check cache first

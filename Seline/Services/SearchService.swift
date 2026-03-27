@@ -186,7 +186,7 @@ class SearchService: ObservableObject {
         // ALL questions should go to conversation, not search results
         if isQuestion(trimmedQuery) {
             // Start conversation instead of normal search
-            await startConversation(with: trimmedQuery)
+            await ChatSessionStore.shared.startConversation(with: trimmedQuery)
             return
         }
 
@@ -197,7 +197,7 @@ class SearchService: ObservableObject {
         // No automatic note/event creation from chat responses
 
         // Treat all queries as questions/analysis - no action mode
-        await startConversation(with: trimmedQuery)
+        await ChatSessionStore.shared.startConversation(with: trimmedQuery)
         isSearching = false
     }
 
@@ -1673,13 +1673,7 @@ class SearchService: ObservableObject {
 
     /// Start a conversation with an initial question
     func startConversation(with initialQuestion: String) async {
-        guard !ChatUsageTracker.shared.isLimitReached else {
-            print("🚫 Daily chat limit reached; startConversation blocked")
-            return
-        }
-
-        startNewConversation(kind: .standard)
-        await addConversationMessage(initialQuestion)
+        await ChatSessionStore.shared.startConversation(with: initialQuestion)
     }
 
     // MARK: - Conversational Action System
@@ -2900,6 +2894,7 @@ class SearchService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "SavedConversations")
         UserDefaults.standard.removeObject(forKey: Self.lastConversationStorageKey)
         UserDefaults.standard.removeObject(forKey: Self.lastActiveConversationIdStorageKey)
+        ChatSessionStore.shared.clearConversationDataOnLogout()
 
         print("🗑️ Cleared all search and conversation data on logout")
     }
@@ -2949,6 +2944,7 @@ struct SavedConversation: Identifiable, Codable {
     let messages: [ConversationMessage]
     let createdAt: Date
     let updatedAt: Date
+    let sessionSnapshot: ConversationSessionSnapshot?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -2959,6 +2955,7 @@ struct SavedConversation: Identifiable, Codable {
         case messages
         case createdAt
         case updatedAt
+        case sessionSnapshot
     }
 
     init(
@@ -2969,7 +2966,8 @@ struct SavedConversation: Identifiable, Codable {
         subtitle: String? = nil,
         messages: [ConversationMessage],
         createdAt: Date,
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        sessionSnapshot: ConversationSessionSnapshot? = nil
     ) {
         self.id = id
         self.title = title
@@ -2979,6 +2977,7 @@ struct SavedConversation: Identifiable, Codable {
         self.messages = messages
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.sessionSnapshot = sessionSnapshot
     }
 
     init(from decoder: Decoder) throws {
@@ -2991,6 +2990,7 @@ struct SavedConversation: Identifiable, Codable {
         messages = try container.decode([ConversationMessage].self, forKey: .messages)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+        sessionSnapshot = try container.decodeIfPresent(ConversationSessionSnapshot.self, forKey: .sessionSnapshot)
     }
 
     var formattedDate: String {

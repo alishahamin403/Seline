@@ -3,7 +3,7 @@ import SwiftUI
 struct ConversationHistoryView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
-    @StateObject private var searchService = SearchService.shared
+    @StateObject private var chatStore = ChatSessionStore.shared
     @State private var selectedConversation: SavedConversation?
     @State private var isEditMode = false
     @State private var selectedConversationIds: Set<UUID> = []
@@ -24,13 +24,13 @@ struct ConversationHistoryView: View {
         HStack(spacing: 12) {
             if isEditMode {
                 Button(action: {
-                    if selectedConversationIds.count == searchService.savedConversations.count {
+                    if selectedConversationIds.count == chatStore.savedConversations.count {
                         selectedConversationIds.removeAll()
                     } else {
-                        selectedConversationIds = Set(searchService.savedConversations.map { $0.id })
+                        selectedConversationIds = Set(chatStore.savedConversations.map { $0.id })
                     }
                 }) {
-                    Text(selectedConversationIds.count == searchService.savedConversations.count ? "Deselect All" : "Select All")
+                    Text(selectedConversationIds.count == chatStore.savedConversations.count ? "Deselect All" : "Select All")
                         .font(FontManager.geist(size: 14, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
@@ -46,7 +46,7 @@ struct ConversationHistoryView: View {
                 Button(action: {
                     HapticManager.shared.delete()
                     for id in selectedConversationIds {
-                        searchService.deleteConversation(withId: id)
+                        chatStore.deleteConversation(withId: id)
                     }
                     selectedConversationIds.removeAll()
                     isEditMode = false
@@ -84,7 +84,7 @@ struct ConversationHistoryView: View {
 
     private var conversationsListView: some View {
         Group {
-            if searchService.savedConversations.isEmpty {
+            if chatStore.savedConversations.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "bubble.left")
                         .font(FontManager.geist(size: 48, weight: .regular))
@@ -100,7 +100,7 @@ struct ConversationHistoryView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(searchService.savedConversations) { conversation in
+                        ForEach(chatStore.savedConversations) { conversation in
                             conversationRow(conversation)
                         }
                     }
@@ -121,7 +121,7 @@ struct ConversationHistoryView: View {
             } else {
                 HapticManager.shared.selection()
                 selectedConversation = conversation
-                searchService.loadConversation(withId: conversation.id)
+                chatStore.loadConversation(withId: conversation.id)
                 dismiss()
             }
         }) {
@@ -178,7 +178,7 @@ struct ConversationHistoryView: View {
             if !isEditMode {
                 Button(role: .destructive, action: {
                     HapticManager.shared.selection()
-                    searchService.deleteConversation(withId: conversation.id)
+                    chatStore.deleteConversation(withId: conversation.id)
                 }) {
                     HStack {
                         Image(systemName: "trash")

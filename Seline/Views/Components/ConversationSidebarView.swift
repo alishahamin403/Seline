@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ConversationSidebarView: View {
     @Binding var isPresented: Bool
-    @StateObject private var searchService = SearchService.shared
+    @StateObject private var chatStore = ChatSessionStore.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var isEditMode = false
     @State private var selectedConversationIds: Set<UUID> = []
@@ -33,7 +33,7 @@ struct ConversationSidebarView: View {
 
                 Button(action: {
                     HapticManager.shared.buttonTap()
-                    searchService.startNewConversation()
+                    chatStore.startNewConversation()
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isPresented = false
                     }
@@ -67,9 +67,9 @@ struct ConversationSidebarView: View {
         .frame(minWidth: 300, idealWidth: UIScreen.main.bounds.width * 0.75, maxWidth: UIScreen.main.bounds.width * 0.75)
         .onAppear {
             // Load saved conversations from local storage when sidebar appears
-            searchService.loadConversationHistoryLocally()
+            chatStore.loadConversationHistoryLocally()
             Task {
-                await searchService.loadConversationsFromSupabase()
+                await chatStore.loadConversationsFromSupabase()
             }
         }
     }
@@ -80,7 +80,7 @@ struct ConversationSidebarView: View {
             VStack(spacing: 6) {
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(searchService.savedConversations.count)")
+                        Text("\(chatStore.savedConversations.count)")
                             .font(FontManager.geist(size: 18, weight: .bold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         Text("Total Chats")
@@ -120,13 +120,13 @@ struct ConversationSidebarView: View {
             HStack(spacing: 12) {
                 if isEditMode {
                     Button(action: {
-                        if selectedConversationIds.count == searchService.savedConversations.count {
+                        if selectedConversationIds.count == chatStore.savedConversations.count {
                             selectedConversationIds.removeAll()
                         } else {
-                            selectedConversationIds = Set(searchService.savedConversations.map { $0.id })
+                            selectedConversationIds = Set(chatStore.savedConversations.map { $0.id })
                         }
                     }) {
-                        Text(selectedConversationIds.count == searchService.savedConversations.count ? "Deselect All" : "Select All")
+                        Text(selectedConversationIds.count == chatStore.savedConversations.count ? "Deselect All" : "Select All")
                             .font(FontManager.geist(size: 12, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
@@ -142,7 +142,7 @@ struct ConversationSidebarView: View {
                     Button(action: {
                         HapticManager.shared.delete()
                         for id in selectedConversationIds {
-                            searchService.deleteConversation(withId: id)
+                            chatStore.deleteConversation(withId: id)
                         }
                         selectedConversationIds.removeAll()
                         isEditMode = false
@@ -178,7 +178,7 @@ struct ConversationSidebarView: View {
 
     private var conversationsListView: some View {
         Group {
-            if searchService.savedConversations.isEmpty {
+            if chatStore.savedConversations.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "bubble.left")
                         .font(FontManager.geist(size: 48, weight: .light))
@@ -212,7 +212,7 @@ struct ConversationSidebarView: View {
                     .padding(.bottom, 4)
 
                     VStack(spacing: 0) {
-                        ForEach(searchService.savedConversations) { conversation in
+                        ForEach(chatStore.savedConversations) { conversation in
                             conversationRow(conversation)
                         }
                     }
@@ -232,7 +232,7 @@ struct ConversationSidebarView: View {
                 }
             } else {
                 HapticManager.shared.light()
-                searchService.loadConversation(withId: conversation.id)
+                chatStore.loadConversation(withId: conversation.id)
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isPresented = false
                 }
@@ -302,7 +302,7 @@ struct ConversationSidebarView: View {
             if !isEditMode {
                 Button(role: .destructive, action: {
                     HapticManager.shared.delete()
-                    searchService.deleteConversation(withId: conversation.id)
+                    chatStore.deleteConversation(withId: conversation.id)
                 }) {
                     HStack {
                         Image(systemName: "trash")
@@ -353,13 +353,13 @@ struct ConversationSidebarView: View {
 
     private func getTodayConversationCount() -> Int {
         let calendar = Calendar.current
-        return searchService.savedConversations.filter { conversation in
+        return chatStore.savedConversations.filter { conversation in
             calendar.isDateInToday(conversation.createdAt)
         }.count
     }
 
     private func getTotalMessages() -> Int {
-        searchService.savedConversations.reduce(0) { total, conversation in
+        chatStore.savedConversations.reduce(0) { total, conversation in
             total + conversation.messages.count
         }
     }

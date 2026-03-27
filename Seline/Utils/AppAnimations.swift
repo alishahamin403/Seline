@@ -37,6 +37,9 @@ extension Animation {
     
     /// Gentle fade animation
     static let gentleFade = Animation.easeInOut(duration: 0.2)
+
+    /// Overlay dismiss — fast easeOut, no spring bounce so home appears cleanly
+    static let overlayDismiss = Animation.easeOut(duration: 0.22)
 }
 
 // MARK: - Presentation Modifiers

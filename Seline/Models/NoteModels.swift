@@ -704,6 +704,9 @@ class NotesManager: ObservableObject {
             // Immediately embed the note after successful save
             if result.success {
                 await embedNoteImmediately(note)
+                if note.isJournalEntry || note.isJournalWeeklyRecap {
+                    await DaySummaryService.shared.refreshSummariesAffected(by: note)
+                }
             }
         }
     }
@@ -727,6 +730,9 @@ class NotesManager: ObservableObject {
         // Immediately embed the note after successful save
         if result.success {
             await embedNoteImmediately(note)
+            if note.isJournalEntry || note.isJournalWeeklyRecap {
+                await DaySummaryService.shared.refreshSummariesAffected(by: note)
+            }
         }
         
         return result.success
@@ -906,6 +912,9 @@ class NotesManager: ObservableObject {
                 // Immediately embed the note after successful update
                 if success {
                     await embedNoteImmediately(updatedNote)
+                    if updatedNote.isJournalEntry || updatedNote.isJournalWeeklyRecap {
+                        await DaySummaryService.shared.refreshSummariesAffected(by: updatedNote)
+                    }
                 }
             }
         }
@@ -932,6 +941,9 @@ class NotesManager: ObservableObject {
             // Immediately embed the note after successful update
             if result {
                 await embedNoteImmediately(updatedNote)
+                if updatedNote.isJournalEntry || updatedNote.isJournalWeeklyRecap {
+                    await DaySummaryService.shared.refreshSummariesAffected(by: updatedNote)
+                }
             }
             
             return result
@@ -1031,6 +1043,9 @@ class NotesManager: ObservableObject {
         // Sync with Supabase
         Task {
             await moveNoteToTrash(deletedNote)
+            if note.isJournalEntry || note.isJournalWeeklyRecap {
+                await DaySummaryService.shared.refreshSummariesAffected(by: note)
+            }
         }
     }
 

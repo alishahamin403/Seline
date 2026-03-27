@@ -68,18 +68,12 @@ struct CalendarWeekView: View {
     
     // MARK: - Date Range for Smooth Scrolling
     
-    // Generate a wide range of dates for smooth scrolling (60 days total)
+    // Fixed range anchored to today (±90 days). Stable across date selections so
+    // ForEach never rebuilds when the user taps a day — only the scroll position changes.
     private var dateRange: [Date] {
-        let startDate = calendar.date(byAdding: .day, value: -30, to: selectedDate) ?? selectedDate
-        let endDate = calendar.date(byAdding: .day, value: 30, to: selectedDate) ?? selectedDate
-        
-        var dates: [Date] = []
-        var currentDate = startDate
-        while currentDate <= endDate {
-            dates.append(currentDate)
-            currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
-        }
-        return dates
+        let today = calendar.startOfDay(for: Date())
+        guard let startDate = calendar.date(byAdding: .day, value: -90, to: today) else { return [] }
+        return (0..<180).compactMap { calendar.date(byAdding: .day, value: $0, to: startDate) }
     }
     
     // MARK: - Body

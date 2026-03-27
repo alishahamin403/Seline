@@ -434,6 +434,7 @@ final class GeminiResponsesService {
         input: [[String: Any]],
         onChunk: (String) -> Void
     ) async throws -> String {
+        try Task.checkCancellation()
         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ResponsesError.missingAPIKey
         }
@@ -481,6 +482,7 @@ final class GeminiResponsesService {
 
             var accumulatedText = ""
             for try await line in bytes.lines {
+                try Task.checkCancellation()
                 guard line.hasPrefix("data: ") else { continue }
                 let jsonStr = String(line.dropFirst(6))
                 guard !jsonStr.isEmpty, jsonStr != "[DONE]" else { continue }
@@ -494,6 +496,7 @@ final class GeminiResponsesService {
                 else { continue }
 
                 for part in parts {
+                    try Task.checkCancellation()
                     if let text = part["text"] as? String, !text.isEmpty {
                         accumulatedText += text
                         onChunk(text)

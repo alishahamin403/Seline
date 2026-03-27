@@ -7,8 +7,7 @@ struct ConversationSearchView: View {
 
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
-    @StateObject private var searchService = SearchService.shared
-    @StateObject private var pageState = ConversationPageState()
+    @StateObject private var chatStore = ChatSessionStore.shared
     @StateObject private var authManager = AuthenticationManager.shared
     @StateObject private var chatUsageTracker = ChatUsageTracker.shared
     @State private var messageText = ""
@@ -16,8 +15,6 @@ struct ConversationSearchView: View {
     @State private var scrollToBottom: UUID?
     @State private var inputHeight: CGFloat = 48
     @State private var measuredInputTextHeight: CGFloat = 24
-    @State private var isStreamingResponse = false
-    @State private var streamingStartTime: Date?
     @State private var shouldAutoScrollConversation = true
     @State private var showingSettings = false
     @State private var showingHistorySheet = false
@@ -30,7 +27,6 @@ struct ConversationSearchView: View {
     @State private var selectedNote: Note? = nil
     @State private var selectedTask: TaskItem? = nil
     @State private var selectedLocation: SavedPlace? = nil
-    @State private var isProcessingResponse = false // Track if LLM is responding
     @State private var lastMeaningfulTranscript = ""
 
     private var chatBackgroundColor: Color {
@@ -38,7 +34,16 @@ struct ConversationSearchView: View {
     }
 
     private var isAssistantStreamingActive: Bool {
-        pageState.isLoadingQuestionResponse || isStreamingResponse
+        chatStore.phase.isActive
+    }
+
+    private var shouldShowStatusRow: Bool {
+        switch chatStore.phase {
+        case .routing, .retrieving, .synthesizing:
+            return true
+        case .idle, .cancelled, .failed:
+            return false
+        }
     }
 
     private var isChatUsageCapped: Bool {
@@ -46,17 +51,17 @@ struct ConversationSearchView: View {
     }
 
     private var isTrackerConversation: Bool {
-        pageState.isTrackerConversation
+        chatStore.isTrackerConversation
     }
 
     private var visibleConversationHistory: [ConversationMessage] {
-        pageState.conversationHistory.filter { $0.proactiveQuestion == nil }
+        chatStore.conversationHistory.filter { $0.proactiveQuestion == nil }
     }
 
     private var trackerHeaderTitle: String {
         guard isTrackerConversation else { return "Chat" }
         guard
-            let title = pageState.currentTrackerThread?.title.trackerNonEmpty,
+            let title = chatStore.currentTrackerThread?.title.trackerNonEmpty,
             title != "Tracker",
             title != "New Tracker"
         else {
@@ -75,31 +80,25 @@ struct ConversationSearchView: View {
                     trackerPinnedSummaryCard
                 }
                 conversationScrollView
-
-                inputAreaView
             }
         }
         .background(chatBackgroundColor)
         .contentShape(Rectangle())
-        .simultaneousGesture(keyboardDismissDragGesture, including: .subviews)
-        .onChange(of: pageState.isLoadingQuestionResponse) { newValue in
-            if newValue {
-                // Started streaming
-                isStreamingResponse = true
-                streamingStartTime = Date()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            inputAreaView
+                .background(chatBackgroundColor)
+        }
+        .onChange(of: chatStore.phase) { newValue in
+            if newValue.isActive {
                 shouldAutoScrollConversation = true
-                // Subtle click when LLM starts thinking
                 playLoadingStartSound()
             } else {
-                // Stopped streaming — play a subtle completion sound + haptic
-                isStreamingResponse = false
-                streamingStartTime = nil
                 shouldAutoScrollConversation = true
                 playResponseCompleteSound()
             }
         }
         .onAppear {
-            searchService.restoreMostRecentConversationIfNeeded()
+            chatStore.restoreMostRecentConversationIfNeeded()
 
             // Don't auto-focus on appear - let user see the greeting first
             // isInputFocused = true
@@ -120,11 +119,6 @@ struct ConversationSearchView: View {
 
             // Auto-send on silence disabled (speak mode removed); user sends with button
             speechService.onAutoSend = { }
-
-            if pageState.isLoadingQuestionResponse {
-                isStreamingResponse = true
-                streamingStartTime = streamingStartTime ?? Date()
-            }
         }
         .onChange(of: isVisible) { newValue in
             handleVisibilityChange(newValue)
@@ -138,7 +132,7 @@ struct ConversationSearchView: View {
                     speechService.stopRecording()
                 }
                 dismissKeyboard()
-            } else if !isProcessingResponse {
+            } else if !chatStore.isTurnActive {
                 speechService.shouldIgnoreTranscriptionUpdates = false
             }
         }
@@ -146,8 +140,8 @@ struct ConversationSearchView: View {
             // Persist current chat: save title and to Supabase. Do not clear conversation
             // so the same chat stays open when user switches tabs or reopens the app.
             Task {
-                await searchService.generateFinalConversationTitle()
-                await searchService.saveConversationToSupabase()
+                await chatStore.generateFinalConversationTitle()
+                await chatStore.saveConversationToSupabase()
                 DispatchQueue.main.async {
                     speechService.stopRecording()
                 }
@@ -161,11 +155,11 @@ struct ConversationSearchView: View {
         .sheet(isPresented: $showingHistorySheet) {
             ConversationHistorySheet(
                 onSelectConversation: { conversation in
-                    searchService.loadConversation(withId: conversation.id)
+                    chatStore.loadConversation(withId: conversation.id)
                     showingHistorySheet = false
                 },
                 onDeleteConversation: { conversation in
-                    searchService.deleteConversation(withId: conversation.id)
+                    chatStore.deleteConversation(withId: conversation.id)
                 }
             )
             .presentationDetents([.large])
@@ -173,13 +167,13 @@ struct ConversationSearchView: View {
             .presentationBg()
         }
         .sheet(isPresented: $showingTrackerRulesSheet) {
-            TrackerRulesSheet(thread: pageState.currentTrackerThread)
+            TrackerRulesSheet(thread: chatStore.currentTrackerThread)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationBg()
         }
         .sheet(isPresented: $showingTrackerActivitySheet) {
-            TrackerActivitySheet(thread: pageState.currentTrackerThread)
+            TrackerActivitySheet(thread: chatStore.currentTrackerThread)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationBg()
@@ -231,13 +225,9 @@ struct ConversationSearchView: View {
     @MainActor
     private func handleVisibilityChange(_ visible: Bool) {
         if visible {
-            searchService.restoreMostRecentConversationIfNeeded()
-            if !isProcessingResponse {
+            chatStore.restoreMostRecentConversationIfNeeded()
+            if !chatStore.isTurnActive {
                 speechService.shouldIgnoreTranscriptionUpdates = false
-            }
-            if pageState.isLoadingQuestionResponse {
-                isStreamingResponse = true
-                streamingStartTime = streamingStartTime ?? Date()
             }
             return
         }
@@ -246,10 +236,8 @@ struct ConversationSearchView: View {
         speechService.stopRecording()
         speechService.shouldIgnoreTranscriptionUpdates = true
         ttsService.stopSpeaking()
-        if pageState.isLoadingQuestionResponse {
-            searchService.stopCurrentRequest()
-            isStreamingResponse = false
-            streamingStartTime = nil
+        if chatStore.isTurnActive {
+            chatStore.stop()
         }
         dismissKeyboard()
     }
@@ -257,16 +245,6 @@ struct ConversationSearchView: View {
     private func resumeConversationAutoscroll() {
         shouldAutoScrollConversation = true
         scrollToBottom = UUID()
-    }
-
-    private var keyboardDismissDragGesture: some Gesture {
-        DragGesture(minimumDistance: 12, coordinateSpace: .local)
-            .onEnded { value in
-                let verticalDrag = value.translation.height
-                let horizontalDrag = abs(value.translation.width)
-                guard verticalDrag > 24, verticalDrag > horizontalDrag else { return }
-                dismissKeyboard()
-            }
     }
 
     private func dismissKeyboard() {
@@ -289,14 +267,14 @@ struct ConversationSearchView: View {
         HapticManager.shared.selection()
         dismissKeyboard()
         Task {
-            await searchService.draftUndoLastTrackerChange()
+            await chatStore.draftUndoLastTrackerChange()
             scrollToBottom = UUID()
         }
     }
 
     private func startNewChat() {
         HapticManager.shared.selection()
-        searchService.stopCurrentRequest()
+        chatStore.stop()
         speechService.stopRecording()
         speechService.clearTranscription()
         speechService.shouldIgnoreTranscriptionUpdates = false
@@ -305,7 +283,7 @@ struct ConversationSearchView: View {
         measuredInputTextHeight = 24
         updateInputHeight(contentHeight: measuredInputTextHeight)
         dismissKeyboard()
-        searchService.startNewConversation()
+        chatStore.startNewConversation()
     }
 
     // MARK: - Subviews
@@ -344,7 +322,7 @@ struct ConversationSearchView: View {
 
     private var trackerPinnedSummaryCard: some View {
         Group {
-            if let thread = pageState.currentTrackerThread,
+            if let thread = chatStore.currentTrackerThread,
                let state = thread.cachedState {
                 TrackerSummaryCard(
                     state: state,
@@ -447,7 +425,7 @@ struct ConversationSearchView: View {
             HapticManager.shared.selection()
             let question = prompt
             Task {
-                await searchService.addConversationMessage(question)
+                await chatStore.send(question)
             }
         }) {
             HStack(spacing: 12) {
@@ -583,11 +561,11 @@ struct ConversationSearchView: View {
         ) {
             ConversationHistorySheet(
                 onSelectConversation: { conversation in
-                    searchService.loadConversation(withId: conversation.id)
+                    chatStore.loadConversation(withId: conversation.id)
                     showingHistorySidebar = false
                 },
                 onDeleteConversation: { conversation in
-                    searchService.deleteConversation(withId: conversation.id)
+                    chatStore.deleteConversation(withId: conversation.id)
                 },
                 onDismiss: {
                     showingHistorySidebar = false
@@ -601,28 +579,32 @@ struct ConversationSearchView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     if visibleConversationHistory.isEmpty {
-                        // Empty state - ensure it's visible
-                        emptyStateView
-                            .frame(minHeight: UIScreen.main.bounds.height * 0.6)
-                            .padding(.top, 60)
+                        VStack(spacing: 0) {
+                            emptyStateView
+                                .frame(minHeight: UIScreen.main.bounds.height * 0.6)
+                                .padding(.top, 60)
+
+                            Color.clear
+                                .frame(height: 220)
+                        }
                     } else {
                         LazyVStack(alignment: .leading, spacing: 20) {
                             ForEach(visibleConversationHistory) { message in
                                 ConversationMessageView(
                                     message: message,
-                                    isStreaming: pageState.isStreaming(message),
-                                    isPendingTrackerDraft: pageState.isPendingTrackerDraft(message),
+                                    isStreaming: chatStore.isStreaming(message),
+                                    isPendingTrackerDraft: chatStore.isPendingTrackerDraft(message),
                                     onSendMessage: { text in
-                                        await searchService.addConversationMessage(text)
+                                        await chatStore.send(text)
                                     },
                                     onRegenerate: { messageId in
-                                        await searchService.regenerateResponse(for: messageId)
+                                        await chatStore.regenerate(messageID: messageId)
                                     },
                                     onApplyTrackerDraft: {
-                                        searchService.applyPendingTrackerDraft()
+                                        chatStore.applyPendingTrackerDraft()
                                     },
                                     onCancelTrackerDraft: {
-                                        searchService.cancelPendingTrackerDraft()
+                                        chatStore.cancelPendingTrackerDraft()
                                     },
                                     selectedEmail: $selectedEmail,
                                     selectedNote: $selectedNote,
@@ -639,17 +621,19 @@ struct ConversationSearchView: View {
                             }
 
                             // Keep status row visible during the full generation lifecycle.
-                            if isAssistantStreamingActive {
+                            if shouldShowStatusRow {
                                 ModernLoadingIndicator(
                                     colorScheme: colorScheme,
-                                    label: pageState.chatLoadingStatusLabel
+                                    primaryText: chatStore.statusPresentation.primaryText,
+                                    secondaryText: chatStore.statusPresentation.secondaryText,
+                                    startedAt: chatStore.turnStartedAt
                                 )
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                                 .id("assistant-status-row")
                             }
                         }
                         .padding(.top, 10)
-                        .padding(.bottom, 88)
+                        .padding(.bottom, 16)
                     }
                 }
                 .selinePrimaryPageScroll()
@@ -670,7 +654,7 @@ struct ConversationSearchView: View {
                         endPoint: .bottom
                     )
                 )
-                .onChange(of: pageState.conversationHistory.count) { _ in
+                .onChange(of: chatStore.conversationHistory.count) { _ in
                     guard shouldAutoScrollConversation else { return }
                     withAnimation(.easeInOut(duration: 0.3)) {
                         if isAssistantStreamingActive {
@@ -707,7 +691,7 @@ struct ConversationSearchView: View {
                         }
                     }
                 }
-                .onChange(of: pageState.lastMessageContentVersion) { _ in
+                .onChange(of: chatStore.lastMessageContentVersion) { _ in
                     guard shouldAutoScrollConversation else { return }
                     // Re-scroll when last message gains event card or sources so they stay visible
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
@@ -882,9 +866,6 @@ struct ConversationSearchView: View {
                 },
                 onFocusChange: { focused in
                     isInputFocused = focused
-                },
-                onSwipeDown: {
-                    dismissKeyboard()
                 }
             )
             .onChange(of: speechService.transcribedText) { newText in
@@ -894,11 +875,9 @@ struct ConversationSearchView: View {
                 let isMeaningful = trimmed.count >= 3 && trimmed.rangeOfCharacter(from: .letters) != nil
                 let isNewEnough = trimmed != lastMeaningfulTranscript
                 
-                if isMeaningful && isNewEnough && (ttsService.isSpeaking || searchService.isLoadingQuestionResponse || isStreamingResponse) {
+                if isMeaningful && isNewEnough && (ttsService.isSpeaking || chatStore.isTurnActive) {
                     ttsService.stopSpeaking()
-                    searchService.stopCurrentRequest()
-                    isStreamingResponse = false
-                    isProcessingResponse = false
+                    chatStore.stop()
                     HapticManager.shared.light()
                 }
                 
@@ -933,75 +912,38 @@ struct ConversationSearchView: View {
 
     private func sendMessage() {
         let trimmed = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        print("🎙️ sendMessage called with text: '\(trimmed.prefix(50))...' (isProcessing: \(isProcessingResponse), isSpeaking: \(ttsService.isSpeaking))")
 
         guard !trimmed.isEmpty else {
-            print("🎙️ sendMessage aborted - empty text")
             return
         }
 
         guard !isChatUsageCapped else {
-            print("🎙️ sendMessage aborted - daily chat limit reached")
             return
         }
 
-        // If already processing, don't accept new messages
-        // (This should be prevented by UI, but double-check)
-        if isProcessingResponse || ttsService.isSpeaking {
-            print("🎙️ sendMessage aborted - system is busy")
+        if chatStore.isTurnActive || ttsService.isSpeaking {
             return
         }
 
-        // Stop recording if active
         if speechService.isRecording {
-            print("🎙️ Stopping recording before sending")
             speechService.stopRecording()
         }
 
         HapticManager.shared.medium()
         let query = messageText
 
-        // Clear UI immediately so previous prompt doesn't stay in the box
         messageText = ""
         speechService.clearTranscription()
         speechService.shouldIgnoreTranscriptionUpdates = true
         measuredInputTextHeight = 24
         updateInputHeight(contentHeight: measuredInputTextHeight)
-        isInputFocused = true
-
-        isProcessingResponse = true
+        dismissKeyboard()
         shouldAutoScrollConversation = true
         scrollToBottom = UUID()
 
         Task {
-            await searchService.addConversationMessage(query)
-
-            await waitForResponseToComplete()
-
-            isProcessingResponse = false
-            // Re-enable transcription updates after a short delay so next voice input works
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await chatStore.send(query)
             speechService.shouldIgnoreTranscriptionUpdates = isChatUsageCapped
-        }
-    }
-    
-    private func waitForResponseToComplete() async {
-        // Wait until streaming is complete
-        while searchService.isLoadingQuestionResponse || isStreamingResponse {
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-        }
-    }
-    
-
-    private func formatElapsedTime(since startDate: Date) -> String {
-        let elapsed = Date().timeIntervalSince(startDate)
-        let seconds = Int(elapsed) % 60
-        let minutes = Int(elapsed) / 60
-
-        if minutes > 0 {
-            return "\(minutes)m \(seconds)s"
-        } else {
-            return "\(seconds)s"
         }
     }
 
@@ -1048,16 +990,15 @@ struct ConversationSearchView: View {
     private var sendButton: some View {
         Button(action: {
             // If loading, stop the request; otherwise send the message
-            if searchService.isLoadingQuestionResponse || isStreamingResponse {
+            if chatStore.isTurnActive {
                 HapticManager.shared.medium()
-                isStreamingResponse = false
-                searchService.stopCurrentRequest()
+                chatStore.stop()
             } else {
                 sendMessage()
             }
         }) {
             // Claude-style: stop button when streaming, send arrow when ready
-            if searchService.isLoadingQuestionResponse || isStreamingResponse {
+            if chatStore.isTurnActive {
                 ZStack {
                     Circle()
                         .fill((colorScheme == .dark ? Color.white : Color.black))
@@ -1089,10 +1030,9 @@ struct ConversationSearchView: View {
         }
         .frame(width: 36, height: 36)
         .buttonStyle(PlainButtonStyle())
-        .disabled((isChatUsageCapped && !(searchService.isLoadingQuestionResponse || isStreamingResponse)) || (messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !(searchService.isLoadingQuestionResponse || isStreamingResponse)))
+        .disabled((isChatUsageCapped && !chatStore.isTurnActive) || (messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !chatStore.isTurnActive))
         .animation(.easeInOut(duration: 0.15), value: messageText)
-        .animation(.easeInOut(duration: 0.15), value: searchService.isLoadingQuestionResponse)
-        .animation(.easeInOut(duration: 0.15), value: isStreamingResponse)
+        .animation(.easeInOut(duration: 0.15), value: chatStore.phase)
     }
 
     private var inputBoxBorder: some View {
@@ -1144,7 +1084,7 @@ struct ConversationMessageView: View {
     private let taskManager = TaskManager.shared
     private let locationsManager = LocationsManager.shared
     private let sharedLocationManager = SharedLocationManager.shared
-    private let searchService = SearchService.shared
+    private let chatStore = ChatSessionStore.shared
     @Binding var selectedEmail: Email?
     @Binding var selectedNote: Note?
     @Binding var selectedTask: TaskItem?
@@ -1302,7 +1242,7 @@ struct ConversationMessageView: View {
                     onConfirm: { confirmedEvents in
                         Task {
                             if message.actionDraft != nil {
-                                await searchService.confirmActionDraft(
+                                await chatStore.confirmActionDraft(
                                     for: message.id,
                                     confirmedEvents: confirmedEvents
                                 )
@@ -1313,7 +1253,7 @@ struct ConversationMessageView: View {
                     },
                     onCancel: {
                         if message.actionDraft != nil {
-                            searchService.cancelActionDraft(for: message.id)
+                            chatStore.cancelActionDraft(for: message.id)
                         }
                     }
                 )
@@ -1326,11 +1266,11 @@ struct ConversationMessageView: View {
                     status: message.actionDraft?.status ?? .pending,
                     onConfirm: {
                         Task {
-                            await searchService.confirmActionDraft(for: message.id)
+                            await chatStore.confirmActionDraft(for: message.id)
                         }
                     },
                     onCancel: {
-                        searchService.cancelActionDraft(for: message.id)
+                        chatStore.cancelActionDraft(for: message.id)
                     }
                 )
                 .padding(.top, 4)
@@ -1362,11 +1302,11 @@ struct ConversationMessageView: View {
                     },
                     onConfirmSave: { folder in
                         Task {
-                            await searchService.confirmActionDraft(for: message.id, folderName: folder)
+                            await chatStore.confirmActionDraft(for: message.id, folderName: folder)
                         }
                     },
                     onCancel: {
-                        searchService.cancelActionDraft(for: message.id)
+                        chatStore.cancelActionDraft(for: message.id)
                     }
                 )
                 .padding(.top, 4)
@@ -3931,53 +3871,6 @@ struct SimpleTextWithPhoneLinks: View {
     }
 }
 
-// MARK: - Typing Indicator Component
-
-struct TypingIndicatorView: View {
-    let colorScheme: ColorScheme
-
-    var thinkingMessages = ["Thinking...", "Analyzing your data...", "Getting insights..."]
-
-    var body: some View {
-        SwiftUI.TimelineView(.animation(minimumInterval: 0.18)) { context in
-            let elapsed = context.date.timeIntervalSinceReferenceDate
-            let animationIndex = Int(elapsed / 0.18) % 3
-            let messageIndex = Int(elapsed / 3.0) % thinkingMessages.count
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 4) {
-                    ForEach(0..<3, id: \.self) { index in
-                        Circle()
-                            .fill(colorScheme == .dark ? Color.white : Color.black)
-                            .frame(width: 6, height: 6)
-                            .offset(y: getWaveOffset(for: index, animationIndex: animationIndex))
-                            .opacity(0.8 + 0.2 * Double(index == animationIndex ? 1 : 0))
-                    }
-                    Spacer()
-                }
-                .frame(width: 40, height: 12)
-
-                Text(thinkingMessages[messageIndex])
-                    .font(FontManager.geist(size: 15, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-    }
-
-    private func getWaveOffset(for index: Int, animationIndex: Int) -> CGFloat {
-        let distance = abs(index - animationIndex)
-        if distance == 0 {
-            return -4
-        } else if distance == 1 {
-            return -2
-        } else {
-            return 0
-        }
-    }
-}
-
 // MARK: - Unified Data Type Card Component
 
 struct DataTypeCardView: View {
@@ -4221,7 +4114,9 @@ struct WrappingInlineLayout: Layout {
 
 struct ModernLoadingIndicator: View {
     let colorScheme: ColorScheme
-    let label: String
+    let primaryText: String
+    let secondaryText: String?
+    let startedAt: Date?
 
     var body: some View {
         SwiftUI.TimelineView(.animation(minimumInterval: 0.18)) { context in
@@ -4239,12 +4134,20 @@ struct ModernLoadingIndicator: View {
                         }
                     }
 
-                    // Status label right of the dots
-                    if !label.isEmpty {
-                        Text(label)
-                            .font(FontManager.geist(size: 13, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.35))
-                            .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 3) {
+                        if !primaryText.isEmpty {
+                            Text(primaryText)
+                                .font(FontManager.geist(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.52) : Color.black.opacity(0.42))
+                                .lineLimit(2)
+                        }
+
+                        if let helperText = helperText(now: context.date), !helperText.isEmpty {
+                            Text(helperText)
+                                .font(FontManager.geist(size: 11, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.32) : Color.black.opacity(0.28))
+                                .lineLimit(2)
+                        }
                     }
                 }
                 .padding(.horizontal, 14)
@@ -4263,6 +4166,21 @@ struct ModernLoadingIndicator: View {
         let phase = elapsed + (Double(index) * 0.2)
         return 1.0 + (sin(phase * .pi * 1.6) * 0.15)
     }
+
+    private func helperText(now: Date) -> String? {
+        var lines: [String] = []
+
+        if let secondaryText, !secondaryText.isEmpty {
+            lines.append(secondaryText)
+        }
+
+        if let startedAt {
+            let seconds = max(0, Int(now.timeIntervalSince(startedAt)))
+            lines.append(seconds >= 60 ? "\(seconds / 60)m \(seconds % 60)s elapsed" : "\(seconds)s elapsed")
+        }
+
+        return lines.isEmpty ? nil : lines.joined(separator: " · ")
+    }
 }
 
 // MARK: - Aligned Text Editor (Fixes cursor alignment issue)
@@ -4273,7 +4191,6 @@ struct AlignedTextEditor: UIViewRepresentable {
     let height: CGFloat
     let onContentHeightChange: (CGFloat) -> Void
     let onFocusChange: (Bool) -> Void
-    let onSwipeDown: () -> Void
     
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
@@ -4300,14 +4217,6 @@ struct AlignedTextEditor: UIViewRepresentable {
         textView.isScrollEnabled = false
         updateTextInsets(for: textView)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        let dismissPanGesture = UIPanGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handleSwipeDownPan(_:))
-        )
-        dismissPanGesture.cancelsTouchesInView = false
-        dismissPanGesture.delegate = context.coordinator
-        textView.addGestureRecognizer(dismissPanGesture)
         
         return textView
     }
@@ -4348,7 +4257,6 @@ struct AlignedTextEditor: UIViewRepresentable {
     
     class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: AlignedTextEditor
-        private var didTriggerSwipeDismiss = false
 
         init(_ parent: AlignedTextEditor) {
             self.parent = parent
@@ -4382,27 +4290,6 @@ struct AlignedTextEditor: UIViewRepresentable {
                 return true
             }
             return true
-        }
-
-        @objc
-        func handleSwipeDownPan(_ gesture: UIPanGestureRecognizer) {
-            guard let textView = gesture.view as? UITextView else { return }
-
-            switch gesture.state {
-            case .began:
-                didTriggerSwipeDismiss = false
-            case .changed, .ended:
-                guard !didTriggerSwipeDismiss else { return }
-                let translation = gesture.translation(in: textView)
-                let verticalDrag = translation.y
-                let horizontalDrag = abs(translation.x)
-                let isAtTop = textView.contentOffset.y <= 0.5
-                guard isAtTop, verticalDrag > 24, verticalDrag > horizontalDrag else { return }
-                didTriggerSwipeDismiss = true
-                parent.onSwipeDown()
-            default:
-                didTriggerSwipeDismiss = false
-            }
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -4683,7 +4570,7 @@ struct TokenUsageDetailsSheet: View {
 struct ConversationHistorySheet: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
-    @StateObject private var searchService = SearchService.shared
+    @StateObject private var chatStore = ChatSessionStore.shared
     @State private var searchText = ""
 
     private var sidebarBackgroundColor: Color {
@@ -4708,7 +4595,7 @@ struct ConversationHistorySheet: View {
 
     private var trackerConversations: [SavedConversation] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let sorted = searchService.savedConversations
+        let sorted = chatStore.savedConversations
             .filter { $0.kind == .tracker }
             .sorted { $0.updatedAt > $1.updatedAt }
 
@@ -4725,7 +4612,7 @@ struct ConversationHistorySheet: View {
         let calendar = Calendar.current
         let now = Date()
         var groups: [(String, [SavedConversation])] = []
-        let sorted = searchService.savedConversations
+        let sorted = chatStore.savedConversations
             .filter { $0.kind != .tracker }
             .sorted { $0.updatedAt > $1.updatedAt }
         
@@ -4768,7 +4655,7 @@ struct ConversationHistorySheet: View {
                 searchBar
 
                 Group {
-                    if searchService.savedConversations.isEmpty {
+                    if chatStore.savedConversations.isEmpty {
                         emptyHistoryView
                     } else {
                         conversationListView
@@ -4780,9 +4667,9 @@ struct ConversationHistorySheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            searchService.loadConversationHistoryLocally()
+            chatStore.loadConversationHistoryLocally()
             Task {
-                await searchService.loadConversationsFromSupabase()
+                await chatStore.loadConversationsFromSupabase()
             }
         }
     }
@@ -4814,7 +4701,7 @@ struct ConversationHistorySheet: View {
 
             Button(action: {
                 HapticManager.shared.selection()
-                searchService.startNewConversation()
+                chatStore.startNewConversation()
                 if let onDismiss = onDismiss { onDismiss() } else { dismiss() }
             }) {
                 Image(systemName: "square.and.pencil")
@@ -4835,7 +4722,7 @@ struct ConversationHistorySheet: View {
 
             Button(action: {
                 HapticManager.shared.selection()
-                searchService.startNewTrackerConversation()
+                chatStore.startNewTrackerConversation()
                 if let onDismiss = onDismiss { onDismiss() } else { dismiss() }
             }) {
                 Image(systemName: "list.bullet.rectangle")
@@ -4965,7 +4852,7 @@ struct ConversationHistorySheet: View {
 struct ConversationHistoryRow: View {
     let conversation: SavedConversation
     @Environment(\.colorScheme) var colorScheme
-    @StateObject private var searchService = SearchService.shared
+    @StateObject private var chatStore = ChatSessionStore.shared
     
     private var displayTitle: String {
         if conversation.title.isEmpty {
@@ -4985,7 +4872,7 @@ struct ConversationHistoryRow: View {
     }
 
     private var isActive: Bool {
-        searchService.currentConversationId == conversation.id
+        chatStore.currentConversationId == conversation.id
     }
     
     var body: some View {
@@ -5015,5 +4902,4 @@ struct ConversationHistoryRow: View {
 
 #Preview {
     ConversationSearchView()
-        .environmentObject(SearchService.shared)
 }

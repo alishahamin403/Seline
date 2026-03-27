@@ -4,13 +4,9 @@ import Foundation
 final class ChatAgentService {
     static let shared = ChatAgentService()
 
-    private struct PlanningContextSnapshot: Encodable {
-        let anchorState: ConversationAnchorState?
-        let previousEvidenceBundle: EvidenceBundle?
-    }
-
     private struct SynthesisContextSnapshot: Encodable {
         let conversationTail: [String]
+        let sessionSnapshot: ConversationSessionSnapshot?
         let evidenceBundle: EvidenceBundle
     }
 
@@ -23,27 +19,44 @@ final class ChatAgentService {
     private let emailService = EmailService.shared
     private let taskManager = TaskManager.shared
 
-    private let maxToolRounds = 5
+    // MARK: - Intent Router types
+
+    private struct IntentRouterPlan {
+        struct ToolCall {
+            let name: String
+            let argsJSON: String
+        }
+        let synthesisModel: String
+        let primaryToolCalls: [ToolCall]
+        let needsEnrichment: Bool
+    }
 
     private init() {}
 
     func respond(
         turn: AgentTurnInput,
+        onToolDispatch: (([String]) -> Void)? = nil,
+        onSynthesisStart: (() -> Void)? = nil,
         onSynthesisChunk: ((String) -> Void)? = nil
     ) async -> AgentTurnResult {
         let userMessage = turn.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let liveSearchEnabled = turn.allowLiveSearch && shouldAllowLiveSearch(for: userMessage)
-        let synthesisModel = selectedModel(for: turn)
-        let planningModel = GeminiResponsesService.escalatedChatModel
+        // Default synthesis model used only if the router flow throws before returning one
+        var synthesisModel = selectedModel(for: turn)
 
         do {
-            let toolOutcome = try await planningOutcomeWithRetry(
+            try Task.checkCancellation()
+            let routerResult = try await runIntentRouterFlow(
                 userMessage: userMessage,
                 conversationHistory: turn.conversationHistory,
                 anchorState: turn.anchorState,
-                model: planningModel,
-                includeLiveSearch: liveSearchEnabled
+                sessionSnapshot: turn.sessionSnapshot,
+                includeLiveSearch: liveSearchEnabled,
+                onToolDispatch: onToolDispatch
             )
+            try Task.checkCancellation()
+            let toolOutcome = routerResult.outcome
+            synthesisModel = routerResult.synthesisModel
 
             let mergedAnchorState = mergedAnchorState(
                 base: turn.anchorState,
@@ -64,14 +77,14 @@ final class ChatAgentService {
                 actionDraft: actionDraft,
                 presentation: presentation
             ) {
+                onSynthesisStart?()
                 finalResponse = draftResponse
-            } else if toolOutcome.toolResults.isEmpty,
-               let plannerText = sanitizedPlannerText(toolOutcome.plannerText) {
-                finalResponse = plannerText
             } else {
+                onSynthesisStart?()
                 finalResponse = try await synthesizeAnswer(
                     userMessage: userMessage,
                     conversationHistory: turn.conversationHistory,
+                    sessionSnapshot: turn.sessionSnapshot,
                     evidenceBundle: evidenceBundle,
                     model: synthesisModel,
                     onChunk: onSynthesisChunk
@@ -101,12 +114,574 @@ final class ChatAgentService {
             )
 
             return result
+        } catch is CancellationError {
+            return AgentTurnResult(
+                assistantText: "",
+                evidenceBundle: EvidenceBundle(
+                    records: [],
+                    aggregates: [],
+                    citations: [],
+                    ambiguities: nil,
+                    anchorState: turn.anchorState
+                ),
+                toolTrace: [],
+                locationInfo: nil,
+                actionDraft: nil,
+                presentation: nil,
+                usedLiveWeb: false,
+                model: synthesisModel
+            )
         } catch {
             return fallbackResult(for: userMessage, model: synthesisModel, error: error)
         }
     }
 
-    // MARK: - Planning loop
+    // MARK: - Intent Router
+
+    /// Single fast LLM call that classifies intent, selects pillars, and lists all primary tools to
+    /// call in parallel. Returns nil on parse failure so the caller can fall back to the planner loop.
+    private func makeIntentPlan(
+        userMessage: String,
+        conversationHistory: [ConversationMessage],
+        anchorState: ConversationAnchorState?,
+        sessionSnapshot: ConversationSessionSnapshot?,
+        liveSearchEnabled: Bool
+    ) async -> IntentRouterPlan? {
+        let cal = Calendar.current
+        let now = Date()
+        let df: DateFormatter = {
+            let f = DateFormatter()
+            f.dateFormat = "yyyy-MM-dd"
+            return f
+        }()
+        let today = df.string(from: now)
+
+        // Pre-calculate this week's dates (Mon–today) so the LLM never has to do date math
+        let weekdayIndex = cal.component(.weekday, from: now)   // 1=Sun … 7=Sat
+        let daysFromMonday = (weekdayIndex + 5) % 7             // 0=Mon … 6=Sun
+        let weekDates: [String] = (0...daysFromMonday).compactMap { offset in
+            cal.date(byAdding: .day, value: -(daysFromMonday - offset), to: now).map { df.string(from: $0) }
+        }
+        let weekDatesListed = weekDates.map { "  - \($0)" }.joined(separator: "\n")
+
+        let anchorJSON = (try? encodedJSONString(anchorState)) ?? "null"
+        let historyTail = conversationHistory.suffix(4)
+            .map { "\($0.isUser ? "User" : "Assistant"): \($0.text)" }
+            .joined(separator: "\n")
+
+        let routerInput: [[String: Any]] = [
+            inputMessage(
+                role: "developer",
+                text: """
+                You are Seline's intent router. Analyze the user message and output a JSON dispatch plan describing exactly which data tools to call in parallel.
+
+                Today: \(today)
+                This week's dates (Monday → today, use these exact strings in date_query args):
+                \(weekDatesListed)
+                Recent conversation:
+                \(historyTail.isEmpty ? "(none)" : historyTail)
+                Prior anchor state: \(anchorJSON)
+                \(sessionMemoryBlock(snapshot: sessionSnapshot, currentQuery: userMessage, conversationHistory: conversationHistory))
+                Live search allowed: \(liveSearchEnabled)
+
+                === TOOL SCHEMAS ===
+                Seline (personal data):
+                  get_day_context          {"date_query": "YYYY-MM-DD"}
+                  search_seline_records    {"query": "...", "scopes": ["visit"|"email"|"note"|"receipt"|"event"|"person"|"location"], "time_range": "YYYY-MM-DD"}
+                  aggregate_seline         {"metric": "total_spend"|"visit_count"|"event_count", "filters": {"scopes": [...], "time_range": "YYYY-MM-DD"}, "group_by": "day"|"category"|"place"}
+                  resolve_episode_context  {"query": "..."}  — person+place+time episodes only
+                  get_current_context      {}
+                  refresh_inbox_and_get_latest_email {}
+                Maps (location):
+                  search_nearby_places     {"query": "category or name near me"}
+                  resolve_live_place       {"query": "specific named place"}
+                  find_saved_places_within_eta {"eta_minutes": N}
+                Actions (never in primaryTools):
+                  prepare_event_draft, prepare_note_draft, get_record_details, traverse_relations
+
+                === DISPATCH RULES ===
+                Pillars:
+                  • "seline" — questions about the user's personal data (day, events, receipts, emails, visits, notes, people)
+                  • "maps"   — questions about places nearby, navigation, or finding specific locations
+                  • "web"    — general knowledge not in Seline (news, business info, etc.)
+
+                synthesisModel:
+                  "gemini-2.5-flash"      — day overviews, week/month recaps, spending analysis, anything multi-source or complex
+                  "gemini-2.5-flash-lite" — simple single-record lookups, yes/no questions, short factual answers
+
+                RELATIVE DATE RESOLUTION — resolve before dispatching any tools:
+                  "today" → \(today)
+                  "yesterday" → subtract 1 day from today
+                  "1 year ago" / "this time last year" → subtract 365 days from today
+                  "last [month name]" → first day of that month in the most recent occurrence
+                  "on my birthday" / named occasions → use anchor state if available, otherwise ask
+                  Always emit the resolved YYYY-MM-DD in tool args, never vague strings.
+
+                SINGLE DAY rule — apply for "how's my day", "what happened today", "recap today", "how was my day", "how am I doing today",
+                  AND for any specific past date question ("what happened on March 3", "tell me about last Tuesday", "1 year ago today"):
+                  Resolve the date first (see RELATIVE DATE RESOLUTION above), then include ALL SIX tools:
+                    get_day_context(date_query: "YYYY-MM-DD")
+                    search_seline_records(query: "visits YYYY-MM-DD", scopes: ["visit"], time_range: "YYYY-MM-DD")
+                    aggregate_seline(metric: "total_spend", filters: {scopes: ["receipt"], time_range: "YYYY-MM-DD"})
+                    search_seline_records(query: "emails YYYY-MM-DD", scopes: ["email"], time_range: "YYYY-MM-DD")
+                    search_seline_records(query: "notes YYYY-MM-DD", scopes: ["note"], time_range: "YYYY-MM-DD")
+                    search_seline_records(query: "journal entry YYYY-MM-DD", scopes: ["note"], time_range: "YYYY-MM-DD")
+                  Set needsEnrichment: true for ALL single-day queries — this pulls visit notes and linked people automatically.
+                  Set synthesisModel: "gemini-2.5-flash" for all single-day queries.
+
+                MULTI-DAY rule — apply for "this week", "last week", "past N days", "how's my week", "week so far", "last few days":
+                  Emit ONE get_day_context call PER DAY using the exact dates from "This week's dates" above.
+                  Do NOT use vague strings like "this week" or "week so far" as date_query — use the exact YYYY-MM-DD strings listed above.
+                  ALSO include ONE aggregate_seline call for spending and ONE search_seline_records for emails.
+                  Example using the week dates listed above:
+                    { "name": "get_day_context", "args": { "date_query": "<first date from list>" } },
+                    ... (one per date in the list) ...,
+                    { "name": "aggregate_seline", "args": { "metric": "total_spend", "filters": { "scopes": ["receipt"] }, "group_by": "day" } },
+                    { "name": "search_seline_records", "args": { "query": "emails this week", "scopes": ["email"] } }
+                  Set needsEnrichment: true and synthesisModel: "gemini-2.5-flash" for all multi-day queries.
+
+                CROSS-PILLAR rule — when a question mixes personal history + location:
+                  e.g. "coffee shops near me I've been to before", "dentist near me I've visited", "restaurants nearby I liked":
+                  Include BOTH the relevant Seline tools (search_seline_records scope=["visit","location"]) AND the maps tool (search_nearby_places).
+                  The synthesizer will weave both together — personal history + current nearby options.
+
+                FOLLOW-UP MEMORY rule — if session memory shows an active time scope or entity focus and the user asks a short follow-up, inherit that same scope unless the user explicitly changes it.
+                  Examples inside an active day/week thread:
+                    "what about emails?" -> search_seline_records with scopes ["email"] and the same time_range
+                    "and spending?" -> aggregate_seline plus receipt lookup with the same time_range
+                    "who was there?" -> search_seline_records with scopes ["visit","person"] and needsEnrichment true
+                  Do NOT reset to an all-time search for short follow-up prompts.
+
+                needsEnrichment: true for — single-day queries, multi-day queries, episode queries (resolve_episode_context),
+                  or any question where visit details (who was there, visit notes) would enrich the answer.
+                  Set needsEnrichment: false only for simple lookups, spending totals, or email/note searches with no visit angle.
+
+                DO NOT include get_record_details or traverse_relations in primaryTools — those are enrichment-only.
+                If the query is a follow-up (anchor state has resolvedTimeRange or resolvedEntities), reuse that scope in tool args.
+                If uncertain, prefer search_seline_records as the safe default.
+
+                === OUTPUT (strict JSON, no markdown, no commentary) ===
+                {
+                  "synthesisModel": "gemini-2.5-flash" | "gemini-2.5-flash-lite",
+                  "needsEnrichment": true | false,
+                  "primaryTools": [
+                    { "name": "<tool_name>", "args": { <args matching schema> } }
+                  ]
+                }
+                """
+            ),
+            inputMessage(role: "user", text: userMessage)
+        ]
+
+        guard let response = try? await responsesService.createResponse(
+            model: GeminiResponsesService.defaultChatModel,
+            input: routerInput,
+            tools: []
+        ) else { return nil }
+
+        let raw = response.outputText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "```json", with: "")
+            .replacingOccurrences(of: "```", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard
+            let data = raw.data(using: .utf8),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let toolsRaw = json["primaryTools"] as? [[String: Any]],
+            !toolsRaw.isEmpty
+        else { return nil }
+
+        let synthesisModel = (json["synthesisModel"] as? String) ?? GeminiResponsesService.escalatedChatModel
+        let needsEnrichment = (json["needsEnrichment"] as? Bool) ?? false
+
+        let toolCalls: [IntentRouterPlan.ToolCall] = toolsRaw.compactMap { tool in
+            guard let name = tool["name"] as? String, !name.isEmpty else { return nil }
+            let args = tool["args"] ?? [String: Any]()
+            let argsJSON: String
+            if JSONSerialization.isValidJSONObject(args),
+               let d = try? JSONSerialization.data(withJSONObject: args),
+               let s = String(data: d, encoding: .utf8) {
+                argsJSON = s
+            } else {
+                argsJSON = "{}"
+            }
+            return IntentRouterPlan.ToolCall(name: name, argsJSON: argsJSON)
+        }
+
+        guard !toolCalls.isEmpty else { return nil }
+        return IntentRouterPlan(synthesisModel: synthesisModel, primaryToolCalls: toolCalls, needsEnrichment: needsEnrichment)
+    }
+
+    /// Zero-latency Swift-side routing for the most common query patterns.
+    /// Returns nil for anything that needs the full LLM router.
+    private func fastPathPlan(
+        userMessage: String,
+        anchorState: ConversationAnchorState?
+    ) -> IntentRouterPlan? {
+        let lower = userMessage.lowercased()
+        let cal = Calendar.current
+        let now = Date()
+        let df = ISO8601DateFormatter()
+        df.formatOptions = [.withFullDate]
+        let todayStr = df.string(from: now)
+
+        // ── Single-day query ("how's my day", "how was my day", "what happened today") ──
+        let singleDayTriggers = ["how's my day", "how is my day", "how was my day",
+                                 "what happened today", "recap my day", "recap today",
+                                 "tell me about my day", "how am i doing today",
+                                 "what did i do today", "catch me up on today",
+                                 "describe my day", "describe today", "summarize my day",
+                                 "summarize today", "what's on my plate today"]
+        if singleDayTriggers.contains(where: { lower.contains($0) }) {
+            return singleDayPlan(for: todayStr)
+        }
+
+        // ── Yesterday query ──
+        let yesterdayTriggers = ["how was yesterday", "describe yesterday", "recap yesterday",
+                                 "what happened yesterday", "tell me about yesterday",
+                                 "yesterday's recap", "summarize yesterday",
+                                 "describe how yesterday went", "how did yesterday go",
+                                 "how yesterday went"]
+        if yesterdayTriggers.contains(where: { lower.contains($0) }) {
+            if let yesterday = cal.date(byAdding: .day, value: -1, to: now) {
+                return singleDayPlan(for: df.string(from: yesterday))
+            }
+        }
+
+        // ── "today" as a standalone day reference ──
+        if lower == "today" || lower.hasSuffix(" today") && lower.count < 40 {
+            let broadDay = ["how", "what", "recap", "tell", "describe", "show", "summarize"]
+            if broadDay.contains(where: { lower.hasPrefix($0) }) || lower.count < 20 {
+                return singleDayPlan(for: todayStr)
+            }
+        }
+
+        // ── Week-so-far query ──
+        let weekTriggers = ["how's my week", "how is my week", "how was my week",
+                            "week so far", "this week so far", "how's the week",
+                            "recap my week", "recap this week"]
+        if weekTriggers.contains(where: { lower.contains($0) }) {
+            return weekPlan(cal: cal, now: now, df: df)
+        }
+
+        if let followUpPlan = anchoredFollowUpPlan(userMessage: userMessage, anchorState: anchorState) {
+            return followUpPlan
+        }
+
+        return nil
+    }
+
+    private func singleDayPlan(for dateStr: String) -> IntentRouterPlan {
+        let tools: [IntentRouterPlan.ToolCall] = [
+            .init(name: "get_day_context",         argsJSON: "{\"date_query\":\"\(dateStr)\"}"),
+            .init(name: "search_seline_records",   argsJSON: "{\"query\":\"visits \(dateStr)\",\"scopes\":[\"visit\"],\"time_range\":\"\(dateStr)\"}"),
+            .init(name: "aggregate_seline",        argsJSON: "{\"metric\":\"total_spend\",\"filters\":{\"scopes\":[\"receipt\"],\"time_range\":\"\(dateStr)\"},\"group_by\":\"category\"}"),
+            .init(name: "search_seline_records",   argsJSON: "{\"query\":\"emails \(dateStr)\",\"scopes\":[\"email\"],\"time_range\":\"\(dateStr)\"}"),
+            .init(name: "search_seline_records",   argsJSON: "{\"query\":\"notes \(dateStr)\",\"scopes\":[\"note\"],\"time_range\":\"\(dateStr)\"}"),
+            .init(name: "search_seline_records",   argsJSON: "{\"query\":\"journal entry \(dateStr)\",\"scopes\":[\"note\"],\"time_range\":\"\(dateStr)\"}"),
+        ]
+        return IntentRouterPlan(
+            synthesisModel: GeminiResponsesService.escalatedChatModel,
+            primaryToolCalls: tools,
+            needsEnrichment: true
+        )
+    }
+
+    private func weekPlan(cal: Calendar, now: Date, df: ISO8601DateFormatter) -> IntentRouterPlan {
+        let weekday = cal.component(.weekday, from: now)
+        let daysFromMonday = (weekday + 5) % 7
+        var tools: [IntentRouterPlan.ToolCall] = (0...daysFromMonday).compactMap { offset in
+            guard let day = cal.date(byAdding: .day, value: -(daysFromMonday - offset), to: now) else { return nil }
+            let d = df.string(from: day)
+            return .init(name: "get_day_context", argsJSON: "{\"date_query\":\"\(d)\"}")
+        }
+        tools.append(.init(name: "aggregate_seline",
+                           argsJSON: "{\"metric\":\"total_spend\",\"filters\":{\"scopes\":[\"receipt\"]},\"group_by\":\"day\"}"))
+        tools.append(.init(name: "search_seline_records",
+                           argsJSON: "{\"query\":\"emails this week\",\"scopes\":[\"email\"]}"))
+        tools.append(.init(name: "search_seline_records",
+                           argsJSON: "{\"query\":\"notes this week\",\"scopes\":[\"note\"]}"))
+        return IntentRouterPlan(
+            synthesisModel: GeminiResponsesService.escalatedChatModel,
+            primaryToolCalls: tools,
+            needsEnrichment: true
+        )
+    }
+
+    private func anchoredFollowUpPlan(
+        userMessage: String,
+        anchorState: ConversationAnchorState?
+    ) -> IntentRouterPlan? {
+        guard let anchorState, let bounds = anchorState.resolvedDateBounds else { return nil }
+        guard TemporalUnderstandingService.shared.extractTemporalRange(from: userMessage) == nil else { return nil }
+
+        let lower = userMessage.lowercased()
+        let followUpMarkers = [
+            "what about", "how about", "and ", "also", "besides",
+            "anything on", "more on", "tell me more", "who was there",
+            "what else", "and what", "what were", "what did"
+        ]
+        let tokenCount = lower.split(whereSeparator: \.isWhitespace).count
+        let isLikelyFollowUp = tokenCount <= 10 || followUpMarkers.contains(where: { lower.hasPrefix($0) || lower.contains(" \($0)") })
+        guard isLikelyFollowUp else { return nil }
+
+        let timeRange = explicitTimeRangeString(for: bounds)
+        let isSingleDay = isSingleDayBounds(bounds)
+
+        if containsAny(lower, terms: ["email", "emails", "inbox", "message", "messages"]) {
+            return IntentRouterPlan(
+                synthesisModel: isSingleDay ? GeminiResponsesService.defaultChatModel : GeminiResponsesService.escalatedChatModel,
+                primaryToolCalls: [
+                    .init(
+                        name: "search_seline_records",
+                        argsJSON: "{\"query\":\(jsonStringLiteral(userMessage)),\"scopes\":[\"email\"],\"time_range\":\(jsonStringLiteral(timeRange))}"
+                    )
+                ],
+                needsEnrichment: false
+            )
+        }
+
+        if containsAny(lower, terms: ["note", "notes", "journal", "write down", "wrote down"]) {
+            return IntentRouterPlan(
+                synthesisModel: isSingleDay ? GeminiResponsesService.defaultChatModel : GeminiResponsesService.escalatedChatModel,
+                primaryToolCalls: [
+                    .init(
+                        name: "search_seline_records",
+                        argsJSON: "{\"query\":\(jsonStringLiteral(userMessage)),\"scopes\":[\"note\"],\"time_range\":\(jsonStringLiteral(timeRange))}"
+                    )
+                ],
+                needsEnrichment: false
+            )
+        }
+
+        if containsAny(lower, terms: ["spend", "spent", "spending", "receipt", "receipts", "purchase", "purchases", "buy", "bought", "cost"]) {
+            return IntentRouterPlan(
+                synthesisModel: GeminiResponsesService.escalatedChatModel,
+                primaryToolCalls: [
+                    .init(
+                        name: "aggregate_seline",
+                        argsJSON: "{\"metric\":\"total_spend\",\"filters\":{\"scopes\":[\"receipt\"],\"time_range\":\(jsonStringLiteral(timeRange))},\"group_by\":\"category\"}"
+                    ),
+                    .init(
+                        name: "search_seline_records",
+                        argsJSON: "{\"query\":\(jsonStringLiteral(userMessage)),\"scopes\":[\"receipt\"],\"time_range\":\(jsonStringLiteral(timeRange))}"
+                    )
+                ],
+                needsEnrichment: false
+            )
+        }
+
+        if containsAny(lower, terms: ["who", "with me", "with who", "with whom", "person", "people"]) {
+            return IntentRouterPlan(
+                synthesisModel: GeminiResponsesService.escalatedChatModel,
+                primaryToolCalls: [
+                    .init(
+                        name: "search_seline_records",
+                        argsJSON: "{\"query\":\(jsonStringLiteral(userMessage)),\"scopes\":[\"person\",\"visit\"],\"time_range\":\(jsonStringLiteral(timeRange))}"
+                    )
+                ],
+                needsEnrichment: true
+            )
+        }
+
+        if containsAny(lower, terms: ["visit", "visits", "place", "places", "location", "locations", "went", "stopped", "there"]) {
+            return IntentRouterPlan(
+                synthesisModel: GeminiResponsesService.escalatedChatModel,
+                primaryToolCalls: [
+                    .init(
+                        name: "search_seline_records",
+                        argsJSON: "{\"query\":\(jsonStringLiteral(userMessage)),\"scopes\":[\"visit\",\"location\"],\"time_range\":\(jsonStringLiteral(timeRange))}"
+                    )
+                ],
+                needsEnrichment: true
+            )
+        }
+
+        if containsAny(lower, terms: ["event", "events", "meeting", "meetings", "calendar", "schedule", "appointment"]) {
+            return IntentRouterPlan(
+                synthesisModel: isSingleDay ? GeminiResponsesService.defaultChatModel : GeminiResponsesService.escalatedChatModel,
+                primaryToolCalls: [
+                    .init(
+                        name: "search_seline_records",
+                        argsJSON: "{\"query\":\(jsonStringLiteral(userMessage)),\"scopes\":[\"event\"],\"time_range\":\(jsonStringLiteral(timeRange))}"
+                    )
+                ],
+                needsEnrichment: false
+            )
+        }
+
+        return nil
+    }
+
+    /// Safe default plan used when the router LLM call fails or returns unparseable JSON.
+    /// A broad search is always better than falling back to an LLM that asks clarifying questions.
+    private func defaultSearchPlan(for userMessage: String) -> IntentRouterPlan {
+        let call = IntentRouterPlan.ToolCall(
+            name: "search_seline_records",
+            argsJSON: "{\"query\": \(jsonStringLiteral(userMessage))}"
+        )
+        return IntentRouterPlan(
+            synthesisModel: GeminiResponsesService.escalatedChatModel,
+            primaryToolCalls: [call],
+            needsEnrichment: true
+        )
+    }
+
+    private func jsonStringLiteral(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+        return "\"\(escaped)\""
+    }
+
+    // MARK: - Parallel tool execution
+
+    /// Executes all tool calls concurrently. Each tool's async I/O suspends on the main actor
+    /// independently, so network calls overlap even though all code runs on @MainActor.
+    private func executeToolsParallel(
+        _ calls: [IntentRouterPlan.ToolCall]
+    ) async -> (results: [ToolResult], trace: [AgentToolTrace], locationInfo: ETALocationInfo?) {
+        guard !calls.isEmpty else { return ([], [], nil) }
+
+        // Each element: (original index, result, locationInfo, elapsed ms)
+        typealias RawOut = (idx: Int, result: ToolResult, loc: ETALocationInfo?, ms: Int)
+        var rawOutputs: [RawOut] = []
+        rawOutputs.reserveCapacity(calls.count)
+
+        await withTaskGroup(of: RawOut.self) { group in
+            for (index, call) in calls.enumerated() {
+                let name = call.name
+                let argsJSON = call.argsJSON
+                group.addTask {
+                    let start = Date()
+                    do {
+                        let execution = try await SelineToolRegistry.shared.execute(
+                            name: name,
+                            argumentsJSON: argsJSON
+                        )
+                        return (index, execution.result, execution.locationInfo,
+                                Int(Date().timeIntervalSince(start) * 1000))
+                    } catch {
+                        return (index, ToolResult(toolName: name), nil,
+                                Int(Date().timeIntervalSince(start) * 1000))
+                    }
+                }
+            }
+            for await out in group {
+                rawOutputs.append(out)
+            }
+        }
+
+        let sorted = rawOutputs.sorted { $0.idx < $1.idx }
+        let results = sorted.map(\.result)
+        let traces: [AgentToolTrace] = sorted.map { out in
+            AgentToolTrace(
+                toolName: calls[out.idx].name,
+                argumentsJSON: calls[out.idx].argsJSON,
+                resultPreview: toolPreview(for: out.result),
+                latencyMs: out.ms
+            )
+        }
+        return (results, traces, sorted.compactMap(\.loc).last)
+    }
+
+    // MARK: - Deterministic enrichment resolver
+
+    /// Decides which enrichment tools to run based on primary results — no extra LLM call needed.
+    /// Only enriches visit/daySummary records that came back without full notes.
+    private func enrichmentCalls(from results: [ToolResult]) -> [IntentRouterPlan.ToolCall] {
+        // Enrich visits and day summaries — this pulls visitNotes, linked_people, and linked_receipt.
+        // Limit to 8 (up from 3) so a busy day with multiple visits all get full context.
+        let refsToEnrich = results
+            .flatMap(\.records)
+            .filter { $0.ref.type == .visit || $0.ref.type == .daySummary }
+            .prefix(8)
+            .map { ["type": $0.ref.type.rawValue, "id": $0.ref.id] }
+
+        guard !refsToEnrich.isEmpty else { return [] }
+        let refsArray = Array(refsToEnrich)
+        guard
+            JSONSerialization.isValidJSONObject(refsArray),
+            let data = try? JSONSerialization.data(withJSONObject: refsArray),
+            let refsJSON = String(data: data, encoding: .utf8)
+        else { return [] }
+
+        return [IntentRouterPlan.ToolCall(
+            name: "get_record_details",
+            argsJSON: "{\"refs\": \(refsJSON)}"
+        )]
+    }
+
+    // MARK: - Intent router flow
+
+    /// New primary execution path. Returns immediately after:
+    ///   1. One fast router LLM call (picks tools + synthesis model + pillars)
+    ///   2. All primary tools run in parallel
+    ///   3. Optional deterministic enrichment pass (also parallel, no extra LLM call)
+    /// Falls back to the legacy planner loop on any router failure.
+    private func runIntentRouterFlow(
+        userMessage: String,
+        conversationHistory: [ConversationMessage],
+        anchorState: ConversationAnchorState?,
+        sessionSnapshot: ConversationSessionSnapshot?,
+        includeLiveSearch: Bool,
+        onToolDispatch: (([String]) -> Void)? = nil
+    ) async throws -> (outcome: ToolPlanningOutcome, synthesisModel: String) {
+
+        // --- Step 1: Route intent ---
+        // Try a zero-latency Swift-side fast path first (no LLM call needed for common patterns).
+        // Only call the router LLM when the fast path can't handle the query.
+        let plan: IntentRouterPlan
+        if let fast = fastPathPlan(userMessage: userMessage, anchorState: anchorState) {
+            plan = fast
+        } else if let routed = await makeIntentPlan(
+            userMessage: userMessage,
+            conversationHistory: conversationHistory,
+            anchorState: anchorState,
+            sessionSnapshot: sessionSnapshot,
+            liveSearchEnabled: includeLiveSearch
+        ) {
+            plan = routed
+        } else {
+            plan = defaultSearchPlan(for: userMessage)
+        }
+
+        onToolDispatch?(plan.primaryToolCalls.map(\.name))
+        try Task.checkCancellation()
+
+        // --- Step 2: Execute primary tools in parallel ---
+        // Synthesis will begin streaming immediately after this returns (item 4).
+        let (primaryResults, primaryTrace, locationInfo) = await executeToolsParallel(plan.primaryToolCalls)
+        try Task.checkCancellation()
+
+        // --- Step 3: Deterministic enrichment (no extra LLM call, also parallel) ---
+        var allResults = primaryResults
+        var allTrace = primaryTrace
+
+        if plan.needsEnrichment {
+            let enrichCalls = enrichmentCalls(from: primaryResults)
+            if !enrichCalls.isEmpty {
+                let (enrichResults, enrichTrace, _) = await executeToolsParallel(enrichCalls)
+                allResults.append(contentsOf: enrichResults)
+                allTrace.append(contentsOf: enrichTrace)
+            }
+        }
+
+        try Task.checkCancellation()
+
+        let outcome = ToolPlanningOutcome(
+            toolResults: allResults,
+            toolTrace: allTrace,
+            locationInfo: locationInfo,
+            usedLiveWeb: false,
+            plannerText: nil
+        )
+        return (outcome, plan.synthesisModel)
+    }
+
+    // MARK: - Tool outcome
 
     private struct ToolPlanningOutcome {
         let toolResults: [ToolResult]
@@ -116,252 +691,23 @@ final class ChatAgentService {
         let plannerText: String?
     }
 
-    private func runToolPlanningLoop(
-        userMessage: String,
-        conversationHistory: [ConversationMessage],
-        anchorState: ConversationAnchorState?,
-        model: String,
-        includeLiveSearch: Bool
-    ) async throws -> ToolPlanningOutcome {
-        let toolDefinitions = toolRegistry.toolDefinitions(includeLiveSearch: includeLiveSearch)
-        let plannerInput = await plannerMessages(
-            userMessage: userMessage,
-            conversationHistory: conversationHistory,
-            anchorState: anchorState,
-            liveSearchEnabled: includeLiveSearch
-        )
-
-        var previousResponseId: String?
-        var nextInput = plannerInput
-        var collectedToolResults: [ToolResult] = []
-        var collectedTrace: [AgentToolTrace] = []
-        var collectedLocationInfo: ETALocationInfo?
-        var usedLiveWeb = false
-        var plannerText: String?
-        var attemptedForcedFunctionCall = false
-        let hasCallableFunctions = toolDefinitions.contains { ($0["type"] as? String) == "function" }
-
-        for _ in 0..<maxToolRounds {
-            let response = try await responsesService.createResponse(
-                model: model,
-                input: nextInput,
-                tools: toolDefinitions,
-                previousResponseId: previousResponseId
-            )
-            previousResponseId = response.responseId
-            usedLiveWeb = usedLiveWeb || response.usedWebSearch
-
-            guard !response.functionCalls.isEmpty else {
-                if !response.outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    plannerText = response.outputText
-                }
-
-                if collectedToolResults.isEmpty
-                    && hasCallableFunctions
-                    && !attemptedForcedFunctionCall
-                    && sanitizedPlannerText(response.outputText) == nil {
-                    attemptedForcedFunctionCall = true
-                    let forcedPlannerInput = plannerInput + [
-                        inputMessage(
-                            role: "developer",
-                            text: """
-                            Use the available tools now. Do not ask the user to provide evidence that Seline can retrieve itself.
-                            If the request is about the user's data, call the best tool instead of replying with missing-evidence text.
-                            """
-                        )
-                    ]
-                    let forcedResponse = try await responsesService.createResponse(
-                        model: model,
-                        input: forcedPlannerInput,
-                        tools: toolDefinitions,
-                        functionCallingMode: .any
-                    )
-                    previousResponseId = forcedResponse.responseId
-                    usedLiveWeb = usedLiveWeb || forcedResponse.usedWebSearch
-
-                    if !forcedResponse.outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        plannerText = forcedResponse.outputText
-                    }
-
-                    guard !forcedResponse.functionCalls.isEmpty else {
-                        break
-                    }
-
-                    nextInput = []
-                    for functionCall in forcedResponse.functionCalls {
-                        let start = Date()
-                        let execution = try await toolRegistry.execute(
-                            name: functionCall.name,
-                            argumentsJSON: functionCall.argumentsJSON
-                        )
-                        let elapsedMs = Int(Date().timeIntervalSince(start) * 1000.0)
-                        collectedToolResults.append(execution.result)
-                        if let locationInfo = execution.locationInfo {
-                            collectedLocationInfo = locationInfo
-                        }
-                        collectedTrace.append(
-                            AgentToolTrace(
-                                toolName: functionCall.name,
-                                argumentsJSON: functionCall.argumentsJSON,
-                                resultPreview: toolPreview(for: execution.result),
-                                latencyMs: elapsedMs
-                            )
-                        )
-
-                        nextInput.append([
-                            "type": "function_call_output",
-                            "call_id": functionCall.callId,
-                            "output": try encodedJSONString(execution.result)
-                        ])
-                    }
-                    continue
-                }
-                break
-            }
-
-            nextInput = []
-            for functionCall in response.functionCalls {
-                let start = Date()
-                let execution = try await toolRegistry.execute(
-                    name: functionCall.name,
-                    argumentsJSON: functionCall.argumentsJSON
-                )
-                let elapsedMs = Int(Date().timeIntervalSince(start) * 1000.0)
-                collectedToolResults.append(execution.result)
-                if let locationInfo = execution.locationInfo {
-                    collectedLocationInfo = locationInfo
-                }
-                collectedTrace.append(
-                    AgentToolTrace(
-                        toolName: functionCall.name,
-                        argumentsJSON: functionCall.argumentsJSON,
-                        resultPreview: toolPreview(for: execution.result),
-                        latencyMs: elapsedMs
-                    )
-                )
-
-                nextInput.append([
-                    "type": "function_call_output",
-                    "call_id": functionCall.callId,
-                    "output": try encodedJSONString(execution.result)
-                ])
-            }
-        }
-
-        return ToolPlanningOutcome(
-            toolResults: collectedToolResults,
-            toolTrace: collectedTrace,
-            locationInfo: collectedLocationInfo,
-            usedLiveWeb: usedLiveWeb,
-            plannerText: plannerText
-        )
-    }
-
-    private func plannerMessages(
-        userMessage: String,
-        conversationHistory: [ConversationMessage],
-        anchorState: ConversationAnchorState?,
-        liveSearchEnabled: Bool
-    ) async -> [[String: Any]] {
-        let memoryContext = await UserMemoryService.shared.getMemoryContext()
-        var messages: [[String: Any]] = [
-            inputMessage(
-                role: "developer",
-                text: """
-                You are Seline's data agent. Your job is to gather the minimum evidence needed before answering.
-
-                Rules:
-                - Think holistically across Seline data. Do not assume the answer domain up front.
-                - Interpret natural-language phrasing semantically. Do not require exact wording, exact grammar, or perfect spelling before using the right tool.
-                - Use search_seline_records first when you need broad context.
-                - Use resolve_episode_context first for questions about a weekend, trip, outing, or stay that combine a person and place, such as 'describe the weekend when I went to Niagara with Suju'.
-                - CRITICAL — when resolve_episode_context returns an ambiguity or empty result, do NOT surface that message as the answer. It means local name matching failed, not that the data does not exist. Immediately fall back to search_seline_records with the place name as the query, then again with the person name, then traverse_relations from any matching records to find connected visits. Exhaust all strategies before concluding evidence is missing.
-                - For ALL historical memory questions ("when did I", "what happened when", "what did we do", "tell me about the time", "describe the trip/weekend/visit") use a multi-strategy search pipeline:
-                  1. resolve_episode_context — fast local resolution via saved contacts and places
-                  2. If step 1 fails: search_seline_records with the place name (e.g. "Niagara Falls")
-                  3. search_seline_records with the person name (e.g. "Suju")
-                  4. traverse_relations from any visit or person records returned in steps 2–3 to find linked people, places, receipts
-                  5. get_record_details on any visit records found to pull full notes and linked data
-                  Only after completing all applicable steps should you conclude evidence is truly missing.
-                - Use aggregate_seline for counts, totals, trends, and time series.
-                - Use traverse_relations when the answer may depend on linked people, places, visits, or receipts.
-                - When search_seline_records returns visits, notes, or emails that look relevant, call get_record_details before answering so you can use the full content — visit notes, linked people, linked receipts, full note body, and full email body — instead of truncated previews.
-                - When the user asks "how was my day", "what happened today", "recap my day", "tell me about my day", or asks about a single specific day, call get_day_context for that date AND also call aggregate_seline with scope=[receipt] and time_range=that date to surface spending for that day. Always think holistically: visits, events/tasks, notes, receipts, emails, and people all belong in a complete day picture — never limit to whichever data type is most obvious.
-                - When get_day_context returns visit records for a day summary, call get_record_details on those visits to retrieve the full content — notes, highlights, open loops, linked people, linked receipts — before synthesizing. A shallow visit summary is not enough.
-                - When the user asks about their week, last N days, or a multi-day period of 1–7 days, call get_day_context for each individual day in that range to build a complete cross-touchpoint picture before synthesizing.
-                - When the user asks about a period longer than 7 days (month, quarter, year), use aggregate_seline with an appropriate group_by (day, month, category) to get bucketed totals, then drill into specific days or categories the user asks about.
-                - CRITICAL — For spending, financial, or budget questions, ALWAYS check anchorState.resolvedTimeRange first. If it contains a specific date (e.g. "February 14, 2026"), scope aggregate_seline to ONLY that single day — use time_range_start and time_range_end both set to that exact date. Do NOT expand to a month or all-time. Only use an open-ended range when no prior context exists at all.
-                - For spending, financial, or budget questions with no prior context, use aggregate_seline with scope=[receipt] to get accurate totals and breakdowns, then enrich with specific receipt records if the user wants itemization.
-                - When the user asks you to create an event, call prepare_event_draft.
-                - When the user asks you to create a note, call prepare_note_draft.
-                - When the user asks for the latest or newest email, call refresh_inbox_and_get_latest_email before answering.
-                - Treat natural references to inbox recency, like asking for the latest, newest, most recent, or last email/message, as the same underlying inbox request even if the wording is casual or misspelled.
-                - When the user asks for full email details after an email is identified, call get_email_details.
-                - When the user asks where they are right now, what their current address is, or what location they are currently at, call get_current_context.
-                - For follow-up drill-down questions, prefer reusing entity_refs from the structured context instead of starting with a fresh broad search.
-                - If the user asks for a breakdown, itemization, or which days/items make up a total, keep the same entity focus and ask tools for grouped rows or detailed records.
-                - For named nearby place requests like "wendys near me", use resolve_live_place first.
-                - For broader nearby category requests like clinics, pharmacies, sushi, food, restaurants, gas, or stores near the user, use search_nearby_places so you can show multiple nearby matches.
-                - For requests about the user's saved places within a drive time or minute radius from the current location, use find_saved_places_within_eta instead of saying the saved places are inaccessible.
-                - If the user refers to a nearby place you already showed with wording like "save that" or "save this one", read anchorState.lastLivePlaceResults and call prepare_saved_place_draft with that exact place_id.
-                - When the user wants to save a live place, use prepare_saved_place_draft and never claim it is already saved before the user confirms.
-                - Use web search only when live external information is actually needed and local tools are insufficient.
-                - When continuing a previous answer, reuse explicit refs from the structured context instead of re-inferring entities from loose wording.
-                - If the user's wording is ambiguous and the tools surface multiple plausible entities, ask for clarification instead of silently picking one.
-                - Think holistically across ALL Seline data types for every question. Visits, events/tasks, notes, receipts, emails, and people are all part of the same life. When the question is about a day, trip, or period, consider which of these data types are relevant and query them — don't stop at the first obvious one.
-                - CRITICAL — For ANY discovery (event, visit, receipt, note, email, person), immediately enrich with the other data types for the same date/context: always run aggregate_seline scope=[receipt] for the resolved date, search_seline_records for visits on that date, and search_seline_records for notes/emails if relevant. This applies to every non-trivial question — not just appointments. Never stop at one data type.
-                - Follow-up questions inherit the context of the previous turn. Always read anchorState.resolvedTimeRange and anchorState.resolvedEntities before any tool call. A vague follow-up ("how much did I spend", "where did I go", "who was I with") means: scoped to the active context date/entity, never all-time or all-people.
-                - Do not answer from memory. First gather evidence, then answer.
-                - The user context block below lists the user's saved places and known people by name. Use those exact names and relationships when formulating tool queries — this dramatically improves search precision.
-                """
-            ),
-            inputMessage(
-                role: "developer",
-                text: userContextBlock()
-            ),
-            inputMessage(
-                role: "developer",
-                text: dailyBriefingBlock()
-            ),
-            inputMessage(
-                role: "developer",
-                text: """
-                Conversation state JSON:
-                \(planningContextJSON(
-                    anchorState: anchorState,
-                    previousEvidenceBundle: conversationHistory.reversed().first(where: { !$0.isUser })?.evidenceBundle
-                ))
-
-                Live search policy: \(liveSearchEnabled ? "enabled for this turn if needed" : "disabled for this turn")
-                """
-            )
-        ]
-
-        if !memoryContext.isEmpty {
-            messages.append(inputMessage(role: "developer", text: memoryContext))
-        }
-
-        let priorTurns = conversationHistory.suffix(10).map { message in
-            inputMessage(role: message.isUser ? "user" : "assistant", text: message.text)
-        }
-        messages.append(contentsOf: priorTurns)
-
-        if conversationHistory.last?.isUser != true || conversationHistory.last?.text != userMessage {
-            messages.append(inputMessage(role: "user", text: userMessage))
-        }
-
-        return messages
-    }
-
     // MARK: - Final synthesis
 
     private func synthesizeAnswer(
         userMessage: String,
         conversationHistory: [ConversationMessage],
+        sessionSnapshot: ConversationSessionSnapshot?,
         evidenceBundle: EvidenceBundle,
         model: String,
         onChunk: ((String) -> Void)? = nil
     ) async throws -> String {
+        // Skip the LLM call entirely when there is nothing to synthesize from.
+        // Without this guard the LLM generates a speculative clarifying question
+        // (e.g. "Which specific day should I focus on?") that leaks to the user.
+        if evidenceBundle.records.isEmpty && evidenceBundle.aggregates.isEmpty {
+            return fallbackAnswer(from: evidenceBundle)
+        }
+
         let priorTurns = conversationHistory.suffix(8).map { message in
             "\(message.isUser ? "User" : "Assistant"): \(message.text)"
         }
@@ -376,28 +722,76 @@ final class ChatAgentService {
 
                 \(dailyBriefingBlock())
 
+                \(sessionMemoryBlock(snapshot: sessionSnapshot, currentQuery: userMessage, conversationHistory: conversationHistory))
+
                 Rules:
+                - Write like a warm, capable personal assistant who genuinely knows the user. Sound friendly and natural, not robotic or clinical. Use plain everyday language. Be concise but complete.
+                - Vary sentence structure. Not every line should start with "You had" or "You visited". Use natural transitions and short warm openers when they fit.
                 - Always address the user in second person: "you", "your", "you visited", "you had". Never say "Seline", "the user", or refer to the user in third person.
                 - Answer only from the evidence bundle. If evidence is missing, say so plainly.
+                - Never use stiff phrases like "based on the evidence bundle", "the data suggests", or "I found" unless they are genuinely necessary for clarity.
                 - CRITICAL citation format: cite evidence inline as [0], [1], [2] — the ZERO-BASED INTEGER POSITIONS of records in evidenceBundle.records. NEVER write [visit:UUID], [receipt:UUID], or any other format. Only plain integer indices.
-                - CRITICAL citation deduplication: cite each record index AT MOST ONCE in the entire response — place it at the first sentence where you use content from that record, then NEVER use that same index again. Do NOT put the same citation after every bullet. If 5 bullets all come from record [0], cite [0] once after the first bullet only.
+                - CRITICAL citation deduplication: each record index may appear AT MOST ONCE in the entire response. Place it at the very first sentence where you use content from that record and never use that same index again — not in later bullets, not in later sections, not at the end of a paragraph. If ten bullets all come from record [0], you cite [0] exactly once after the first bullet and omit it from all remaining bullets. Count your citations: the total number of unique citation indices must equal the total number of citation tags in your response.
                 - Use citations only for actual evidence records, not aggregate rows.
                 - Keep clarifying questions short when ambiguity remains.
                 - If aggregates are present, use them directly instead of narrating from loose snippets.
                 - If the bundle contains ambiguities, prefer asking the ambiguity question plainly instead of guessing.
+                - If session memory indicates this is a follow-up, keep the same time or entity scope unless the user clearly changed it. Answer the slice they asked for instead of repeating the whole recap.
                 - If the user asks for a breakdown and grouped aggregate rows exist, present the grouped rows before any overall total.
                 - If the user asks for itemized or day-level detail and the bundle includes matching records, list those dated records instead of repeating only the total.
                 - When the user asks about "near me" results, prioritize nearby place evidence first.
                 - If the evidence is partial, weak, or does not clearly satisfy every part of the user's request, ask one short follow-up clarification question instead of giving a confident no-answer.
                 - Do not cite loose candidate records in a no-answer or clarification response.
-                - When answering about a specific event or appointment, if the evidence bundle also contains receipts, visits, or notes from the same day, surface those naturally in the answer — e.g. "You also spent $X at [merchant] that day" or "You visited [place] nearby". Weave related same-day context into the response rather than only answering the narrowest version of the question.
+                - PROACTIVE CONTEXT: When answering ANY focused question (a specific event, appointment, purchase, or visit), scan the evidence bundle for other records from the same day or within 1 day. If found, surface 1–2 of them naturally at the end. Examples: "That same afternoon you also stopped by [place]" or "You picked up $X at [merchant] earlier that day". This is what makes the response feel like a real assistant — not just answering the narrow question but painting the full picture.
+                - For broad day or week recaps, connect the story across meetings, visits, receipts, notes, and email. Help the user understand how the day unfolded, not just what records exist.
                 - For place or proximity results with multiple matches, present them as a short bullet list with the place name first, then ETA or address.
-                - For day summary responses ("how was my day", "what happened today", etc.): structure the answer with clear sections using headers or bullets — first a one-line opening, then Events/Meetings, then Highlights, then Open loops/outstanding items, then any anomalies. Do not dump everything in one paragraph.
-                - For day summary evidence records, the highlights, open_loops, and anomalies attributes contain pipe-separated lists of the actual items. Present each item as a separate bullet point — do not say "3 highlights" when you have the actual text.
+                - For broad day questions ("how was my day", "how's my day looking", "what happened today", "recap my day", any specific past date):
+                  Use this EXACT markdown structure — it must look clean like ChatGPT responses:
+
+                  [One or two warm opener sentences that capture the shape of the day.]
+
+                  **Meetings & Events**
+                  - [time] [name] (recurring if applicable)
+                  - ...
+
+                  **Places & Visits**
+                  - [place], [time]–[time] · [duration] — [who was there if known] — [visit note if any]
+                  - ...
+
+                  **Spending**
+                  - Total: $X across N purchases
+                  - [key items]
+
+                  **Emails**
+                  - [sender]: [subject or one-line summary]
+                  - ...
+
+                  **Notes & Journal**
+                  - [what you wrote down, reflected on, or captured]
+                  - ...
+
+                  **Highlights**
+                  - [each highlight as its own bullet]
+
+                  **To follow up**
+                  - [each open item as its own bullet]
+
+                  FORMATTING RULES (critical):
+                  - Each section header is **bold** on its own line — NOT a bullet point, NOT inline text
+                  - Items within each section are bullet points (-)
+                  - Leave one blank line between sections
+                  - Skip any section that has zero evidence — do NOT write "None" or "I don't see any..."
+                  - Do NOT add a trailing paragraph summarising what's missing — just end after the last populated section
+                  - Order sections by how populated they are — richest first after the opener
+                  - Emails: only surface ones that are important, have attachments, or are from someone the user knows; skip newsletters/automated alerts unless notable
+                - If note or journal records exist, surface them in **Notes & Journal** or fold their strongest insight into **Highlights**. Do not ignore them.
+                - For day summary evidence records, the highlights, open_loops, and anomalies attributes contain pipe-separated lists of the actual items. Present EACH ITEM as a separate bullet point. NEVER count them ("3 highlights") — always expand them into individual bullets with the actual text.
                 - For visit records, treat entry_local_date, entry_local_weekday, entry_local_time, exit_local_date, exit_local_weekday, and exit_local_time as authoritative local-time fields. Do not recompute weekdays from ISO timestamps if those local fields are present.
                 - For event records, always use the local_time and local_date attributes for display. Never convert the UTC ISO timestamp yourself — the local_time attribute already reflects the user's device timezone.
                 - Do not invent corrected dates. If the user questions a day/date, explain the recorded local timestamp/day from the evidence instead of fabricating a new date.
                 - If a visit happens just after midnight, you may describe it as early the next morning, but keep the actual recorded local date/weekday unchanged unless the evidence itself says otherwise.
+                - Never use the phrase "open loops" in your response. Say "things to follow up on", "pending items", or "items still open" instead.
+                - CRITICAL — The user's question already contains the temporal scope ("today", "this week", a specific date, etc). NEVER ask the user "which specific day", "which day should I focus on", "which date", "what time period", or any similar date/scope clarification. The date is resolved — answer from what the evidence shows. If the evidence is thin, say "I don't see much data for [date]" and summarize what you do have.
                 """
             ),
             inputMessage(
@@ -406,7 +800,7 @@ final class ChatAgentService {
                 Structured context JSON:
                 \(citationIndexMap(for: evidenceBundle))
 
-                \(synthesisContextJSON(conversationTail: priorTurns, evidenceBundle: evidenceBundle))
+                \(synthesisContextJSON(conversationTail: priorTurns, sessionSnapshot: sessionSnapshot, evidenceBundle: evidenceBundle))
                 """
             ),
             inputMessage(role: "user", text: userMessage)
@@ -493,6 +887,7 @@ final class ChatAgentService {
         let temporalDescription = messageRange
             ?? resolvedDateFromToolResults(toolResults)
             ?? base?.resolvedTimeRange
+        let resolvedDateBounds = toolResults.compactMap(\.resolvedDateBounds).last ?? base?.resolvedDateBounds
 
         var orderedRefs: [EntityRef] = base?.resolvedEntities ?? []
         var seen = Set(orderedRefs.map(\.identifier))
@@ -510,6 +905,7 @@ final class ChatAgentService {
         return ConversationAnchorState(
             resolvedEntities: Array(orderedRefs.prefix(8)),
             resolvedTimeRange: temporalDescription,
+            resolvedDateBounds: resolvedDateBounds,
             comparisonWindow: base?.comparisonWindow,
             lastLivePlaceResults: latestLivePlaces ?? base?.lastLivePlaceResults,
             lastActionDraft: toolResults.compactMap(\.actionDraft).last ?? base?.lastActionDraft
@@ -561,36 +957,6 @@ final class ChatAgentService {
         return mentionsNearby || mentionsExplicitWeb
     }
 
-    private func planningOutcomeWithRetry(
-        userMessage: String,
-        conversationHistory: [ConversationMessage],
-        anchorState: ConversationAnchorState?,
-        model: String,
-        includeLiveSearch: Bool
-    ) async throws -> ToolPlanningOutcome {
-        do {
-            return try await runToolPlanningLoop(
-                userMessage: userMessage,
-                conversationHistory: conversationHistory,
-                anchorState: anchorState,
-                model: model,
-                includeLiveSearch: includeLiveSearch
-            )
-        } catch {
-            guard includeLiveSearch else {
-                throw error
-            }
-
-            return try await runToolPlanningLoop(
-                userMessage: userMessage,
-                conversationHistory: conversationHistory,
-                anchorState: anchorState,
-                model: model,
-                includeLiveSearch: false
-            )
-        }
-    }
-
     private func selectedModel(for turn: AgentTurnInput) -> String {
         let analyticalKeywords = [
             "week", "month", "year", "quarter",
@@ -599,7 +965,11 @@ final class ChatAgentService {
             "compare", "comparison", "trend", "trends", "pattern", "patterns",
             "how much", "how many", "how often",
             "most", "least", "average", "total",
-            "analyze", "analysis", "breakdown"
+            "analyze", "analysis", "breakdown",
+            // Day-overview and broad life-context queries
+            "how was", "how's my", "how is my", "my day", "describe my",
+            "tell me about my", "what happened", "what did i do",
+            "looking", "catch me up", "fill me in"
         ]
         let loweredMessage = turn.userMessage.lowercased()
         let isAnalytical = analyticalKeywords.contains { loweredMessage.contains($0) }
@@ -630,26 +1000,111 @@ final class ChatAgentService {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private func planningContextJSON(
-        anchorState: ConversationAnchorState?,
-        previousEvidenceBundle: EvidenceBundle?
-    ) -> String {
-        let snapshot = PlanningContextSnapshot(
-            anchorState: anchorState,
-            previousEvidenceBundle: previousEvidenceBundle
-        )
-        return (try? encodedJSONString(snapshot)) ?? "{}"
-    }
-
     private func synthesisContextJSON(
         conversationTail: [String],
+        sessionSnapshot: ConversationSessionSnapshot?,
         evidenceBundle: EvidenceBundle
     ) -> String {
         let snapshot = SynthesisContextSnapshot(
             conversationTail: conversationTail,
+            sessionSnapshot: sessionSnapshot,
             evidenceBundle: evidenceBundle
         )
         return (try? encodedJSONString(snapshot)) ?? "{}"
+    }
+
+    private func sessionMemoryBlock(
+        snapshot: ConversationSessionSnapshot?,
+        currentQuery: String,
+        conversationHistory: [ConversationMessage]
+    ) -> String {
+        let trimmedQuery = currentQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let priorHistory: [ConversationMessage]
+        if let last = conversationHistory.last,
+           last.isUser,
+           last.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(trimmedQuery) == .orderedSame {
+            priorHistory = Array(conversationHistory.dropLast())
+        } else {
+            priorHistory = conversationHistory
+        }
+
+        let conversationContext = ConversationStateAnalyzerService.analyzeConversationState(
+            currentQuery: currentQuery,
+            conversationHistory: priorHistory
+        )
+
+        var lines = ["Session memory:"]
+        if let summary = snapshot?.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !summary.isEmpty {
+            lines.append("• Thread summary: \(summary)")
+        }
+
+        if let scope = snapshot?.resolvedTimeRange ?? snapshot?.anchorState?.resolvedTimeRange,
+           !scope.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.append("• Active time scope: \(scope)")
+        }
+
+        let activeEntities = (snapshot?.resolvedEntities ?? snapshot?.anchorState?.resolvedEntities ?? [])
+            .compactMap { $0.title?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !activeEntities.isEmpty {
+            lines.append("• Active entities: \(Array(activeEntities.prefix(4)).joined(separator: ", "))")
+        }
+
+        let recentTurns = snapshot?.recentTurns.suffix(4) ?? []
+        if !recentTurns.isEmpty {
+            lines.append("• Recent turns:")
+            for turn in recentTurns {
+                lines.append("  - \(turn.role.capitalized): \(compactPromptText(turn.text, limit: 110))")
+            }
+        }
+
+        if conversationContext.isProbablyFollowUp {
+            lines.append("• Follow-up detected: keep the current scope unless the user clearly changes it.")
+        }
+
+        if let lastQuestionType = conversationContext.lastQuestionType {
+            lines.append("• Recent topic: \(lastQuestionType)")
+        }
+
+        if lines.count == 1 {
+            lines.append("• No active thread memory yet.")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func compactPromptText(_ text: String, limit: Int) -> String {
+        let compact = text
+            .replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "`", with: "")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard compact.count > limit else { return compact }
+        return String(compact.prefix(limit - 1)) + "…"
+    }
+
+    private func containsAny(_ text: String, terms: [String]) -> Bool {
+        terms.contains { text.contains($0) }
+    }
+
+    private func explicitTimeRangeString(for bounds: ResolvedDateBounds) -> String {
+        if isSingleDayBounds(bounds) {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone.current
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter.string(from: bounds.start)
+        }
+
+        let formatter = ISO8601DateFormatter()
+        return "\(formatter.string(from: bounds.start))/\(formatter.string(from: bounds.end))"
+    }
+
+    private func isSingleDayBounds(_ bounds: ResolvedDateBounds) -> Bool {
+        let inclusiveEnd = bounds.end.addingTimeInterval(-1)
+        return Calendar.current.isDate(bounds.start, inSameDayAs: inclusiveEnd)
     }
 
     private func citationIndexMap(for evidenceBundle: EvidenceBundle) -> String {
@@ -765,62 +1220,6 @@ final class ChatAgentService {
         return lines.joined(separator: "\n")
     }
 
-    private func sanitizedPlannerText(_ text: String?) -> String? {
-        guard let text else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let lowered = trimmed.lowercased()
-        let lowSignalPhrases = [
-            "please provide me with the evidence",
-            "i need the evidence",
-            "because the evidence is missing",
-            "based on the evidence provided",
-            "i couldn’t complete that request cleanly",
-            "i couldn't complete that request cleanly",
-            "try asking again",
-            "more specificity",
-            "narrow the time",
-            "narrow the place",
-            "narrow the person",
-            "be more specific",
-            "cannot directly retrieve",
-            "cannot directly access",
-            "tools do not allow",
-            "provided evidence",
-            "comprehensive list of all your saved locations",
-            "which specific day",
-            "which day should i focus",
-            "what specific day",
-            "which date should i",
-            "could you specify the date",
-            "could you specify which day",
-            "please specify the date",
-            "please clarify the date",
-            "what time period",
-            "which time period should",
-            "cannot determine the exact date",
-            "can't determine the exact date",
-            "i cannot determine",
-            "i can't determine",
-            "unable to determine the exact",
-            "i am unable to determine",
-            "i'm unable to determine",
-            "i was unable to find",
-            "i could not find any information",
-            "i couldn't find any information",
-            "i don't have enough information",
-            "i do not have enough information",
-            "i cannot fulfill this request",
-            "i can't fulfill this request"
-        ]
-
-        if lowSignalPhrases.contains(where: { lowered.contains($0) }) {
-            return nil
-        }
-
-        return trimmed
-    }
 
     private func normalizedAssistantText(
         _ text: String,
@@ -834,7 +1233,52 @@ final class ChatAgentService {
             return genericClarificationPrompt(for: userMessage, evidenceBundle: evidenceBundle)
         }
 
-        return trimmed
+        // Post-process: enforce section headers are **bold** on own line, not bulleted
+        let formatted = enforceSectionHeaderFormatting(trimmed)
+        return formatted
+    }
+
+    /// Fixes LLM output where section headers appear as bullet items instead of bold headers.
+    /// Converts lines like `- Spending` or `• **Spending**` into `**Spending**` on their own line.
+    private func enforceSectionHeaderFormatting(_ text: String) -> String {
+        let knownHeaders: Set<String> = [
+            "meetings & events", "meetings", "events", "calendar",
+            "places & visits", "places", "visits", "locations",
+            "spending", "purchases", "expenses",
+            "emails", "email", "inbox",
+            "highlights", "key highlights",
+            "to follow up", "follow up", "follow-up", "pending items", "open items",
+            "notes", "journal", "journal entry",
+            "summary", "overview"
+        ]
+
+        var lines = text.components(separatedBy: "\n")
+        for i in 0..<lines.count {
+            let line = lines[i]
+            let stripped = line.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Strip bullet prefix if present: `- `, `• `, `* `
+            var content = stripped
+            if let range = content.range(of: #"^[-•*]\s+"#, options: .regularExpression) {
+                content = String(content[range.upperBound...])
+            }
+
+            // Strip existing bold markers
+            var plain = content
+                .replacingOccurrences(of: "**", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Remove trailing colon for matching
+            if plain.hasSuffix(":") {
+                plain = String(plain.dropLast()).trimmingCharacters(in: .whitespaces)
+            }
+
+            if knownHeaders.contains(plain.lowercased()) {
+                lines[i] = "**\(plain)**"
+            }
+        }
+
+        return lines.joined(separator: "\n")
     }
 
     private func shouldConvertToClarification(_ text: String) -> Bool {
@@ -864,7 +1308,20 @@ final class ChatAgentService {
             "unable to determine the exact",
             "i cannot fulfill this request",
             "i can't fulfill this request",
-            "does not contain information about"
+            "does not contain information about",
+            // Clarifying questions about date/day scope that should never surface
+            "which specific day",
+            "which day should i focus",
+            "what specific day",
+            "which date should i",
+            "could you specify the date",
+            "could you specify which day",
+            "please specify the date",
+            "please clarify the date",
+            "what time period",
+            "which time period",
+            "could you clarify which week",
+            "which week are you referring"
         ]
 
         return phrases.contains(where: { lowered.contains($0) })

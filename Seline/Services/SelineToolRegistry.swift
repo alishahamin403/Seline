@@ -28,6 +28,7 @@ final class SelineToolRegistry {
     private let gmailAPIClient = GmailAPIClient.shared
     private let geminiService = GeminiService.shared
     private let daySummaryService = DaySummaryService.shared
+    private let recurringExpenseService = RecurringExpenseService.shared
 
     private init() {}
 
@@ -481,46 +482,55 @@ final class SelineToolRegistry {
         let targetDate: Date
         if let rawDateQuery, !rawDateQuery.isEmpty {
             if let bounds = resolvedDateRange(from: rawDateQuery) {
-                let start = calendar.startOfDay(for: bounds.start)
-                let inclusiveEnd = bounds.end.addingTimeInterval(-1)
-                if !calendar.isDate(start, inSameDayAs: inclusiveEnd) {
-                    return ToolResult(
-                        toolName: "get_day_context",
-                        ambiguities: [ToolAmbiguity(question: "Which specific day should I focus on?", options: [])]
-                    )
-                }
-                targetDate = start
+                // Always use the start of the resolved range — never ask a clarifying question
+                targetDate = calendar.startOfDay(for: bounds.start)
             } else if let parsed = parseFlexibleDate(rawDateQuery) {
                 targetDate = calendar.startOfDay(for: parsed)
             } else {
-                return ToolResult(
-                    toolName: "get_day_context",
-                    ambiguities: [ToolAmbiguity(question: "Which day should I look at?", options: [])]
-                )
+                // Parse failed — default to today rather than asking
+                targetDate = calendar.startOfDay(for: Date())
             }
         } else {
             targetDate = calendar.startOfDay(for: Date())
         }
 
         guard let summary = await daySummaryService.summary(for: targetDate) else {
+            // No summary yet — return empty result so synthesizer says "no data for that day"
             return ToolResult(
-                toolName: "get_day_context",
-                ambiguities: [ToolAmbiguity(question: "I couldn’t assemble day context for that yet.", options: [])]
+                toolName: "get_day_context"
             )
         }
 
         let record = daySummaryEvidenceRecord(summary)
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: targetDate) ?? targetDate.addingTimeInterval(86_400)
+
+        // Fetch recurring expense instances for this specific date so the LLM
+        // can mention scheduled/completed recurring charges (subscriptions, bills, etc.)
+        let recurringInstances = (try? await recurringExpenseService.fetchInstances(forDate: targetDate)) ?? []
+        var recurringRows: [ToolAggregateRow] = []
+        for instance in recurringInstances {
+            let statusLabel = instance.status.rawValue.capitalized
+            let amountStr = String(format: "$%.2f", NSDecimalNumber(decimal: instance.amount).doubleValue)
+            recurringRows.append(ToolAggregateRow(
+                key: "Recurring charge",
+                value: "\(amountStr) (\(statusLabel))",
+                numericValue: NSDecimalNumber(decimal: instance.amount).doubleValue
+            ))
+        }
+
+        var aggregateRows: [ToolAggregateRow] = [
+            ToolAggregateRow(key: "Date", value: isoDate(targetDate)),
+            ToolAggregateRow(key: "Mood", value: summary.mood ?? "Unknown"),
+            ToolAggregateRow(key: "Highlights", value: "\(summary.highlights.count)", numericValue: Double(summary.highlights.count)),
+            ToolAggregateRow(key: "Open loops", value: "\(summary.openLoops.count)", numericValue: Double(summary.openLoops.count)),
+            ToolAggregateRow(key: "Anomalies", value: "\(summary.anomalies.count)", numericValue: Double(summary.anomalies.count))
+        ]
+        aggregateRows.append(contentsOf: recurringRows)
+
         let aggregate = ToolAggregate(
             title: "Day context",
             metric: "day_context",
-            rows: [
-                ToolAggregateRow(key: "Date", value: isoDate(targetDate)),
-                ToolAggregateRow(key: "Mood", value: summary.mood ?? "Unknown"),
-                ToolAggregateRow(key: "Highlights", value: "\(summary.highlights.count)", numericValue: Double(summary.highlights.count)),
-                ToolAggregateRow(key: "Open loops", value: "\(summary.openLoops.count)", numericValue: Double(summary.openLoops.count)),
-                ToolAggregateRow(key: "Anomalies", value: "\(summary.anomalies.count)", numericValue: Double(summary.anomalies.count))
-            ],
+            rows: aggregateRows,
             summary: summary.summaryText
         )
 

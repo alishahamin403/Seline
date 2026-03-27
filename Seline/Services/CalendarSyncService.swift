@@ -24,6 +24,10 @@ class CalendarSyncService {
     // Example: [(2026, 2)] skips February 2026
     private var monthsToSkip: Set<String> = []
 
+    // Live change observation
+    private var storeObserver: NSObjectProtocol?
+    private var pendingSyncItem: DispatchWorkItem?
+
     private init() {
         loadMonthsToSkip()
         handleSyncWindowMigration()
@@ -480,7 +484,7 @@ class CalendarSyncService {
         // Note: This doesn't actually revoke permission, user must do that in Settings
         print("⚠️ To fully reset: Go to Settings > Seline > Calendars and toggle OFF, then ON")
     }
-    
+
     /// Manual resync: Clear all synced event IDs and force a fresh sync
     /// This will re-sync all events (filtered by user email if provided)
     /// - Parameter userEmail: Optional user email to filter events during resync
@@ -489,6 +493,63 @@ class CalendarSyncService {
         clearSyncTracking()
         // Note: The actual sync will happen when syncCalendarEvents() is called next
         // This just clears the tracking so all events are treated as new
+    }
+
+    /// Update the last sync timestamp without marking specific events.
+    /// Used after delta syncs that find no new events so the 4-hour gate advances.
+    func updateLastSyncDate() {
+        userDefaults.set(Date(), forKey: lastSyncDateKey)
+    }
+
+    // MARK: - Live External Change Observation (Fix 1)
+
+    /// Subscribe to `EKEventStoreChangedNotification` so the app picks up iPhone calendar
+    /// changes immediately instead of waiting for the next 4-hour polling window.
+    /// Safe to call multiple times — only one observer is registered.
+    func startObservingExternalChanges() {
+        guard storeObserver == nil else { return }
+        storeObserver = NotificationCenter.default.addObserver(
+            forName: .EKEventStoreChanged,
+            object: eventStore,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleExternalChangeSync()
+        }
+        print("📅 [CalendarSync] Live calendar change observer started")
+    }
+
+    private func scheduleExternalChangeSync() {
+        // EventKit fires several notifications per user action — debounce for 2 s so
+        // a burst of changes triggers exactly one sync.
+        pendingSyncItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard self != nil else { return }
+            // Invalidate the event store cache so the next fetch sees fresh data.
+            self?.eventStore.reset()
+            Task { @MainActor in
+                let status = EKEventStore.authorizationStatus(for: .event)
+                guard status != .denied && status != .restricted && status != .notDetermined else { return }
+                print("📅 [CalendarSync] External calendar change detected — running delta sync")
+                await TaskManager.shared.syncCalendarEvents()
+            }
+        }
+        pendingSyncItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: item)
+    }
+
+    // MARK: - Delta Fetch (Fix 2)
+
+    /// Fetch only events modified since `sinceDate`, reducing the work of
+    /// change-triggered syncs versus full 4-hour polls.
+    /// Events with an unknown `lastModifiedDate` are included conservatively.
+    func fetchModifiedCalendarEvents(since sinceDate: Date, userEmail: String? = nil) async -> [EKEvent] {
+        let allEvents = await fetchCalendarEventsFromCurrentMonthOnwards(userEmail: userEmail)
+        let delta = allEvents.filter { event in
+            guard let modifiedDate = event.lastModifiedDate else { return true }
+            return modifiedDate > sinceDate
+        }
+        print("📅 [CalendarSync] Delta fetch: \(delta.count) of \(allEvents.count) events modified since last sync")
+        return delta
     }
 }
 

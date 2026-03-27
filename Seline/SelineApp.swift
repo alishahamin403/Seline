@@ -108,11 +108,12 @@ struct SelineApp: App {
                     EmailService.shared.suspendForegroundRefresh()
                     // App entered background - save current state
                     // Save current conversation to history before app closes
-                    if !searchService.conversationHistory.isEmpty {
-                        searchService.saveConversationToHistory()
+                    let chatStore = ChatSessionStore.shared
+                    if !chatStore.conversationHistory.isEmpty {
+                        chatStore.saveConversationToHistory()
                         print("💾 Current conversation saved to history before background")
                         Task {
-                            await searchService.saveConversationToSupabase()
+                            await chatStore.saveConversationToSupabase()
                         }
                     }
                     // Ask iOS for a fresh background sync window as the app backgrounds.
@@ -144,10 +145,10 @@ struct SelineApp: App {
             await EmailService.shared.activateForegroundRefresh()
             guard !Task.isCancelled else { return }
 
-            await searchService.loadConversationsFromSupabase()
+            await ChatSessionStore.shared.loadConversationsFromSupabase()
             guard !Task.isCancelled else { return }
 
-            await searchService.refreshTrackerThreadsFromSupabase()
+            await ChatSessionStore.shared.refreshTrackerThreadsFromSupabase()
             guard !Task.isCancelled else { return }
 
             updateUnreadBadge()
@@ -295,17 +296,24 @@ struct SelineApp: App {
     }
 
     private func syncCalendarEventsOnFirstLaunch() {
-        // Defer and gate launch sync to avoid blocking cold start.
+        // Defer to avoid blocking cold start.
         Task {
             try? await Task.sleep(nanoseconds: 8_000_000_000)
 
             guard SupabaseManager.shared.getCurrentUser()?.id != nil else { return }
 
-            let persistedLastSync = CalendarSyncService.shared.getLastSyncDate() ?? Date.distantPast
-            guard Date().timeIntervalSince(persistedLastSync) > (4 * 60 * 60) else { return }
-
+            // Request / verify calendar access first.
             let hasAccess = await taskManager.requestCalendarAccess()
             guard hasAccess else { return }
+
+            // Fix 1: Start the live-change observer as soon as we have access.
+            // This runs regardless of the 4-hour polling gate so the app always
+            // reacts instantly when the user edits their iPhone calendar.
+            CalendarSyncService.shared.startObservingExternalChanges()
+
+            // Full sync is still rate-limited to every 4 hours.
+            let persistedLastSync = CalendarSyncService.shared.getLastSyncDate() ?? Date.distantPast
+            guard Date().timeIntervalSince(persistedLastSync) > (4 * 60 * 60) else { return }
 
             await taskManager.syncCalendarEvents()
         }

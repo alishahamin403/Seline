@@ -6,8 +6,20 @@ struct PlaceDetailSheet: View {
     var isFromRanking: Bool = false
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var mapsService = GoogleMapsService.shared
-    @State private var isLoading = true
+    @State private var fetchedPlaceDetails: PlaceDetails?
+    @State private var isLoadingDetails = false
     @State private var showingMapSelection = false
+    @State private var selectedPhotoIndex = 0
+    @State private var reviewFilter: ReviewFilter = .mostRecent
+
+    enum ReviewFilter: String, CaseIterable {
+        case mostRecent = "Most Recent"
+        case highest = "5 Stars"
+        case fourStar = "4 Stars"
+        case threeStar = "3 Stars"
+        case twoStar = "2 Stars"
+        case oneStar = "1 Star"
+    }
 
     var isPlaceDataComplete: Bool {
         !place.name.isEmpty && !place.address.isEmpty && !place.displayName.isEmpty
@@ -23,6 +35,53 @@ struct PlaceDetailSheet: View {
 
     private var sectionBorderColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08)
+    }
+
+    private var resolvedPhone: String? {
+        fetchedPlaceDetails?.phone ?? place.phone
+    }
+
+    private var resolvedRating: Double? {
+        fetchedPlaceDetails?.rating ?? place.rating
+    }
+
+    private var resolvedTotalRatings: Int? {
+        guard let details = fetchedPlaceDetails, details.totalRatings > 0 else { return nil }
+        return details.totalRatings
+    }
+
+    private var resolvedIsOpenNow: Bool? {
+        fetchedPlaceDetails?.isOpenNow ?? place.isOpenNow
+    }
+
+    private var resolvedOpeningHours: [String] {
+        if let details = fetchedPlaceDetails, !details.openingHours.isEmpty {
+            return details.openingHours
+        }
+        return place.openingHours ?? []
+    }
+
+    private var resolvedPhotoURLs: [String] {
+        let fetched = fetchedPlaceDetails?.photoURLs ?? []
+        return fetched.isEmpty ? place.photos : fetched
+    }
+
+    private var sortedReviews: [PlaceReview] {
+        let all = fetchedPlaceDetails?.reviews ?? []
+        switch reviewFilter {
+        case .mostRecent:
+            return all
+        case .highest:
+            return all.filter { $0.rating == 5 }
+        case .fourStar:
+            return all.filter { $0.rating == 4 }
+        case .threeStar:
+            return all.filter { $0.rating == 3 }
+        case .twoStar:
+            return all.filter { $0.rating == 2 }
+        case .oneStar:
+            return all.filter { $0.rating == 1 }
+        }
     }
 
     var body: some View {
@@ -66,7 +125,7 @@ struct PlaceDetailSheet: View {
                                                     .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
                                             )
 
-                                        if let rating = place.rating {
+                                        if let rating = resolvedRating {
                                             HStack(spacing: 4) {
                                                 Image(systemName: "star.fill")
                                                     .font(FontManager.geist(size: 12, weight: .semibold))
@@ -74,7 +133,18 @@ struct PlaceDetailSheet: View {
                                                 Text(String(format: "%.1f", rating))
                                                     .font(FontManager.geist(size: 14, weight: .semibold))
                                                     .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                                if let totalRatings = resolvedTotalRatings {
+                                                    Text("(\(totalRatings))")
+                                                        .font(FontManager.geist(size: 12, weight: .medium))
+                                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                                }
                                             }
+                                        }
+
+                                        if isLoadingDetails {
+                                            ProgressView()
+                                                .scaleEffect(0.72)
                                         }
                                     }
                                 }
@@ -84,7 +154,7 @@ struct PlaceDetailSheet: View {
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.82) : Color.black.opacity(0.82))
 
                                 HStack(spacing: 10) {
-                                    if let phone = place.phone {
+                                    if let phone = resolvedPhone {
                                         Button(action: { callPhone(phone) }) {
                                             Text("Call")
                                                 .font(FontManager.geist(size: 14, weight: .semibold))
@@ -116,9 +186,21 @@ struct PlaceDetailSheet: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
-                        if let hours = place.openingHours, !hours.isEmpty {
+                        if !resolvedPhotoURLs.isEmpty {
                             sectionCard {
-                                OpeningHoursSection(hours: hours, colorScheme: colorScheme)
+                                placePhotoGallerySection
+                            }
+                        }
+
+                        if !resolvedOpeningHours.isEmpty {
+                            sectionCard {
+                                OpeningHoursSection(hours: resolvedOpeningHours, colorScheme: colorScheme)
+                            }
+                        }
+
+                        if !sortedReviews.isEmpty {
+                            sectionCard {
+                                reviewsSection
                             }
                         }
 
@@ -136,6 +218,9 @@ struct PlaceDetailSheet: View {
                     .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                 }
                 .background(pageBackgroundColor)
+                .task(id: place.googlePlaceId) {
+                    await loadPlaceDetailsIfNeeded()
+                }
             }
         }
         .background(pageBackgroundColor.ignoresSafeArea())
@@ -195,6 +280,194 @@ struct PlaceDetailSheet: View {
             // First time - show selection
             showingMapSelection = true
         }
+    }
+
+    @ViewBuilder
+    private var placePhotoGallerySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Photos")
+                    .font(FontManager.geist(size: 18, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                Spacer()
+
+                Text("\(resolvedPhotoURLs.count)")
+                    .font(FontManager.geist(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.62))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.05))
+                    )
+            }
+
+            TabView(selection: $selectedPhotoIndex) {
+                ForEach(Array(resolvedPhotoURLs.enumerated()), id: \.offset) { index, photoURL in
+                    CachedAsyncImage(url: photoURL) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                            .overlay(ProgressView())
+                    }
+                    .frame(height: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .tag(index)
+                }
+            }
+            .frame(height: 220)
+            .tabViewStyle(.page(indexDisplayMode: resolvedPhotoURLs.count > 1 ? .automatic : .never))
+        }
+    }
+
+    @ViewBuilder
+    private var reviewsSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Reviews")
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(ReviewFilter.allCases, id: \.self) { filter in
+                        let isSelected = reviewFilter == filter
+                        Button(action: { reviewFilter = filter }) {
+                            Text(filter.rawValue)
+                                .font(FontManager.geist(size: 12, weight: isSelected ? .semibold : .regular))
+                                .foregroundColor(isSelected
+                                    ? (colorScheme == .dark ? .black : .white)
+                                    : (colorScheme == .dark ? Color.white.opacity(0.72) : Color.black.opacity(0.72)))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule()
+                                        .fill(isSelected
+                                            ? (colorScheme == .dark ? Color.white : Color.black)
+                                            : (colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.06)))
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+            }
+
+            if sortedReviews.isEmpty {
+                Text("No reviews for this filter.")
+                    .font(FontManager.geist(size: 13, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 12)
+            } else {
+                ForEach(sortedReviews) { review in
+                    PlaceReviewRow(review: review, colorScheme: colorScheme)
+                }
+            }
+        }
+    }
+
+    private func loadPlaceDetailsIfNeeded() async {
+        guard !place.googlePlaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !isLoadingDetails else { return }
+
+        await MainActor.run {
+            isLoadingDetails = true
+        }
+
+        do {
+            let details = try await mapsService.getPlaceDetails(placeId: place.googlePlaceId)
+            await MainActor.run {
+                fetchedPlaceDetails = details
+                isLoadingDetails = false
+            }
+        } catch {
+            // Keep the saved-place experience usable even when Google detail hydration fails.
+            await MainActor.run {
+                isLoadingDetails = false
+            }
+        }
+    }
+}
+
+private struct PlaceReviewRow: View {
+    let review: PlaceReview
+    let colorScheme: ColorScheme
+
+    private var rowFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.035)
+    }
+
+    private var rowBorder: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                if let photoUrl = review.profilePhotoUrl, let url = URL(string: photoUrl) {
+                    AsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Circle()
+                            .fill(Color.gray.opacity(0.22))
+                    }
+                    .frame(width: 38, height: 38)
+                    .clipShape(Circle())
+                } else {
+                    Circle()
+                        .fill(Color.gray.opacity(0.16))
+                        .frame(width: 38, height: 38)
+                        .overlay(
+                            Text(String(review.authorName.prefix(1)).uppercased())
+                                .font(FontManager.geist(size: 16, weight: .semibold))
+                                .foregroundColor(.gray)
+                        )
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(review.authorName)
+                        .font(FontManager.geist(size: 14, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                    HStack(spacing: 6) {
+                        HStack(spacing: 2) {
+                            ForEach(0..<5, id: \.self) { index in
+                                Image(systemName: index < review.rating ? "star.fill" : "star")
+                                    .font(FontManager.geist(size: 10, weight: .regular))
+                                    .foregroundColor(.yellow)
+                            }
+                        }
+
+                        if let relativeTime = review.relativeTime, !relativeTime.isEmpty {
+                            Text("• \(relativeTime)")
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.56) : Color.black.opacity(0.56))
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+
+            Text(review.text)
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.82) : Color.black.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(rowFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(rowBorder, lineWidth: 1)
+                )
+        )
     }
 }
 

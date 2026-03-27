@@ -2159,11 +2159,14 @@ class TaskManager: ObservableObject {
                     // This ensures email attachments and all data are available even if Supabase is unreachable
                     self.saveTasks()
 
-                    // CRITICAL FIX: Restore calendar events from local cache after Supabase load
-                    // After replacing self.tasks with Supabase data, calendar events are lost from memory
-                    // This causes syncCalendarEvents() to not find existing events and re-add them as duplicates
-                    // Solution: Reload calendar events from local cache and merge them back
-                    self.restoreCalendarEventsFromCache()
+                    // Fix 3: Calendar events are now saved to Supabase during syncCalendarEvents(),
+                    // so they come back in the supabaseTasks fetch above and self.tasks already
+                    // contains them. We only need to restore from the local cache during the
+                    // migration window (users who haven't synced since Fix 3 landed).
+                    let hasCalendarEventsInSupabase = supabaseTasks.contains { $0.isFromCalendar }
+                    if !hasCalendarEventsInSupabase {
+                        self.restoreCalendarEventsFromCache()
+                    }
 
                     // Check if any recurring tasks were fixed (marked incomplete)
                     let originalTasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]]
@@ -3408,16 +3411,26 @@ class TaskManager: ObservableObject {
                 tasks[weekday] = [taskItem]
             }
 
-            // Calendar events are stored locally only (no Supabase sync needed)
             addedEvents.append(event)
+
+            // Fix 3: Persist new calendar events to Supabase so they are available
+            // in LLM queries and are loaded directly from Supabase on next launch,
+            // eliminating the restoreCalendarEventsFromCache workaround.
+            let capturedTask = taskItem
+            Task {
+                await saveTaskToSupabase(capturedTask)
+            }
         }
 
-        // Only mark newly added events as synced
         if !addedEvents.isEmpty {
             CalendarSyncService.shared.markEventsAsSynced(addedEvents)
             print("📅 [CalendarSync] Added \(addedEvents.count) new events, skipped \(duplicateCount) duplicates")
-        } else if duplicateCount > 0 {
-            print("📅 [CalendarSync] All \(duplicateCount) events were already synced (duplicates)")
+        } else {
+            // Nothing new — still advance the lastSyncDate so the 4-hour gate moves forward.
+            CalendarSyncService.shared.updateLastSyncDate()
+            if duplicateCount > 0 {
+                print("📅 [CalendarSync] All \(duplicateCount) events already synced")
+            }
         }
 
         // Save to local storage

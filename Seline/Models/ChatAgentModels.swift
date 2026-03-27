@@ -8,6 +8,7 @@ enum AgentEntityType: String, Codable, Hashable, CaseIterable {
     case visit
     case person
     case receipt
+    case daySummary
     case nearbyPlace
     case currentContext
     case aggregate
@@ -29,13 +30,18 @@ struct EvidenceTimestamp: Codable, Hashable {
     let value: String
 }
 
+struct ResolvedDateBounds: Codable, Hashable {
+    let start: Date
+    let end: Date
+}
+
 struct EvidenceRelation: Codable, Hashable {
     let type: String
     let label: String?
     let target: EntityRef
 }
 
-struct EvidenceRecord: Codable, Hashable, Identifiable {
+struct EvidenceRecord: Hashable, Identifiable {
     let id: String
     let ref: EntityRef
     let title: String
@@ -43,6 +49,8 @@ struct EvidenceRecord: Codable, Hashable, Identifiable {
     let timestamps: [EvidenceTimestamp]
     let attributes: [String: String]
     let relations: [EvidenceRelation]
+    /// Which tool retrieved this record. Empty string for records decoded from old stored data.
+    let sourceTool: String
 
     init(
         ref: EntityRef,
@@ -50,7 +58,8 @@ struct EvidenceRecord: Codable, Hashable, Identifiable {
         summary: String,
         timestamps: [EvidenceTimestamp] = [],
         attributes: [String: String] = [:],
-        relations: [EvidenceRelation] = []
+        relations: [EvidenceRelation] = [],
+        sourceTool: String = ""
     ) {
         self.id = ref.identifier
         self.ref = ref
@@ -59,6 +68,38 @@ struct EvidenceRecord: Codable, Hashable, Identifiable {
         self.timestamps = timestamps
         self.attributes = attributes
         self.relations = relations
+        self.sourceTool = sourceTool
+    }
+
+    func withSourceTool(_ tool: String) -> EvidenceRecord {
+        EvidenceRecord(
+            ref: ref,
+            title: title,
+            summary: summary,
+            timestamps: timestamps,
+            attributes: attributes,
+            relations: relations,
+            sourceTool: tool
+        )
+    }
+}
+
+extension EvidenceRecord: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, ref, title, summary, timestamps, attributes, relations, sourceTool
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        ref = try c.decode(EntityRef.self, forKey: .ref)
+        title = try c.decode(String.self, forKey: .title)
+        summary = try c.decode(String.self, forKey: .summary)
+        timestamps = (try? c.decode([EvidenceTimestamp].self, forKey: .timestamps)) ?? []
+        attributes = (try? c.decode([String: String].self, forKey: .attributes)) ?? [:]
+        relations = (try? c.decode([EvidenceRelation].self, forKey: .relations)) ?? []
+        // sourceTool was added in a later version; default to "" for old stored records
+        sourceTool = (try? c.decode(String.self, forKey: .sourceTool)) ?? ""
     }
 }
 
@@ -139,8 +180,12 @@ struct ToolResult: Codable, Hashable {
     let aggregates: [ToolAggregate]
     let ambiguities: [ToolAmbiguity]
     let citations: [ToolCitation]
+    let resolvedTimeRange: String?
+    let resolvedDateBounds: ResolvedDateBounds?
     let actionDraft: AgentActionDraft?
     let presentation: AgentPresentation?
+    /// True when the tool hit its result cap and may have more matching data.
+    let isTruncated: Bool
 
     init(
         toolName: String,
@@ -148,16 +193,22 @@ struct ToolResult: Codable, Hashable {
         aggregates: [ToolAggregate] = [],
         ambiguities: [ToolAmbiguity] = [],
         citations: [ToolCitation] = [],
+        resolvedTimeRange: String? = nil,
+        resolvedDateBounds: ResolvedDateBounds? = nil,
         actionDraft: AgentActionDraft? = nil,
-        presentation: AgentPresentation? = nil
+        presentation: AgentPresentation? = nil,
+        isTruncated: Bool = false
     ) {
         self.toolName = toolName
         self.records = records
         self.aggregates = aggregates
         self.ambiguities = ambiguities
         self.citations = citations
+        self.resolvedTimeRange = resolvedTimeRange
+        self.resolvedDateBounds = resolvedDateBounds
         self.actionDraft = actionDraft
         self.presentation = presentation
+        self.isTruncated = isTruncated
     }
 }
 
@@ -321,6 +372,7 @@ struct AgentPresentation: Codable, Hashable {
 struct ConversationAnchorState: Codable, Hashable {
     let resolvedEntities: [EntityRef]
     let resolvedTimeRange: String?
+    let resolvedDateBounds: ResolvedDateBounds?
     let comparisonWindow: String?
     let lastLivePlaceResults: [PlaceSearchResult]?
     let lastActionDraft: AgentActionDraft?
@@ -328,12 +380,14 @@ struct ConversationAnchorState: Codable, Hashable {
     init(
         resolvedEntities: [EntityRef] = [],
         resolvedTimeRange: String? = nil,
+        resolvedDateBounds: ResolvedDateBounds? = nil,
         comparisonWindow: String? = nil,
         lastLivePlaceResults: [PlaceSearchResult]? = nil,
         lastActionDraft: AgentActionDraft? = nil
     ) {
         self.resolvedEntities = resolvedEntities
         self.resolvedTimeRange = resolvedTimeRange
+        self.resolvedDateBounds = resolvedDateBounds
         self.comparisonWindow = comparisonWindow
         self.lastLivePlaceResults = lastLivePlaceResults
         self.lastActionDraft = lastActionDraft
@@ -362,25 +416,38 @@ struct AgentToolTrace: Codable, Hashable, Identifiable {
     }
 }
 
+/// Describes the completeness of evidence retrieved during a planning loop.
+struct EvidenceBundleMetadata: Codable, Hashable {
+    /// All tools that were successfully called this turn.
+    let toolsUsed: [String]
+    /// Tools that hit their result cap and may have more matching data.
+    let truncatedTools: [String]
+
+    var isComplete: Bool { truncatedTools.isEmpty }
+}
+
 struct EvidenceBundle: Codable, Hashable {
     let records: [EvidenceRecord]
     let aggregates: [ToolAggregate]
     let citations: [ToolCitation]
     let ambiguities: [ToolAmbiguity]?
     let anchorState: ConversationAnchorState?
+    let metadata: EvidenceBundleMetadata?
 
     init(
         records: [EvidenceRecord] = [],
         aggregates: [ToolAggregate] = [],
         citations: [ToolCitation] = [],
         ambiguities: [ToolAmbiguity]? = nil,
-        anchorState: ConversationAnchorState? = nil
+        anchorState: ConversationAnchorState? = nil,
+        metadata: EvidenceBundleMetadata? = nil
     ) {
         self.records = records
         self.aggregates = aggregates
         self.citations = citations
         self.ambiguities = ambiguities
         self.anchorState = anchorState
+        self.metadata = metadata
     }
 }
 
@@ -403,5 +470,20 @@ struct AgentTurnInput: Codable {
     let userMessage: String
     let conversationHistory: [ConversationMessage]
     let anchorState: ConversationAnchorState?
+    let sessionSnapshot: ConversationSessionSnapshot?
     let allowLiveSearch: Bool
+
+    init(
+        userMessage: String,
+        conversationHistory: [ConversationMessage],
+        anchorState: ConversationAnchorState? = nil,
+        sessionSnapshot: ConversationSessionSnapshot? = nil,
+        allowLiveSearch: Bool = true
+    ) {
+        self.userMessage = userMessage
+        self.conversationHistory = conversationHistory
+        self.anchorState = anchorState
+        self.sessionSnapshot = sessionSnapshot
+        self.allowLiveSearch = allowLiveSearch
+    }
 }

@@ -175,7 +175,7 @@ struct LivePlacePreviewCard: View {
                             Button(action: {
                                 onOpenPlace(result)
                             }) {
-                                Text(result.address)
+                                Text(result.name)
                                     .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(Color.shadcnForeground(colorScheme).opacity(0.68))
                                     .frame(maxWidth: .infinity, alignment: .leading)
