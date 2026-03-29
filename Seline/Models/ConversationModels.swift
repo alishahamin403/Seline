@@ -1,65 +1,29 @@
 import Foundation
 import SwiftUI
 
-// MARK: - Proactive Question Info (defined early for use in ConversationMessage)
-
-struct ProactiveQuestionInfo: Codable {
-    let locationId: UUID
-    let locationName: String
-    let question: String
-    let isFirstVisit: Bool
-}
-
-enum ConversationKind: String, Codable, CaseIterable {
-    case standard
-    case tracker
-}
-
-// MARK: - Conversation Models
-
 struct ConversationMessage: Identifiable, Codable {
     let id: UUID
     let isUser: Bool
     let text: String
     let timestamp: Date
     let intent: QueryIntent?
-    let relatedData: [RelatedDataItem]?
     let timeStarted: Date?      // When LLM started thinking
     let timeFinished: Date?     // When LLM finished thinking
-    let followUpSuggestions: [FollowUpSuggestion]?  // Suggested follow-up questions/actions
-    let locationInfo: ETALocationInfo?  // For ETA/directions queries - shows map card
-    var eventCreationInfo: [EventCreationInfo]?  // For event creation - shows confirmation card
-    var relevantContent: [RelevantContentInfo]?  // For displaying inline email/note/event cards
-    var proactiveQuestion: ProactiveQuestionInfo?  // For proactive questions after location visits
     var trackerThreadId: UUID?
     var trackerOperationDraft: TrackerOperationDraft?
     var trackerStateSnapshot: TrackerDerivedState?
-    var evidenceBundle: EvidenceBundle?
-    var toolTrace: [AgentToolTrace]?
-    var actionDraft: AgentActionDraft?
-    var presentation: AgentPresentation?
 
-    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil, followUpSuggestions: [FollowUpSuggestion]? = nil, locationInfo: ETALocationInfo? = nil, eventCreationInfo: [EventCreationInfo]? = nil, relevantContent: [RelevantContentInfo]? = nil, proactiveQuestion: ProactiveQuestionInfo? = nil, trackerThreadId: UUID? = nil, trackerOperationDraft: TrackerOperationDraft? = nil, trackerStateSnapshot: TrackerDerivedState? = nil, evidenceBundle: EvidenceBundle? = nil, toolTrace: [AgentToolTrace]? = nil, actionDraft: AgentActionDraft? = nil, presentation: AgentPresentation? = nil) {
+    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil, trackerThreadId: UUID? = nil, trackerOperationDraft: TrackerOperationDraft? = nil, trackerStateSnapshot: TrackerDerivedState? = nil) {
         self.id = id
         self.isUser = isUser
         self.text = text
         self.timestamp = timestamp
         self.intent = intent
-        self.relatedData = relatedData
         self.timeStarted = timeStarted
         self.timeFinished = timeFinished
-        self.followUpSuggestions = followUpSuggestions
-        self.locationInfo = locationInfo
-        self.eventCreationInfo = eventCreationInfo
-        self.relevantContent = relevantContent
-        self.proactiveQuestion = proactiveQuestion
         self.trackerThreadId = trackerThreadId
         self.trackerOperationDraft = trackerOperationDraft
         self.trackerStateSnapshot = trackerStateSnapshot
-        self.evidenceBundle = evidenceBundle
-        self.toolTrace = toolTrace
-        self.actionDraft = actionDraft
-        self.presentation = presentation
     }
 
     var formattedTime: String {
@@ -439,36 +403,6 @@ enum QueryIntent: String, Codable {
     }
 }
 
-// MARK: - Related Data
-
-struct RelatedDataItem: Identifiable, Codable {
-    let id: UUID
-    let type: DataType
-    let title: String
-    let subtitle: String?
-    let date: Date?
-    let amount: Double?  // For receipts
-    let merchant: String?  // For receipts
-
-    enum DataType: String, Codable {
-        case event
-        case note
-        case location
-        case receipt
-        case email
-    }
-
-    init(id: UUID = UUID(), type: DataType, title: String, subtitle: String? = nil, date: Date? = nil, amount: Double? = nil, merchant: String? = nil) {
-        self.id = id
-        self.type = type
-        self.title = title
-        self.subtitle = subtitle
-        self.date = date
-        self.amount = amount
-        self.merchant = merchant
-    }
-}
-
 // MARK: - Conversation Summary (for smart memory)
 
 /// Summarized version of a conversation message for older context
@@ -502,28 +436,4 @@ struct ConversationTopic {
     let context: String  // Brief context of what was discussed
     let messageCount: Int  // How many messages about this topic
     let lastMentionedIndex: Int  // Index of last mention in conversation
-}
-
-// MARK: - Follow-Up Suggestions
-
-struct FollowUpSuggestion: Identifiable, Codable, Hashable {
-    let id: UUID
-    let text: String  // "Show me the receipt" or "What about last week?"
-    let emoji: String  // 💡, 📊, 🔍, etc.
-    let category: SuggestionCategory  // For grouping/filtering
-
-    enum SuggestionCategory: String, Codable, Hashable {
-        case moreDetails = "more_details"      // "Show me the receipt details"
-        case relatedData = "related_data"      // "What about last week?"
-        case action = "action"                 // "Should we set a budget?"
-        case discovery = "discovery"           // "Want to dig deeper?"
-        case clarification = "clarification"   // "Email folders or note folders?"
-    }
-
-    init(text: String, emoji: String, category: SuggestionCategory, id: UUID = UUID()) {
-        self.id = id
-        self.text = text
-        self.emoji = emoji
-        self.category = category
-    }
 }

@@ -22,12 +22,8 @@ struct FolderSidebarView: View {
         colorScheme == .dark ? Color.black : .white
     }
 
-    private var topControlFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.045)
-    }
-
-    private var topControlBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.05)
+    private var searchFieldFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04)
     }
 
     private var sectionLabelColor: Color {
@@ -138,10 +134,10 @@ struct FolderSidebarView: View {
 
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.35))
 
                         TextField("Search", text: $searchText)
                             .textFieldStyle(.plain)
@@ -150,40 +146,28 @@ struct FolderSidebarView: View {
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
                     .frame(maxWidth: .infinity)
                     .background(
-                        Capsule()
-                            .fill(topControlFillColor)
-                            .overlay(
-                                Capsule()
-                                    .stroke(topControlBorderColor, lineWidth: 0.8)
-                            )
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(searchFieldFillColor)
                     )
 
                     Button(action: {
                         HapticManager.shared.buttonTap()
                         showingNewFolderAlert = true
                     }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
-                            .frame(width: 44, height: 44)
-                            .background(
-                                Circle()
-                                    .fill(topControlFillColor)
-                                    .overlay(
-                                        Circle()
-                                            .stroke(topControlBorderColor, lineWidth: 0.8)
-                                    )
-                            )
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.55))
+                            .frame(width: 36, height: 36)
                     }
                     .buttonStyle(PlainButtonStyle())
                     .accessibilityLabel("New folder")
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 10)
                 .background(sidebarBackgroundColor)
                 .frame(maxWidth: .infinity)
 
@@ -208,17 +192,18 @@ struct FolderSidebarView: View {
                                 }
                             }) {
                                 HStack(spacing: 12) {
+                                    Image(systemName: "house")
+                                        .font(.system(size: 15, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.45))
+                                        .frame(width: 22)
                                     Text("Home")
                                         .font(FontManager.geist(size: 15, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
                                     Spacer()
                                 }
                                 .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(sidebarRowFill(isSelected: isNotesHomeSelected))
-                                )
+                                .padding(.vertical, 10)
+                                .background(sidebarRowFill(isSelected: isNotesHomeSelected))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -234,6 +219,10 @@ struct FolderSidebarView: View {
                                 }
                             }) {
                                 HStack(spacing: 12) {
+                                    Image(systemName: "pin")
+                                        .font(.system(size: 15, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.45))
+                                        .frame(width: 22)
                                     Text("Pinned")
                                         .font(FontManager.geist(size: 15, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
@@ -243,11 +232,8 @@ struct FolderSidebarView: View {
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                 }
                                 .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(sidebarRowFill(isSelected: selectedFolderId == nil && !showUnfiledNotesOnly && showSidebarNotesSelection))
-                                )
+                                .padding(.vertical, 10)
+                                .background(sidebarRowFill(isSelected: selectedFolderId == nil && !showUnfiledNotesOnly && showSidebarNotesSelection))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -263,6 +249,10 @@ struct FolderSidebarView: View {
                                 }
                             }) {
                                 HStack(spacing: 12) {
+                                    Image(systemName: "tray")
+                                        .font(.system(size: 15, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.45))
+                                        .frame(width: 22)
                                     Text("Unfiled")
                                         .font(FontManager.geist(size: 15, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
@@ -272,11 +262,8 @@ struct FolderSidebarView: View {
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                 }
                                 .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(sidebarRowFill(isSelected: showUnfiledNotesOnly && showSidebarNotesSelection))
-                                )
+                                .padding(.vertical, 10)
+                                .background(sidebarRowFill(isSelected: showUnfiledNotesOnly && showSidebarNotesSelection))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -294,6 +281,10 @@ struct FolderSidebarView: View {
                                     onOpenJournal()
                                 }) {
                                     HStack(spacing: 12) {
+                                        Image(systemName: "book")
+                                            .font(.system(size: 15, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.45))
+                                            .frame(width: 22)
                                         Text("Journal")
                                             .font(FontManager.geist(size: 15, weight: .medium))
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
@@ -303,11 +294,7 @@ struct FolderSidebarView: View {
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                     }
                                     .padding(.horizontal, 16)
-                                    .padding(.vertical, 12)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .fill(.clear)
-                                    )
+                                    .padding(.vertical, 10)
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(PlainButtonStyle())
@@ -396,6 +383,10 @@ struct FolderSidebarView: View {
                                 showingTrash = true
                             }) {
                                 HStack(spacing: 12) {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 15, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.45))
+                                        .frame(width: 22)
                                     Text("Deleted Items")
                                         .font(FontManager.geist(size: 15, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
@@ -408,11 +399,7 @@ struct FolderSidebarView: View {
                                     }
                                 }
                                 .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(.clear)
-                                )
+                                .padding(.vertical, 10)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -448,7 +435,6 @@ struct FolderSidebarView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.5 : 0.12), radius: 24, x: 4, y: 0)
         .onAppear {
             // Initialize with all root folders collapsed
             let rootFolders = notesManager.folders.filter { $0.parentFolderId == nil }
@@ -544,6 +530,11 @@ struct FolderRowView: View {
                 }
             }
 
+            Image(systemName: "folder")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.45))
+                .frame(width: 20)
+
             Text(folder.name)
                 .font(FontManager.geist(size: 15, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
@@ -556,24 +547,10 @@ struct FolderRowView: View {
                     .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
             }
-
-            Button(action: {
-                HapticManager.shared.buttonTap()
-                onCreateNote(folder)
-            }) {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                    .frame(width: 20, height: 20)
-            }
-            .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(sectionRowFill)
-        )
+        .padding(.vertical, 10)
+        .background(sectionRowFill)
         .contentShape(Rectangle())
         .onTapGesture {
             HapticManager.shared.selection()

@@ -395,36 +395,6 @@ class NotificationService: ObservableObject {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["journal-daily-prompt"])
     }
 
-    // MARK: - Chat Usage Notifications
-
-    func scheduleChatUsageNotification(percentage: Int) async {
-        await checkAuthorizationStatus()
-        guard isAuthorized else { return }
-
-        let content = UNMutableNotificationContent()
-        content.title = percentage >= 100 ? "Daily chat limit reached" : "Chat usage at \(percentage)%"
-        content.body = percentage >= 100
-            ? "You've used all of today's LLM chat usage. New messages unlock tomorrow."
-            : "You've used \(percentage)% of today's LLM chat usage."
-        content.sound = .default
-        content.categoryIdentifier = "chat_usage"
-        content.userInfo = ["type": "chat_usage", "percentage": percentage]
-
-        let dayStamp = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970)
-        let request = UNNotificationRequest(
-            identifier: "chat-usage-\(percentage)-\(dayStamp)",
-            content: content,
-            trigger: nil
-        )
-
-        do {
-            try await UNUserNotificationCenter.current().add(request)
-            print("💬 Scheduled chat usage notification for \(percentage)%")
-        } catch {
-            print("Failed to schedule chat usage notification: \(error)")
-        }
-    }
-
     // MARK: - Smart Event Reminders
 
     /// Schedule smart reminder with travel time consideration

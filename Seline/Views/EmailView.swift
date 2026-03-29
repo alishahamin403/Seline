@@ -133,7 +133,7 @@ struct PlanView: View, Searchable {
             }
 
             // Register with search service first
-            SearchService.shared.registerSearchableProvider(self, for: .plan)
+            SearchService.shared.registerSearchableProvider(self)
             refreshHubState()
             handleVisibilityChange(isVisible, reason: "appear")
         }

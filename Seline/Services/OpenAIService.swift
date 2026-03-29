@@ -2843,7 +2843,6 @@ class OpenAIService: ObservableObject {
                     text: "[SUMMARY] \(summary)",
                     timestamp: message.timestamp,
                     intent: message.intent,
-                    relatedData: nil,
                     timeStarted: message.timeStarted,
                     timeFinished: message.timeFinished
                 )

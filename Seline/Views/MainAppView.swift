@@ -541,13 +541,8 @@ struct MainAppView: View {
     // MARK: - Helper Methods for onChange Consolidation
 
     private func activateConversationModalIfNeeded() {
-        // Navigate to chat tab if there's a pending action
-        if (searchService.pendingEventCreation != nil ||
-            searchService.pendingNoteCreation != nil ||
-            searchService.pendingNoteUpdate != nil) &&
-           !searchService.isInConversationMode {
-            searchService.isInConversationMode = true
-            selectedTab = .chat
+        if searchService.pendingEventCreation != nil {
+            showingAddEventPopup = true
         }
     }
 
@@ -562,9 +557,6 @@ struct MainAppView: View {
         case "search":
             dismissOverlay()
             selectedTab = .search
-        case "chat":
-            dismissOverlay()
-            selectedTab = .chat
         case "journal":
             openJournalInNotes(openToday: false)
         default:
@@ -584,8 +576,6 @@ struct MainAppView: View {
                 deepLinkHandler.shouldShowReceiptStats = false
             case "search":
                 deepLinkHandler.shouldShowSearch = false
-            case "chat":
-                deepLinkHandler.shouldShowChat = false
             case "maps":
                 deepLinkHandler.shouldOpenMaps = false
             case "journal":
@@ -1035,9 +1025,6 @@ struct MainAppView: View {
             }
             .onChange(of: deepLinkHandler.shouldShowSearch) { newValue in
                 if newValue { handleDeepLinkAction(type: "search") }
-            }
-            .onChange(of: deepLinkHandler.shouldShowChat) { newValue in
-                if newValue { handleDeepLinkAction(type: "chat") }
             }
             .onChange(of: deepLinkHandler.shouldOpenMaps) { newValue in
                 if newValue {
@@ -1493,6 +1480,7 @@ struct MainAppView: View {
     private var shouldShowPrimaryFloatingComposeButton: Bool {
         activeOverlayRoute == nil &&
         !showingHomeDrawer &&
+        !isSidebarOverlayVisible &&
         keyboardHeight == 0 &&
         (selectedTab == .home || selectedTab == .notes || selectedTab == .maps)
     }
@@ -1586,16 +1574,35 @@ struct MainAppView: View {
                 },
                 onOpenPerson: { person in
                     selectedPersonForDetail = person
-                },
-                onOpenChat: { query in
-                    selectedTab = .chat
-                    Task {
-                        await ChatSessionStore.shared.send(query)
-                    }
                 }
             )
         case .chat:
-            ChatView(isVisible: isVisible)
+            ChatView(
+                isVisible: isVisible,
+                onOpenEmail: { email in
+                    selectedPlanTab = emailService.sentEmails.contains(where: { $0.id == email.id }) ? .sent : .inbox
+                    presentOverlay(.plan)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        searchSelectedEmail = email
+                    }
+                },
+                onOpenTask: { task in
+                    openPlanCalendar()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        searchSelectedTask = task
+                        showingEditTask = false
+                    }
+                },
+                onOpenNote: { note in
+                    searchSelectedNote = note
+                },
+                onOpenPlace: { place in
+                    selectedLocationPlace = place
+                },
+                onOpenPerson: { person in
+                    selectedPersonForDetail = person
+                }
+            )
         case .notes:
             NotesView(isVisible: isVisible)
         case .maps:
@@ -1606,22 +1613,17 @@ struct MainAppView: View {
     @ViewBuilder
     private func homeTabContent(isVisible: Bool) -> some View {
         GeometryReader { geometry in
-            ZStack(alignment: .leading) {
+            InteractiveSidebarOverlay(
+                isPresented: $showingHomeDrawer,
+                canOpen: isVisible && activeOverlayRoute == nil,
+                sidebarWidth: min(318, geometry.size.width * 0.84),
+                colorScheme: colorScheme
+            ) {
                 HomeTabView(isVisible: isVisible) {
                     homeContentWithoutHeader
                 }
-                .scaleEffect(showingHomeDrawer ? 0.985 : 1, anchor: .leading)
-                .offset(x: showingHomeDrawer ? 12 : 0)
-                .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.88), value: showingHomeDrawer)
-
-                InteractiveSidebarOverlay(
-                    isPresented: $showingHomeDrawer,
-                    canOpen: isVisible && activeOverlayRoute == nil,
-                    sidebarWidth: min(318, geometry.size.width * 0.84),
-                    colorScheme: colorScheme
-                ) {
-                    homeDrawerContent
-                }
+            } sidebarContent: {
+                homeDrawerContent
             }
         }
     }
@@ -1646,9 +1648,7 @@ struct MainAppView: View {
             )
         }
         .offset(x: planActive ? 0 : geometry.size.width)
-        .opacity(planActive ? 1 : 0)
         .allowsHitTesting(planActive)
-        // Asymmetric: spring for enter (natural push feel), easeOut for dismiss (clean, no bounce)
         .animation(planActive ? .smoothTabTransition : .overlayDismiss, value: planActive)
         .zIndex(planActive ? 20 : 0)
 
@@ -1671,7 +1671,7 @@ struct MainAppView: View {
                     EmptyView()
                 }
             }
-            .transition(.opacity)
+            .transition(.move(edge: .trailing))
             .zIndex(20)
         }
     }
@@ -2091,26 +2091,21 @@ struct MainAppView: View {
 
     // MARK: - Search Bar Components
 
-    // LLM Search Bar Button (navigates to chat tab)
+    // Search Bar Button
     private var searchBarView: some View {
         Button(action: {
-            // Navigate to chat tab
             HapticManager.shared.selection()
-            selectedTab = .chat
+            selectedTab = .search
         }) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(.gray)
 
-                Text("Search or ask for actions...")
+                Text("Search across your app...")
                     .font(FontManager.geist(size: 14, weight: .regular))
                     .foregroundColor(.gray)
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                Image(systemName: "sparkles")
-                    .font(FontManager.geist(size: 13, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.cyan.opacity(0.7) : Color.blue.opacity(0.7))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -2413,8 +2408,8 @@ struct MainAppView: View {
     private var homeHeaderBar: some View {
         let hasGreeting = !homeGreetingText.isEmpty
         let avatarSize: CGFloat = hasGreeting ? 42 : 30
-        let topPadding: CGFloat = hasGreeting ? 6 : 1
-        let bottomPadding: CGFloat = hasGreeting ? 12 : 1
+        let topPadding: CGFloat = hasGreeting ? 6 : 8
+        let bottomPadding: CGFloat = hasGreeting ? 12 : 10
 
         return VStack(spacing: 0) {
             HStack(spacing: hasGreeting ? 12 : 0) {
@@ -2736,12 +2731,12 @@ struct MainAppView: View {
         }) {
             HStack(spacing: 14) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 15, weight: .medium))
                     .frame(width: 22)
                     .foregroundColor(Color.appTextPrimary(colorScheme))
 
                 Text(title)
-                    .font(FontManager.geist(size: 18, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .medium))
                     .foregroundColor(Color.appTextPrimary(colorScheme))
 
                 if badgeCount > 0 {
@@ -2759,7 +2754,7 @@ struct MainAppView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 14)
-            .frame(height: 54)
+            .frame(height: 48)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -3162,6 +3157,10 @@ struct MainAppView: View {
     }
 
     // MARK: - Home Content
+    private var homeCardHorizontalPadding: CGFloat {
+        max(ShadcnSpacing.screenEdgeHorizontal, 12)
+    }
+
     private var homeContentWithoutHeader: some View {
         ZStack {
             HomeGlassBackgroundLayer(colorScheme: colorScheme)
@@ -3196,6 +3195,7 @@ struct MainAppView: View {
                     }
                 }
             )
+            .padding(.horizontal, homeCardHorizontalPadding)
             .padding(.top, 12)
             .transition(.asymmetric(
                 insertion: .move(edge: .top).combined(with: .opacity),

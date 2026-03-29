@@ -92,7 +92,6 @@ enum SearchDestination: String, Hashable {
     case home
     case plan
     case search
-    case chat
     case notes
     case maps
 
@@ -101,7 +100,6 @@ enum SearchDestination: String, Hashable {
         case .home: return "Home"
         case .plan: return "Plan"
         case .search: return "Search"
-        case .chat: return "Chat"
         case .notes: return "Notes"
         case .maps: return "Places"
         }
@@ -112,7 +110,6 @@ enum SearchDestination: String, Hashable {
         case .home: return "house"
         case .plan: return "calendar.badge.clock"
         case .search: return "magnifyingglass"
-        case .chat: return "sparkles"
         case .notes: return "square.and.pencil"
         case .maps: return "map"
         }

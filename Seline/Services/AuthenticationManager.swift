@@ -262,7 +262,6 @@ class AuthenticationManager: ObservableObject {
             "cached_inbox_timestamp",
             "cached_sent_timestamp",
             "last_email_ids",
-            "SavedConversations",
             "com.vibecode.seline.userprofile",
             "UserLocationPreferences",
             "UserCreatedTags",

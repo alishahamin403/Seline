@@ -2,21 +2,73 @@ import Foundation
 
 // INSTRUCTIONS:
 // 1. Copy this file and rename it to "Config.swift"
-// 2. Replace the placeholder values below with your actual API keys
-// 3. Config.swift is gitignored and will not be committed to the repository
+// 2. Copy "Secrets.plist.template" to "Secrets.plist"
+// 3. Fill in your actual keys in "Secrets.plist"
+// 4. "Config.swift" and "Secrets.plist" are gitignored and will not be committed
 
 struct Config {
-    // OpenAI API Key - Get from: https://platform.openai.com/api-keys
-    static let openAIAPIKey = "YOUR_OPENAI_API_KEY_HERE"
+    private static let loader = ConfigLoader.shared
 
-    // Google APIs - Get from: https://console.cloud.google.com/
-    static let googleMapsAPIKey = "YOUR_GOOGLE_MAPS_API_KEY_HERE"
-    static let googleReversedClientID = "YOUR_GOOGLE_REVERSED_CLIENT_ID_HERE"
+    static let geminiAPIKey = loader.requiredValue(for: "GeminiAPIKey")
+    static let openAIAPIKey = loader.requiredValue(for: "OpenAIAPIKey")
+    static let googleMapsAPIKey = loader.requiredValue(for: "GoogleMapsAPIKey")
+    static let googleReversedClientID = loader.requiredValue(for: "GoogleReversedClientID")
+    static let openWeatherMapAPIKey = loader.requiredValue(for: "OpenWeatherMapAPIKey")
+    static let piperTTSBaseURL = loader.optionalValue(for: "PiperTTSBaseURL") ?? ""
+    static let openAIWebSearchModel = loader.optionalValue(for: "OpenAIWebSearchModel") ?? "gpt-5-mini"
+}
 
-    // OpenWeatherMap API Key - Get from: https://openweathermap.org/api
-    static let openWeatherMapAPIKey = "YOUR_OPENWEATHERMAP_API_KEY_HERE"
-    
-    // Piper TTS Base URL (self-hosted). Example: "http://localhost:5002"
-    // Leave empty to disable Piper and use Apple TTS.
-    static let piperTTSBaseURL = ""
+private final class ConfigLoader {
+    static let shared = ConfigLoader()
+
+    private let values: [String: String]
+
+    private init() {
+        if let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+           let data = try? Data(contentsOf: url),
+           let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+            values = plist.compactMapValues { value in
+                (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        } else {
+            values = [:]
+        }
+    }
+
+    func requiredValue(for key: String) -> String {
+        if let value = optionalValue(for: key), !value.isEmpty {
+            return value
+        }
+        fatalError("Missing config value for \(key). Add it to Secrets.plist or the environment.")
+    }
+
+    func optionalValue(for key: String) -> String? {
+        let env = ProcessInfo.processInfo.environment[key]
+            ?? ProcessInfo.processInfo.environment[environmentKey(for: key)]
+        if let env {
+            let trimmed = env.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        if let bundled = values[key], !bundled.isEmpty {
+            return bundled
+        }
+
+        if let infoValue = Bundle.main.object(forInfoDictionaryKey: key) as? String {
+            let trimmed = infoValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, !trimmed.hasPrefix("YOUR_") {
+                return trimmed
+            }
+        }
+
+        return nil
+    }
+
+    private func environmentKey(for key: String) -> String {
+        key
+            .replacingOccurrences(of: "([a-z0-9])([A-Z])", with: "$1_$2", options: .regularExpression)
+            .uppercased()
+    }
 }

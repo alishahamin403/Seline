@@ -32,12 +32,16 @@ struct HomeWidgetStackView: View {
     let onReceiptSelected: (ReceiptStat) -> Void
     let onRefresh: () -> Void
 
+    private var homeCardHorizontalPadding: CGFloat {
+        max(ShadcnSpacing.screenEdgeHorizontal, 12)
+    }
+
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 8) {
                 if homeState.hasPendingLocationSuggestion {
                     NewLocationSuggestionCard()
-                        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                        .padding(.horizontal, homeCardHorizontalPadding)
                         .transition(.asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity),
                             removal: .move(edge: .top).combined(with: .opacity)
@@ -63,7 +67,7 @@ struct HomeWidgetStackView: View {
                     onAddTaskFromPhoto: onAddTaskFromPhoto,
                     onAddNote: onAddNote
                 )
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.horizontal, homeCardHorizontalPadding)
                 .zIndex(isDailyOverviewExpanded ? 10 : 1)
 
                 SpendingAndETAWidget(
@@ -72,7 +76,7 @@ struct HomeWidgetStackView: View {
                     onAddReceiptFromGallery: onAddReceiptFromGallery,
                     onReceiptSelected: onReceiptSelected
                 )
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.horizontal, homeCardHorizontalPadding)
                 .padding(.top, 4)
                 .padding(.bottom, 6)
             }

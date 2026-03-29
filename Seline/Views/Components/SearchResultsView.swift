@@ -132,8 +132,6 @@ struct SearchResultRow: View {
             return .orange
         case .search:
             return .gray
-        case .chat:
-            return .green
         case .notes:
             return .primary
         case .maps:
@@ -145,7 +143,6 @@ struct SearchResultRow: View {
         switch destination {
         case .home: return .home
         case .search: return .search
-        case .chat: return .chat
         case .notes: return .notes
         case .maps: return .maps
         case .plan: return nil
@@ -169,7 +166,7 @@ struct SearchResultRow: View {
             item: SearchableItem(
                 title: "Team Meeting",
                 content: "Weekly team sync meeting with the development team.",
-                type: .chat,
+                type: .notes,
                 identifier: "event-1"
             ),
             relevanceScore: 2.5,

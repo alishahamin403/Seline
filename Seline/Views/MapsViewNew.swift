@@ -259,7 +259,10 @@ struct MapsViewNew: View, Searchable {
             .onChange(of: externalSelectedFolder) { newFolder in
                 handleExternalFolderSelection(newFolder)
             }
-            .onChange(of: isVisible) { _ in
+            .onChange(of: isVisible) { newValue in
+                if !newValue {
+                    showingFolderSidebar = false
+                }
                 syncFloatingActionState()
             }
             .onChange(of: scenePhase) { newPhase in
@@ -334,27 +337,27 @@ struct MapsViewNew: View, Searchable {
     
     private var mainContentView: some View {
         GeometryReader { geometry in
-            ZStack {
-                AppAmbientBackgroundLayer(
-                    colorScheme: colorScheme,
-                    variant: activeAmbientVariant
-                )
+            InteractiveSidebarOverlay(
+                isPresented: $showingFolderSidebar,
+                canOpen: isVisible && selectedCategory == nil && !isLocationSearchActive,
+                sidebarWidth: min(336, geometry.size.width * 0.86),
+                colorScheme: colorScheme
+            ) {
+                ZStack {
+                    AppAmbientBackgroundLayer(
+                        colorScheme: colorScheme,
+                        variant: activeAmbientVariant
+                    )
 
-                VStack(spacing: 0) {
-                    headerSection
-                    mainScrollContent
+                    VStack(spacing: 0) {
+                        headerSection
+                        mainScrollContent
+                    }
+
+                    folderOverlay
                 }
-
-                folderOverlay
-
-                InteractiveSidebarOverlay(
-                    isPresented: $showingFolderSidebar,
-                    canOpen: isVisible && selectedCategory == nil && !isLocationSearchActive,
-                    sidebarWidth: min(336, geometry.size.width * 0.86),
-                    colorScheme: colorScheme
-                ) {
-                    placesFolderSidebarContent
-                }
+            } sidebarContent: {
+                placesFolderSidebarContent
             }
         }
     }
@@ -1444,7 +1447,7 @@ struct MapsViewNew: View, Searchable {
     }
     
     private func setupOnAppear() async {
-        SearchService.shared.registerSearchableProvider(self, for: .maps)
+        SearchService.shared.registerSearchableProvider(self)
 
         // CLEANUP: Auto-close any incomplete visits older than 3 hours in Supabase (background)
         Task.detached(priority: .utility) {
@@ -2145,10 +2148,10 @@ struct MapsViewNew: View, Searchable {
 
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.35))
 
                         TextField("Search", text: $folderSidebarSearchText)
                             .textFieldStyle(.plain)
@@ -2157,16 +2160,12 @@ struct MapsViewNew: View, Searchable {
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
                     .frame(maxWidth: .infinity)
                     .background(
-                        Capsule()
-                            .fill(placesSidebarTopControlFillColor)
-                            .overlay(
-                                Capsule()
-                                    .stroke(placesSidebarTopControlBorderColor, lineWidth: 0.8)
-                            )
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(placesSidebarSearchFieldFillColor)
                     )
 
                     Button(action: {
@@ -2174,24 +2173,16 @@ struct MapsViewNew: View, Searchable {
                         newFolderName = ""
                         showNewFolderAlert = true
                     }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
-                            .frame(width: 44, height: 44)
-                            .background(
-                                Circle()
-                                    .fill(placesSidebarTopControlFillColor)
-                                    .overlay(
-                                        Circle()
-                                            .stroke(placesSidebarTopControlBorderColor, lineWidth: 0.8)
-                                    )
-                            )
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.55))
+                            .frame(width: 36, height: 36)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("New folder")
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 10)
                 .background(placesSidebarBackgroundColor)
                 .frame(maxWidth: .infinity)
 
@@ -2271,19 +2262,14 @@ struct MapsViewNew: View, Searchable {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.5 : 0.12), radius: 24, x: 4, y: 0)
     }
 
     private var placesSidebarBackgroundColor: Color {
         colorScheme == .dark ? Color.black : .white
     }
 
-    private var placesSidebarTopControlFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.045)
-    }
-
-    private var placesSidebarTopControlBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.05)
+    private var placesSidebarSearchFieldFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04)
     }
 
     private var placesSidebarSectionLabelColor: Color {
@@ -2317,6 +2303,11 @@ struct MapsViewNew: View, Searchable {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
+                Image(systemName: title == "All Places" ? "mappin.and.ellipse" : "folder")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.45))
+                    .frame(width: 22)
+
                 Text(title)
                     .font(FontManager.geist(size: 15, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
@@ -2330,14 +2321,11 @@ struct MapsViewNew: View, Searchable {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(
-                        isSelected
-                            ? (colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.055))
-                            : Color.clear
-                    )
+                isSelected
+                    ? (colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.055))
+                    : Color.clear
             )
             .contentShape(Rectangle())
         }

@@ -8,7 +8,6 @@ class DeepLinkHandler: NSObject, ObservableObject {
     @Published var shouldShowEventCreation = false
     @Published var shouldShowReceiptStats = false
     @Published var shouldShowSearch = false
-    @Published var shouldShowChat = false
     @Published var shouldOpenMaps = false
     @Published var shouldOpenReceipts = false
     @Published var shouldOpenJournal = false
@@ -93,12 +92,6 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 self.pendingAction = "search"
             }
 
-        case "chat":
-            DispatchQueue.main.async {
-                self.shouldShowChat = true
-                self.pendingAction = "chat"
-            }
-
         case "receipts":
             DispatchQueue.main.async {
                 self.shouldOpenReceipts = true
@@ -149,10 +142,6 @@ class DeepLinkHandler: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 self.shouldShowSearch = true
             }
-        case "chat":
-            DispatchQueue.main.async {
-                self.shouldShowChat = true
-            }
         case "maps":
             DispatchQueue.main.async {
                 self.shouldOpenMaps = true
@@ -184,7 +173,6 @@ class DeepLinkHandler: NSObject, ObservableObject {
         shouldShowEventCreation = false
         shouldShowReceiptStats = false
         shouldShowSearch = false
-        shouldShowChat = false
         shouldOpenMaps = false
         shouldOpenReceipts = false
         shouldOpenJournal = false

@@ -12,7 +12,6 @@ struct SearchView: View {
     var onOpenNote: (Note) -> Void
     var onOpenPlace: (SavedPlace) -> Void
     var onOpenPerson: (Person) -> Void
-    var onOpenChat: ((String) -> Void)? = nil
 
     @State private var searchText = ""
     @State private var searchResults: [OverlaySearchResult] = []
@@ -36,17 +35,6 @@ struct SearchView: View {
 
     private var contentHorizontalPadding: CGFloat {
         16
-    }
-
-    private func openChat() {
-        let query = trimmedSearchText
-        guard !query.isEmpty else { return }
-
-        rememberSearchQuery(query)
-        HapticManager.shared.selection()
-        isSearchFocused = false
-        selectedTab = .chat
-        onOpenChat?(query)
     }
 
     private func handleSelection(_ result: OverlaySearchResult) {
@@ -367,29 +355,11 @@ struct SearchView: View {
                             .font(FontManager.geist(size: 22, weight: .semibold))
                             .foregroundColor(Color.appTextPrimary(colorScheme))
 
-                        Text("Try a broader keyword, or send this search to chat for a looser pass across your context.")
+                        Text("Try a broader keyword or search by person, place, folder, or date.")
                             .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(Color.appTextSecondary(colorScheme))
                             .multilineTextAlignment(.center)
                     }
-
-                    Button(action: openChat) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 14, weight: .semibold))
-
-                            Text("Chat with AI")
-                                .font(FontManager.geist(size: 15, weight: .semibold))
-                        }
-                        .foregroundColor(.black)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color.homeGlassAccent)
-                        )
-                    }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 22)
                 .padding(.vertical, 26)
@@ -500,23 +470,6 @@ struct SearchView: View {
                 }
 
                 Spacer(minLength: 0)
-
-                if onOpenChat != nil {
-                    Button(action: openChat) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 12, weight: .semibold))
-
-                            Text("Chat")
-                                .font(FontManager.geist(size: 13, weight: .semibold))
-                        }
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 16)
-                    }
-                    .buttonStyle(.plain)
-                }
             }
         }
         .padding(18)
@@ -701,7 +654,6 @@ private enum SearchRecentQueryStore {
         onOpenTask: { _ in },
         onOpenNote: { _ in },
         onOpenPlace: { _ in },
-        onOpenPerson: { _ in },
-        onOpenChat: { _ in }
+        onOpenPerson: { _ in }
     )
 }

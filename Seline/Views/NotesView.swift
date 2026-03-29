@@ -193,90 +193,119 @@ struct NotesView: View, Searchable {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             GeometryReader { geometry in
-                VStack(spacing: 0) {
-                    // Header section with search
+                InteractiveSidebarOverlay(
+                    isPresented: $showingFolderSidebar,
+                    canOpen: true,
+                    sidebarWidth: min(336, geometry.size.width * 0.86),
+                    colorScheme: colorScheme
+                ) {
                     VStack(spacing: 0) {
-                        if !isSearchActive {
-                            HStack(spacing: 10) {
-                                Button(action: {
-                                    HapticManager.shared.buttonTap()
-                                    showingFolderSidebar = true
-                                }) {
-                                    Image(systemName: "line.3.horizontal")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                                        .frame(width: 34, height: 34)
-                                        .background(
-                                            Circle()
-                                                .fill(Color.appChip(colorScheme))
-                                        )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .frame(width: 42, height: 42)
-
-                                Spacer(minLength: 0)
-
-                                Text(headerTitle)
-                                    .font(FontManager.geist(size: 18, weight: .semibold))
-                                    .foregroundColor(Color.appTextPrimary(colorScheme))
-                                    .lineLimit(1)
-
-                                Spacer(minLength: 0)
-
-                                Color.clear
-                                    .frame(width: 42, height: 42)
-                            }
-                            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                            .padding(.top, -4)
-                            .padding(.bottom, 10)
-                        }
-
-                        if isSearchActive {
-                            VStack(spacing: 0) {
-                                UnifiedSearchBar(
-                                    searchText: $searchText,
-                                    isFocused: $isSearchFocused,
-                                    placeholder: selectedMainPage == .notes
-                                        ? "Search notes and journal"
-                                        : (selectedMainPage == .receipts ? "Search receipts" : "Search recurring expenses"),
-                                    onCancel: {
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            isSearchActive = false
-                                            isSearchFocused = false
-                                            searchText = ""
+                        // Header section with search
+                        VStack(spacing: 0) {
+                            if !isSearchActive {
+                                HStack(spacing: 10) {
+                                    Button(action: {
+                                        HapticManager.shared.buttonTap()
+                                        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
+                                            showingFolderSidebar = true
                                         }
-                                    },
-                                    colorScheme: colorScheme,
-                                    variant: .topTrailing
-                                )
+                                    }) {
+                                        Image(systemName: "line.3.horizontal")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                                            .frame(width: 34, height: 34)
+                                            .background(
+                                                Circle()
+                                                    .fill(Color.appChip(colorScheme))
+                                            )
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                    .frame(width: 42, height: 42)
+
+                                    Spacer(minLength: 0)
+
+                                    Text(headerTitle)
+                                        .font(FontManager.geist(size: 18, weight: .semibold))
+                                        .foregroundColor(Color.appTextPrimary(colorScheme))
+                                        .lineLimit(1)
+
+                                    Spacer(minLength: 0)
+
+                                    Color.clear
+                                        .frame(width: 42, height: 42)
+                                }
                                 .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                                .padding(.top, 8)
+                                .padding(.top, -4)
+                                .padding(.bottom, 10)
                             }
-                            .padding(.bottom, 12)
-                            .transition(.move(edge: .top).combined(with: .opacity))
+
+                            if isSearchActive {
+                                VStack(spacing: 0) {
+                                    UnifiedSearchBar(
+                                        searchText: $searchText,
+                                        isFocused: $isSearchFocused,
+                                        placeholder: selectedMainPage == .notes
+                                            ? "Search notes and journal"
+                                            : (selectedMainPage == .receipts ? "Search receipts" : "Search recurring expenses"),
+                                        onCancel: {
+                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                isSearchActive = false
+                                                isSearchFocused = false
+                                                searchText = ""
+                                            }
+                                        },
+                                        colorScheme: colorScheme,
+                                        variant: .topTrailing
+                                    )
+                                    .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                                    .padding(.top, 8)
+                                }
+                                .padding(.bottom, 12)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                            }
                         }
+                        .background(
+                            Color.appBackground(colorScheme)
+                        )
+
+                        mainTabContent
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .allowsHitTesting(!(isSearchActive && !searchText.isEmpty))
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 0)
                     .background(
                         Color.appBackground(colorScheme)
+                            .ignoresSafeArea()
                     )
-
-                    mainTabContent
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .allowsHitTesting(!(isSearchActive && !searchText.isEmpty))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 0)
-                .background(
-                    Color.appBackground(colorScheme)
-                        .ignoresSafeArea()
-                )
-                .overlay(alignment: .top) {
-                    if isSearchActive && !searchText.isEmpty {
-                        searchResultsOverlay
+                    .overlay(alignment: .top) {
+                        if isSearchActive && !searchText.isEmpty {
+                            searchResultsOverlay
+                        }
                     }
-                }
-                .overlay(alignment: .leading) {
-                    interactiveFolderSidebarOverlay(geometry: geometry)
+                } sidebarContent: {
+                    FolderSidebarView(
+                        isPresented: $showingFolderSidebar,
+                        selectedFolderId: $selectedFolderId,
+                        showUnfiledNotesOnly: $showUnfiledNotesOnly,
+                        showSidebarNotesSelection: $showSidebarNotesSelection,
+                        isNotesHomeSelected: selectedMainPage == .notes
+                            && !showSidebarNotesSelection
+                            && selectedFolderId == nil
+                            && !showUnfiledNotesOnly,
+                        onOpenHome: {
+                            selectedMainPage = .notes
+                            selectedFolderId = nil
+                            showUnfiledNotesOnly = false
+                            showSidebarNotesSelection = false
+                        },
+                        onActivateNotesPage: {
+                            selectedMainPage = .notes
+                        },
+                        onOpenJournal: {
+                            openJournalHub(openToday: false)
+                        }
+                    )
                 }
             }
             .navigationDestination(for: Note.self) { note in
@@ -351,6 +380,8 @@ struct NotesView: View, Searchable {
                 isSearchActive = false
                 isSearchFocused = false
                 searchText = ""
+            } else {
+                showingFolderSidebar = false
             }
             syncFloatingActionState()
         }
@@ -2085,38 +2116,6 @@ struct NotesView: View, Searchable {
             showingReceiptImagePicker = true
         }) {
             Label("Upload Images", systemImage: "photo.on.rectangle")
-        }
-    }
-
-    private func interactiveFolderSidebarOverlay(geometry: GeometryProxy) -> some View {
-        InteractiveSidebarOverlay(
-            isPresented: $showingFolderSidebar,
-            canOpen: true,
-            sidebarWidth: min(336, geometry.size.width * 0.86),
-            colorScheme: colorScheme
-        ) {
-            FolderSidebarView(
-                isPresented: $showingFolderSidebar,
-                selectedFolderId: $selectedFolderId,
-                showUnfiledNotesOnly: $showUnfiledNotesOnly,
-                showSidebarNotesSelection: $showSidebarNotesSelection,
-                isNotesHomeSelected: selectedMainPage == .notes
-                    && !showSidebarNotesSelection
-                    && selectedFolderId == nil
-                    && !showUnfiledNotesOnly,
-                onOpenHome: {
-                    selectedMainPage = .notes
-                    selectedFolderId = nil
-                    showUnfiledNotesOnly = false
-                    showSidebarNotesSelection = false
-                },
-                onActivateNotesPage: {
-                    selectedMainPage = .notes
-                },
-                onOpenJournal: {
-                    openJournalHub(openToday: false)
-                }
-            )
         }
     }
 

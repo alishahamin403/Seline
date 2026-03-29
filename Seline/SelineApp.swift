@@ -106,16 +106,6 @@ struct SelineApp: App {
                     foregroundMaintenanceTask?.cancel()
                     foregroundWarmupTask?.cancel()
                     EmailService.shared.suspendForegroundRefresh()
-                    // App entered background - save current state
-                    // Save current conversation to history before app closes
-                    let chatStore = ChatSessionStore.shared
-                    if !chatStore.conversationHistory.isEmpty {
-                        chatStore.saveConversationToHistory()
-                        print("💾 Current conversation saved to history before background")
-                        Task {
-                            await chatStore.saveConversationToSupabase()
-                        }
-                    }
                     // Ask iOS for a fresh background sync window as the app backgrounds.
                     scheduleBackgroundRefresh()
                     LocationBackgroundTaskService.shared.scheduleLocationRefresh()
@@ -143,12 +133,6 @@ struct SelineApp: App {
 
             GeofenceManager.shared.setupGeofences(for: LocationsManager.shared.savedPlaces)
             await EmailService.shared.activateForegroundRefresh()
-            guard !Task.isCancelled else { return }
-
-            await ChatSessionStore.shared.loadConversationsFromSupabase()
-            guard !Task.isCancelled else { return }
-
-            await ChatSessionStore.shared.refreshTrackerThreadsFromSupabase()
             guard !Task.isCancelled else { return }
 
             updateUnreadBadge()

@@ -851,10 +851,9 @@ class GeminiService: ObservableObject {
         saveDailyUsage()
     }
 
-    /// Track request usage for Gemini globally and for chat-only limits when applicable
-    private func trackOperationUsage(tokens: Int, operationType: String?) async {
+    /// Track request usage for Gemini globally.
+    private func trackOperationUsage(tokens: Int, operationType _: String?) async {
         await trackTokenUsage(tokens: tokens)
-        await ChatUsageTracker.shared.trackTokenUsage(tokens: tokens, operationType: operationType)
     }
 
     /// Get remaining tokens for today
@@ -1878,115 +1877,5 @@ enum GeminiError: LocalizedError {
         case .apiError(let message):
             return "Gemini API error: \(message)"
         }
-    }
-}
-
-@MainActor
-final class ChatUsageTracker: ObservableObject {
-    static let shared = ChatUsageTracker()
-
-    @Published private(set) var dailyTokensUsed: Int = 0
-    @Published private(set) var dailyQueryCount: Int = 0
-    @Published private(set) var usagePercentage: Double = 0.0
-
-    private let dailyTokenLimitValue: Int = 1_500_000
-    private var lastResetDate: Date = Date()
-    private var notifiedThresholds: Set<Int> = []
-    private let thresholds = [50, 80, 90, 100]
-
-    private init() {
-        Task {
-            await loadDailyUsage()
-        }
-    }
-
-    var dailyTokenLimit: Int {
-        dailyTokenLimitValue
-    }
-
-    var dailyTokensRemaining: Int {
-        max(0, dailyTokenLimitValue - dailyTokensUsed)
-    }
-
-    var isLimitReached: Bool {
-        dailyTokensUsed >= dailyTokenLimitValue
-    }
-
-    nonisolated static func shouldTrack(operationType: String?) -> Bool {
-        guard let operationType else { return false }
-        return ["main_chat", "main_chat_stream", "conversation_summary"].contains(operationType)
-    }
-
-    func loadDailyUsage() async {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-
-        let tokensKey = getUserKey("chat_dailyTokensUsed")
-        let queryCountKey = getUserKey("chat_dailyQueryCount")
-        let dateKey = getUserKey("chat_lastResetDate")
-        let thresholdsKey = getUserKey("chat_notifiedThresholds")
-
-        if let savedDate = UserDefaults.standard.object(forKey: dateKey) as? Date {
-            lastResetDate = savedDate
-        }
-
-        if !calendar.isDate(lastResetDate, inSameDayAs: today) {
-            dailyTokensUsed = 0
-            dailyQueryCount = 0
-            usagePercentage = 0
-            notifiedThresholds = []
-            lastResetDate = today
-            saveDailyUsage()
-            return
-        }
-
-        dailyTokensUsed = UserDefaults.standard.integer(forKey: tokensKey)
-        dailyQueryCount = UserDefaults.standard.integer(forKey: queryCountKey)
-        let savedThresholds = UserDefaults.standard.array(forKey: thresholdsKey) as? [Int] ?? []
-        notifiedThresholds = Set(savedThresholds)
-        usagePercentage = min(100.0, (Double(dailyTokensUsed) / Double(dailyTokenLimitValue)) * 100.0)
-    }
-
-    func trackTokenUsage(tokens: Int, operationType: String?) async {
-        guard tokens > 0, Self.shouldTrack(operationType: operationType) else { return }
-
-        await loadDailyUsage()
-
-        dailyTokensUsed += tokens
-        dailyQueryCount += 1
-        usagePercentage = min(100.0, (Double(dailyTokensUsed) / Double(dailyTokenLimitValue)) * 100.0)
-
-        let crossedThresholds = thresholds.filter { threshold in
-            !notifiedThresholds.contains(threshold) && usagePercentage >= Double(threshold)
-        }
-
-        if !crossedThresholds.isEmpty {
-            notifiedThresholds.formUnion(crossedThresholds)
-        }
-
-        saveDailyUsage()
-
-        if let highestCrossedThreshold = crossedThresholds.max() {
-            await NotificationService.shared.scheduleChatUsageNotification(percentage: highestCrossedThreshold)
-        }
-    }
-
-    private func saveDailyUsage() {
-        let tokensKey = getUserKey("chat_dailyTokensUsed")
-        let queryCountKey = getUserKey("chat_dailyQueryCount")
-        let dateKey = getUserKey("chat_lastResetDate")
-        let thresholdsKey = getUserKey("chat_notifiedThresholds")
-
-        UserDefaults.standard.set(dailyTokensUsed, forKey: tokensKey)
-        UserDefaults.standard.set(dailyQueryCount, forKey: queryCountKey)
-        UserDefaults.standard.set(lastResetDate, forKey: dateKey)
-        UserDefaults.standard.set(Array(notifiedThresholds).sorted(), forKey: thresholdsKey)
-    }
-
-    private func getUserKey(_ key: String) -> String {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id.uuidString else {
-            return key
-        }
-        return "\(key)_\(userId)"
     }
 }
