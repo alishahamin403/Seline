@@ -4,6 +4,8 @@ import MapKit
 
 struct MapsViewNew: View, Searchable {
     var isVisible: Bool = true
+    var bottomTabSelection: Binding<PrimaryTab>? = nil
+    var showsAttachedBottomTabBar: Bool = false
 
     private enum HubPeriod: String, CaseIterable {
         case today = "Today"
@@ -91,6 +93,7 @@ struct MapsViewNew: View, Searchable {
     @State private var showNewFolderAlert = false  // Controls new folder alert
     @State private var newFolderName = ""  // Name for the new folder
     @State private var showingFolderSidebar = false
+    @State private var isSidebarOverlayVisible = false
     @State private var folderSidebarSearchText = ""
     @State private var showingRenameAlert = false  // Controls rename alert
     @State private var placeToRename: SavedPlace? = nil  // Place being renamed
@@ -98,9 +101,16 @@ struct MapsViewNew: View, Searchable {
     @FocusState private var isSearchFocused: Bool  // For search bar focus
     @Namespace private var mapsTabAnimation
 
-    init(isVisible: Bool = true, externalSelectedFolder: Binding<String?> = .constant(nil)) {
+    init(
+        isVisible: Bool = true,
+        externalSelectedFolder: Binding<String?> = .constant(nil),
+        bottomTabSelection: Binding<PrimaryTab>? = nil,
+        showsAttachedBottomTabBar: Bool = false
+    ) {
         self.isVisible = isVisible
         self._externalSelectedFolder = externalSelectedFolder
+        self.bottomTabSelection = bottomTabSelection
+        self.showsAttachedBottomTabBar = showsAttachedBottomTabBar
     }
 
     var body: some View {
@@ -314,6 +324,9 @@ struct MapsViewNew: View, Searchable {
                 }
                 syncFloatingActionState()
             }
+            .onChange(of: isSidebarOverlayVisible) { _ in
+                syncFloatingActionState()
+            }
             .onChange(of: selectedCategory) { _ in
                 syncFloatingActionState()
             }
@@ -334,6 +347,16 @@ struct MapsViewNew: View, Searchable {
     }
     
     // MARK: - Main Content View
+
+    @ViewBuilder
+    private func attachedBottomTabBar(bottomSafeAreaInset: CGFloat) -> some View {
+        if showsAttachedBottomTabBar, let bottomTabSelection {
+            SidebarAttachedBottomTabBar(
+                selectedTab: bottomTabSelection,
+                bottomSafeAreaInset: bottomSafeAreaInset
+            )
+        }
+    }
     
     private var mainContentView: some View {
         GeometryReader { geometry in
@@ -341,21 +364,28 @@ struct MapsViewNew: View, Searchable {
                 isPresented: $showingFolderSidebar,
                 canOpen: isVisible && selectedCategory == nil && !isLocationSearchActive,
                 sidebarWidth: min(336, geometry.size.width * 0.86),
-                colorScheme: colorScheme
+                colorScheme: colorScheme,
+                onOverlayVisibilityChanged: handleSidebarOverlayVisibilityChange
             ) {
-                ZStack {
-                    AppAmbientBackgroundLayer(
-                        colorScheme: colorScheme,
-                        variant: activeAmbientVariant
-                    )
+                VStack(spacing: 0) {
+                    ZStack {
+                        AppAmbientBackgroundLayer(
+                            colorScheme: colorScheme,
+                            variant: activeAmbientVariant
+                        )
 
-                    VStack(spacing: 0) {
-                        headerSection
-                        mainScrollContent
+                        VStack(spacing: 0) {
+                            headerSection
+                            mainScrollContent
+                        }
+
+                        folderOverlay
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    folderOverlay
+                    attachedBottomTabBar(bottomSafeAreaInset: geometry.safeAreaInsets.bottom)
                 }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             } sidebarContent: {
                 placesFolderSidebarContent
             }
@@ -2377,9 +2407,14 @@ struct MapsViewNew: View, Searchable {
 
     private func syncFloatingActionState() {
         floatingActionCoordinator.updateMaps(
-            isVisible: true,
+            isVisible: !isSidebarOverlayVisible,
             mode: floatingActionMode
         )
+    }
+
+    private func handleSidebarOverlayVisibilityChange(_ isVisible: Bool) {
+        guard isSidebarOverlayVisible != isVisible else { return }
+        isSidebarOverlayVisible = isVisible
     }
 
     private func performFloatingMapsAddAction() {

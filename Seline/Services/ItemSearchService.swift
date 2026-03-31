@@ -92,25 +92,11 @@ class ItemSearchService {
 
         // Iterate and search for product
         for (index, receipt) in sortedReceipts.enumerated() {
-            // Get the original note to access full content
-            guard let note = notes[receipt.noteId] else {
-                // If note not found, at least check the title
-                if receipt.title.lowercased().contains(lowerProductName) {
-                    print("   📌 Match #\(index + 1): Title match - '\(receipt.title)' on \(receipt.date)")
-                    return ItemSearchResult(
-                        receiptID: receipt.id,
-                        receiptDate: receipt.date,
-                        merchant: receipt.title,
-                        matchedProduct: productName,
-                        amount: receipt.amount,
-                        confidence: 0.8  // Lower confidence for merchant-only match
-                    )
-                }
-                continue
-            }
+            let legacyNoteID = receipt.legacyNoteId ?? receipt.noteId
+            let searchableContent = notes[legacyNoteID]?.content ?? receipt.searchableText
 
             // Check for exact match in receipt content (highest confidence)
-            if note.content.lowercased().contains(lowerProductName) {
+            if searchableContent.lowercased().contains(lowerProductName) {
                 print("   ✓ Match #\(index + 1): Content match - '\(receipt.title)' on \(receipt.date)")
                 return ItemSearchResult(
                     receiptID: receipt.id,
@@ -123,7 +109,7 @@ class ItemSearchService {
             }
 
             // Check for fuzzy match in receipt content
-            let fuzzyMatch = findFuzzyMatch(lowerProductName, in: note.content.lowercased())
+            let fuzzyMatch = findFuzzyMatch(lowerProductName, in: searchableContent.lowercased())
             if let matchedText = fuzzyMatch {
                 print("   ≈ Match #\(index + 1): Fuzzy match - '\(matchedText)' in '\(receipt.title)' on \(receipt.date)")
                 return ItemSearchResult(
@@ -195,37 +181,8 @@ class ItemSearchService {
             var foundMatch = false
             var matchedProduct = searchTerms.first ?? "unknown"
             var matchConfidence = 0.0
-
-            guard let note = notes[receipt.noteId] else {
-                // If note not found, check the title against all search terms
-                for searchTerm in lowerSearchTerms {
-                    if lowerTitle.contains(searchTerm) {
-                        print("   [\(index)] MERCHANT MATCH: '\(receipt.title)' contains '\(searchTerm)' on \(receipt.date)")
-                        matchedProduct = searchTerm
-                        matchConfidence = 0.7
-                        foundMatch = true
-                        break
-                    }
-                }
-
-                if !foundMatch {
-                    print("   [\(index)] NO MATCH: Note missing for '\(receipt.title)' (will skip content check)")
-                }
-
-                if foundMatch {
-                    results.append(ItemSearchResult(
-                        receiptID: receipt.id,
-                        receiptDate: receipt.date,
-                        merchant: receipt.title,
-                        matchedProduct: matchedProduct,
-                        amount: receipt.amount,
-                        confidence: matchConfidence
-                    ))
-                }
-                continue
-            }
-
-            let lowerContent = note.content.lowercased()
+            let legacyNoteID = receipt.legacyNoteId ?? receipt.noteId
+            let lowerContent = (notes[legacyNoteID]?.content ?? receipt.searchableText).lowercased()
 
             // Check for exact match in receipt content against all search terms
             for searchTerm in lowerSearchTerms {

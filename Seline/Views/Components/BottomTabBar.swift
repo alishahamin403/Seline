@@ -31,6 +31,21 @@ struct BottomTabBar: View {
     }
 }
 
+struct SidebarAttachedBottomTabBar: View {
+    @Binding var selectedTab: PrimaryTab
+    let bottomSafeAreaInset: CGFloat
+
+    private var verticalOffset: CGFloat {
+        bottomSafeAreaInset > 0 ? 10 : 4
+    }
+
+    var body: some View {
+        BottomTabBar(selectedTab: $selectedTab)
+            .padding(.top, -verticalOffset)
+            .offset(y: verticalOffset)
+    }
+}
+
 struct TabButton: View {
     let tab: PrimaryTab
     @Binding var selectedTab: PrimaryTab

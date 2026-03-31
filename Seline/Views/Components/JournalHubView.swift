@@ -5,6 +5,7 @@ struct JournalHubView: View {
     let onConsumeOpenToday: (() -> Void)?
     let scrollToHistoryOnAppear: Bool
     let onConsumeScrollToHistory: (() -> Void)?
+    let isEmbeddedInNotesShell: Bool
 
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var journalService = JournalService.shared
@@ -147,6 +148,18 @@ struct JournalHubView: View {
     }
 
     var body: some View {
+        Group {
+            if isEmbeddedInNotesShell {
+                journalContent
+            } else {
+                journalContent
+                    .navigationTitle("Journal")
+                    .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+    }
+
+    private var journalContent: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 14) {
@@ -162,8 +175,6 @@ struct JournalHubView: View {
                 .padding(.top, 8)
             }
             .background(Color.appBackground(colorScheme).ignoresSafeArea())
-            .navigationTitle("Journal")
-            .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 Task {
                     await journalService.ensureWeeklyRecapIfNeeded(forceRefreshCurrentWeek: true)
@@ -227,13 +238,19 @@ struct JournalHubView: View {
     private var heroCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Journal")
-                        .font(FontManager.geist(size: 28, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-
+                VStack(alignment: .leading, spacing: isEmbeddedInNotesShell ? 0 : 4) {
+                    if !isEmbeddedInNotesShell {
+                        Text("Journal")
+                            .font(FontManager.geist(size: 28, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+                    }
                     Text("Daily writing inside Notes")
-                        .font(FontManager.geist(size: 13, weight: .regular))
+                        .font(
+                            FontManager.geist(
+                                size: isEmbeddedInNotesShell ? 14 : 13,
+                                weight: isEmbeddedInNotesShell ? .medium : .regular
+                            )
+                        )
                         .foregroundColor(Color.appTextSecondary(colorScheme))
                 }
 

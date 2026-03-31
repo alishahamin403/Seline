@@ -2,25 +2,19 @@ import SwiftUI
 
 struct ReceiptDetailSheet: View {
     let receipt: ReceiptStat
-    let note: Note
-    let folderName: String
-    @State private var showNoteEditor = false
-    @Environment(\.colorScheme) var colorScheme
-    @Environment(\.dismiss) var dismiss
+    let note: Note?
 
-    private struct ParsedLineItem: Identifiable {
-        let id = UUID()
-        let title: String
-        let amount: Double
+    @State private var showNoteEditor = false
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
+
+    init(receipt: ReceiptStat, note: Note? = nil, folderName: String? = nil) {
+        self.receipt = receipt
+        self.note = note
     }
 
-    private var merchantName: String {
-        receipt.title
-            .split(separator: "-", maxSplits: 1)
-            .first
-            .map(String.init)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nonEmpty ?? receipt.title
+    private var legacyNote: Note? {
+        note ?? ReceiptManager.shared.note(for: receipt)
     }
 
     private var primaryText: Color {
@@ -39,34 +33,82 @@ struct ReceiptDetailSheet: View {
         colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
     }
 
-    private var extractedLineItems: [ParsedLineItem] {
-        let rawLines = note.content
-            .split(separator: "\n")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var displayFields: [ReceiptField] {
+        if !receipt.detailFields.isEmpty {
+            return receipt.detailFields
+        }
+
+        guard let legacyNote else { return [] }
+        let lines = legacyNote.content
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
-        var items: [ParsedLineItem] = []
-        for line in rawLines {
-            let lowered = line.lowercased()
-            if lowered.contains("subtotal") || lowered.contains("tax") || lowered.contains("tip") || lowered.contains("total") {
-                continue
+        return lines.compactMap { line in
+            guard let separator = line.range(of: ":") else { return nil }
+            let label = String(line[..<separator.lowerBound])
+                .replacingOccurrences(of: "*", with: "")
+                .replacingOccurrences(of: "📍", with: "")
+                .replacingOccurrences(of: "💳", with: "")
+                .replacingOccurrences(of: "💰", with: "")
+                .replacingOccurrences(of: "📊", with: "")
+                .replacingOccurrences(of: "💵", with: "")
+                .replacingOccurrences(of: "✅", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(line[separator.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty, !value.isEmpty else { return nil }
+
+            let kind: ReceiptFieldKind
+            if label.lowercased().contains("time") {
+                kind = .time
+            } else if CurrencyParser.extractAmount(from: value) > 0 {
+                kind = .currency
+            } else {
+                kind = .text
             }
 
-            let amount = CurrencyParser.extractAmount(from: line)
-            guard amount > 0 else { continue }
-
-            let normalizedTitle = line.replacingOccurrences(
-                of: "\\$?\\d+[\\.,]?\\d*",
-                with: "",
-                options: .regularExpression
-            )
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            let title = normalizedTitle.isEmpty ? "Line item" : normalizedTitle
-            items.append(ParsedLineItem(title: title, amount: amount))
-            if items.count == 6 { break }
+            return ReceiptField(label: label, value: value, kind: kind)
         }
-        return items
+    }
+
+    private var extractedLineItems: [ReceiptLineItem] {
+        if !receipt.lineItems.isEmpty {
+            return receipt.lineItems
+        }
+
+        guard let legacyNote else { return [] }
+        let lines = legacyNote.content
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let ignored = ["subtotal", "tax", "tip", "total", "merchant", "payment", "summary"]
+        return lines.compactMap { line in
+            let lowered = line.lowercased()
+            guard !ignored.contains(where: { lowered.contains($0) }) else { return nil }
+            let amount = CurrencyParser.extractAmount(from: line)
+            guard amount > 0 else { return nil }
+
+            let title = line
+                .replacingOccurrences(of: "•", with: "")
+                .replacingOccurrences(of: "\\$?\\d+[\\.,]?\\d*", with: "", options: .regularExpression)
+                .replacingOccurrences(of: "-", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !title.isEmpty else { return nil }
+            return ReceiptLineItem(title: title, amount: amount)
+        }
+    }
+
+    private var imageURLs: [String] {
+        if !receipt.imageUrls.isEmpty {
+            return receipt.imageUrls
+        }
+        return legacyNote?.imageUrls ?? []
+    }
+
+    private var supportsLegacyNoteActions: Bool {
+        receipt.source == .legacyFallback && legacyNote != nil
     }
 
     var body: some View {
@@ -76,11 +118,18 @@ struct ReceiptDetailSheet: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 12) {
-                    headerCard
-                    extractedItemsCard
+                    summaryCard
+                    if !displayFields.isEmpty {
+                        keyInfoCard
+                    }
+                    lineItemsCard
                     receiptImageCard
-                    rawContentCard
-                    actionsCard
+                    if supportsLegacyNoteActions {
+                        rawContentCard
+                        actionsCard
+                    } else {
+                        closeCard
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 10)
@@ -88,19 +137,21 @@ struct ReceiptDetailSheet: View {
             }
         }
         .sheet(isPresented: $showNoteEditor) {
-            NavigationView {
-                NoteEditView(
-                    note: note,
-                    isPresented: Binding<Bool>(
-                        get: { showNoteEditor },
-                        set: { showNoteEditor = $0 }
+            if let legacyNote {
+                NavigationView {
+                    NoteEditView(
+                        note: legacyNote,
+                        isPresented: Binding<Bool>(
+                            get: { showNoteEditor },
+                            set: { showNoteEditor = $0 }
+                        )
                     )
-                )
+                }
             }
         }
     }
 
-    private var headerCard: some View {
+    private var summaryCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Merchant")
                 .font(FontManager.geist(size: 11, weight: .semibold))
@@ -108,7 +159,7 @@ struct ReceiptDetailSheet: View {
 
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(merchantName)
+                    Text(receipt.merchant)
                         .font(FontManager.geist(size: 28, weight: .bold))
                         .foregroundColor(primaryText)
                         .lineLimit(2)
@@ -137,23 +188,45 @@ struct ReceiptDetailSheet: View {
                             .fill(colorScheme == .dark ? Color.white : Color.emailLightChipIdle)
                     )
 
-                Text(folderName)
-                    .font(FontManager.geist(size: 12, weight: .medium))
-                    .foregroundColor(secondaryText)
+                if receipt.source != .legacyFallback {
+                    Text(receipt.source == .migratedLegacy ? "Migrated" : "Native")
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(secondaryText)
+                }
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(cardColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(cardBorder, lineWidth: 1)
-                )
-        )
+        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
     }
 
-    private var extractedItemsCard: some View {
+    private var keyInfoCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Key Info")
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(secondaryText)
+
+            ForEach(displayFields) { field in
+                HStack(spacing: 10) {
+                    Text(field.label)
+                        .font(FontManager.geist(size: 12, weight: .medium))
+                        .foregroundColor(secondaryText)
+                    Spacer(minLength: 8)
+                    Text(field.value)
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(primaryText)
+                        .multilineTextAlignment(.trailing)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightChipIdle.opacity(0.55))
+                )
+            }
+        }
+        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
+    }
+
+    private var lineItemsCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Extracted Line Items")
                 .font(FontManager.geist(size: 12, weight: .semibold))
@@ -171,9 +244,11 @@ struct ReceiptDetailSheet: View {
                             .foregroundColor(primaryText)
                             .lineLimit(1)
                         Spacer()
-                        Text(CurrencyParser.formatAmount(item.amount))
-                            .font(FontManager.geist(size: 13, weight: .semibold))
-                            .foregroundColor(primaryText)
+                        if let amount = item.amount {
+                            Text(CurrencyParser.formatAmount(amount))
+                                .font(FontManager.geist(size: 13, weight: .semibold))
+                                .foregroundColor(primaryText)
+                        }
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
@@ -184,20 +259,12 @@ struct ReceiptDetailSheet: View {
                 }
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(cardColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(cardBorder, lineWidth: 1)
-                )
-        )
+        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
     }
 
     @ViewBuilder
     private var receiptImageCard: some View {
-        if let firstImageURL = note.imageUrls.first, let url = URL(string: firstImageURL) {
+        if let firstImageURL = imageURLs.first, let url = URL(string: firstImageURL) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Receipt Image")
                     .font(FontManager.geist(size: 12, weight: .semibold))
@@ -226,15 +293,7 @@ struct ReceiptDetailSheet: View {
                     }
                 }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(cardColor)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(cardBorder, lineWidth: 1)
-                    )
-            )
+            .cardShell(cardColor: cardColor, cardBorder: cardBorder)
         }
     }
 
@@ -244,7 +303,7 @@ struct ReceiptDetailSheet: View {
                 .font(FontManager.geist(size: 12, weight: .semibold))
                 .foregroundColor(secondaryText)
 
-            Text(note.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No content" : note.content)
+            Text(legacyNote?.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? (legacyNote?.content ?? "") : "No content")
                 .font(FontManager.geist(size: 12, weight: .regular))
                 .foregroundColor(primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -254,15 +313,7 @@ struct ReceiptDetailSheet: View {
                         .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightChipIdle.opacity(0.55))
                 )
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(cardColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(cardBorder, lineWidth: 1)
-                )
-        )
+        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
     }
 
     private var actionsCard: some View {
@@ -280,7 +331,7 @@ struct ReceiptDetailSheet: View {
                             .fill(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
                     )
             }
-            .buttonStyle(PlainButtonStyle())
+            .buttonStyle(.plain)
 
             Button(action: {
                 dismiss()
@@ -295,17 +346,25 @@ struct ReceiptDetailSheet: View {
                             .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
                     )
             }
-            .buttonStyle(PlainButtonStyle())
+            .buttonStyle(.plain)
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(cardColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(cardBorder, lineWidth: 1)
+        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
+    }
+
+    private var closeCard: some View {
+        Button(action: { dismiss() }) {
+            Text("Close")
+                .font(FontManager.geist(size: 12, weight: .semibold))
+                .foregroundColor(primaryText)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
                 )
-        )
+        }
+        .buttonStyle(.plain)
+        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
     }
 
     private func formattedDate(_ date: Date) -> String {
@@ -316,9 +375,16 @@ struct ReceiptDetailSheet: View {
     }
 }
 
-private extension String {
-    var nonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+private extension View {
+    func cardShell(cardColor: Color, cardBorder: Color) -> some View {
+        padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(cardColor)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18)
+                            .stroke(cardBorder, lineWidth: 1)
+                    )
+            )
     }
 }

@@ -1777,6 +1777,11 @@ class GeminiService: ObservableObject {
         return try await OpenAIService.shared.analyzeReceiptImage(image)
     }
 
+    func analyzeReceiptImageDraft(_ image: UIImage) async throws -> ReceiptDraft {
+        print("📸 Using OpenAI structured receipt analysis")
+        return try await OpenAIService.shared.analyzeReceiptImageDraft(image)
+    }
+
     /// Categorize receipt
     func categorizeReceipt(title: String) async throws -> String {
         let systemPrompt = """

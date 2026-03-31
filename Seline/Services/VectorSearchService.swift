@@ -986,12 +986,20 @@ class VectorSearchService: ObservableObject {
             return .note(id: noteId, title: title, snippet: String(result.content.prefix(120)), folder: folder)
 
         case .receipt:
-            guard let noteId = UUID(uuidString: result.documentId) else { return nil }
+            guard let receiptId = UUID(uuidString: result.documentId) else { return nil }
             let title = result.title?.replacingOccurrences(of: "Receipt: ", with: "") ?? "Receipt"
             let amount = metadataDouble(result.metadata?["amount"]) ?? extractCurrencyAmount(from: result.content)
             let date = parseISODate(result.metadata?["date"])
             let category = result.metadata?["category"] as? String
-            return .receipt(id: noteId, title: title, amount: amount, date: date, category: category)
+            let legacyNoteId = (result.metadata?["legacy_note_id"] as? String).flatMap(UUID.init(uuidString:))
+            return .receipt(
+                id: receiptId,
+                title: title,
+                amount: amount,
+                date: date,
+                category: category,
+                legacyNoteId: legacyNoteId
+            )
 
         case .location:
             guard let placeId = UUID(uuidString: result.documentId) else { return nil }
@@ -1302,39 +1310,31 @@ class VectorSearchService: ObservableObject {
 
         // Receipts (notes under receipts folder)
         if typeFilter == nil || typeFilter?.contains(.receipt) == true {
-            let notesManager = NotesManager.shared
-            let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+            await ReceiptManager.shared.ensureLoaded()
+            let receiptStats = await MainActor.run { ReceiptManager.shared.receipts }
 
-            func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
-                guard let folderId else { return false }
-                if folderId == receiptsFolderId { return true }
-                if let folder = notesManager.folders.first(where: { $0.id == folderId }),
-                   let parentId = folder.parentFolderId {
-                    return isUnderReceiptsFolderHierarchy(folderId: parentId)
-                }
-                return false
-            }
-
-            let receiptNotes = notesManager.notes.filter { isUnderReceiptsFolderHierarchy(folderId: $0.folderId) }
-            for note in receiptNotes {
-                var content = "\(note.title)\n\n\(note.content)"
-                let aliases = memoryAliases(for: [note.title], memories: memories)
+            for receipt in receiptStats {
+                var content = receipt.searchableText
+                let aliases = memoryAliases(for: [receipt.title, receipt.merchant], memories: memories)
                 if !aliases.isEmpty {
                     content += "\nAliases: \(aliases.joined(separator: ", "))"
                 }
                 let s = score(for: content)
                 if s > 0 {
                     let metadata: [String: Any] = [
-                        "date": iso.string(from: note.dateCreated),
-                        "merchant": note.title,
+                        "date": iso.string(from: receipt.date),
+                        "merchant": receipt.merchant,
+                        "category": receipt.category,
+                        "amount": receipt.amount,
+                        "legacy_note_id": receipt.legacyNoteId?.uuidString ?? NSNull(),
                         "aliases": aliases.isEmpty ? NSNull() : aliases
                     ]
                     if dateRange == nil || matchesDateRange(metadata: metadata, dateRange: dateRange!) {
                         let boosted = blendWithRecency(baseScore: s, metadata: metadata)
                         results.append(SearchResult(
                             documentType: .receipt,
-                            documentId: note.id.uuidString,
-                            title: "Receipt: \(note.title)",
+                            documentId: receipt.id.uuidString,
+                            title: "Receipt: \(receipt.title)",
                             content: content,
                             metadata: metadata,
                             similarity: boosted
@@ -2922,66 +2922,55 @@ class VectorSearchService: ObservableObject {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return 0 }
 
         do {
-            // Receipts source-of-truth is Notes under the Receipts folder hierarchy.
-            let notesManager = NotesManager.shared
-            let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+            await ReceiptManager.shared.ensureLoaded()
+            let allReceipts = ReceiptManager.shared.receipts
 
-            func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
-                guard let folderId else { return false }
-                if folderId == receiptsFolderId { return true }
-                if let folder = notesManager.folders.first(where: { $0.id == folderId }),
-                   let parentId = folder.parentFolderId {
-                    return isUnderReceiptsFolderHierarchy(folderId: parentId)
-                }
-                return false
-            }
+            guard !allReceipts.isEmpty else { return 0 }
 
-            let allReceiptNotes = notesManager.notes.filter { note in
-                isUnderReceiptsFolderHierarchy(folderId: note.folderId)
-            }
-
-            guard !allReceiptNotes.isEmpty else { return 0 }
-
-            print("💵 Receipts: Syncing all \(allReceiptNotes.count) receipts (no date limit)")
+            print("💵 Receipts: Syncing all \(allReceipts.count) unified receipts (no date limit)")
             let memories = await fetchAllMemories()
 
             let iso = ISO8601DateFormatter()
             let monthYearFormatter = DateFormatter()
             monthYearFormatter.dateFormat = "MMMM yyyy"
 
-            let documents: [[String: Any]] = allReceiptNotes.map { note in
-                let date = notesManager.extractFullDateFromTitle(note.title) ?? note.dateCreated
-                let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
-                let category = ReceiptCategorizationService.shared.quickCategorizeReceipt(title: note.title, content: note.content) ?? "Other"
+            let documents: [[String: Any]] = allReceipts.map { receipt in
+                let date = receipt.date
+                let amount = receipt.amount
+                let category = receipt.category
+                let legacyContent = ReceiptManager.shared.note(for: receipt)?.content ?? ""
                 
                 var content = """
-                Receipt: \(note.title)
+                Receipt: \(receipt.title)
                 Total: $\(String(format: "%.2f", amount))
                 Date: \(DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .none))
                 Category: \(category)
                 Month: \(monthYearFormatter.string(from: date))
                 """
                 
-                if !note.content.isEmpty {
-                    content += "\n\nDetails:\n\(note.content.prefix(900))"
+                if !legacyContent.isEmpty {
+                    content += "\n\nLegacy Details:\n\(legacyContent.prefix(900))"
+                } else if !receipt.searchableText.isEmpty {
+                    content += "\n\nDetails:\n\(receipt.searchableText.prefix(900))"
                 }
 
-                let aliases = memoryAliases(for: [note.title], memories: memories)
+                let aliases = memoryAliases(for: [receipt.title, receipt.merchant], memories: memories)
                 if !aliases.isEmpty {
                     content += "\nAliases: \(aliases.joined(separator: ", "))"
                 }
                 
                 return [
                     "document_type": "receipt",
-                    "document_id": note.id.uuidString,
-                    "title": "Receipt: \(note.title)",
+                    "document_id": receipt.id.uuidString,
+                    "title": "Receipt: \(receipt.title)",
                     "content": content,
                     "metadata": [
-                        "merchant": note.title,
+                        "merchant": receipt.merchant,
                         "amount": amount,
                         "category": category,
                         "date": iso.string(from: date),
                         "month_year": monthYearFormatter.string(from: date),
+                        "legacy_note_id": receipt.legacyNoteId?.uuidString ?? NSNull(),
                         "aliases": aliases.isEmpty ? NSNull() : aliases
                     ] as [String: Any]
                 ]

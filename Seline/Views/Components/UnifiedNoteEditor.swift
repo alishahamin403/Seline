@@ -746,7 +746,7 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             // Add visual checkbox overlays (after layout is complete)
             addCheckboxOverlays(in: textView, text: text)
 
-            // Detect and highlight dates with calendar icon
+            // Keep date mentions as plain text across notes/journal.
             detectAndShowDateIcons(in: textView, text: text)
         }
 
@@ -755,7 +755,7 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             guard let text = textView.text else { return }
             // Keep checklist checkboxes stable while typing.
             // Removing/re-adding checkbox overlays on each keystroke causes visible flicker.
-            // Date chips can still move as content shifts, so clear those eagerly.
+            // Clear any legacy date chips as content shifts.
             textView.subviews
                 .filter { $0.tag == 888 }
                 .forEach { $0.removeFromSuperview() }
@@ -897,144 +897,9 @@ struct UnifiedNoteEditor: UIViewRepresentable {
             applyProgrammaticEdit(updatedText, in: textView, cursorPosition: cursorLocation)
         }
         
-        // MARK: - Date Detection with Smart Chip/Pill Overlay
-        private func detectAndShowDateIcons(in textView: UITextView, text: String) {
-            // Remove existing date chips
-            textView.subviews.filter { $0.tag == 888 }.forEach { $0.removeFromSuperview() }
-            
-            // Skip date highlighting for receipt notes
-            if parent.isReceiptNote {
-                return
-            }
-            
-            guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else { return }
-            let matches = detector.matches(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
-            
-            guard !matches.isEmpty else { return }
-            
-            // Group matches by line to merge adjacent date+time detections
-            var lineMatches: [String: [(match: NSTextCheckingResult, date: Date)]] = [:]
-            
-            for match in matches {
-                guard let date = match.date,
-                      date >= Calendar.current.startOfDay(for: Date()) else { continue }
-                
-                guard let textRange = Range(match.range, in: text) else { continue }
-                
-                // Get the matched text
-                let matchedText = String(text[textRange]).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                // Skip generic weekday names alone - they're too vague for event creation
-                let weekdayOnlyPatterns = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-                                           "mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-                if weekdayOnlyPatterns.contains(matchedText) {
-                    continue
-                }
-                
-                // Also skip if it's just "today", "tomorrow", "next week" without a time
-                let vaguePatterns = ["today", "tomorrow", "next week", "this week"]
-                if vaguePatterns.contains(matchedText) {
-                    continue
-                }
-                
-                // Extract context (full line containing the date)
-                let lineStart = text[..<textRange.lowerBound].lastIndex(of: "\n").map { text.index(after: $0) } ?? text.startIndex
-                let lineEnd = text[textRange.upperBound...].firstIndex(of: "\n") ?? text.endIndex
-                let fullLine = String(text[lineStart..<lineEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                // Group by line
-                if lineMatches[fullLine] == nil {
-                    lineMatches[fullLine] = []
-                }
-                lineMatches[fullLine]?.append((match: match, date: date))
-            }
-            
-            // Create one chip per line, using the best date (prefer one with time info)
-            for (fullLine, matchesOnLine) in lineMatches {
-                // Skip if this context was already dismissed
-                if dismissedContexts.contains(fullLine) { continue }
-                
-                guard let firstMatch = matchesOnLine.first else { continue }
-                
-                // Find the best date - prefer later matches as they often have time info
-                // Or prefer the date that has a more specific time (not 12:00 PM noon)
-                var bestMatch = firstMatch
-                for matchInfo in matchesOnLine {
-                    let calendar = Calendar.current
-                    let hour = calendar.component(.hour, from: matchInfo.date)
-                    let minute = calendar.component(.minute, from: matchInfo.date)
-                    
-                    // If this match has a non-noon time, prefer it
-                    if hour != 12 || minute != 0 {
-                        bestMatch = matchInfo
-                        break
-                    }
-                    // Or if this is a later match (likely time portion), update the first match's date with this time
-                    if matchInfo.match.range.location > firstMatch.match.range.location {
-                        // Combine dates: use first match's date with this match's time
-                        let firstComponents = calendar.dateComponents([.year, .month, .day], from: firstMatch.date)
-                        let timeComponents = calendar.dateComponents([.hour, .minute], from: matchInfo.date)
-                        
-                        if let combinedDate = calendar.date(from: DateComponents(
-                            year: firstComponents.year,
-                            month: firstComponents.month,
-                            day: firstComponents.day,
-                            hour: timeComponents.hour,
-                            minute: timeComponents.minute
-                        )) {
-                            bestMatch = (match: firstMatch.match, date: combinedDate)
-                        }
-                    }
-                }
-                
-                // Get position for the chip (at the start of first match on line)
-                let glyphRange = textView.layoutManager.glyphRange(forCharacterRange: firstMatch.match.range, actualCharacterRange: nil)
-                let rect = textView.layoutManager.boundingRect(forGlyphRange: glyphRange, in: textView.textContainer)
-                
-                // Create the Smart Chip container
-                let chipView = createDateChip(date: bestMatch.date, context: fullLine, rect: rect, textView: textView)
-                chipView.tag = 888
-                textView.addSubview(chipView)
-            }
-            
-            // Also apply BLUE underline to the date text to indicate it's interactive (more noticeable)
-            let attributedString = NSMutableAttributedString(attributedString: textView.attributedText)
-            
-            for match in matches {
-                guard let date = match.date,
-                      date >= Calendar.current.startOfDay(for: Date()) else { continue }
-                
-                guard let textRange = Range(match.range, in: text) else { continue }
-                
-                // Get the matched text and apply same filters as chip creation
-                let matchedText = String(text[textRange]).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                let weekdayOnlyPatterns = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-                                           "mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-                if weekdayOnlyPatterns.contains(matchedText) { continue }
-                
-                let vaguePatterns = ["today", "tomorrow", "next week", "this week"]
-                if vaguePatterns.contains(matchedText) { continue }
-                
-                // Get the full line for context
-                let lineStart = text[..<textRange.lowerBound].lastIndex(of: "\n").map { text.index(after: $0) } ?? text.startIndex
-                let lineEnd = text[textRange.upperBound...].firstIndex(of: "\n") ?? text.endIndex
-                let fullLine = String(text[lineStart..<lineEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                // Add BLUE underline and color to make dates noticeable
-                attributedString.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
-                attributedString.addAttribute(.underlineColor, value: UIColor.systemBlue, range: match.range)
-                attributedString.addAttribute(.foregroundColor, value: UIColor.systemBlue, range: match.range)
-                
-                // Add a tappable link to toggle chip visibility
-                let toggleURL = URL(string: "datetoggle://\(date.timeIntervalSince1970)?\(fullLine.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")")!
-                attributedString.addAttribute(.link, value: toggleURL, range: match.range)
-            }
-            
-            // Apply with saved selection
-            let savedSelection = textView.selectedRange
-            textView.attributedText = attributedString
-            textView.selectedRange = savedSelection
+        // MARK: - Date Mentions
+        private func detectAndShowDateIcons(in textView: UITextView, text _: String) {
+            dismissAllDateChips(in: textView)
         }
         
         private func createDateChip(date: Date, context: String, rect: CGRect, textView: UITextView) -> UIView {

@@ -26,6 +26,7 @@ struct SelineApp: App {
     @StateObject private var locationsManager = LocationsManager.shared
     @StateObject private var emailService = EmailService.shared
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var receiptManager = ReceiptManager.shared
     @StateObject private var locationService = LocationService.shared
     @StateObject private var weatherService = WeatherService.shared
     @StateObject private var navigationService = NavigationService.shared
@@ -90,6 +91,7 @@ struct SelineApp: App {
                 .environmentObject(locationsManager)
                 .environmentObject(emailService)
                 .environmentObject(notesManager)
+                .environmentObject(receiptManager)
                 .environmentObject(locationService)
                 .environmentObject(weatherService)
                 .environmentObject(navigationService)

@@ -21,6 +21,13 @@ struct ExpenseQuery {
     }
 }
 
+private extension String {
+    var nonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 class OpenAIService: ObservableObject {
     static let shared = OpenAIService()
 
@@ -1745,7 +1752,38 @@ class OpenAIService: ObservableObject {
         return formatter.string(from: date)
     }
 
+    private struct ReceiptVisionFieldPayload: Codable {
+        let label: String?
+        let value: String?
+        let kind: String?
+    }
+
+    private struct ReceiptVisionLineItemPayload: Codable {
+        let title: String?
+        let amount: Double?
+        let quantity: Double?
+    }
+
+    private struct ReceiptVisionPayload: Codable {
+        let merchant: String?
+        let total: Double?
+        let date: String?
+        let time: String?
+        let category: String?
+        let subtotal: Double?
+        let tax: Double?
+        let tip: Double?
+        let paymentMethod: String?
+        let detailFields: [ReceiptVisionFieldPayload]?
+        let lineItems: [ReceiptVisionLineItemPayload]?
+    }
+
     func analyzeReceiptImage(_ image: UIImage) async throws -> (title: String, content: String) {
+        let draft = try await analyzeReceiptImageDraft(image)
+        return (draft.resolvedTitle, legacyFormattedReceipt(from: draft))
+    }
+
+    func analyzeReceiptImageDraft(_ image: UIImage) async throws -> ReceiptDraft {
         await enforceRateLimit()
 
         guard let url = URL(string: baseURL) else {
@@ -1759,39 +1797,32 @@ class OpenAIService: ObservableObject {
         let base64Image = imageData.base64EncodedString()
 
         let systemPrompt = """
-        You are a helpful assistant that analyzes receipt images and extracts key information in a clean, organized format.
+        You extract structured receipt data from images.
+        Always return valid JSON only. No markdown, no prose, no code fences.
         """
 
         let userPrompt = """
-        Analyze this image. If it's a receipt, extract ALL available details in the format below. If not, briefly describe what you see.
+        Analyze this image and return a JSON object with this exact shape:
+        {
+          "merchant": "string",
+          "total": 0,
+          "date": "ISO-8601 date string if visible, otherwise empty string",
+          "time": "time string if visible, otherwise empty string",
+          "category": "string if obvious, otherwise empty string",
+          "subtotal": 0,
+          "tax": 0,
+          "tip": 0,
+          "paymentMethod": "string if visible, otherwise empty string",
+          "detailFields": [{"label":"string","value":"string","kind":"text|currency|date|time|datetime"}],
+          "lineItems": [{"title":"string","amount":0,"quantity":0}]
+        }
 
-        IMPORTANT FORMATTING RULES:
-        - For the date in the title, use "Month DD, YYYY" format (e.g., "December 15, 2024"). Always include full 4-digit year.
-        - ALL currency amounts must be formatted to exactly 2 decimal places (e.g., $50.00, $10.50, not $10.5 or $50)
-        - Include ALL items from the receipt, don't omit anything
-        - Include any additional info available (discounts, loyalty points, rewards, store numbers, phone numbers, register info, etc.)
-
-        Format your response EXACTLY as:
-        TITLE: [Business Name] - [Date in "Month DD, YYYY" format]
-        CONTENT:
-        📍 **Merchant:** [Business Name]
-        **Time:** [Time if visible, otherwise "N/A"]
-
-        **Items Purchased:**
-        • [Item 1] - $[Amount with 2 decimals]
-        • [Item 2] - $[Amount with 2 decimals]
-        • [Item 3] - $[Amount with 2 decimals]
-        • [Add ALL items as bullet points]
-
-        **Summary:**
-        💰 Subtotal: $[Amount with 2 decimals]
-        📊 Tax: $[Amount with 2 decimals]
-        💵 Tip: $[Amount with 2 decimals if visible, otherwise "N/A"]
-        ✅ **Total: $[Amount with 2 decimals]**
-
-        💳 **Payment:** [Payment method if visible]
-
-        **Additional Info:** [Include any other relevant details like discount codes, loyalty rewards, store location, phone number, register number, or other receipt information]
+        Rules:
+        - If the image is a receipt, extract as much structured data as possible.
+        - Keep unavailable values empty or omitted.
+        - Use numeric JSON values for money.
+        - Include line items when visible.
+        - Keep detailFields focused on useful user-facing receipt facts.
         """
 
         let requestBody: [String: Any] = [
@@ -1817,7 +1848,7 @@ class OpenAIService: ObservableObject {
                     ]
                 ]
             ],
-            "max_tokens": 1000,
+            "max_tokens": 900,
             "temperature": 0.1
         ]
 
@@ -1861,18 +1892,198 @@ class OpenAIService: ObservableObject {
                 throw SummaryError.decodingError
             }
 
-            // Parse the response to extract title and content
-            let (title, receiptContent) = parseReceiptResponse(content)
-
-            // Post-process to fix merchant name and format amounts
-            let processedContent = postProcessReceiptContent(receiptContent, withMerchantFromTitle: title)
-            return (title, processedContent)
+            return await parseReceiptDraftResponse(content)
 
         } catch let error as SummaryError {
             throw error
         } catch {
             throw SummaryError.networkError(error)
         }
+    }
+
+    @MainActor
+    private func parseReceiptDraftResponse(_ content: String) -> ReceiptDraft {
+        let cleaned = content
+            .replacingOccurrences(of: "```json", with: "")
+            .replacingOccurrences(of: "```", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let data = cleaned.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(ReceiptVisionPayload.self, from: data) else {
+            return fallbackDraft(fromLegacyResponse: cleaned)
+        }
+
+        let merchant = payload.merchant?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? payload.merchant!.trimmingCharacters(in: .whitespacesAndNewlines)
+            : "Receipt"
+        let parsedDate = parseReceiptDate(payload.date) ?? Date()
+        let parsedTime = parseReceiptTime(payload.time, using: parsedDate)
+        let detailFields = (payload.detailFields ?? []).compactMap { field -> ReceiptField? in
+            guard
+                let label = field.label?.trimmingCharacters(in: .whitespacesAndNewlines),
+                let value = field.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !label.isEmpty,
+                !value.isEmpty
+            else {
+                return nil
+            }
+
+            let kind = ReceiptFieldKind(rawValue: field.kind ?? "") ?? .text
+            return ReceiptField(label: label, value: value, kind: kind)
+        }
+        let lineItems = (payload.lineItems ?? []).compactMap { item -> ReceiptLineItem? in
+            guard let title = item.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+                return nil
+            }
+            return ReceiptLineItem(title: title, amount: item.amount, quantity: item.quantity)
+        }
+        let category = payload.category?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? payload.category!.trimmingCharacters(in: .whitespacesAndNewlines)
+            : (ReceiptCategorizationService.shared.quickCategorizeReceipt(title: merchant, content: lineItems.map(\.title).joined(separator: " ")) ?? "Other")
+
+        return ReceiptDraft(
+            merchant: merchant,
+            total: payload.total ?? 0,
+            transactionDate: parsedDate,
+            transactionTime: parsedTime,
+            category: category,
+            subtotal: payload.subtotal,
+            tax: payload.tax,
+            tip: payload.tip,
+            paymentMethod: payload.paymentMethod?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty,
+            detailFields: detailFields,
+            lineItems: lineItems
+        )
+    }
+
+    @MainActor
+    private func fallbackDraft(fromLegacyResponse content: String) -> ReceiptDraft {
+        let (title, legacyContent) = parseReceiptResponse(content)
+        let merchant = title.components(separatedBy: " - ").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Receipt"
+        let lines = legacyContent.components(separatedBy: .newlines).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+        let total = CurrencyParser.extractAmount(from: legacyContent)
+        let date = parseReceiptDate(title) ?? Date()
+
+        let detailFields = lines.compactMap { line -> ReceiptField? in
+            guard let separator = line.range(of: ":") else { return nil }
+            let label = String(line[..<separator.lowerBound]).replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(line[separator.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty, !value.isEmpty else { return nil }
+            return ReceiptField(label: label, value: value)
+        }
+
+        let lineItems = lines.compactMap { line -> ReceiptLineItem? in
+            let amount = CurrencyParser.extractAmount(from: line)
+            guard amount > 0, line.lowercased().contains("•") else { return nil }
+            let name = line
+                .replacingOccurrences(of: "•", with: "")
+                .replacingOccurrences(of: "\\$?\\d+[\\.,]?\\d*", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return nil }
+            return ReceiptLineItem(title: name, amount: amount)
+        }
+
+        return ReceiptDraft(
+            merchant: merchant,
+            total: total,
+            transactionDate: date,
+            transactionTime: nil,
+            category: ReceiptCategorizationService.shared.quickCategorizeReceipt(title: merchant, content: legacyContent) ?? "Other",
+            detailFields: detailFields,
+            lineItems: lineItems
+        )
+    }
+
+    private func legacyFormattedReceipt(from draft: ReceiptDraft) -> String {
+        var lines: [String] = []
+        lines.append("📍 **Merchant:** \(draft.resolvedMerchant)")
+        if let transactionTime = draft.transactionTime {
+            lines.append("**Time:** \(FormatterCache.shortTime.string(from: transactionTime))")
+        }
+
+        if !draft.lineItems.isEmpty {
+            lines.append("")
+            lines.append("**Items Purchased:**")
+            for item in draft.lineItems {
+                if let amount = item.amount {
+                    lines.append("• \(item.title) - \(CurrencyParser.formatAmount(amount))")
+                } else {
+                    lines.append("• \(item.title)")
+                }
+            }
+        }
+
+        lines.append("")
+        lines.append("**Summary:**")
+        if let subtotal = draft.subtotal {
+            lines.append("💰 Subtotal: \(CurrencyParser.formatAmount(subtotal))")
+        }
+        if let tax = draft.tax {
+            lines.append("📊 Tax: \(CurrencyParser.formatAmount(tax))")
+        }
+        if let tip = draft.tip {
+            lines.append("💵 Tip: \(CurrencyParser.formatAmount(tip))")
+        }
+        lines.append("✅ **Total: \(CurrencyParser.formatAmount(draft.total))**")
+
+        if let paymentMethod = draft.paymentMethod?.nonEmpty {
+            lines.append("")
+            lines.append("💳 **Payment:** \(paymentMethod)")
+        }
+
+        if !draft.detailFields.isEmpty {
+            let excluded = Set(["subtotal", "tax", "tip", "payment", "time"])
+            let extras = draft.detailFields.filter { !excluded.contains($0.label.lowercased()) }
+            if !extras.isEmpty {
+                lines.append("")
+                lines.append("**Additional Info:**")
+                lines.append(extras.map { "\($0.label): \($0.value)" }.joined(separator: " • "))
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func parseReceiptDate(_ raw: String?) -> Date? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+
+        let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: raw) {
+            return date
+        }
+
+        let formats = ["MMMM d, yyyy", "MMM d, yyyy", "yyyy-MM-dd", "MM/dd/yyyy", "M/d/yyyy"]
+        for format in formats {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = format
+            if let date = formatter.date(from: raw) {
+                return date
+            }
+        }
+
+        return nil
+    }
+
+    private func parseReceiptTime(_ raw: String?, using date: Date) -> Date? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        let formats = ["h:mm a", "hh:mm a", "H:mm", "HH:mm"]
+        for format in formats {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = format
+            if let time = formatter.date(from: raw) {
+                let calendar = Calendar.current
+                let timeComponents = calendar.dateComponents([.hour, .minute], from: time)
+                var dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
+                dateComponents.hour = timeComponents.hour
+                dateComponents.minute = timeComponents.minute
+                return calendar.date(from: dateComponents)
+            }
+        }
+        return nil
     }
 
     private func parseReceiptResponse(_ response: String) -> (title: String, content: String) {

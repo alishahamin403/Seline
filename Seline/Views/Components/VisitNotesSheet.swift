@@ -16,6 +16,7 @@ struct VisitNotesSheet: View {
 
     @StateObject private var peopleManager = PeopleManager.shared
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var receiptManager = ReceiptManager.shared
 
     @State private var notesText: String
     @State private var selectedPeopleIds: Set<UUID> = []
@@ -218,7 +219,7 @@ struct VisitNotesSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(icon: "receipt.fill", title: "Attach receipt")
 
-            if let selected = selectedReceiptNote {
+            if let selected = selectedReceipt {
                 selectedReceiptPill(for: selected)
             }
 
@@ -234,7 +235,7 @@ struct VisitNotesSheet: View {
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                 }
                 .padding(.vertical, 8)
-            } else if filteredReceiptNotes.isEmpty {
+            } else if filteredReceipts.isEmpty {
                 Text(receiptSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No receipts available" : "No matching receipts")
                     .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.55))
@@ -242,8 +243,8 @@ struct VisitNotesSheet: View {
             } else {
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(spacing: 8) {
-                        ForEach(filteredReceiptNotes, id: \.id) { note in
-                            receiptRow(note: note)
+                        ForEach(filteredReceipts, id: \.id) { receipt in
+                            receiptRow(receipt: receipt)
                         }
                     }
                 }
@@ -279,17 +280,15 @@ struct VisitNotesSheet: View {
         )
     }
 
-    private func receiptRow(note: Note) -> some View {
-        let isSelected = selectedReceiptNoteId == note.id
-        let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
-        let effectiveDate = notesManager.extractFullDateFromTitle(note.title) ?? note.dateModified
+    private func receiptRow(receipt: ReceiptStat) -> some View {
+        let isSelected = selectedReceiptNoteId == receipt.id
 
         return Button(action: {
             withAnimation(.easeInOut(duration: 0.2)) {
                 if isSelected {
                     selectedReceiptNoteId = nil
                 } else {
-                    selectedReceiptNoteId = note.id
+                    selectedReceiptNoteId = receipt.id
                 }
             }
         }) {
@@ -304,12 +303,12 @@ struct VisitNotesSheet: View {
                     )
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(note.title)
+                    Text(receipt.title)
                         .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(1)
 
-                    Text("\(CurrencyParser.formatAmount(amount)) • \(shortDateString(from: effectiveDate))")
+                    Text("\(CurrencyParser.formatAmount(receipt.amount)) • \(shortDateString(from: receipt.date))")
                         .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.62) : .black.opacity(0.62))
                         .lineLimit(1)
@@ -346,13 +345,13 @@ struct VisitNotesSheet: View {
         .buttonStyle(PlainButtonStyle())
     }
 
-    private func selectedReceiptPill(for note: Note) -> some View {
+    private func selectedReceiptPill(for receipt: ReceiptStat) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "link")
                 .font(FontManager.geist(size: 11, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.75) : .black.opacity(0.75))
 
-            Text(note.title)
+            Text(receipt.title)
                 .font(FontManager.geist(size: 12, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.9))
                 .lineLimit(1)
@@ -388,47 +387,25 @@ struct VisitNotesSheet: View {
         }
     }
 
-    private var selectedReceiptNote: Note? {
-        guard let noteId = selectedReceiptNoteId else { return nil }
-        return notesManager.notes.first(where: { $0.id == noteId })
+    private var selectedReceipt: ReceiptStat? {
+        guard let receiptId = selectedReceiptNoteId else { return nil }
+        return receiptManager.receipt(by: receiptId)
     }
 
-    private var filteredReceiptNotes: [Note] {
-        let all = allReceiptNotes
+    private var filteredReceipts: [ReceiptStat] {
+        let all = allReceipts
         guard !receiptSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return Array(all.prefix(30))
         }
 
         let query = receiptSearchText.lowercased()
-        return all.filter { note in
-            note.title.lowercased().contains(query) ||
-            note.content.lowercased().contains(query)
+        return all.filter { receipt in
+            receipt.searchableText.lowercased().contains(query)
         }
     }
 
-    private var allReceiptNotes: [Note] {
-        guard let receiptsFolderId = notesManager.folders.first(where: { $0.name == "Receipts" })?.id else {
-            return []
-        }
-
-        let receipts = notesManager.notes.filter { note in
-            guard var folderId = note.folderId else { return false }
-            while true {
-                if folderId == receiptsFolderId {
-                    return true
-                }
-                guard let parent = notesManager.folders.first(where: { $0.id == folderId })?.parentFolderId else {
-                    return false
-                }
-                folderId = parent
-            }
-        }
-
-        return receipts.sorted { lhs, rhs in
-            let lhsDate = notesManager.extractFullDateFromTitle(lhs.title) ?? lhs.dateModified
-            let rhsDate = notesManager.extractFullDateFromTitle(rhs.title) ?? rhs.dateModified
-            return lhsDate > rhsDate
-        }
+    private var allReceipts: [ReceiptStat] {
+        receiptManager.receipts.sorted { $0.date > $1.date }
     }
 
     private func ensureReceiptDataLoaded() async {
@@ -439,6 +416,7 @@ struct VisitNotesSheet: View {
         }
 
         await notesManager.ensureReceiptDataAvailable()
+        await receiptManager.ensureLoaded()
 
         await MainActor.run {
             isLoadingReceipts = false

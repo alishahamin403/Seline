@@ -11,6 +11,7 @@ class SelineAppContext {
     private let taskManager: TaskManager
     private let tagManager: TagManager
     private let notesManager: NotesManager
+    private let receiptManager: ReceiptManager
     private let emailService: EmailService
     private let weatherService: WeatherService
     private let locationsManager: LocationsManager
@@ -132,6 +133,7 @@ class SelineAppContext {
         taskManager: TaskManager? = nil,
         tagManager: TagManager? = nil,
         notesManager: NotesManager? = nil,
+        receiptManager: ReceiptManager? = nil,
         emailService: EmailService? = nil,
         weatherService: WeatherService? = nil,
         locationsManager: LocationsManager? = nil,
@@ -144,6 +146,7 @@ class SelineAppContext {
         self.taskManager = taskManager ?? .shared
         self.tagManager = tagManager ?? .shared
         self.notesManager = notesManager ?? .shared
+        self.receiptManager = receiptManager ?? .shared
         self.emailService = emailService ?? .shared
         self.weatherService = weatherService ?? .shared
         self.locationsManager = locationsManager ?? .shared
@@ -275,17 +278,14 @@ class SelineAppContext {
 
         // Use the shared receipt statistics pipeline so chat context matches the home
         // widgets and Supabase-backed receipt hierarchy exactly.
-        let receiptSummaries = notesManager.getReceiptStatistics()
-        self.receipts = receiptSummaries
-            .flatMap(\.monthlySummaries)
-            .flatMap(\.receipts)
-            .sorted { $0.date > $1.date }
+        await receiptManager.ensureLoaded()
+        self.receipts = receiptManager.receipts.sorted { $0.date > $1.date }
         print("✅ Loaded \(self.receipts.count) receipts from shared receipt statistics")
 
         // Collect recent notes (optimized filtering)
         // Load pinned notes (unlimited) + notes from last 90 days (unlimited)
         // For semantic queries, vector search will handle relevance ranking
-        let recentNotes = notesManager.notes.filter { note in
+        let recentNotes = receiptManager.visibleNotes(notesManager.notes).filter { note in
             note.isPinned || note.dateModified >= ninetyDaysAgo
         }
         self.notes = recentNotes.sorted { $0.dateModified > $1.dateModified }
@@ -777,7 +777,7 @@ class SelineAppContext {
             guard !results.isEmpty else { return [] }
 
             let allTasks = taskManager.getAllTasksIncludingArchived().filter { !$0.isDeleted }
-            let allNotes = notesManager.notes
+            let allNotes = receiptManager.visibleNotes(notesManager.notes)
             let allPlaces = locationsManager.savedPlaces
             let allEmails = emailService.inboxEmails + emailService.sentEmails
             var semanticFound: [RelevantContentInfo] = []
@@ -839,7 +839,7 @@ class SelineAppContext {
                         maxPerType: 4
                     )
 
-                case .note, .receipt:
+                case .note:
                     guard let noteId = UUID(uuidString: result.documentId) else { continue }
                     if let note = allNotes.first(where: { $0.id == noteId }) {
                         appendRelevantContent(
@@ -860,6 +860,39 @@ class SelineAppContext {
                                 title: result.title ?? "Note",
                                 snippet: String(result.content.prefix(80)),
                                 folder: folderName
+                            ),
+                            to: &semanticFound,
+                            maxPerType: 4
+                        )
+                    }
+
+                case .receipt:
+                    guard let receiptId = UUID(uuidString: result.documentId) else { continue }
+                    if let receipt = receipts.first(where: { $0.id == receiptId }) {
+                        appendRelevantContent(
+                            .receipt(
+                                id: receipt.id,
+                                title: receipt.title,
+                                amount: receipt.amount,
+                                date: receipt.date,
+                                category: receipt.category,
+                                legacyNoteId: receipt.legacyNoteId
+                            ),
+                            to: &semanticFound,
+                            maxPerType: 4
+                        )
+                    } else {
+                        let amount = (result.metadata?["amount"] as? NSNumber)?.doubleValue
+                        let date = parseISODateString(result.metadata?["date"] as? String)
+                        let category = result.metadata?["category"] as? String
+                        appendRelevantContent(
+                            .receipt(
+                                id: receiptId,
+                                title: result.title ?? "Receipt",
+                                amount: amount,
+                                date: date,
+                                category: category,
+                                legacyNoteId: nil
                             ),
                             to: &semanticFound,
                             maxPerType: 4

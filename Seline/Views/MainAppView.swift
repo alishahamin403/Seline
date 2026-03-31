@@ -79,6 +79,7 @@ struct MainAppView: View {
     private let widgetManager = WidgetManager.shared
     @StateObject private var emailService = EmailService.shared
     @StateObject private var taskManager = TaskManager.shared
+    @StateObject private var receiptManager = ReceiptManager.shared
     private let notesManager = NotesManager.shared
     private let tagManager = TagManager.shared
     private let peopleManager = PeopleManager.shared
@@ -91,6 +92,7 @@ struct MainAppView: View {
     @State private var selectedPlanTab: EmailTab = .inbox
     @State private var keyboardHeight: CGFloat = 0
     @State private var selectedNoteToOpen: Note? = nil
+    @State private var selectedReceiptToOpen: ReceiptStat? = nil
     @State private var showingNewNoteSheet = false
     @State private var showingAddEventPopup = false
     @State private var showingTodoPhotoImportSheet = false
@@ -129,6 +131,7 @@ struct MainAppView: View {
     @State private var selectedLocationPlace: SavedPlace? = nil
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
+    @State private var showingManualReceiptForm = false
     @State private var showingRecurringExpenseForm = false
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var selectedReceiptImages: [UIImage] = []
@@ -333,21 +336,20 @@ struct MainAppView: View {
 
         // Limit to 3 most relevant receipts for faster search
         for receipt in matchingReceipts.prefix(3) {
-            if let note = receipt.note {
-                let dateString = FormatterCache.shortDate.string(from: receipt.receipt.date)
+            let dateString = FormatterCache.shortDate.string(from: receipt.receipt.date)
 
-                results.append(OverlaySearchResult(
-                    type: .receipt,
-                    title: receipt.receipt.title,
-                    subtitle: "\(CurrencyParser.formatAmount(receipt.receipt.amount)) • \(dateString)",
-                    icon: "doc.text",
-                    task: nil,
-                    email: nil,
-                    note: note,
-                    location: nil,
-                    category: receipt.receipt.category
-                ))
-            }
+            results.append(OverlaySearchResult(
+                type: .receipt,
+                title: receipt.receipt.title,
+                subtitle: "\(CurrencyParser.formatAmount(receipt.receipt.amount)) • \(dateString)",
+                icon: "doc.text",
+                task: nil,
+                email: nil,
+                note: receipt.note,
+                receipt: receipt.receipt,
+                location: nil,
+                category: receipt.receipt.category
+            ))
         }
 
         let matchingNotes = index.notes.filter {
@@ -435,10 +437,7 @@ struct MainAppView: View {
         let savedPlacesSnapshot = locationsManager.savedPlaces
         let recurringExpensesSnapshot: [RecurringExpense] =
             CacheManager.shared.get(forKey: CacheManager.CacheKey.allRecurringExpenses) ?? []
-        let receiptSummaries = notesManager.getReceiptStatistics()
-        let receiptsSnapshot = receiptSummaries.flatMap { yearSummary in
-            yearSummary.monthlySummaries.flatMap { $0.receipts }
-        }
+        let receiptsSnapshot = receiptManager.receipts
 
         let folderParentById = Dictionary(uniqueKeysWithValues: foldersSnapshot.map { ($0.id, $0.parentFolderId) })
         let receiptFolderIds = Set(
@@ -447,7 +446,7 @@ struct MainAppView: View {
                 .map(\.id)
         )
         let notesById = Dictionary(uniqueKeysWithValues: notesSnapshot.map { ($0.id, $0) })
-        let receiptNoteIds = Set(receiptsSnapshot.map(\.noteId))
+        let receiptNoteIds = Set(receiptsSnapshot.compactMap(\.legacyNoteId))
 
         func isDescendantOfReceiptsFolder(note: Note) -> Bool {
             guard let folderId = note.folderId else { return false }
@@ -480,13 +479,13 @@ struct MainAppView: View {
                 )
             },
             receipts: receiptsSnapshot.map { receipt in
-                let note = notesById[receipt.noteId]
+                let note = receipt.legacyNoteId.flatMap { notesById[$0] }
                 return HomeSearchIndex.ReceiptEntry(
                     receipt: receipt,
                     note: note,
                     titleLower: receipt.title.lowercased(),
                     categoryLower: receipt.category.lowercased(),
-                    noteTextLower: note?.displayContent.lowercased() ?? ""
+                    noteTextLower: receipt.searchableText.lowercased()
                 )
             },
             notes: notesSnapshot.map { note in
@@ -884,7 +883,9 @@ struct MainAppView: View {
                 searchSelectedFolder = category
             }
         case .receipt:
-            if let note = result.note {
+            if let receipt = result.receipt {
+                selectedReceiptToOpen = receipt
+            } else if let note = result.note {
                 selectedNoteToOpen = note
             }
         case .recurringExpense:
@@ -902,13 +903,8 @@ struct MainAppView: View {
     }
 
     private func handleSpendingReceiptSelection(_ receipt: ReceiptStat) {
-        guard let note = notesManager.notes.first(where: { $0.id == receipt.noteId }) else {
-            print("⚠️ Could not find note for receipt noteId: \(receipt.noteId)")
-            return
-        }
-
         HapticManager.shared.cardTap()
-        selectedNoteToOpen = note
+        selectedReceiptToOpen = receipt
     }
 
     // MARK: - Tab Navigation Helpers
@@ -954,8 +950,10 @@ struct MainAppView: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 showingHomeDrawer = false
             }
-            // Open immediately — sidebar slide and overlay slide-in animate simultaneously
-            openRoute()
+            // Wait for sidebar close animation to finish before opening overlay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                openRoute()
+            }
         } else {
             openRoute()
         }
@@ -1049,8 +1047,8 @@ struct MainAppView: View {
         mainContentPresented
     }
 
-    private var mainContentObserved: AnyView {
-        AnyView(
+    @ViewBuilder
+    private var mainContentObserved: some View {
             mainContentBase
                 .onAppear {
                     guard !hasAppeared else { return }
@@ -1189,16 +1187,23 @@ struct MainAppView: View {
                 .onReceive(NotificationCenter.default.publisher(for: .navigateToJournal)) { _ in
                     openJournalInNotes(openToday: true)
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .interactiveSidebarVisibilityChanged)) { notification in
-                    let isVisible = (notification.userInfo?["isVisible"] as? Bool) ?? false
-                    isSidebarOverlayVisible = isVisible
-                }
-        )
     }
 
-    private var mainContentPresented: AnyView {
-        AnyView(
+    private func handleHomeSidebarVisibilityChange(_ isVisible: Bool) {
+        guard isSidebarOverlayVisible != isVisible else { return }
+        isSidebarOverlayVisible = isVisible
+    }
+
+    @ViewBuilder
+    private var mainContentPresented: some View {
             mainContentObserved
+                .sheet(item: $selectedReceiptToOpen) { receipt in
+                    ReceiptDetailSheet(receipt: receipt)
+                        .presentationDetents([.medium, .large])
+                        .presentationDragIndicator(.visible)
+                        .modifier(PresentationModifiers())
+                        .presentationBg()
+                }
                 .fullScreenCover(item: $selectedNoteToOpen) { note in
                     NoteEditView(note: note, isPresented: Binding<Bool>(
                         get: { selectedNoteToOpen != nil },
@@ -1366,6 +1371,10 @@ struct MainAppView: View {
                 }
                 .sheet(isPresented: $showReceiptStats) {
                     ReceiptStatsView(
+                        onAddReceiptManually: {
+                            HapticManager.shared.selection()
+                            showingManualReceiptForm = true
+                        },
                         onAddReceiptFromCamera: {
                             HapticManager.shared.selection()
                             showingReceiptCameraPicker = true
@@ -1379,6 +1388,25 @@ struct MainAppView: View {
                     .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
                     .interactiveDismissDisabled(false)
+                    .presentationBg()
+                }
+                .sheet(isPresented: $showingManualReceiptForm) {
+                    ManualReceiptEntrySheet { draft in
+                        do {
+                            let receipt = try await receiptManager.createReceipt(from: draft)
+                            await MainActor.run {
+                                HapticManager.shared.success()
+                                selectedReceiptToOpen = receipt
+                            }
+                        } catch {
+                            await MainActor.run {
+                                HapticManager.shared.error()
+                                receiptProcessingState = .error(error.localizedDescription)
+                            }
+                        }
+                    }
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
                     .presentationBg()
                 }
                 .sheet(isPresented: $showAllLocationsSheet) {
@@ -1444,13 +1472,13 @@ struct MainAppView: View {
                         .zIndex(1000)
                     }
                 }
-        )
     }
 
     private var mainContentBase: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .top) {
+            ZStack(alignment: .topLeading) {
                 mainContentVStack(geometry: geometry)
+
                 overlayRouteView(in: geometry)
 
                 if shouldShowPrimaryFloatingComposeButton {
@@ -1462,7 +1490,7 @@ struct MainAppView: View {
         }
     }
 
-    private var shouldShowFloatingTabBar: Bool {
+    private var canShowBottomTabBar: Bool {
         keyboardHeight == 0 &&
         selectedNoteToOpen == nil &&
         !showingNewNoteSheet &&
@@ -1471,10 +1499,34 @@ struct MainAppView: View {
         searchSelectedTask == nil &&
         !authManager.showLocationSetup &&
         activeOverlayRoute == nil &&
-        !showingHomeDrawer &&
         !isViewingNoteInNavigation &&
-        !isSidebarOverlayVisible &&
         !isEmailDetailOpen
+    }
+
+    private var shouldShowHomeSidebarAttachedTabBar: Bool {
+        canShowBottomTabBar && selectedTab == .home
+    }
+
+    private var shouldShowNotesSidebarAttachedTabBar: Bool {
+        canShowBottomTabBar && selectedTab == .notes
+    }
+
+    private var shouldShowMapsSidebarAttachedTabBar: Bool {
+        canShowBottomTabBar && selectedTab == .maps
+    }
+
+    private var shouldShowChatSidebarAttachedTabBar: Bool {
+        canShowBottomTabBar && selectedTab == .chat
+    }
+
+    private var shouldShowShellBottomTabBar: Bool {
+        canShowBottomTabBar &&
+        selectedTab != .home &&
+        selectedTab != .chat &&
+        selectedTab != .notes &&
+        selectedTab != .maps &&
+        !showingHomeDrawer &&
+        !isSidebarOverlayVisible
     }
 
     private var shouldShowPrimaryFloatingComposeButton: Bool {
@@ -1502,11 +1554,15 @@ struct MainAppView: View {
                     mapsButton: AnyView(mapsShellFloatingComposeButton)
                 )
             }
-            .padding(.trailing, 16)
+            .padding(.trailing, primaryFloatingComposeTrailingPadding)
             .padding(.bottom, geometry.safeAreaInsets.bottom > 0 ? 56 : 40)
         }
         .transition(.opacity)
         .zIndex(15)
+    }
+
+    private var primaryFloatingComposeTrailingPadding: CGFloat {
+        selectedTab == .home ? homeCardHorizontalPadding + 8 : 16
     }
 
     private func bottomTabBarVerticalOffset(for geometry: GeometryProxy) -> CGFloat {
@@ -1518,8 +1574,9 @@ struct MainAppView: View {
             activeTabContent
                 .frame(maxHeight: .infinity)
 
-            if shouldShowFloatingTabBar {
+            if shouldShowShellBottomTabBar {
                 BottomTabBar(selectedTab: $selectedTab)
+                    .allowsHitTesting(!(showingHomeDrawer || isSidebarOverlayVisible))
                     .padding(.top, -bottomTabBarVerticalOffset(for: geometry))
                     .offset(y: bottomTabBarVerticalOffset(for: geometry))
             }
@@ -1569,6 +1626,9 @@ struct MainAppView: View {
                 onOpenNote: { note in
                     searchSelectedNote = note
                 },
+                onOpenReceipt: { receipt in
+                    selectedReceiptToOpen = receipt
+                },
                 onOpenPlace: { place in
                     selectedLocationPlace = place
                 },
@@ -1579,6 +1639,8 @@ struct MainAppView: View {
         case .chat:
             ChatView(
                 isVisible: isVisible,
+                bottomTabSelection: $selectedTab,
+                showsAttachedBottomTabBar: shouldShowChatSidebarAttachedTabBar,
                 onOpenEmail: { email in
                     selectedPlanTab = emailService.sentEmails.contains(where: { $0.id == email.id }) ? .sent : .inbox
                     presentOverlay(.plan)
@@ -1604,9 +1666,18 @@ struct MainAppView: View {
                 }
             )
         case .notes:
-            NotesView(isVisible: isVisible)
+            NotesView(
+                isVisible: isVisible,
+                bottomTabSelection: $selectedTab,
+                showsAttachedBottomTabBar: shouldShowNotesSidebarAttachedTabBar
+            )
         case .maps:
-            MapsViewNew(isVisible: isVisible, externalSelectedFolder: $searchSelectedFolder)
+            MapsViewNew(
+                isVisible: isVisible,
+                externalSelectedFolder: $searchSelectedFolder,
+                bottomTabSelection: $selectedTab,
+                showsAttachedBottomTabBar: shouldShowMapsSidebarAttachedTabBar
+            )
         }
     }
 
@@ -1617,11 +1688,24 @@ struct MainAppView: View {
                 isPresented: $showingHomeDrawer,
                 canOpen: isVisible && activeOverlayRoute == nil,
                 sidebarWidth: min(318, geometry.size.width * 0.84),
-                colorScheme: colorScheme
+                colorScheme: colorScheme,
+                onOverlayVisibilityChanged: handleHomeSidebarVisibilityChange
             ) {
-                HomeTabView(isVisible: isVisible) {
-                    homeContentWithoutHeader
+                VStack(spacing: 0) {
+                    HomeTabView(isVisible: isVisible) {
+                        homeContentWithoutHeader
+                    }
+                    .frame(width: geometry.size.width)
+                    .frame(maxHeight: .infinity)
+
+                    if shouldShowHomeSidebarAttachedTabBar {
+                        SidebarAttachedBottomTabBar(
+                            selectedTab: $selectedTab,
+                            bottomSafeAreaInset: geometry.safeAreaInsets.bottom
+                        )
+                    }
                 }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             } sidebarContent: {
                 homeDrawerContent
             }
@@ -2408,7 +2492,7 @@ struct MainAppView: View {
     private var homeHeaderBar: some View {
         let hasGreeting = !homeGreetingText.isEmpty
         let avatarSize: CGFloat = hasGreeting ? 42 : 30
-        let topPadding: CGFloat = hasGreeting ? 6 : 8
+        let topPadding: CGFloat = hasGreeting ? 6 : 4
         let bottomPadding: CGFloat = hasGreeting ? 12 : 10
 
         return VStack(spacing: 0) {
@@ -2425,7 +2509,7 @@ struct MainAppView: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+            .padding(.horizontal, homeCardHorizontalPadding)
             .padding(.top, topPadding)
             .padding(.bottom, bottomPadding)
 
@@ -2433,35 +2517,41 @@ struct MainAppView: View {
                 .fill(Color.homeGlassInnerBorder(colorScheme))
                 .frame(height: 0.5)
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var homeGreetingText: String {
         ""
     }
 
+    @ViewBuilder
+    private var homeComposeMenuContent: some View {
+        Button(action: {
+            HapticManager.shared.selection()
+            showingAddEventPopup = true
+        }) {
+            Label("Todo", systemImage: "checklist")
+        }
+
+        Button(action: {
+            HapticManager.shared.selection()
+            todoImportSourceType = .camera
+            showingTodoPhotoImportSheet = true
+        }) {
+            Label("Todo Camera", systemImage: "camera.fill")
+        }
+
+        Button(action: {
+            HapticManager.shared.selection()
+            showingNewNoteSheet = true
+        }) {
+            Label("New Note", systemImage: "note.text.badge.plus")
+        }
+    }
+
     private var homeFloatingComposeButton: some View {
         Menu {
-            Button(action: {
-                HapticManager.shared.selection()
-                showingAddEventPopup = true
-            }) {
-                Label("Todo", systemImage: "checklist")
-            }
-
-            Button(action: {
-                HapticManager.shared.selection()
-                todoImportSourceType = .camera
-                showingTodoPhotoImportSheet = true
-            }) {
-                Label("Todo Camera", systemImage: "camera.fill")
-            }
-
-            Button(action: {
-                HapticManager.shared.selection()
-                showingNewNoteSheet = true
-            }) {
-                Label("New Note", systemImage: "note.text.badge.plus")
-            }
+            homeComposeMenuContent
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 24, weight: .regular))
@@ -2558,6 +2648,13 @@ struct MainAppView: View {
         Menu {
             Button(action: {
                 HapticManager.shared.selection()
+                showingManualReceiptForm = true
+            }) {
+                Label("Add Manually", systemImage: "square.and.pencil")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
                 showingReceiptCameraPicker = true
             }) {
                 Label("Take Picture", systemImage: "camera.fill")
@@ -2567,7 +2664,7 @@ struct MainAppView: View {
                 HapticManager.shared.selection()
                 showingReceiptImagePicker = true
             }) {
-                Label("Upload Receipt", systemImage: "photo.on.rectangle")
+                Label("Select Picture", systemImage: "photo.on.rectangle")
             }
         } label: {
             floatingComposeButtonLabel
@@ -2912,7 +3009,7 @@ struct MainAppView: View {
             Color.clear.frame(height: 54)
 
             searchResultsDropdown
-                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                .padding(.horizontal, homeCardHorizontalPadding)
                 .padding(.top, 4)
 
             Spacer(minLength: 0)
@@ -2921,7 +3018,7 @@ struct MainAppView: View {
         .transition(.opacity)
     }
 
-    private var mainContentWidgets: some View {
+    private func mainContentWidgets() -> some View {
         HomeWidgetStackView(
             homeState: homeState,
             isVisible: selectedTab == .home,
@@ -2954,6 +3051,10 @@ struct MainAppView: View {
             },
             onAddNote: {
                 showingNewNoteSheet = true
+            },
+            onAddReceiptManually: {
+                HapticManager.shared.selection()
+                showingManualReceiptForm = true
             },
             onAddReceiptFromCamera: {
                 HapticManager.shared.selection()
@@ -3046,6 +3147,10 @@ struct MainAppView: View {
             ReorderableWidgetContainer(widgetManager: widgetManager, type: .spending) {
                 SpendingAndETAWidget(
                     isVisible: selectedTab == .home,
+                    onAddReceiptManually: {
+                        HapticManager.shared.selection()
+                        showingManualReceiptForm = true
+                    },
                     onAddReceipt: {
                         HapticManager.shared.selection()
                         showingReceiptCameraPicker = true
@@ -3158,22 +3263,22 @@ struct MainAppView: View {
 
     // MARK: - Home Content
     private var homeCardHorizontalPadding: CGFloat {
-        max(ShadcnSpacing.screenEdgeHorizontal, 12)
+        ShadcnSpacing.screenEdgeHorizontal
     }
 
     private var homeContentWithoutHeader: some View {
-        ZStack {
-            HomeGlassBackgroundLayer(colorScheme: colorScheme)
-            VStack(spacing: 0) {
-                homeHeaderBar
+        VStack(spacing: 0) {
+            homeHeaderBar
 
-                VStack(spacing: 0) {
-                    visitReasonPopupSection
-                    mainContentWidgets
-                }
+            VStack(spacing: 0) {
+                visitReasonPopupSection
+                mainContentWidgets()
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            HomeGlassBackgroundLayer(colorScheme: colorScheme)
+        )
     }
 
     @ViewBuilder
@@ -3265,66 +3370,24 @@ struct MainAppView: View {
     // MARK: - Receipt Processing
     
     private func processReceiptImage(_ image: UIImage) {
-        // Process receipt image using the same logic as receipts page
-        // Navigate to Notes tab and open note editor with receipt
         Task {
-            // Show processing indicator
             await MainActor.run {
                 receiptProcessingState = .processing
             }
             
             do {
-                // Use GeminiService (which delegates to OpenAI for vision) - same as receipts page
-                let deepSeekService = GeminiService.shared
-                let (receiptTitle, receiptContent) = try await deepSeekService.analyzeReceiptImage(image)
-                
-                // Clean up the extracted content - same as receipts page
-                let cleanedContent = receiptContent
-                    .split(separator: "\n")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n")
-                
-                // Extract month and year from receipt title for automatic folder organization - same as receipts page
-                var folderIdForReceipt: UUID?
-                if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
-                    // Use async folder creation to ensure folders sync before using IDs
-                    folderIdForReceipt = await notesManager.getOrCreateReceiptMonthFolderAsync(month: month, year: year)
-                    print("✅ Receipt assigned to \(notesManager.getMonthName(month)) \(year)")
-                } else {
-                    // Fallback to main Receipts folder if no date found
-                    let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
-                    folderIdForReceipt = receiptsFolderId
-                    print("⚠️ No date found in receipt title, using main Receipts folder")
-                }
-                
-                // Create note with receipt content
-                let newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
-                
-                // Save note first, then upload image
-                let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
-                
-                if syncSuccess {
-                    // Upload image
-                    let imageUrls = await notesManager.uploadNoteImages([image], noteId: newNote.id)
-                    
-                    // Update note with image URL
-                    var updatedNote = newNote
-                    updatedNote.imageUrls = imageUrls
-                    updatedNote.dateModified = Date()
-                    let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
-                    
-                    await MainActor.run {
-                        HapticManager.shared.success()
-                        receiptProcessingState = .success
-                        print("✅ Receipt saved automatically in background")
-                        
-                        // Hide success message after 2 seconds
-                        Task {
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            await MainActor.run {
-                                receiptProcessingState = .idle
-                            }
+                let draft = try await GeminiService.shared.analyzeReceiptImageDraft(image)
+                let receipt = try await receiptManager.createReceipt(from: draft, images: [image])
+
+                await MainActor.run {
+                    HapticManager.shared.success()
+                    selectedReceiptToOpen = receipt
+                    receiptProcessingState = .success
+
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        await MainActor.run {
+                            receiptProcessingState = .idle
                         }
                     }
                 }
@@ -3379,58 +3442,19 @@ struct MainAppView: View {
             }
 
             do {
-                // Use GeminiService (which delegates to OpenAI for vision)
-                let deepSeekService = GeminiService.shared
-                let (receiptTitle, receiptContent) = try await deepSeekService.analyzeReceiptImage(image)
+                let draft = try await GeminiService.shared.analyzeReceiptImageDraft(image)
+                _ = try await receiptManager.createReceipt(from: draft, images: [image])
 
-                // Clean up the extracted content
-                let cleanedContent = receiptContent
-                    .split(separator: "\n")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n")
+                await MainActor.run {
+                    HapticManager.shared.success()
+                    print("✅ Receipt \(currentNumber) of \(totalCount) saved")
 
-                // Extract month and year from receipt title for automatic folder organization
-                var folderIdForReceipt: UUID?
-                if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
-                    folderIdForReceipt = await notesManager.getOrCreateReceiptMonthFolderAsync(month: month, year: year)
-                    print("✅ Receipt assigned to \(notesManager.getMonthName(month)) \(year)")
-                } else {
-                    let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
-                    folderIdForReceipt = receiptsFolderId
-                    print("⚠️ No date found in receipt title, using main Receipts folder")
-                }
-
-                // Create note with receipt content
-                let newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
-
-                // Save note first, then upload image
-                let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
-
-                if syncSuccess {
-                    // Upload image
-                    let imageUrls = await notesManager.uploadNoteImages([image], noteId: newNote.id)
-
-                    // Update note with image URL
-                    var updatedNote = newNote
-                    updatedNote.imageUrls = imageUrls
-                    updatedNote.dateModified = Date()
-                    let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
-
-                    await MainActor.run {
-                        HapticManager.shared.success()
-                        print("✅ Receipt \(currentNumber) of \(totalCount) saved")
-
-                        // Move to next receipt in queue
-                        currentProcessingIndex += 1
-
-                        // Show success briefly before processing next
-                        receiptProcessingState = .success
-                        Task {
-                            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                            await MainActor.run {
-                                processNextReceiptInQueue()
-                            }
+                    currentProcessingIndex += 1
+                    receiptProcessingState = .success
+                    Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        await MainActor.run {
+                            processNextReceiptInQueue()
                         }
                     }
                 }

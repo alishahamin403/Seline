@@ -11,9 +11,9 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
     let canOpen: Bool
     let sidebarWidth: CGFloat
     let colorScheme: ColorScheme
-    let showsTrailingDivider: Bool
-    let mainContent: () -> MainContent
-    let sidebarContent: () -> SidebarContent
+    let onOverlayVisibilityChanged: ((Bool) -> Void)?
+    let mainContent: MainContent
+    let sidebarContent: SidebarContent
     @State private var dragOffset: CGFloat = 0
     @State private var closeDragAxis: CloseDragAxis?
     @State private var suppressSidebarContentTouches = false
@@ -23,7 +23,7 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
         canOpen: Bool = true,
         sidebarWidth: CGFloat,
         colorScheme: ColorScheme,
-        showsTrailingDivider: Bool = true,
+        onOverlayVisibilityChanged: ((Bool) -> Void)? = nil,
         @ViewBuilder mainContent: @escaping () -> MainContent,
         @ViewBuilder sidebarContent: @escaping () -> SidebarContent
     ) {
@@ -31,9 +31,9 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
         self.canOpen = canOpen
         self.sidebarWidth = sidebarWidth
         self.colorScheme = colorScheme
-        self.showsTrailingDivider = showsTrailingDivider
-        self.mainContent = mainContent
-        self.sidebarContent = sidebarContent
+        self.onOverlayVisibilityChanged = onOverlayVisibilityChanged
+        self.mainContent = mainContent()
+        self.sidebarContent = sidebarContent()
     }
 
     private var spring: Animation {
@@ -42,6 +42,10 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
 
     private var shouldRenderOverlay: Bool {
         isPresented || dragOffset != 0
+    }
+
+    private var shouldKeepSidebarMounted: Bool {
+        canOpen || shouldRenderOverlay
     }
 
     /// How far the sidebar has slid into view (0 = fully hidden, sidebarWidth = fully open).
@@ -56,6 +60,17 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
 
     private var openProgress: CGFloat {
         min(1, max(0, currentSlide / sidebarWidth))
+    }
+
+    private var mainContentScrimOpacity: Double {
+        let maxOpacity: Double = colorScheme == .dark ? 0.26 : 0.12
+        return maxOpacity * Double(openProgress)
+    }
+
+    private var mainContentScrimColor: Color {
+        colorScheme == .dark
+            ? Color(red: 0.16, green: 0.16, blue: 0.18)
+            : .black
     }
 
     private func resetCloseDragTracking() {
@@ -127,92 +142,96 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
             }
     }
 
-    private func postSidebarVisibility(_ isVisible: Bool) {
-        NotificationCenter.default.post(
-            name: .interactiveSidebarVisibilityChanged,
-            object: nil,
-            userInfo: ["isVisible": isVisible]
-        )
+    private func publishOverlayVisibility(_ isVisible: Bool) {
+        onOverlayVisibilityChanged?(isVisible)
+    }
+
+    @ViewBuilder
+    private func overlayBody(mainOffset: CGFloat) -> some View {
+        ZStack(alignment: .leading) {
+            // Sidebar panel — positioned at the left, slides in via offset
+            if shouldKeepSidebarMounted {
+                HStack(spacing: 0) {
+                    ZStack(alignment: .trailing) {
+                        (colorScheme == .dark ? Color.black : Color.white)
+
+                        sidebarContent
+                            .allowsHitTesting(!suppressSidebarContentTouches)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+                    .frame(width: sidebarWidth, alignment: .topLeading)
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+
+                    Spacer(minLength: 0)
+                }
+                .frame(maxHeight: .infinity, alignment: .topLeading)
+                .offset(x: currentSlide - sidebarWidth) // -sidebarWidth (hidden) → 0 (visible)
+            }
+
+            // Main content panel — pushes right 1:1 with sidebar
+            mainContent
+                .allowsHitTesting(!shouldRenderOverlay)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .offset(x: mainOffset)
+
+            // Scrim overlay — sits OUTSIDE clipped content so it covers safe areas too
+            if shouldRenderOverlay {
+                mainContentScrimColor
+                    .opacity(mainContentScrimOpacity)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissSidebar()
+                    }
+                    .offset(x: mainOffset)
+            }
+
+            // Edge pan gesture catcher (always at the screen's left edge)
+            if canOpen && !isPresented {
+                NativeEdgePanCapture(
+                    edgeActivationWidth: 26,
+                    onChanged: { translationX, _ in
+                        guard canOpen, !isPresented else { return }
+                        let horizontal = max(0, translationX)
+                        dragOffset = min(horizontal, sidebarWidth)
+                    },
+                    onEnded: { translationX, velocityX in
+                        guard canOpen, !isPresented else {
+                            dragOffset = 0
+                            return
+                        }
+
+                        let projected = max(translationX + (velocityX * 0.18), translationX)
+                        let shouldOpen = projected > sidebarWidth * 0.35
+
+                        withAnimation(spring) {
+                            isPresented = shouldOpen
+                            dragOffset = 0
+                        }
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .ignoresSafeArea()
+            }
+        }
     }
 
     var body: some View {
         GeometryReader { _ in
             let mainOffset = currentSlide  // 0 when closed, sidebarWidth when fully open
-
-            ZStack(alignment: .leading) {
-                // Sidebar panel — positioned at the left, slides in via offset
-                if shouldRenderOverlay {
-                    HStack(spacing: 0) {
-                        sidebarContent()
-                            .allowsHitTesting(!suppressSidebarContentTouches)
-                            .frame(width: sidebarWidth)
-                            .background(colorScheme == .dark ? Color.black : .white)
-                            .overlay(alignment: .trailing) {
-                                if showsTrailingDivider {
-                                    Rectangle()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.1))
-                                        .frame(width: 1)
-                                }
-                            }
-
-                        Spacer(minLength: 0)
-                    }
-                    .offset(x: currentSlide - sidebarWidth) // -sidebarWidth (hidden) → 0 (visible)
-                }
-
-                // Main content panel — pushes right 1:1 with sidebar
-                ZStack {
-                    mainContent()
-                        .allowsHitTesting(!shouldRenderOverlay)
-
-                    if shouldRenderOverlay {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                dismissSidebar()
-                            }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .offset(x: mainOffset)
-                .simultaneousGesture(sidebarCloseDragGesture)
-                .animation(spring, value: isPresented)
-
-                // Edge pan gesture catcher (always at the screen's left edge)
-                if canOpen && !isPresented {
-                    NativeEdgePanCapture(
-                        edgeActivationWidth: 26,
-                        onChanged: { translationX, _ in
-                            guard canOpen, !isPresented else { return }
-                            let horizontal = max(0, translationX)
-                            dragOffset = min(horizontal, sidebarWidth)
-                        },
-                        onEnded: { translationX, velocityX in
-                            guard canOpen, !isPresented else {
-                                dragOffset = 0
-                                return
-                            }
-
-                            let projected = max(translationX + (velocityX * 0.18), translationX)
-                            let shouldOpen = projected > sidebarWidth * 0.35
-
-                            withAnimation(spring) {
-                                isPresented = shouldOpen
-                                dragOffset = 0
-                            }
-                        }
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .ignoresSafeArea()
-                }
-            }
+            overlayBody(mainOffset: mainOffset)
+                .simultaneousGesture(
+                    sidebarCloseDragGesture,
+                    including: isPresented ? .all : .none
+                )
         }
         .onAppear {
-            postSidebarVisibility(shouldRenderOverlay)
+            publishOverlayVisibility(shouldRenderOverlay)
         }
         .onChange(of: shouldRenderOverlay) { isVisible in
-            postSidebarVisibility(isVisible)
+            publishOverlayVisibility(isVisible)
         }
         .onChange(of: isPresented) { isVisible in
             if !isVisible {
@@ -223,13 +242,9 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
         .onDisappear {
             dragOffset = 0
             resetCloseDragTracking()
-            postSidebarVisibility(false)
+            publishOverlayVisibility(false)
         }
     }
-}
-
-extension Notification.Name {
-    static let interactiveSidebarVisibilityChanged = Notification.Name("interactiveSidebarVisibilityChanged")
 }
 
 private struct NativeEdgePanCapture: UIViewRepresentable {

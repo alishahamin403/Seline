@@ -42,6 +42,7 @@ struct OverlaySearchResult: Identifiable {
     let task: TaskItem?
     let email: Email?
     let note: Note?
+    let receipt: ReceiptStat?
     let location: SavedPlace?
     let category: String?
     let person: Person?
@@ -56,6 +57,7 @@ struct OverlaySearchResult: Identifiable {
         task: TaskItem? = nil,
         email: Email? = nil,
         note: Note? = nil,
+        receipt: ReceiptStat? = nil,
         location: SavedPlace? = nil,
         category: String? = nil,
         person: Person? = nil,
@@ -68,6 +70,7 @@ struct OverlaySearchResult: Identifiable {
         self.task = task
         self.email = email
         self.note = note
+        self.receipt = receipt
         self.location = location
         self.category = category
         self.person = person
@@ -79,6 +82,7 @@ struct OverlaySearchResult: Identifiable {
             task: task,
             email: email,
             note: note,
+            receipt: receipt,
             location: location,
             category: category,
             person: person,
@@ -93,6 +97,7 @@ struct OverlaySearchResult: Identifiable {
         task: TaskItem?,
         email: Email?,
         note: Note?,
+        receipt: ReceiptStat?,
         location: SavedPlace?,
         category: String?,
         person: Person?,
@@ -106,6 +111,9 @@ struct OverlaySearchResult: Identifiable {
         }
         if let note {
             return "\(type.rawValue)-note-\(note.id.uuidString)"
+        }
+        if let receipt {
+            return "\(type.rawValue)-receipt-\(receipt.id.uuidString)"
         }
         if let location {
             return "\(type.rawValue)-place-\(location.id.uuidString)"
@@ -173,6 +181,7 @@ final class SearchIndexState: ObservableObject {
     private let emailService: EmailService
     private let taskManager: TaskManager
     private let notesManager: NotesManager
+    private let receiptManager: ReceiptManager
     private let locationsManager: LocationsManager
     private let peopleManager: PeopleManager
     private var cancellables = Set<AnyCancellable>()
@@ -183,12 +192,14 @@ final class SearchIndexState: ObservableObject {
         emailService: EmailService = .shared,
         taskManager: TaskManager = .shared,
         notesManager: NotesManager = .shared,
+        receiptManager: ReceiptManager = .shared,
         locationsManager: LocationsManager = .shared,
         peopleManager: PeopleManager = .shared
     ) {
         self.emailService = emailService
         self.taskManager = taskManager
         self.notesManager = notesManager
+        self.receiptManager = receiptManager
         self.locationsManager = locationsManager
         self.peopleManager = peopleManager
 
@@ -200,11 +211,11 @@ final class SearchIndexState: ObservableObject {
         let inboxEmails = emailService.inboxEmails
         let sentEmails = emailService.sentEmails
         let tasks = taskManager.getAllFlattenedTasks()
-        let notes = notesManager.notes
+        let notes = receiptManager.visibleNotes(notesManager.notes)
         let noteFolders = notesManager.folders
         let savedPlaces = locationsManager.savedPlaces
         let people = peopleManager.people
-        let receiptSummaries = notesManager.getReceiptStatistics()
+        let receiptStats = receiptManager.receipts
         let recurringExpenses: [RecurringExpense] =
             CacheManager.shared.get(forKey: CacheManager.CacheKey.allRecurringExpenses) ?? []
 
@@ -212,9 +223,6 @@ final class SearchIndexState: ObservableObject {
         let generation = refreshGeneration
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let receiptStats = receiptSummaries.flatMap { yearlySummary in
-                yearlySummary.monthlySummaries.flatMap(\.receipts)
-            }
             let nextEntries = Self.buildEntries(
                 emails: inboxEmails + sentEmails,
                 tasks: tasks,
@@ -311,6 +319,12 @@ final class SearchIndexState: ObservableObject {
                 self?.refresh()
             }
             .store(in: &cancellables)
+
+        receiptManager.$receipts
+            .sink { [weak self] _ in
+                self?.refresh()
+            }
+            .store(in: &cancellables)
     }
 
     private static func buildEntries(
@@ -325,7 +339,7 @@ final class SearchIndexState: ObservableObject {
     ) -> [Scope: [IndexedEntry]] {
         var entriesByScope: [Scope: [IndexedEntry]] = [:]
         let notesById = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0) })
-        let receiptNoteIds = Set(receipts.map(\.noteId))
+        let receiptNoteIds = Set(receipts.compactMap(\.legacyNoteId))
         let folderParentById = Dictionary(uniqueKeysWithValues: noteFolders.map { ($0.id, $0.parentFolderId) })
         let receiptFolderIds = Set(
             noteFolders
@@ -417,14 +431,14 @@ final class SearchIndexState: ObservableObject {
         }
 
         for receipt in receipts.sorted(by: { $0.date > $1.date }) {
-            guard let linkedNote = notesById[receipt.noteId] else { continue }
+            let linkedNote = receipt.legacyNoteId.flatMap { notesById[$0] }
             let dateString = shortDateString(receipt.date)
 
             append(
                 IndexedEntry(
                     scope: .receipt,
                     result: OverlaySearchResult(
-                        id: "receipt-\(receipt.noteId.uuidString)",
+                        id: "receipt-\(receipt.id.uuidString)",
                         type: .receipt,
                         title: receipt.title,
                         subtitle: "\(formatCurrency(receipt.amount)) • \(dateString)",
@@ -432,6 +446,7 @@ final class SearchIndexState: ObservableObject {
                         task: nil,
                         email: nil,
                         note: linkedNote,
+                        receipt: receipt,
                         location: nil,
                         category: receipt.category,
                         person: nil,
@@ -440,7 +455,8 @@ final class SearchIndexState: ObservableObject {
                     normalizedFields: [
                         receipt.title,
                         receipt.category,
-                        linkedNote.displayContent
+                        receipt.searchableText,
+                        linkedNote?.displayContent ?? ""
                     ].map(normalize).filter { !$0.isEmpty },
                     tieBreakTitle: receipt.title,
                     basePriority: 26

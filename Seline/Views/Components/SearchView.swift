@@ -10,6 +10,7 @@ struct SearchView: View {
     var onOpenEmail: (Email) -> Void
     var onOpenTask: (TaskItem) -> Void
     var onOpenNote: (Note) -> Void
+    var onOpenReceipt: (ReceiptStat) -> Void
     var onOpenPlace: (SavedPlace) -> Void
     var onOpenPerson: (Person) -> Void
 
@@ -51,8 +52,14 @@ struct SearchView: View {
             if let task = result.task {
                 onOpenTask(task)
             }
-        case .note, .receipt:
+        case .note:
             if let note = result.note {
+                onOpenNote(note)
+            }
+        case .receipt:
+            if let receipt = result.receipt {
+                onOpenReceipt(receipt)
+            } else if let note = result.note {
                 onOpenNote(note)
             }
         case .location:
@@ -653,6 +660,7 @@ private enum SearchRecentQueryStore {
         onOpenEmail: { _ in },
         onOpenTask: { _ in },
         onOpenNote: { _ in },
+        onOpenReceipt: { _ in },
         onOpenPlace: { _ in },
         onOpenPerson: { _ in }
     )

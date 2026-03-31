@@ -81,50 +81,13 @@ struct FolderSidebarView: View {
         return notesManager.folders.contains { $0.parentFolderId == folder.id }
     }
 
-    // Count non-receipt pinned notes
-    private var pinnedNotesCount: Int {
-        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
-
-        return notesManager.notes.filter { note in
-            guard note.isPinned else { return false }
-            guard !note.isJournalEntry && !note.isJournalWeeklyRecap else { return false }
-            // Check if note is in Receipts folder (or a subfolder of Receipts)
-            if let folderId = note.folderId, let receiptsFolderId = receiptsFolder?.id {
-                var currentFolderId: UUID? = folderId
-                while let currentId = currentFolderId {
-                    if currentId == receiptsFolderId {
-                        return false // This is a receipt, exclude it
-                    }
-                    currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
-                }
-            }
-            return true
-        }.count
-    }
-
-    // Count non-receipt notes that are not pinned and not tied to a folder
     private var unfiledNotesCount: Int {
-        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
-
-        return notesManager.notes.filter { note in
-            guard !note.isPinned, note.folderId == nil else { return false }
-            guard !note.isJournalEntry && !note.isJournalWeeklyRecap else { return false }
-            return !isReceiptNote(note, receiptsFolderId: receiptsFolder?.id)
+        notesManager.notes.filter { note in
+            !note.isPinned &&
+            note.folderId == nil &&
+            !note.isJournalEntry &&
+            !note.isJournalWeeklyRecap
         }.count
-    }
-
-    private func isReceiptNote(_ note: Note, receiptsFolderId: UUID?) -> Bool {
-        guard let receiptsFolderId else { return false }
-        guard let folderId = note.folderId else { return false }
-
-        var currentFolderId: UUID? = folderId
-        while let currentId = currentFolderId {
-            if currentId == receiptsFolderId {
-                return true
-            }
-            currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
-        }
-        return false
     }
 
     var body: some View {
@@ -212,36 +175,6 @@ struct FolderSidebarView: View {
                                 HapticManager.shared.selection()
                                 onActivateNotesPage?()
                                 selectedFolderId = nil
-                                showUnfiledNotesOnly = false
-                                showSidebarNotesSelection = true
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    isPresented = false
-                                }
-                            }) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "pin")
-                                        .font(.system(size: 15, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.45))
-                                        .frame(width: 22)
-                                    Text("Pinned")
-                                        .font(FontManager.geist(size: 15, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
-                                    Spacer()
-                                    Text("\(pinnedNotesCount)")
-                                        .font(FontManager.geist(size: 12, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
-                                .background(sidebarRowFill(isSelected: selectedFolderId == nil && !showUnfiledNotesOnly && showSidebarNotesSelection))
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(PlainButtonStyle())
-
-                            Button(action: {
-                                HapticManager.shared.selection()
-                                onActivateNotesPage?()
-                                selectedFolderId = nil
                                 showUnfiledNotesOnly = true
                                 showSidebarNotesSelection = true
                                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -268,37 +201,7 @@ struct FolderSidebarView: View {
                             }
                             .buttonStyle(PlainButtonStyle())
 
-                            if let onOpenJournal {
-                                Button(action: {
-                                    HapticManager.shared.selection()
-                                    onActivateNotesPage?()
-                                    selectedFolderId = nil
-                                    showUnfiledNotesOnly = false
-                                    showSidebarNotesSelection = false
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        isPresented = false
-                                    }
-                                    onOpenJournal()
-                                }) {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: "book")
-                                            .font(.system(size: 15, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.55) : .black.opacity(0.45))
-                                            .frame(width: 22)
-                                        Text("Journal")
-                                            .font(FontManager.geist(size: 15, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.96) : .black.opacity(0.88))
-                                        Spacer()
-                                        Text("\(notesManager.journalEntries.count)")
-                                            .font(FontManager.geist(size: 12, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 10)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
+                            // Journal removed from sidebar — accessible via Notes/Journal tab toggle
                         }
                     }
 

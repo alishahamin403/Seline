@@ -3,6 +3,8 @@ import CoreLocation
 
 struct ChatView: View {
     var isVisible: Bool = true
+    var bottomTabSelection: Binding<PrimaryTab>? = nil
+    var showsAttachedBottomTabBar: Bool = false
     var onOpenEmail: ((Email) -> Void)? = nil
     var onOpenTask: ((TaskItem) -> Void)? = nil
     var onOpenNote: ((Note) -> Void)? = nil
@@ -84,6 +86,16 @@ struct ChatView: View {
         return colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.055)
     }
 
+    @ViewBuilder
+    private func attachedBottomTabBar(bottomSafeAreaInset: CGFloat) -> some View {
+        if showsAttachedBottomTabBar, let bottomTabSelection {
+            SidebarAttachedBottomTabBar(
+                selectedTab: bottomTabSelection,
+                bottomSafeAreaInset: bottomSafeAreaInset
+            )
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             InteractiveSidebarOverlay(
@@ -92,14 +104,20 @@ struct ChatView: View {
                 sidebarWidth: min(336, geometry.size.width * 0.86),
                 colorScheme: colorScheme
             ) {
-                ZStack {
-                    AppAmbientBackgroundLayer(
-                        colorScheme: colorScheme,
-                        variant: .topLeading
-                    )
+                VStack(spacing: 0) {
+                    ZStack {
+                        AppAmbientBackgroundLayer(
+                            colorScheme: colorScheme,
+                            variant: .topLeading
+                        )
 
-                    chatShell(topInset: geometry.safeAreaInsets.top)
+                        chatShell(topInset: geometry.safeAreaInsets.top)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    attachedBottomTabBar(bottomSafeAreaInset: geometry.safeAreaInsets.bottom)
                 }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             } sidebarContent: {
                 sidebarContent
             }

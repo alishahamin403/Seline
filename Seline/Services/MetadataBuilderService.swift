@@ -25,7 +25,7 @@ class MetadataBuilderService {
            Date().timeIntervalSince(cached.timestamp) < cacheTTL {
             return cached.data
         }
-        let receipts = buildReceiptMetadata(from: notesManager)
+        let receipts = await buildReceiptMetadata()
         let events = buildEventMetadata(from: taskManager)
 
         // Preload visit stats for all saved places before building location metadata
@@ -88,81 +88,29 @@ class MetadataBuilderService {
     // MARK: - Receipt Metadata Builder
 
     @MainActor
-    private static func buildReceiptMetadata(from notesManager: NotesManager) -> [ReceiptMetadata] {
-        let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+    private static func buildReceiptMetadata() async -> [ReceiptMetadata] {
+        await ReceiptManager.shared.ensureLoaded()
+        let receiptStats = ReceiptManager.shared.receipts
 
-        func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
-            guard let folderId = folderId else { return false }
-
-            if folderId == receiptsFolderId {
-                return true
-            }
-
-            // Check if parent folder (recursively) is receipts
-            if let folder = notesManager.folders.first(where: { $0.id == folderId }),
-               let parentId = folder.parentFolderId {
-                return isUnderReceiptsFolderHierarchy(folderId: parentId)
-            }
-
-            return false
-        }
-
-        /// Extract year and month from folder hierarchy (Receipts/YYYY/MonthName/Note)
-        func extractYearAndMonthFromFolders(_ folderId: UUID?) -> (year: String?, month: String?) {
-            guard let folderId = folderId else { return (nil, nil) }
-
-            // Get the month folder (first level - direct parent)
-            guard let monthFolder = notesManager.folders.first(where: { $0.id == folderId }) else {
-                return (nil, nil)
-            }
-
-            let monthName = monthFolder.name
-
-            // Get the year folder (second level - parent of month folder)
-            guard let yearFolder = notesManager.folders.first(where: { $0.id == monthFolder.parentFolderId }) else {
-                return (nil, monthName)
-            }
-
-            let yearString = yearFolder.name
-            return (yearString, monthName)
-        }
-
-        let receiptNotes = notesManager.notes.filter { note in
-            isUnderReceiptsFolderHierarchy(folderId: note.folderId)
-        }
-
-        print("📦 ReceiptMetadata: Found \(receiptNotes.count) receipts under Receipts folder")
+        print("📦 ReceiptMetadata: Found \(receiptStats.count) unified receipts")
 
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "MMMM yyyy"
 
         var totalAmount = 0.0
-        let result = receiptNotes.map { receipt in
-            // Use CurrencyParser for robust amount extraction (finds largest amount, handles multiple formats)
-            let amount = CurrencyParser.extractAmount(from: receipt.content.isEmpty ? receipt.title : receipt.content)
+        let result = receiptStats.map { receipt in
+            let amount = receipt.amount
             totalAmount += amount
-            let category = extractCategoryFromReceipt(receipt.title, content: receipt.content)
-            let preview = String(receipt.content.prefix(50))
-
-            // Extract month/year from folder hierarchy, fallback to dateCreated if not found
-            let (folderYear, folderMonth) = extractYearAndMonthFromFolders(receipt.folderId)
-            let monthYear = folderMonth.map { month in
-                folderYear.map { "\($0) \(month)" } ?? month
-            } ?? dateFormatter.string(from: receipt.dateCreated)
-
-            let dayOfWeek = getDayOfWeekName(receipt.dateCreated)
-
-            // Debug log for each receipt
-            if folderMonth == nil {
-                print("⚠️ Receipt '\(receipt.title)' ($\(String(format: "%.2f", amount))) - folder extraction failed, using dateCreated")
-            }
+            let preview = String(receipt.searchableText.prefix(80))
+            let monthYear = dateFormatter.string(from: receipt.date)
+            let dayOfWeek = getDayOfWeekName(receipt.date)
 
             return ReceiptMetadata(
                 id: receipt.id,
-                merchant: receipt.title,
+                merchant: receipt.merchant,
                 amount: amount,
-                date: receipt.dateCreated,
-                category: category,
+                date: receipt.date,
+                category: receipt.category,
                 preview: preview,
                 monthYear: monthYear,
                 dayOfWeek: dayOfWeek
@@ -485,6 +433,7 @@ class MetadataBuilderService {
     private static func buildNoteMetadata(from notesManager: NotesManager) -> [NoteMetadata] {
         // Exclude receipts folder notes
         let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+        let visibleNotes = ReceiptManager.shared.visibleNotes(notesManager.notes)
 
         func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
             guard let folderId = folderId else { return false }
@@ -501,7 +450,7 @@ class MetadataBuilderService {
             return false
         }
 
-        return notesManager.notes
+        return visibleNotes
             .filter { !isUnderReceiptsFolderHierarchy(folderId: $0.folderId) }
             .map { note in
                 let folderName = notesManager.folders.first(where: { $0.id == note.folderId })?.name

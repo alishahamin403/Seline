@@ -194,12 +194,12 @@ struct RelevantContentInfo: Codable, Identifiable {
         )
     }
 
-    static func receipt(id: UUID, title: String, amount: Double?, date: Date?, category: String?) -> RelevantContentInfo {
+    static func receipt(id: UUID, title: String, amount: Double?, date: Date?, category: String?, legacyNoteId: UUID? = nil) -> RelevantContentInfo {
         RelevantContentInfo(
             id: UUID(),
             contentType: .receipt,
             emailId: nil, emailSubject: nil, emailSender: nil, emailSnippet: nil, emailDate: nil,
-            noteId: id,
+            noteId: legacyNoteId,
             noteTitle: title,
             noteSnippet: nil,
             noteFolder: "Receipts",

@@ -374,6 +374,10 @@ class PeopleManager: ObservableObject {
     // MARK: - Receipt-People Connections
     
     func linkPeopleToReceipt(noteId: UUID, personIds: [UUID]) async {
+        await linkPeopleToReceipt(receiptId: noteId, legacyNoteId: noteId, personIds: personIds)
+    }
+
+    func linkPeopleToReceipt(receiptId: UUID, legacyNoteId: UUID? = nil, personIds: [UUID]) async {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             print("⚠️ No user ID, skipping receipt-people sync")
             return
@@ -384,7 +388,7 @@ class PeopleManager: ObservableObject {
         
         // Update local cache
         await MainActor.run {
-            receiptPeopleCache[noteId] = personIds
+            receiptPeopleCache[receiptId] = personIds
         }
         
         // First, delete existing connections for this receipt
@@ -393,7 +397,7 @@ class PeopleManager: ObservableObject {
             try await client
                 .from("receipt_people")
                 .delete()
-                .eq("note_id", value: noteId.uuidString)
+                .eq("receipt_id", value: receiptId.uuidString)
                 .execute()
         } catch {
             print("❌ Error clearing receipt-people connections: \(error)")
@@ -401,11 +405,12 @@ class PeopleManager: ObservableObject {
         
         // Then insert new connections
         for personId in personIds {
-            let connection = ReceiptPersonConnection(noteId: noteId, personId: personId)
+            let connection = ReceiptPersonConnection(receiptId: receiptId, noteId: legacyNoteId, personId: personId)
             
             let data: [String: PostgREST.AnyJSON] = [
                 "id": .string(connection.id.uuidString),
-                "note_id": .string(noteId.uuidString),
+                "receipt_id": .string(receiptId.uuidString),
+                "note_id": legacyNoteId.map { .string($0.uuidString) } ?? .null,
                 "person_id": .string(personId.uuidString),
                 "created_at": .string(ISO8601DateFormatter().string(from: connection.createdAt))
             ]
@@ -416,7 +421,7 @@ class PeopleManager: ObservableObject {
                     .from("receipt_people")
                     .insert(data)
                     .execute()
-                print("✅ Linked person \(personId) to receipt \(noteId)")
+                print("✅ Linked person \(personId) to receipt \(receiptId)")
             } catch {
                 print("❌ Error linking person to receipt: \(error)")
             }
@@ -424,8 +429,12 @@ class PeopleManager: ObservableObject {
     }
     
     func getPeopleForReceipt(noteId: UUID) async -> [Person] {
+        await getPeopleForReceipt(receiptId: noteId, legacyNoteId: noteId)
+    }
+
+    func getPeopleForReceipt(receiptId: UUID, legacyNoteId: UUID? = nil) async -> [Person] {
         // Check cache first
-        if let cachedIds = receiptPeopleCache[noteId] {
+        if let cachedIds = receiptPeopleCache[receiptId] {
             return cachedIds.compactMap { getPerson(by: $0) }
         }
         
@@ -435,7 +444,7 @@ class PeopleManager: ObservableObject {
             let response: [ReceiptPersonSupabaseData] = try await client
                 .from("receipt_people")
                 .select()
-                .eq("note_id", value: noteId.uuidString)
+                .eq("receipt_id", value: receiptId.uuidString)
                 .execute()
                 .value
             
@@ -443,12 +452,32 @@ class PeopleManager: ObservableObject {
             
             // Update cache
             await MainActor.run {
-                receiptPeopleCache[noteId] = personIds
+                receiptPeopleCache[receiptId] = personIds
             }
             
             return personIds.compactMap { getPerson(by: $0) }
         } catch {
-            print("❌ Error loading people for receipt: \(error)")
+            if let legacyNoteId {
+                do {
+                    let client = await SupabaseManager.shared.getPostgrestClient()
+                    let fallbackResponse: [ReceiptPersonSupabaseData] = try await client
+                        .from("receipt_people")
+                        .select()
+                        .eq("note_id", value: legacyNoteId.uuidString)
+                        .execute()
+                        .value
+
+                    let personIds = fallbackResponse.compactMap { UUID(uuidString: $0.person_id) }
+                    await MainActor.run {
+                        receiptPeopleCache[receiptId] = personIds
+                    }
+                    return personIds.compactMap { getPerson(by: $0) }
+                } catch {
+                    print("❌ Error loading people for receipt: \(error)")
+                }
+            } else {
+                print("❌ Error loading people for receipt: \(error)")
+            }
             return []
         }
     }
@@ -463,7 +492,15 @@ class PeopleManager: ObservableObject {
                 .execute()
                 .value
             
-            return response.compactMap { UUID(uuidString: $0.note_id) }
+            return response.compactMap { row in
+                if let receiptId = row.receipt_id, let uuid = UUID(uuidString: receiptId) {
+                    return uuid
+                }
+                if let noteId = row.note_id, let uuid = UUID(uuidString: noteId) {
+                    return uuid
+                }
+                return nil
+            }
         } catch {
             print("❌ Error loading receipts for person: \(error)")
             return []

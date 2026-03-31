@@ -27,13 +27,14 @@ struct HomeWidgetStackView: View {
     let onAddTask: () -> Void
     let onAddTaskFromPhoto: () -> Void
     let onAddNote: () -> Void
+    let onAddReceiptManually: () -> Void
     let onAddReceiptFromCamera: () -> Void
     let onAddReceiptFromGallery: () -> Void
     let onReceiptSelected: (ReceiptStat) -> Void
     let onRefresh: () -> Void
 
     private var homeCardHorizontalPadding: CGFloat {
-        max(ShadcnSpacing.screenEdgeHorizontal, 12)
+        ShadcnSpacing.screenEdgeHorizontal
     }
 
     var body: some View {
@@ -41,7 +42,6 @@ struct HomeWidgetStackView: View {
             VStack(spacing: 8) {
                 if homeState.hasPendingLocationSuggestion {
                     NewLocationSuggestionCard()
-                        .padding(.horizontal, homeCardHorizontalPadding)
                         .transition(.asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity),
                             removal: .move(edge: .top).combined(with: .opacity)
@@ -67,21 +67,21 @@ struct HomeWidgetStackView: View {
                     onAddTaskFromPhoto: onAddTaskFromPhoto,
                     onAddNote: onAddNote
                 )
-                .padding(.horizontal, homeCardHorizontalPadding)
                 .zIndex(isDailyOverviewExpanded ? 10 : 1)
 
                 SpendingAndETAWidget(
                     isVisible: isVisible,
+                    onAddReceiptManually: onAddReceiptManually,
                     onAddReceipt: onAddReceiptFromCamera,
                     onAddReceiptFromGallery: onAddReceiptFromGallery,
                     onReceiptSelected: onReceiptSelected
                 )
-                .padding(.horizontal, homeCardHorizontalPadding)
                 .padding(.top, 4)
                 .padding(.bottom, 6)
             }
+            .padding(.horizontal, homeCardHorizontalPadding)
             .padding(.top, 12)
-            .padding(.bottom, 20)
+            .padding(.bottom, 96)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .selinePrimaryPageScroll()

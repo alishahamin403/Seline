@@ -247,16 +247,19 @@ struct VisitPersonConnection: Codable, Hashable, Identifiable {
 /// Represents a person connected to a receipt (note)
 struct ReceiptPersonConnection: Codable, Hashable, Identifiable {
     var id: UUID
-    var noteId: UUID
+    var receiptId: UUID
+    var noteId: UUID?
     var personId: UUID
     var createdAt: Date
     
     init(
         id: UUID = UUID(),
-        noteId: UUID,
+        receiptId: UUID,
+        noteId: UUID? = nil,
         personId: UUID
     ) {
         self.id = id
+        self.receiptId = receiptId
         self.noteId = noteId
         self.personId = personId
         self.createdAt = Date()
@@ -328,7 +331,8 @@ struct VisitPersonSupabaseData: Codable {
 
 struct ReceiptPersonSupabaseData: Codable {
     let id: String
-    let note_id: String
+    let receipt_id: String?
+    let note_id: String?
     let person_id: String
     let created_at: String
 }
@@ -510,10 +514,14 @@ extension VisitPersonConnection {
 extension ReceiptPersonConnection {
     init?(from data: ReceiptPersonSupabaseData) {
         guard let id = UUID(uuidString: data.id),
-              let noteId = UUID(uuidString: data.note_id),
               let personId = UUID(uuidString: data.person_id) else {
             return nil
         }
+
+        let receiptId = data.receipt_id.flatMap(UUID.init(uuidString:))
+            ?? data.note_id.flatMap(UUID.init(uuidString:))
+        let noteId = data.note_id.flatMap(UUID.init(uuidString:))
+        guard let resolvedReceiptId = receiptId else { return nil }
         
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -527,6 +535,7 @@ extension ReceiptPersonConnection {
         guard let createdAt = createdAt else { return nil }
         
         self.id = id
+        self.receiptId = resolvedReceiptId
         self.noteId = noteId
         self.personId = personId
         self.createdAt = createdAt

@@ -8,6 +8,7 @@ struct ReceiptStatsView: View {
     }
 
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var receiptManager = ReceiptManager.shared
     @State private var currentYear: Int = Calendar.current.component(.year, from: Date())
     @State private var selectedReceipt: ReceiptStat? = nil
     @State private var categoryBreakdown: YearlyCategoryBreakdown? = nil
@@ -30,6 +31,7 @@ struct ReceiptStatsView: View {
 
     var searchText: String? = nil
     var initialMonthDate: Date? = nil
+    var onAddReceiptManually: (() -> Void)? = nil
     var onAddReceiptFromCamera: (() -> Void)? = nil
     var onAddReceiptFromGallery: (() -> Void)? = nil
     var onActivateSearch: (() -> Void)? = nil
@@ -294,25 +296,12 @@ struct ReceiptStatsView: View {
                 }
             }
         }
+        .onChange(of: receiptManager.receipts.count) { _ in
+            refreshSummaryCache()
+            loadCategoryBreakdown()
+        }
         .sheet(item: $selectedReceipt) { receipt in
-            if let note = notesManager.notes.first(where: { $0.id == receipt.noteId }) {
-                ReceiptDetailSheet(
-                    receipt: receipt,
-                    note: note,
-                    folderName: notesManager.getFolderName(for: note.folderId)
-                )
-            } else {
-                VStack(spacing: 14) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .font(FontManager.geist(size: 34, weight: .light))
-                        .foregroundColor(secondaryTextColor)
-                    Text("Receipt note was not found.")
-                        .font(FontManager.geist(size: 15, weight: .medium))
-                        .foregroundColor(primaryTextColor)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(pageBackgroundColor)
-            }
+            ReceiptDetailSheet(receipt: receipt)
         }
         .sheet(isPresented: Binding(
             get: { selectedCategory != nil },
@@ -1117,6 +1106,15 @@ struct ReceiptStatsView: View {
 
     @ViewBuilder
     private var receiptAddMenuContent: some View {
+        if let onAddReceiptManually {
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddReceiptManually()
+            }) {
+                Label("Add Manually", systemImage: "square.and.pencil")
+            }
+        }
+
         if let onAddReceiptFromCamera {
             Button(action: {
                 HapticManager.shared.selection()
@@ -1131,7 +1129,7 @@ struct ReceiptStatsView: View {
                 HapticManager.shared.selection()
                 onAddReceiptFromGallery()
             }) {
-                Label("Upload Images", systemImage: "photo.on.rectangle")
+                Label("Select Picture", systemImage: "photo.on.rectangle")
             }
         }
     }
@@ -1180,9 +1178,9 @@ struct ReceiptStatsView: View {
     }
 
     private func refreshSummaryCache() {
-        let availableYears = notesManager.getAvailableReceiptYears()
-        let currentYearStats = notesManager.getReceiptStatistics(year: currentYear).first
-        let previousYearTotal = notesManager.getReceiptStatistics(year: currentYear - 1).first?.yearlyTotal
+        let availableYears = receiptManager.availableYears()
+        let currentYearStats = receiptManager.receiptStatistics(year: currentYear).first
+        let previousYearTotal = receiptManager.receiptStatistics(year: currentYear - 1).first?.yearlyTotal
         let shouldPreserveSnapshots = notesManager.shouldPreserveVisibleReceiptStats
 
         if !availableYears.isEmpty || availableYearsSnapshot.isEmpty || !shouldPreserveSnapshots {
@@ -1211,6 +1209,7 @@ struct ReceiptStatsView: View {
             refreshSummaryCache()
         }
 
+        await receiptManager.ensureLoaded()
         await notesManager.ensureReceiptDataAvailable()
 
         await MainActor.run {
@@ -1245,7 +1244,7 @@ struct ReceiptStatsView: View {
 
         isLoadingCategories = true
         Task {
-            let breakdown = await notesManager.getCategoryBreakdown(for: currentYear)
+            let breakdown = await receiptManager.categoryBreakdown(for: currentYear)
             await MainActor.run {
                 categoryBreakdown = breakdown
                 isLoadingCategories = false

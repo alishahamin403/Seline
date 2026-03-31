@@ -33,10 +33,12 @@ struct SpendingAndETAWidget: View {
     }
 
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var receiptManager = ReceiptManager.shared
     @StateObject private var insightsService = SpendingInsightsService.shared
     @Environment(\.colorScheme) var colorScheme
 
     var isVisible: Bool = true
+    var onAddReceiptManually: (() -> Void)? = nil
     var onAddReceipt: (() -> Void)? = nil
     var onAddReceiptFromGallery: (() -> Void)? = nil
     var onReceiptSelected: ((ReceiptStat) -> Void)? = nil
@@ -51,7 +53,7 @@ struct SpendingAndETAWidget: View {
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
-        return notesManager.getReceiptStatistics(year: year).first
+        return receiptManager.receiptStatistics(year: year).first
     }
 
     private var monthlyTotal: Double {
@@ -85,27 +87,16 @@ struct SpendingAndETAWidget: View {
     }
 
     private var allReceipts: [ReceiptStat] {
-        notesManager.getReceiptStatistics()
+        receiptManager.receiptStatistics()
             .flatMap(\.monthlySummaries)
             .flatMap(\.receipts)
     }
 
     private var todayReceiptStats: [ReceiptStat] {
-        guard let stats = currentYearStats else { return [] }
-
         let calendar = Calendar.current
-        let now = Date()
-        let today = calendar.startOfDay(for: now)
-        let currentMonth = calendar.component(.month, from: now)
-        let currentYear = calendar.component(.year, from: now)
+        let today = calendar.startOfDay(for: Date())
 
-        return stats.monthlySummaries
-            .filter { summary in
-                let month = calendar.component(.month, from: summary.monthDate)
-                let year = calendar.component(.year, from: summary.monthDate)
-                return month == currentMonth && year == currentYear
-            }
-            .flatMap { $0.receipts }
+        return receiptManager.receipts
             .filter { receipt in
                 calendar.startOfDay(for: receipt.date) == today
             }
@@ -113,13 +104,7 @@ struct SpendingAndETAWidget: View {
     }
 
     private var dailyTotal: Double {
-        let now = Date()
-        let todayTotal = todayReceiptStats.reduce(0.0) { $0 + $1.amount }
-
-        // Fallback: include receipt-like notes directly in case hierarchy/date extraction
-        // excluded a same-day receipt from stats aggregation.
-        let fallbackTotal = Self.calculateTodayTotalFromNotes(notesManager, now: now)
-        return max(todayTotal, fallbackTotal)
+        todayReceiptStats.reduce(0.0) { $0 + $1.amount }
     }
 
     private var previousMonthTotal: Double {
@@ -135,7 +120,7 @@ struct SpendingAndETAWidget: View {
         // If previous month is in a different year, fetch that year's statistics
         let stats: YearlyReceiptSummary?
         if previousYear != currentYear {
-            stats = notesManager.getReceiptStatistics(year: previousYear).first
+            stats = receiptManager.receiptStatistics(year: previousYear).first
         } else {
             stats = currentYearStats
         }
@@ -344,20 +329,25 @@ struct SpendingAndETAWidget: View {
     /// Static method to refresh widget spending data from NotesManager
     /// Call this on app startup and when receipts change
     static func refreshWidgetSpendingData() {
-        let notesManager = NotesManager.shared
+        let receiptManager = ReceiptManager.shared
         let calendar = Calendar.current
         let now = Date()
         let year = calendar.component(.year, from: now)
         let currentMonth = calendar.component(.month, from: now)
         let currentYear = calendar.component(.year, from: now)
+        let today = calendar.startOfDay(for: now)
+        let dailyTotal = receiptManager.receipts
+            .filter { receipt in
+                calendar.startOfDay(for: receipt.date) == today
+            }
+            .reduce(0.0) { $0 + $1.amount }
         
-        guard let stats = notesManager.getReceiptStatistics(year: year).first else {
-            // No stats - set zeros
+        guard let stats = receiptManager.receiptStatistics(year: year).first else {
             updateWidgetWithSpendingData(
                 monthlyTotal: 0,
                 monthOverMonthPercentage: 0,
                 isSpendingIncreasing: false,
-                dailyTotal: 0
+                dailyTotal: dailyTotal
             )
             return
         }
@@ -369,23 +359,6 @@ struct SpendingAndETAWidget: View {
             return month == currentMonth && yearComponent == currentYear
         }.reduce(0) { $0 + $1.monthlyTotal }
         
-        // Calculate daily total
-        let today = calendar.startOfDay(for: now)
-        var todayReceipts: [ReceiptStat] = []
-        for monthlySummary in stats.monthlySummaries {
-            let month = calendar.component(.month, from: monthlySummary.monthDate)
-            let yearComponent = calendar.component(.year, from: monthlySummary.monthDate)
-            if month == currentMonth && yearComponent == currentYear {
-                todayReceipts.append(contentsOf: monthlySummary.receipts)
-            }
-        }
-        let dailyTotal = todayReceipts.filter { receipt in
-            let receiptDay = calendar.startOfDay(for: receipt.date)
-            return receiptDay == today
-        }.reduce(0.0) { $0 + $1.amount }
-
-        let resolvedDailyTotal = max(dailyTotal, calculateTodayTotalFromNotes(notesManager, now: now))
-        
         // Calculate previous month and year, handling year boundary
         let previousMonth = currentMonth == 1 ? 12 : currentMonth - 1
         let previousYear = currentMonth == 1 ? currentYear - 1 : currentYear
@@ -393,7 +366,7 @@ struct SpendingAndETAWidget: View {
         // If previous month is in a different year, fetch that year's statistics
         let previousMonthTotal: Double
         if previousYear != currentYear {
-            if let previousYearStats = notesManager.getReceiptStatistics(year: previousYear).first {
+            if let previousYearStats = receiptManager.receiptStatistics(year: previousYear).first {
                 previousMonthTotal = previousYearStats.monthlySummaries.filter { summary in
                     let month = calendar.component(.month, from: summary.monthDate)
                     let yearComponent = calendar.component(.year, from: summary.monthDate)
@@ -423,68 +396,10 @@ struct SpendingAndETAWidget: View {
             monthlyTotal: monthlyTotal,
             monthOverMonthPercentage: percentage,
             isSpendingIncreasing: isIncrease,
-            dailyTotal: resolvedDailyTotal
+            dailyTotal: dailyTotal
         )
 
-        print("💰 Widget spending data refreshed - Monthly: $\(monthlyTotal), Daily: $\(resolvedDailyTotal)")
-    }
-
-    private static func calculateTodayTotalFromNotes(_ notesManager: NotesManager, now: Date = Date()) -> Double {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: now)
-        let receiptRootIds = Set(
-            notesManager.folders
-                .filter { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Receipts") == .orderedSame }
-                .map(\.id)
-        )
-
-        return notesManager.notes.reduce(0.0) { partial, note in
-            let belongsToReceipts: Bool = {
-                if !receiptRootIds.isEmpty {
-                    var currentFolderId = note.folderId
-                    while let folderId = currentFolderId {
-                        if receiptRootIds.contains(folderId) {
-                            return true
-                        }
-                        currentFolderId = notesManager.folders.first(where: { $0.id == folderId })?.parentFolderId
-                    }
-                }
-                return isReceiptLike(note: note)
-            }()
-
-            guard belongsToReceipts else { return partial }
-
-            let effectiveDate = notesManager.extractFullDateFromTitle(note.title) ?? note.dateModified
-            guard calendar.startOfDay(for: effectiveDate) == today else { return partial }
-
-            let amount = CurrencyParser.extractAmount(
-                from: [note.title, note.content]
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n")
-            )
-            return partial + amount
-        }
-    }
-
-    private static func isReceiptLike(note: Note) -> Bool {
-        let title = note.title.lowercased()
-        let content = note.content.lowercased()
-        let keywords = [
-            "receipt",
-            "interac",
-            "e-transfer",
-            "etransfer",
-            "transfer",
-            "subtotal",
-            "total",
-            "merchant",
-            "payment",
-            "invoice"
-        ]
-
-        return keywords.contains { keyword in
-            title.contains(keyword) || content.contains(keyword)
-        }
+        print("💰 Widget spending data refreshed - Monthly: $\(monthlyTotal), Daily: $\(dailyTotal)")
     }
 
     private static func monthLabel(for date: Date) -> String {
@@ -567,7 +482,7 @@ struct SpendingAndETAWidget: View {
             let currentMonth = calendar.component(.month, from: now)
 
             // Get all receipt statistics
-            let yearlyStats = notesManager.getReceiptStatistics()
+            let yearlyStats = receiptManager.receiptStatistics()
 
             // Flatten all receipts
             var allReceipts: [ReceiptStat] = []
@@ -665,11 +580,11 @@ struct SpendingAndETAWidget: View {
                 }
             }
         }
-        .padding(18)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .homeGlassCardStyle(
             colorScheme: colorScheme,
-            cornerRadius: 24,
+            cornerRadius: ShadcnRadius.xl,
             usesPureLightFill: true
         )
     }
@@ -740,6 +655,15 @@ struct SpendingAndETAWidget: View {
 
     @ViewBuilder
     private var receiptAddMenuContent: some View {
+        if let onAddReceiptManually {
+            Button(action: {
+                HapticManager.shared.selection()
+                onAddReceiptManually()
+            }) {
+                Label("Add Manually", systemImage: "square.and.pencil")
+            }
+        }
+
         if let onAddReceipt {
             Button(action: {
                 HapticManager.shared.selection()
@@ -754,7 +678,7 @@ struct SpendingAndETAWidget: View {
                 HapticManager.shared.selection()
                 onAddReceiptFromGallery()
             }) {
-                Label("Upload Images", systemImage: "photo.on.rectangle")
+                Label("Select Picture", systemImage: "photo.on.rectangle")
             }
         }
     }

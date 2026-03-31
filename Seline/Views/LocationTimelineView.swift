@@ -13,6 +13,7 @@ struct LocationTimelineView: View {
     @StateObject private var peopleManager = PeopleManager.shared
     @StateObject private var visitState = VisitStateManager.shared
     @StateObject private var pageState = LocationTimelineState()
+    @StateObject private var receiptManager = ReceiptManager.shared
 
     @State private var isLoading = false
     @State private var selectedPlace: SavedPlace? = nil
@@ -1310,9 +1311,9 @@ struct LocationTimelineView: View {
         linkedReceiptIds = VisitReceiptLinkStore.allLinks()
     }
 
-    private func linkedReceipt(for visit: LocationVisitRecord) -> Note? {
-        guard let linkedNoteId = linkedReceiptIds[visit.id] else { return nil }
-        return pageState.notesById[linkedNoteId]
+    private func linkedReceipt(for visit: LocationVisitRecord) -> ReceiptStat? {
+        guard let linkedReceiptId = linkedReceiptIds[visit.id] else { return nil }
+        return receiptManager.receipt(by: linkedReceiptId)
     }
     
     private func colorForRelationship(_ relationship: RelationshipType) -> Color {

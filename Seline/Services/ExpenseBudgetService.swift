@@ -7,7 +7,7 @@ class ExpenseBudgetService: ObservableObject {
     @Published private(set) var budgets: [ExpenseBudget] = []
 
     private let storageKey = "expenseBudgets"
-    private let notesManager = NotesManager.shared
+    private let receiptManager = ReceiptManager.shared
 
     private init() {
         loadBudgets()
@@ -89,7 +89,7 @@ class ExpenseBudgetService: ObservableObject {
     private func receiptsForCurrentPeriod(period: ExpenseBudgetPeriod) -> [ReceiptStat] {
         let calendar = Calendar.current
         let currentYear = calendar.component(.year, from: Date())
-        let yearStats = notesManager.getReceiptStatistics(year: currentYear)
+        let yearStats = receiptManager.receiptStatistics(year: currentYear)
         guard let stats = yearStats.first else { return [] }
 
         switch period {

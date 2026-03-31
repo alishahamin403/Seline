@@ -659,6 +659,7 @@ class NotesManager: ObservableObject {
         }
 
         await task.value
+        await ReceiptManager.shared.ensureLoaded()
     }
 
     // MARK: - Data Persistence
@@ -1787,11 +1788,17 @@ class NotesManager: ObservableObject {
     // MARK: - Computed Properties
 
     var pinnedNotes: [Note] {
-        notes.filter { $0.isPinned }.sorted { $0.dateModified > $1.dateModified }
+        ReceiptManager.shared
+            .visibleNotes(notes)
+            .filter { $0.isPinned }
+            .sorted { $0.dateModified > $1.dateModified }
     }
 
     var recentNotes: [Note] {
-        notes.filter { !$0.isPinned }.sorted { $0.dateModified > $1.dateModified }
+        ReceiptManager.shared
+            .visibleNotes(notes)
+            .filter { !$0.isPinned }
+            .sorted { $0.dateModified > $1.dateModified }
     }
 
     var journalEntries: [Note] {
@@ -1819,11 +1826,13 @@ class NotesManager: ObservableObject {
     }
 
     func searchNotes(query: String) -> [Note] {
+        let visibleNotes = ReceiptManager.shared.visibleNotes(notes)
+
         if query.isEmpty {
-            return notes.sorted { $0.dateModified > $1.dateModified }
+            return visibleNotes.sorted { $0.dateModified > $1.dateModified }
         }
 
-        return notes.filter { note in
+        return visibleNotes.filter { note in
             note.title.localizedCaseInsensitiveContains(query) ||
             note.content.localizedCaseInsensitiveContains(query)
         }.sorted { $0.dateModified > $1.dateModified }
@@ -1958,133 +1967,7 @@ class NotesManager: ObservableObject {
     /// - Parameter year: Optional year to filter by. If nil, returns all years.
     /// - Returns: Array of YearlyReceiptSummary sorted by year (most recent first)
     func getReceiptStatistics(year: Int? = nil) -> [YearlyReceiptSummary] {
-        // Check cache first
-        let cacheKey = receiptStatsCacheKey(for: year)
-        if let cached: [YearlyReceiptSummary] = cacheManager.get(forKey: cacheKey) {
-            return cached
-        }
-
-        let receiptRootIds = receiptRootFolderIds()
-        let foldersById = Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0) })
-        let allReceiptsNotes = receiptCandidateNotes()
-
-        guard !allReceiptsNotes.isEmpty else {
-            if shouldUseLastKnownReceiptStatsFallback(),
-               let lastKnown = cachedLastKnownReceiptStatistics(year: year) {
-                return lastKnown
-            }
-            return []
-        }
-
-        // Convert notes to ReceiptStat with resilient date/year/month derivation.
-        // Priority:
-        // 1) explicit date parsed from title
-        // 2) folder year/month (if valid)
-        // 3) note modified date
-        let receiptStats = allReceiptsNotes.map { note in
-            let calendar = Calendar.current
-            let isInReceiptHierarchy = isUnderFolderHierarchy(
-                folderId: note.folderId,
-                rootFolderIds: receiptRootIds,
-                foldersById: foldersById
-            )
-            let (folderYear, folderMonth) = isInReceiptHierarchy
-                ? extractYearAndMonthFromFolderHierarchy(note.folderId)
-                : (nil, nil)
-            let parsedDateFromTitle = extractFullDateFromTitle(note.title)
-
-            let fallbackFromFolder: Date? = {
-                guard
-                    let folderYear,
-                    let folderMonth,
-                    let monthIndex = calendar.monthSymbols.firstIndex(of: folderMonth)
-                else {
-                    return nil
-                }
-
-                var components = calendar.dateComponents([.hour, .minute, .second], from: note.dateModified)
-                components.year = folderYear
-                components.month = monthIndex + 1
-                components.day = calendar.component(.day, from: note.dateModified)
-                return calendar.date(from: components)
-            }()
-
-            let effectiveDate = parsedDateFromTitle ?? fallbackFromFolder ?? note.dateModified
-            let effectiveYear = calendar.component(.year, from: effectiveDate)
-            let effectiveMonth = calendar.monthSymbols[calendar.component(.month, from: effectiveDate) - 1]
-
-            return ReceiptStat(
-                from: note,
-                year: effectiveYear,
-                month: effectiveMonth,
-                date: effectiveDate
-            )
-        }
-
-        // Group by year from folder hierarchy
-        var yearlyStats: [Int: [ReceiptStat]] = [:]
-
-        for receipt in receiptStats {
-            if let receiptYear = receipt.year {
-                if yearlyStats[receiptYear] == nil {
-                    yearlyStats[receiptYear] = []
-                }
-                yearlyStats[receiptYear]?.append(receipt)
-            }
-        }
-
-        // Filter by year if specified
-        if let specifiedYear = year {
-            yearlyStats = yearlyStats.filter { $0.key == specifiedYear }
-        }
-
-        // Create yearly summaries with monthly breakdowns
-        var yearlySummaries: [YearlyReceiptSummary] = []
-
-        for (yearKey, receipts) in yearlyStats {
-            // Group receipts by month from folder hierarchy
-            var monthlyStats: [String: [ReceiptStat]] = [:]
-
-            for receipt in receipts {
-                if let monthName = receipt.month {
-                    if monthlyStats[monthName] == nil {
-                        monthlyStats[monthName] = []
-                    }
-                    monthlyStats[monthName]?.append(receipt)
-                }
-            }
-
-            // Create monthly summaries
-            var monthlySummaries: [MonthlyReceiptSummary] = []
-
-            for (monthName, monthReceipts) in monthlyStats {
-                // Convert month name to month number for date creation
-                let calendar = Calendar.current
-                let monthSymbols = calendar.monthSymbols
-                let monthNumber = monthSymbols.firstIndex(of: monthName).map { $0 + 1 } ?? 1
-
-                // Create a date for sorting
-                var dateComponents = DateComponents()
-                dateComponents.year = yearKey
-                dateComponents.month = monthNumber
-                dateComponents.day = 1
-                let monthDate = calendar.date(from: dateComponents) ?? Date()
-
-                let monthSummary = MonthlyReceiptSummary(
-                    month: monthName,
-                    monthDate: monthDate,
-                    receipts: monthReceipts
-                )
-                monthlySummaries.append(monthSummary)
-            }
-
-            let yearlySummary = YearlyReceiptSummary(year: yearKey, monthlySummaries: monthlySummaries)
-            yearlySummaries.append(yearlySummary)
-        }
-
-        // Sort by year (most recent first)
-        let result = yearlySummaries.sorted { $0.year > $1.year }
-
+        let result = ReceiptManager.shared.receiptStatistics(year: year)
         if !result.isEmpty {
             persistReceiptStatisticsCache(result, year: year)
             return result
@@ -2101,8 +1984,7 @@ class NotesManager: ObservableObject {
     /// Get all available years with receipts
     /// - Returns: Array of years sorted in descending order
     func getAvailableReceiptYears() -> [Int] {
-        let statistics = getReceiptStatistics()
-        return statistics.map { $0.year }.sorted(by: >)
+        ReceiptManager.shared.availableYears()
     }
 
     /// Get category breakdown for a specific year
@@ -2117,17 +1999,7 @@ class NotesManager: ObservableObject {
             return cached
         }
 
-        let yearStats = getReceiptStatistics(year: year)
-        guard let stats = yearStats.first else {
-            // Return empty breakdown if no receipts found
-            return YearlyCategoryBreakdown(year: year, categories: [], yearlyTotal: 0, categoryReceipts: [:], allReceipts: [])
-        }
-
-        // Get all receipts from the yearly summary
-        let allReceipts = stats.monthlySummaries.flatMap { $0.receipts }
-
-        // Use ReceiptCategorizationService to get the breakdown
-        let breakdown = await ReceiptCategorizationService.shared.getCategoryBreakdown(for: allReceipts)
+        let breakdown = await ReceiptManager.shared.categoryBreakdown(for: year)
 
         // Only cache non-empty results (prevents caching empty state during app initialization)
         if !breakdown.categories.isEmpty {

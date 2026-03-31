@@ -10,7 +10,7 @@ final class SelineChatEvidenceSynthesizer {
         let emailItems = context.emails.map(emailItem)
         let noteItems = context.notes.map(noteItem)
         let visitItems = context.visits.map { visitItem($0, linkedPeople: context.peopleByVisit[$0.id] ?? []) }
-        let receiptItems = context.receipts.map { receiptItem($0, linkedPeople: context.peopleByReceipt[$0.noteId] ?? []) }
+        let receiptItems = context.receipts.map { receiptItem($0, linkedPeople: context.peopleByReceipt[$0.id] ?? []) }
         let personItems = context.people.map(personItem)
         let placeResults = SelineChatPlacesService().placeResults(from: context.places)
 
@@ -116,8 +116,8 @@ final class SelineChatEvidenceSynthesizer {
         }
 
         for receipt in context.receipts {
-            let receiptItemID = "receipt-\(receipt.noteId.uuidString)"
-            for person in context.peopleByReceipt[receipt.noteId] ?? [] {
+            let receiptItemID = "receipt-\(receipt.id.uuidString)"
+            for person in context.peopleByReceipt[receipt.id] ?? [] {
                 relations.append(
                     SelineChatEvidenceRelation(
                         fromItemID: receiptItemID,
@@ -242,7 +242,7 @@ final class SelineChatEvidenceSynthesizer {
             .joined(separator: " • ")
 
         return SelineChatEvidenceItem(
-            id: "receipt-\(receipt.noteId.uuidString)",
+            id: "receipt-\(receipt.id.uuidString)",
             kind: .receipt,
             title: receipt.title,
             subtitle: CurrencyParser.formatAmount(receipt.amount),
@@ -250,7 +250,7 @@ final class SelineChatEvidenceSynthesizer {
             footnote: FormatterCache.shortDate.string(from: receipt.date),
             date: receipt.date,
             emailID: nil,
-            noteID: receipt.noteId,
+            noteID: receipt.id,
             taskID: nil,
             placeID: nil,
             personID: nil

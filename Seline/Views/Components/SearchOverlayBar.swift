@@ -8,6 +8,7 @@ struct SearchOverlayBar: View {
     @Binding var selectedTask: TaskItem?
     @Binding var selectedLocation: SavedPlace?
     @Binding var selectedFolder: String?
+    var onOpenReceipt: ((ReceiptStat) -> Void)? = nil
     let onDismiss: () -> Void
 
     private let searchIndex = SearchIndexState.shared
@@ -157,8 +158,13 @@ struct SearchOverlayBar: View {
                 selectedFolder = category
             }
         case .receipt:
-            // Receipts are linked to notes - open the note if available
-            if let note = result.note {
+            if let receipt = result.receipt, let onOpenReceipt {
+                onOpenReceipt(receipt)
+            } else if let note = result.note {
+                selectedNote = note
+            } else if let receipt = result.receipt,
+                      let legacyNoteId = receipt.legacyNoteId,
+                      let note = NotesManager.shared.notes.first(where: { $0.id == legacyNoteId }) {
                 selectedNote = note
             }
         case .recurringExpense:

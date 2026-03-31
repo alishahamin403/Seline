@@ -5,6 +5,8 @@ import PDFKit
 
 struct NotesView: View, Searchable {
     var isVisible: Bool = true
+    var bottomTabSelection: Binding<PrimaryTab>? = nil
+    var showsAttachedBottomTabBar: Bool = false
 
     private enum HubPeriod: String, CaseIterable {
         case thisMonth = "This Month"
@@ -17,7 +19,13 @@ struct NotesView: View, Searchable {
         case recurring = "Recurring"
     }
 
+    private enum NotesContentFilter: String, CaseIterable {
+        case notes = "Notes"
+        case journal = "Journal"
+    }
+
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var receiptManager = ReceiptManager.shared
     @StateObject private var journalService = JournalService.shared
     private let pageRefreshCoordinator = PageRefreshCoordinator.shared
     @StateObject private var floatingActionCoordinator = FloatingActionCoordinator.shared
@@ -30,6 +38,7 @@ struct NotesView: View, Searchable {
     @State private var selectedNote: Note? = nil
     @State private var navigationPath: [Note] = []
     @State private var showingFolderSidebar = false
+    @State private var isSidebarOverlayVisible = false
     @State private var selectedFolderId: UUID? = nil
     @State private var showUnfiledNotesOnly = false
     @State private var showSidebarNotesSelection = false
@@ -40,12 +49,16 @@ struct NotesView: View, Searchable {
     @State private var showingReceiptAddOptions = false
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
+    @State private var showingManualReceiptForm = false
     @State private var selectedReceiptImages: [UIImage] = []
     @State private var processingQueue: [UIImage] = []
     @State private var currentProcessingIndex = 0
     @StateObject private var openAIService = GeminiService.shared
     @Namespace private var tabAnimation
+    @Namespace private var contentFilterAnimation
+    @State private var selectedContentFilter: NotesContentFilter = .notes
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
+    @State private var selectedReceiptToOpen: ReceiptStat? = nil
     @State private var noteForReminder: Note? = nil
     @State private var showJournalHub = false
     @State private var showAllNotesArchive = false
@@ -62,11 +75,18 @@ struct NotesView: View, Searchable {
     private var cachedFilteredPinned: [Note] { hubState.filteredPinnedNotes }
     private var cachedRecentNotes: [Note] { hubState.recentNotes }
     private var cachedNotesByMonth: [(month: String, notes: [Note])] { hubState.notesByMonth }
+    private var isPinnedNotesSelection: Bool {
+        showSidebarNotesSelection && selectedFolderId == nil && !showUnfiledNotesOnly
+    }
+    private var isNotesHomeSelection: Bool {
+        selectedFolderId == nil && !showUnfiledNotesOnly && !isPinnedNotesSelection
+    }
 
     private func refreshNoteCaches() {
         hubState.updateInputs(
             searchText: searchText,
             selectedFolderId: selectedFolderId,
+            showPinnedNotesOnly: isPinnedNotesSelection,
             showUnfiledNotesOnly: showUnfiledNotesOnly,
             showsCurrentMonthOnly: hubPeriod == .thisMonth
         )
@@ -125,6 +145,89 @@ struct NotesView: View, Searchable {
         showUnfiledNotesOnly ? "Pinned" : "Pinned notes"
     }
 
+    private var notesDashboardFolderCount: Int {
+        notesManager.folders.filter { folder in
+            folder.name != "Receipts" && folder.name != "Journal"
+        }.count
+    }
+
+    private var notesHomeRecentHighlightNotes: [Note] {
+        let pinnedIds = Set(cachedFilteredPinned.map(\.id))
+        let recentCandidates = cachedRecentNotes.filter { !pinnedIds.contains($0.id) }
+
+        if !recentCandidates.isEmpty {
+            return Array(recentCandidates.prefix(3))
+        }
+
+        let fallback = hubDisplayedNotes.filter { !pinnedIds.contains($0.id) }
+        return Array(fallback.prefix(3))
+    }
+
+    private var notesHomeFocusNote: Note? {
+        notesHomeRecentHighlightNotes.first ?? hubDisplayedNotes.first
+    }
+
+    private var notesHomeArchiveGroups: [(month: String, notes: [Note])] {
+        let featuredIds = Set(notesHomeRecentHighlightNotes.map(\.id))
+
+        return cachedNotesByMonth.compactMap { group in
+            let remainingNotes = group.notes.filter { !featuredIds.contains($0.id) }
+            guard !remainingNotes.isEmpty else { return nil }
+            return (month: group.month, notes: remainingNotes)
+        }
+    }
+
+    private var notesThisWeekNotes: [Note] {
+        let calendar = Calendar.current
+        let now = Date()
+
+        return hubDisplayedNotes.filter { note in
+            calendar.isDate(note.dateModified, equalTo: now, toGranularity: .weekOfYear)
+        }
+    }
+
+    private var notesHomeAttentionText: String? {
+        let looseCount = hubState.looseNotesCount
+        guard looseCount >= 2 else { return nil }
+
+        let noun = looseCount == 1 ? "note" : "notes"
+        return "\(looseCount) \(noun) still need filing. Put them into folders so Home stays easy to scan."
+    }
+
+    private var notesHomeWeeklySummaryText: String {
+        guard !hubDisplayedNotes.isEmpty else {
+            return "Create your first note and this space will start surfacing what matters most."
+        }
+
+        var sentences: [String] = []
+        let weekCount = notesThisWeekNotes.count
+
+        if weekCount > 0 {
+            let noun = weekCount == 1 ? "note" : "notes"
+            sentences.append("\(weekCount) \(noun) edited this week.")
+
+            let topAreas = notesTopActivityLabels(in: notesThisWeekNotes)
+            if topAreas.count == 1 {
+                sentences.append("Most activity was in \(topAreas[0]).")
+            } else if topAreas.count >= 2 {
+                sentences.append("\(topAreas[0]) and \(topAreas[1]) were most active.")
+            }
+        } else {
+            sentences.append("Nothing changed in notes this week yet.")
+        }
+
+        let looseCount = hubState.looseNotesCount
+        if looseCount > 0 {
+            let noun = looseCount == 1 ? "note" : "notes"
+            let verb = looseCount == 1 ? "needs" : "need"
+            sentences.append("\(looseCount) \(noun) still \(verb) filing.")
+        } else if let focusNote = notesHomeFocusNote {
+            sentences.append("Last edit was \(notesHeroRelativeDate(for: focusNote.dateModified)).")
+        }
+
+        return sentences.joined(separator: " ")
+    }
+
     private var notesHeroContextMetric: (title: String, value: String) {
         if showUnfiledNotesOnly {
             return ("Visible", "\(hubState.looseNotesCount)")
@@ -170,6 +273,7 @@ struct NotesView: View, Searchable {
 
     private var isShellFloatingActionVisible: Bool {
         navigationPath.isEmpty &&
+        !isSidebarOverlayVisible &&
         !showReceiptStats &&
         !showRecurringOverview &&
         !showJournalHub &&
@@ -180,7 +284,24 @@ struct NotesView: View, Searchable {
     }
 
     private var headerTitle: String {
-        "Notes"
+        switch selectedMainPage {
+        case .notes:
+            if showUnfiledNotesOnly {
+                return "Unfiled"
+            }
+            if let selectedFolderId,
+               let folderName = notesManager.folders.first(where: { $0.id == selectedFolderId })?.name {
+                return folderName
+            }
+            if isPinnedNotesSelection {
+                return "Pinned"
+            }
+            return "Notes"
+        case .receipts:
+            return "Receipts"
+        case .recurring:
+            return "Recurring"
+        }
     }
 
     private func syncFloatingActionState() {
@@ -190,6 +311,21 @@ struct NotesView: View, Searchable {
         )
     }
 
+    private func handleSidebarOverlayVisibilityChange(_ isVisible: Bool) {
+        guard isSidebarOverlayVisible != isVisible else { return }
+        isSidebarOverlayVisible = isVisible
+    }
+
+    @ViewBuilder
+    private func attachedBottomTabBar(bottomSafeAreaInset: CGFloat) -> some View {
+        if showsAttachedBottomTabBar, let bottomTabSelection {
+            SidebarAttachedBottomTabBar(
+                selectedTab: bottomTabSelection,
+                bottomSafeAreaInset: bottomSafeAreaInset
+            )
+        }
+    }
+
     var body: some View {
         NavigationStack(path: $navigationPath) {
             GeometryReader { geometry in
@@ -197,92 +333,99 @@ struct NotesView: View, Searchable {
                     isPresented: $showingFolderSidebar,
                     canOpen: true,
                     sidebarWidth: min(336, geometry.size.width * 0.86),
-                    colorScheme: colorScheme
+                    colorScheme: colorScheme,
+                    onOverlayVisibilityChanged: handleSidebarOverlayVisibilityChange
                 ) {
                     VStack(spacing: 0) {
-                        // Header section with search
                         VStack(spacing: 0) {
-                            if !isSearchActive {
-                                HStack(spacing: 10) {
-                                    Button(action: {
-                                        HapticManager.shared.buttonTap()
-                                        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
-                                            showingFolderSidebar = true
-                                        }
-                                    }) {
-                                        Image(systemName: "line.3.horizontal")
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundColor(Color.appTextPrimary(colorScheme))
-                                            .frame(width: 34, height: 34)
-                                            .background(
-                                                Circle()
-                                                    .fill(Color.appChip(colorScheme))
-                                            )
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                    .frame(width: 42, height: 42)
-
-                                    Spacer(minLength: 0)
-
-                                    Text(headerTitle)
-                                        .font(FontManager.geist(size: 18, weight: .semibold))
-                                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                                        .lineLimit(1)
-
-                                    Spacer(minLength: 0)
-
-                                    Color.clear
-                                        .frame(width: 42, height: 42)
-                                }
-                                .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                                .padding(.top, -4)
-                                .padding(.bottom, 10)
-                            }
-
-                            if isSearchActive {
-                                VStack(spacing: 0) {
-                                    UnifiedSearchBar(
-                                        searchText: $searchText,
-                                        isFocused: $isSearchFocused,
-                                        placeholder: selectedMainPage == .notes
-                                            ? "Search notes and journal"
-                                            : (selectedMainPage == .receipts ? "Search receipts" : "Search recurring expenses"),
-                                        onCancel: {
-                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                isSearchActive = false
-                                                isSearchFocused = false
-                                                searchText = ""
+                            // Header section with search
+                            VStack(spacing: 0) {
+                                if !isSearchActive {
+                                    HStack(spacing: 10) {
+                                        Button(action: {
+                                            HapticManager.shared.buttonTap()
+                                            withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
+                                                showingFolderSidebar = true
                                             }
-                                        },
-                                        colorScheme: colorScheme,
-                                        variant: .topTrailing
-                                    )
+                                        }) {
+                                            Image(systemName: "line.3.horizontal")
+                                                .font(.system(size: 13, weight: .semibold))
+                                                .foregroundColor(Color.appTextPrimary(colorScheme))
+                                                .frame(width: 34, height: 34)
+                                                .background(
+                                                    Circle()
+                                                        .fill(Color.appChip(colorScheme))
+                                                )
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+                                        .frame(width: 42, height: 42)
+
+                                        if selectedMainPage == .notes && !isShowingNotesBrowseSelection {
+                                            notesContentFilterRow
+                                        } else {
+                                            Spacer(minLength: 0)
+                                            Text(headerTitle)
+                                                .font(FontManager.geist(size: 18, weight: .semibold))
+                                                .foregroundColor(Color.appTextPrimary(colorScheme))
+                                                .lineLimit(1)
+                                            Spacer(minLength: 0)
+                                        }
+
+                                        Color.clear
+                                            .frame(width: 42, height: 42)
+                                    }
                                     .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
-                                    .padding(.top, 8)
+                                    .padding(.top, 0)
+                                    .padding(.bottom, 10)
                                 }
-                                .padding(.bottom, 12)
-                                .transition(.move(edge: .top).combined(with: .opacity))
+
+                                if isSearchActive {
+                                    VStack(spacing: 0) {
+                                        UnifiedSearchBar(
+                                            searchText: $searchText,
+                                            isFocused: $isSearchFocused,
+                                            placeholder: selectedMainPage == .notes
+                                                ? "Search notes and journal"
+                                                : (selectedMainPage == .receipts ? "Search receipts" : "Search recurring expenses"),
+                                            onCancel: {
+                                                withAnimation(.easeInOut(duration: 0.2)) {
+                                                    isSearchActive = false
+                                                    isSearchFocused = false
+                                                    searchText = ""
+                                                }
+                                            },
+                                            colorScheme: colorScheme,
+                                            variant: .topTrailing
+                                        )
+                                        .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
+                                        .padding(.top, 8)
+                                    }
+                                    .padding(.bottom, 12)
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                                }
+                            }
+                            .background(
+                                Color.appBackground(colorScheme)
+                            )
+
+                            mainTabContent
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                                .allowsHitTesting(!(isSearchActive && !searchText.isEmpty))
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .overlay(alignment: .top) {
+                            if isSearchActive && !searchText.isEmpty {
+                                searchResultsOverlay
                             }
                         }
-                        .background(
-                            Color.appBackground(colorScheme)
-                        )
 
-                        mainTabContent
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                            .allowsHitTesting(!(isSearchActive && !searchText.isEmpty))
+                        attachedBottomTabBar(bottomSafeAreaInset: geometry.safeAreaInsets.bottom)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 0)
+                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
                     .background(
                         Color.appBackground(colorScheme)
                             .ignoresSafeArea()
                     )
-                    .overlay(alignment: .top) {
-                        if isSearchActive && !searchText.isEmpty {
-                            searchResultsOverlay
-                        }
-                    }
                 } sidebarContent: {
                     FolderSidebarView(
                         isPresented: $showingFolderSidebar,
@@ -295,15 +438,24 @@ struct NotesView: View, Searchable {
                             && !showUnfiledNotesOnly,
                         onOpenHome: {
                             selectedMainPage = .notes
+                            selectedContentFilter = .notes
                             selectedFolderId = nil
                             showUnfiledNotesOnly = false
                             showSidebarNotesSelection = false
                         },
                         onActivateNotesPage: {
                             selectedMainPage = .notes
+                            selectedContentFilter = .notes
                         },
                         onOpenJournal: {
-                            openJournalHub(openToday: false)
+                            selectedMainPage = .notes
+                            selectedFolderId = nil
+                            showUnfiledNotesOnly = false
+                            showSidebarNotesSelection = false
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                selectedContentFilter = .journal
+                            }
+                            showingFolderSidebar = false
                         }
                     )
                 }
@@ -340,7 +492,8 @@ struct NotesView: View, Searchable {
                     openTodayOnAppear: journalOpenTodayOnHubAppear,
                     onConsumeOpenToday: { journalOpenTodayOnHubAppear = false },
                     scrollToHistoryOnAppear: journalScrollToHistoryOnHubAppear,
-                    onConsumeScrollToHistory: { journalScrollToHistoryOnHubAppear = false }
+                    onConsumeScrollToHistory: { journalScrollToHistoryOnHubAppear = false },
+                    isEmbeddedInNotesShell: false
                 )
             }
             .navigationDestination(isPresented: $showAllNotesArchive) {
@@ -368,6 +521,7 @@ struct NotesView: View, Searchable {
         .onAppear {
             handleVisibilityChange(isVisible, reason: "appear")
             selectedMainPage = .notes
+            selectedContentFilter = .notes
             isSearchActive = false
             isSearchFocused = false
             searchText = ""
@@ -377,6 +531,7 @@ struct NotesView: View, Searchable {
             handleVisibilityChange(newValue, reason: "visibility")
             if newValue {
                 selectedMainPage = .notes
+                selectedContentFilter = .notes
                 isSearchActive = false
                 isSearchFocused = false
                 searchText = ""
@@ -393,9 +548,11 @@ struct NotesView: View, Searchable {
         .onChange(of: selectedFolderId) { _ in refreshNoteCaches() }
         .onChange(of: showUnfiledNotesOnly) { _ in refreshNoteCaches() }
         .onChange(of: hubPeriod) { _ in refreshNoteCaches() }
+        .onChange(of: selectedContentFilter) { _ in refreshNoteCaches() }
         .onChange(of: selectedMainPage) { _ in syncFloatingActionState() }
         .onChange(of: isSearchActive) { _ in syncFloatingActionState() }
         .onChange(of: showingFolderSidebar) { _ in syncFloatingActionState() }
+        .onChange(of: isSidebarOverlayVisible) { _ in syncFloatingActionState() }
         .onChange(of: notesManager.notes.count) { _ in
             guard !isVisible else { return }
             pageRefreshCoordinator.markDirty([.home, .notes], reason: .noteDataChanged)
@@ -412,9 +569,13 @@ struct NotesView: View, Searchable {
             isSearchActive = false
             isSearchFocused = false
             searchText = ""
-            journalOpenTodayOnHubAppear = (notification.userInfo?["openToday"] as? Bool) ?? false
-            journalScrollToHistoryOnHubAppear = false
-            showJournalHub = true
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                selectedContentFilter = .journal
+            }
+            let openToday = (notification.userInfo?["openToday"] as? Bool) ?? false
+            if openToday {
+                openTodayJournalEntry()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openReceiptsFromMainApp)) { _ in
             selectedMainPage = .notes
@@ -539,12 +700,41 @@ struct NotesView: View, Searchable {
                 }
             ))
         }
+        .sheet(isPresented: $showingManualReceiptForm) {
+            ManualReceiptEntrySheet { draft in
+                do {
+                    let receipt = try await receiptManager.createReceipt(from: draft)
+                    await MainActor.run {
+                        HapticManager.shared.success()
+                        selectedReceiptToOpen = receipt
+                    }
+                } catch {
+                    await MainActor.run {
+                        HapticManager.shared.error()
+                        receiptProcessingState = .error(error.localizedDescription)
+                    }
+                }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            .presentationBg()
+        }
+        .sheet(item: $selectedReceiptToOpen) { receipt in
+            ReceiptDetailSheet(receipt: receipt)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBg()
+        }
         .confirmationDialog("Add Receipt", isPresented: $showingReceiptAddOptions, titleVisibility: .visible) {
+            Button("Add Manually") {
+                HapticManager.shared.buttonTap()
+                showingManualReceiptForm = true
+            }
             Button("Take Picture") {
                 HapticManager.shared.buttonTap()
                 showingReceiptCameraPicker = true
             }
-            Button("Upload Images") {
+            Button("Select Picture") {
                 HapticManager.shared.buttonTap()
                 showingReceiptImagePicker = true
             }
@@ -556,74 +746,23 @@ struct NotesView: View, Searchable {
     
     private func processReceiptImageDirectly(_ image: UIImage) {
         Task {
-            // Show processing indicator
             await MainActor.run {
                 receiptProcessingState = .processing
             }
             
             do {
-                let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
-                
-                // Clean up the extracted content
-                let cleanedContent = receiptContent
-                    .split(separator: "\n")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n")
-                
-                // Extract month and year from receipt title for automatic folder organization
-                var folderIdForReceipt: UUID?
-                if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
-                    folderIdForReceipt = await notesManager.getOrCreateReceiptMonthFolderAsync(month: month, year: year)
-                } else {
-                    let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
-                    folderIdForReceipt = receiptsFolderId
-                }
-                
+                let draft = try await openAIService.analyzeReceiptImageDraft(image)
+                let receipt = try await receiptManager.createReceipt(from: draft, images: [image])
+
                 await MainActor.run {
-                    // Create note with receipt content
-                    let newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
-                    
-                    // Save note first, then upload image
+                    HapticManager.shared.success()
+                    selectedReceiptToOpen = receipt
+                    receiptProcessingState = .success
+
                     Task {
-                        let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
-                        
-                        if syncSuccess {
-                            // Upload image
-                            let imageUrls = await notesManager.uploadNoteImages([image], noteId: newNote.id)
-                            
-                            // Update note with image URL
-                            var updatedNote = newNote
-                            updatedNote.imageUrls = imageUrls
-                            updatedNote.dateModified = Date()
-                            let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
-                            
-                            await MainActor.run {
-                                HapticManager.shared.success()
-                                receiptProcessingState = .success
-                                print("✅ Receipt processed and saved directly")
-                                
-                                // Hide success message after 2 seconds
-                                Task {
-                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                    await MainActor.run {
-                                        receiptProcessingState = .idle
-                                    }
-                                }
-                            }
-                        } else {
-                            await MainActor.run {
-                                receiptProcessingState = .error("Failed to save receipt")
-                                HapticManager.shared.error()
-                                
-                                // Hide error message after 3 seconds
-                                Task {
-                                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                                    await MainActor.run {
-                                        receiptProcessingState = .idle
-                                    }
-                                }
-                            }
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        await MainActor.run {
+                            receiptProcessingState = .idle
                         }
                     }
                 }
@@ -654,6 +793,7 @@ struct NotesView: View, Searchable {
         hubState.updateInputs(
             searchText: searchText,
             selectedFolderId: selectedFolderId,
+            showPinnedNotesOnly: isPinnedNotesSelection,
             showUnfiledNotesOnly: showUnfiledNotesOnly,
             showsCurrentMonthOnly: hubPeriod == .thisMonth,
             forceRefresh: true
@@ -710,55 +850,18 @@ struct NotesView: View, Searchable {
             }
 
             do {
-                let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
+                let draft = try await openAIService.analyzeReceiptImageDraft(image)
+                _ = try await receiptManager.createReceipt(from: draft, images: [image])
 
-                let cleanedContent = receiptContent
-                    .split(separator: "\n")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n")
+                await MainActor.run {
+                    HapticManager.shared.success()
+                    currentProcessingIndex += 1
+                    receiptProcessingState = .success
 
-                var folderIdForReceipt: UUID?
-                if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
-                    folderIdForReceipt = await notesManager.getOrCreateReceiptMonthFolderAsync(month: month, year: year)
-                } else {
-                    folderIdForReceipt = notesManager.getOrCreateReceiptsFolder()
-                }
-
-                let newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
-                let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
-
-                if syncSuccess {
-                    let imageUrls = await notesManager.uploadNoteImages([image], noteId: newNote.id)
-
-                    var updatedNote = newNote
-                    updatedNote.imageUrls = imageUrls
-                    updatedNote.dateModified = Date()
-                    let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
-
-                    await MainActor.run {
-                        HapticManager.shared.success()
-                        currentProcessingIndex += 1
-                        receiptProcessingState = .success
-
-                        Task {
-                            try? await Task.sleep(nanoseconds: 500_000_000)
-                            await MainActor.run {
-                                processNextReceiptInQueue()
-                            }
-                        }
-                    }
-                } else {
-                    await MainActor.run {
-                        HapticManager.shared.error()
-                        receiptProcessingState = .error("Failed to save receipt")
-
-                        Task {
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            await MainActor.run {
-                                currentProcessingIndex += 1
-                                processNextReceiptInQueue()
-                            }
+                    Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        await MainActor.run {
+                            processNextReceiptInQueue()
                         }
                     }
                 }
@@ -783,17 +886,27 @@ struct NotesView: View, Searchable {
     private var mainTabContent: some View {
         switch selectedMainPage {
         case .notes:
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 14) {
-                    notesTabContent
+            if selectedContentFilter == .journal {
+                JournalHubView(
+                    openTodayOnAppear: false,
+                    onConsumeOpenToday: nil,
+                    scrollToHistoryOnAppear: false,
+                    onConsumeScrollToHistory: nil,
+                    isEmbeddedInNotesShell: true
+                )
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 14) {
+                        notesTabContent
 
-                    Spacer()
-                        .frame(height: 80)
+                        Spacer()
+                            .frame(height: 80)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
                 }
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
+                .selinePrimaryPageScroll()
             }
-            .selinePrimaryPageScroll()
         case .receipts:
             receiptsTabContent
         case .recurring:
@@ -822,7 +935,7 @@ struct NotesView: View, Searchable {
                         .font(FontManager.geist(size: 12, weight: .semibold))
                         .foregroundColor(tabForegroundColor(isSelected: isSelected))
                         .frame(maxWidth: .infinity)
-                        .frame(height: 34)
+                        .frame(height: 32)
                         .background {
                             if isSelected {
                                 Capsule()
@@ -834,15 +947,299 @@ struct NotesView: View, Searchable {
                 .buttonStyle(PlainButtonStyle())
             }
         }
-        .padding(4)
+        .padding(5)
         .background(
             Capsule()
                 .fill(tabContainerColor())
-                .overlay(
-                    Capsule()
-                        .stroke(tabContainerStrokeColor(), lineWidth: 1)
-                )
         )
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(tabContainerStrokeColor(), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Notes/Journal Filter Row
+
+    private var notesContentFilterRow: some View {
+        HStack(spacing: 6) {
+            ForEach(NotesContentFilter.allCases, id: \.self) { filter in
+                let isSelected = selectedContentFilter == filter
+                Button(action: {
+                    HapticManager.shared.selection()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                        selectedContentFilter = filter
+                    }
+                }) {
+                    Text(filter.rawValue)
+                        .font(FontManager.geist(size: 12, weight: .semibold))
+                        .foregroundColor(tabForegroundColor(isSelected: isSelected))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                        .background {
+                            if isSelected {
+                                Capsule()
+                                    .fill(tabBackgroundColor())
+                                    .matchedGeometryEffect(id: "notesContentFilter", in: contentFilterAnimation)
+                            }
+                        }
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(5)
+        .background(
+            Capsule()
+                .fill(tabContainerColor())
+        )
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(tabContainerStrokeColor(), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Unified Stats Banner
+
+    private var unifiedStatsBanner: some View {
+        HStack(spacing: 10) {
+            switch selectedContentFilter {
+            case .notes:
+                notesHeroMetricTile(title: "Pinned", value: "\(cachedFilteredPinned.count)")
+                notesHeroMetricTile(title: "Recent 7d", value: "\(cachedRecentNotes.count)")
+                notesHeroMetricTile(title: notesHeroContextMetric.title, value: notesHeroContextMetric.value)
+            case .journal:
+                notesHeroMetricTile(title: "Streak", value: "\(journalOverviewStats.currentStreak)d")
+                notesHeroMetricTile(title: "This week", value: journalOverviewWeekProgress)
+                notesHeroMetricTile(title: "Entries", value: "\(journalOverviewStats.totalEntries)")
+            }
+        }
+    }
+
+    // MARK: - Journal Recap Section
+
+    @ViewBuilder
+    private var journalRecapSection: some View {
+        journalOverviewMiniCard(
+            title: "Latest recap",
+            body: latestJournalRecap?.preview ?? "Weekly recaps appear here once you start journaling.",
+            makesWholeCardTappable: latestJournalRecap != nil,
+            action: {
+                guard let latestJournalRecap else { return }
+                journalExistingNoteToOpen = latestJournalRecap
+            }
+        )
+    }
+
+    // MARK: - Journal Entry Row
+
+    private func journalEntryRow(for note: Note) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.homeGlassAccent.opacity(colorScheme == .dark ? 0.18 : 0.13))
+                if let mood = note.journalMood {
+                    Image(systemName: mood.iconName)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Color.homeGlassAccent)
+                } else {
+                    Image(systemName: "book.closed.fill")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color.homeGlassAccent)
+                }
+            }
+            .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: 4) {
+                let entryDate = note.journalDate ?? note.dateModified
+                Text(journalEntryDateTitle(for: entryDate))
+                    .font(FontManager.geist(size: 14, weight: .semibold))
+                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                    .lineLimit(1)
+
+                let preview = note.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !preview.isEmpty {
+                    Text(preview)
+                        .font(FontManager.geist(size: 12, weight: .regular))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let mood = note.journalMood {
+                Text(mood.title)
+                    .font(FontManager.geist(size: 11, weight: .medium))
+                    .foregroundColor(Color.homeGlassAccent.opacity(0.85))
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .scrollSafeTapAction(minimumDragDistance: 3) {
+            HapticManager.shared.selection()
+            journalExistingNoteToOpen = note
+        }
+        .allowsParentScrolling()
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                HapticManager.shared.delete()
+                notesManager.deleteNote(note)
+            } label: {
+                Label("Delete", systemImage: "trash.fill")
+            }
+        }
+    }
+
+    private func journalEntryDateTitle(for date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Today"
+        }
+        if calendar.isDateInYesterday(date) {
+            return "Yesterday"
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMM d"
+        return formatter.string(from: date)
+    }
+
+    // MARK: - Unified Content List
+
+    private var unifiedContentList: some View {
+        VStack(spacing: 14) {
+            switch selectedContentFilter {
+            case .notes:
+                unifiedNotesContent
+            case .journal:
+                unifiedJournalContent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var unifiedNotesContent: some View {
+        if isNotesHomeSelection {
+            if !cachedFilteredPinned.isEmpty {
+                notesListSectionCard(
+                    title: "Pinned",
+                    notes: cachedFilteredPinned
+                )
+            }
+
+            if !notesHomeRecentHighlightNotes.isEmpty {
+                notesListSectionCard(
+                    title: "Recent",
+                    notes: notesHomeRecentHighlightNotes
+                )
+            }
+
+            ForEach(notesHomeArchiveGroups, id: \.month) { group in
+                notesListSectionCard(
+                    title: group.month,
+                    notes: group.notes
+                )
+            }
+        } else {
+            ForEach(cachedNotesByMonth, id: \.month) { group in
+                notesListSectionCard(
+                    title: group.month,
+                    notes: group.notes
+                )
+            }
+        }
+
+        if hubDisplayedNotes.isEmpty {
+            unifiedEmptyState(filter: .notes)
+        }
+    }
+
+    @ViewBuilder
+    private var unifiedJournalContent: some View {
+        if hubState.journalEntries.isEmpty {
+            unifiedEmptyState(filter: .journal)
+        } else {
+            let grouped = groupJournalEntriesByWeek(hubState.journalEntries)
+            ForEach(grouped, id: \.label) { group in
+                VStack(spacing: 0) {
+                    HStack {
+                        Text(group.label.uppercased())
+                            .font(FontManager.geist(size: 11, weight: .semibold))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                            .tracking(0.6)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 6)
+
+                    VStack(spacing: 0) {
+                        ForEach(group.entries, id: \.id) { note in
+                            journalEntryRow(for: note)
+                        }
+                    }
+                    .allowsParentScrolling()
+                }
+            }
+        }
+    }
+
+    private func groupJournalEntriesByWeek(_ entries: [Note]) -> [(label: String, entries: [Note])] {
+        let calendar = Calendar.current
+        let now = Date()
+        var groups: [(label: String, entries: [Note])] = []
+        var seen = Set<String>()
+
+        for entry in entries {
+            let date = entry.journalDate ?? entry.dateModified
+            let weekStart = calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
+            let weekKey = calendar.startOfDay(for: weekStart).description
+
+            if !seen.contains(weekKey) {
+                seen.insert(weekKey)
+                let label: String
+                if let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now),
+                   thisWeek.contains(date) {
+                    label = "This week"
+                } else if let lastWeek = calendar.date(byAdding: .weekOfYear, value: -1, to: now),
+                          let lastWeekInterval = calendar.dateInterval(of: .weekOfYear, for: lastWeek),
+                          lastWeekInterval.contains(date) {
+                    label = "Last week"
+                } else {
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "MMM d"
+                    let end = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+                    label = "Week of \(formatter.string(from: weekStart))–\(formatter.string(from: end))"
+                }
+                groups.append((label: label, entries: []))
+            }
+
+            let lastIdx = groups.count - 1
+            groups[lastIdx].entries.append(entry)
+        }
+
+        return groups
+    }
+
+    private func unifiedEmptyState(filter: NotesContentFilter) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: filter == .journal ? "book.closed" : "note.text")
+                .font(.system(size: 40, weight: .light))
+                .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.5))
+
+            Text(filter == .journal ? "No journal entries yet" : "No notes yet")
+                .font(FontManager.geist(size: 16, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            Text(filter == .journal
+                 ? "Tap + to write today's entry"
+                 : "Tap + to create your first note")
+                .font(FontManager.geist(size: 13, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
     }
 
     // MARK: - Unified Hub
@@ -879,23 +1276,7 @@ struct NotesView: View, Searchable {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 14)
             } else {
-                ForEach(hubDisplayedNotes, id: \.id) { note in
-                    NoteRow(
-                        note: note,
-                        onPinToggle: { note in
-                            notesManager.togglePinStatus(note)
-                        },
-                        onTap: { note in
-                            navigationPath.append(note)
-                        },
-                        onDelete: { note in
-                            notesManager.deleteNote(note)
-                        },
-                        onSetReminder: { note in
-                            noteForReminder = note
-                        }
-                    )
-                }
+                notesListRows(hubDisplayedNotes)
             }
         }
         .appAmbientCardStyle(
@@ -1265,43 +1646,157 @@ struct NotesView: View, Searchable {
         }
     }
 
-    // MARK: - Legacy Tab Content Views
+    // MARK: - Notes Tab Content
 
     private var notesTabContent: some View {
         VStack(spacing: 14) {
-            if isShowingNotesBrowseSelection {
-                hubNotesSection
+            if isNotesHomeSelection {
+                notesDashboardContent
             } else {
-                notesOverviewCard
-                if shouldShowJournalOverview {
-                    journalOverviewCard
-                }
-
-                if cachedFilteredPinned.isEmpty &&
-                    cachedRecentNotes.isEmpty &&
-                    cachedNotesByMonth.isEmpty &&
-                    (!shouldShowJournalOverview ||
-                        (notesManager.journalEntries.isEmpty && notesManager.journalWeeklyRecaps.isEmpty)) {
-                    VStack(spacing: 16) {
-                        Image(systemName: "note.text")
-                            .font(FontManager.geist(size: 48, weight: .light))
-                            .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.6))
-
-                        Text(searchText.isEmpty ? "No notes yet" : "No notes found")
-                            .font(FontManager.geist(size: 18, weight: .medium))
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                        if searchText.isEmpty {
-                            Text("Tap the + button to create your first note")
-                                .font(FontManager.geist(size: 14, weight: .regular))
-                                .foregroundColor(Color.appTextSecondary(colorScheme))
-                                .multilineTextAlignment(.center)
-                        }
-                    }
-                    .padding(.top, 60)
-                }
+                unifiedContentList
             }
         }
+    }
+
+    private var notesDashboardContent: some View {
+        VStack(spacing: 14) {
+            notesDashboardHeroCard
+
+            if let notesHomeAttentionText {
+                notesInsightCard(
+                    title: "Needs attention",
+                    body: notesHomeAttentionText
+                )
+            }
+
+            notesInsightCard(
+                title: "This Week in Notes",
+                body: notesHomeWeeklySummaryText
+            )
+
+            unifiedContentList
+        }
+    }
+
+    private var notesDashboardHeroCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Notes")
+                        .font(FontManager.geist(size: 28, weight: .semibold))
+                        .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                    Text("Ideas, references, and saved details")
+                        .font(FontManager.geist(size: 14, weight: .medium))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                }
+
+                Spacer(minLength: 12)
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    openNewNoteEditor()
+                }) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                        .foregroundColor(.black)
+                        .background(
+                            Circle()
+                                .fill(notesDashboardAccentColor)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("New note")
+            }
+
+            HStack(spacing: 10) {
+                notesHeroMetricTile(title: "Pinned", value: "\(cachedFilteredPinned.count)")
+                notesHeroMetricTile(title: "Folders", value: "\(notesDashboardFolderCount)")
+                notesHeroMetricTile(title: "This week", value: "\(notesThisWeekNotes.count)")
+            }
+
+            Button(action: {
+                HapticManager.shared.selection()
+                if let focusNote = notesHomeFocusNote {
+                    navigationPath.append(focusNote)
+                } else {
+                    openNewNoteEditor()
+                }
+            }) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Continue where you left off")
+                            .font(FontManager.geist(size: 14, weight: .semibold))
+                            .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                        if let focusNote = notesHomeFocusNote {
+                            Text(focusNote.title.isEmpty ? "Untitled" : focusNote.title)
+                                .font(FontManager.geist(size: 16, weight: .semibold))
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
+                                .lineLimit(2)
+
+                            Text(notesDashboardFocusMeta(for: focusNote))
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                .lineLimit(2)
+                        } else {
+                            Text("Start your first note")
+                                .font(FontManager.geist(size: 16, weight: .semibold))
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                            Text("Capture an idea, save a reference, or write down something you want to keep.")
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                .lineLimit(3)
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                        .padding(.top, 2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.appInnerSurface(colorScheme))
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(16)
+        .background(notesDashboardHeroBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+        )
+        .shadow(
+            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+            radius: 16,
+            x: 0,
+            y: 6
+        )
+    }
+
+    private func notesInsightCard(title: String, body: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(FontManager.geist(size: 18, weight: .semibold))
+                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+            Text(body)
+                .font(FontManager.geist(size: 14, weight: .regular))
+                .foregroundColor(Color.appTextSecondary(colorScheme))
+                .lineSpacing(1.5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(16)
+        .background(notesDashboardSectionCardBackground)
     }
 
     private var notesOverviewCard: some View {
@@ -1354,24 +1849,26 @@ struct NotesView: View, Searchable {
     @ViewBuilder
     private var notesFloatingAddButton: some View {
         if selectedMainPage == .notes {
-            Menu {
+            switch selectedContentFilter {
+            case .notes:
                 Button(action: {
                     HapticManager.shared.selection()
                     openNewNoteEditor()
                 }) {
-                    Label("New Note", systemImage: "note.text.badge.plus")
+                    floatingAddButtonLabel
                 }
-
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Note")
+            case .journal:
                 Button(action: {
                     HapticManager.shared.selection()
                     openTodayJournalEntry()
                 }) {
-                    Label("New Journal", systemImage: "book.closed")
+                    floatingAddButtonLabel
                 }
-            } label: {
-                floatingAddButtonLabel
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Journal Entry")
             }
-            .accessibilityLabel(mainPageAddButtonAccessibilityLabel)
         } else if selectedMainPage == .receipts {
             Menu {
                 receiptAddMenuItems
@@ -1670,20 +2167,10 @@ struct NotesView: View, Searchable {
     }
 
     private var receiptSearchResults: some View {
-        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
-        let receiptsFolderId = receiptsFolder?.id
-
-        let filteredReceipts = notesManager.searchNotes(query: searchText)
-            .filter { note in
-                guard let folderId = note.folderId, let receiptsFolderId = receiptsFolderId else { return false }
-                var currentFolderId: UUID? = folderId
-                while let currentId = currentFolderId {
-                    if currentId == receiptsFolderId {
-                        return true
-                    }
-                    currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
-                }
-                return false
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filteredReceipts = receiptManager.receipts
+            .filter { receipt in
+                query.isEmpty || receipt.searchableText.lowercased().contains(query)
             }
             .prefix(10)
 
@@ -1691,7 +2178,7 @@ struct NotesView: View, Searchable {
     }
 
     @ViewBuilder
-    private func receiptSearchResultsContent(filteredReceipts: [Note]) -> some View {
+    private func receiptSearchResultsContent(filteredReceipts: [ReceiptStat]) -> some View {
         VStack(spacing: 0) {
             if filteredReceipts.isEmpty {
                 emptyReceiptState
@@ -1719,26 +2206,26 @@ struct NotesView: View, Searchable {
     }
 
     @ViewBuilder
-    private func receiptResultsList(filteredReceipts: [Note]) -> some View {
-        ForEach(filteredReceipts, id: \.id) { note in
+    private func receiptResultsList(filteredReceipts: [ReceiptStat]) -> some View {
+        ForEach(filteredReceipts, id: \.id) { receipt in
             Button(action: {
                 HapticManager.shared.buttonTap()
                 searchText = ""
                 isSearchActive = false
-                navigationPath.append(note)
+                selectedReceiptToOpen = receipt
             }) {
-                receiptRow(note: note)
+                receiptRow(receipt: receipt)
             }
             .buttonStyle(PlainButtonStyle())
 
-            if filteredReceipts.last?.id != note.id {
+            if filteredReceipts.last?.id != receipt.id {
                 Divider()
                     .padding(.leading, 52)
             }
         }
     }
 
-    private func receiptRow(note: Note) -> some View {
+    private func receiptRow(receipt: ReceiptStat) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "receipt")
                 .font(FontManager.geist(size: 14, weight: .regular))
@@ -1746,12 +2233,12 @@ struct NotesView: View, Searchable {
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(note.title.isEmpty ? "Untitled Receipt" : note.title)
+                Text(receipt.title.isEmpty ? "Untitled Receipt" : receipt.title)
                     .font(FontManager.geist(size: 15, weight: .medium))
                     .foregroundColor(Color.appTextPrimary(colorScheme))
                     .lineLimit(1)
 
-                Text(note.content.prefix(50).replacingOccurrences(of: "\n", with: " "))
+                Text("\(CurrencyParser.formatAmount(receipt.amount)) • \(FormatterCache.shortDate.string(from: receipt.date))")
                     .font(FontManager.geist(size: 12, weight: .regular))
                     .foregroundColor(Color.appTextSecondary(colorScheme))
                     .lineLimit(1)
@@ -1759,7 +2246,7 @@ struct NotesView: View, Searchable {
 
             Spacer()
 
-            Text(note.dateModified.formatted(.relative(presentation: .named)))
+            Text(receipt.date.formatted(.relative(presentation: .named)))
                 .font(FontManager.geist(size: 11, weight: .regular))
                 .foregroundColor(Color.appTextSecondary(colorScheme))
         }
@@ -1873,6 +2360,10 @@ struct NotesView: View, Searchable {
     private var receiptsTabContent: some View {
         ReceiptStatsView(
             searchText: searchText.isEmpty ? nil : searchText,
+            onAddReceiptManually: {
+                HapticManager.shared.selection()
+                showingManualReceiptForm = true
+            },
             onAddReceiptFromCamera: {
                 HapticManager.shared.selection()
                 showingReceiptCameraPicker = true
@@ -1899,22 +2390,75 @@ struct NotesView: View, Searchable {
     // MARK: - Helper Views
 
     private func notesHeroMetricTile(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(FontManager.geist(size: 11, weight: .medium))
                 .foregroundColor(Color.appTextSecondary(colorScheme))
                 .lineLimit(1)
 
             Text(value)
-                .font(FontManager.geist(size: 23, weight: .semibold))
+                .font(FontManager.geist(size: 16, weight: .semibold))
                 .foregroundColor(Color.appTextPrimary(colorScheme))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.82)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.appInnerSurface(colorScheme))
+        )
+    }
+
+    private func notesListSectionCard(title: String, notes: [Note]) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(title.uppercased())
+                    .font(FontManager.geist(size: 11, weight: .semibold))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .tracking(0.6)
+
+                if !notes.isEmpty {
+                    Text("· \(notes.count)")
+                        .font(FontManager.geist(size: 11, weight: .medium))
+                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            notesListRows(notes)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 10)
+        }
+        .background(notesDashboardSectionCardBackground)
+    }
+
+    @ViewBuilder
+    private func notesListRows(_ notes: [Note]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(notes, id: \.id) { note in
+                NoteRow(
+                    note: note,
+                    onPinToggle: { note in
+                        notesManager.togglePinStatus(note)
+                    },
+                    onTap: { note in
+                        navigationPath.append(note)
+                    },
+                    onDelete: { note in
+                        notesManager.deleteNote(note)
+                    },
+                    onSetReminder: { note in
+                        noteForReminder = note
+                    }
+                )
+            }
+        }
     }
 
     private func openJournalHub(openToday: Bool, scrollToHistory: Bool = false) {
@@ -1978,6 +2522,73 @@ struct NotesView: View, Searchable {
         }
 
         return FormatterCache.shortMonthDay.string(from: date)
+    }
+
+    private func notesDashboardFocusMeta(for note: Note) -> String {
+        var fragments: [String] = ["Edited \(notesHeroRelativeDate(for: note.dateModified))"]
+        let folderName = notesFolderLabel(for: note)
+        if folderName != "Notes" {
+            fragments.append(folderName)
+        }
+
+        let preview = notesHeroPreview(for: note)
+        if preview != "No additional text" {
+            fragments.append(preview)
+        }
+
+        return fragments.joined(separator: " • ")
+    }
+
+    private func notesTopActivityLabels(in notes: [Note]) -> [String] {
+        Dictionary(grouping: notes) { notesFolderLabel(for: $0) }
+            .map { (label: $0.key, count: $0.value.count) }
+            .sorted { lhs, rhs in
+                if lhs.count == rhs.count {
+                    return lhs.label < rhs.label
+                }
+                return lhs.count > rhs.count
+            }
+            .map(\.label)
+            .prefix(2)
+            .map { $0 }
+    }
+
+    private func notesFolderLabel(for note: Note) -> String {
+        guard let folderId = note.folderId else { return "Loose notes" }
+        let folderName = notesManager.getFolderName(for: folderId).trimmingCharacters(in: .whitespacesAndNewlines)
+        return folderName.isEmpty ? "Notes" : folderName
+    }
+
+    private var notesDashboardAccentColor: Color {
+        Color(red: 0.98, green: 0.64, blue: 0.41)
+    }
+
+    private var notesDashboardHeroBackground: some View {
+        RoundedRectangle(cornerRadius: 24)
+            .fill(Color.appSurface(colorScheme))
+            .overlay(alignment: .topTrailing) {
+                Circle()
+                    .fill(notesDashboardAccentColor.opacity(colorScheme == .dark ? 0.14 : 0.22))
+                    .frame(width: 220, height: 220)
+                    .blur(radius: 8)
+                    .offset(x: 60, y: -48)
+            }
+            .overlay(alignment: .bottomLeading) {
+                Circle()
+                    .fill(Color.white.opacity(colorScheme == .dark ? 0.06 : 0.5))
+                    .frame(width: 220, height: 220)
+                    .blur(radius: 12)
+                    .offset(x: -24, y: 90)
+            }
+    }
+
+    private var notesDashboardSectionCardBackground: some View {
+        RoundedRectangle(cornerRadius: 18)
+            .fill(Color.appSectionCard(colorScheme))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.appBorder(colorScheme), lineWidth: 1)
+            )
     }
 
     @ViewBuilder
@@ -2106,6 +2717,13 @@ struct NotesView: View, Searchable {
     private var receiptAddMenuItems: some View {
         Button(action: {
             HapticManager.shared.selection()
+            showingManualReceiptForm = true
+        }) {
+            Label("Add Manually", systemImage: "square.and.pencil")
+        }
+
+        Button(action: {
+            HapticManager.shared.selection()
             showingReceiptCameraPicker = true
         }) {
             Label("Take Picture", systemImage: "camera.fill")
@@ -2115,7 +2733,7 @@ struct NotesView: View, Searchable {
             HapticManager.shared.selection()
             showingReceiptImagePicker = true
         }) {
-            Label("Upload Images", systemImage: "photo.on.rectangle")
+            Label("Select Picture", systemImage: "photo.on.rectangle")
         }
     }
 
@@ -2265,6 +2883,7 @@ struct NoteEditView: View {
     let initialJournalDate: Date?
     let initialJournalWeekStartDate: Date?
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var receiptManager = ReceiptManager.shared
     @StateObject private var attachmentService = AttachmentService.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
@@ -2314,6 +2933,7 @@ struct NoteEditView: View {
     @State private var isKeyboardVisible = false
     @State private var isProcessingReceipt = false
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
+    @State private var selectedReceiptToOpen: ReceiptStat? = nil
     @State private var isGeneratingTitle = false
     @State private var reminderNoteTarget: Note? = nil
     @State private var pendingTitleFocusWorkItems: [DispatchWorkItem] = []
@@ -2491,6 +3111,12 @@ struct NoteEditView: View {
                     }
                 }
             ))
+        }
+        .sheet(item: $selectedReceiptToOpen) { receipt in
+            ReceiptDetailSheet(receipt: receipt)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBg()
         }
         .fullScreenCover(isPresented: $showingImageViewer) {
             if selectedImageIndex < imageAttachments.count {
@@ -3120,7 +3746,7 @@ struct NoteEditView: View {
                 saveToUndoHistory()
             }
             
-            // Content editor with table support and date detection
+            // Content editor with table support
             HybridNoteContentView(
                 content: $content,
                 isContentFocused: $isContentFocused,
@@ -3128,20 +3754,7 @@ struct NoteEditView: View {
                     // Save to undo history on content change
                     saveToUndoHistory()
                 },
-                onDateDetected: { date, context in
-                    // User tapped highlighted date - parse event details with LLM
-                    detectedEventDate = date
-                    detectedEventEndDate = date.addingTimeInterval(3600) // 1 hour default
-                    eventSelectedTime = date // Set the time picker to detected time
-                    eventSelectedEndTime = date.addingTimeInterval(3600)
-                    detectedEventHasTime = true
-                    isParsingEventFromNote = true
-                    showingEventCreationPrompt = true
-                    
-                    Task {
-                        await parseEventDetailsFromNote(context: context, date: date)
-                    }
-                },
+                onDateDetected: nil,
                 onTodoInsert: {
                     insertTodoAtCursor()
                 },
@@ -5088,82 +5701,23 @@ struct NoteEditView: View {
     }
 
     private func processReceiptImage(_ image: UIImage) {
-        // Process with AI
         Task {
             isProcessingReceipt = true
-            
-            // Show processing indicator
+
             await MainActor.run {
                 receiptProcessingState = .processing
             }
 
             do {
-                let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
+                let draft = try await openAIService.analyzeReceiptImageDraft(image)
+                let receipt = try await receiptManager.createReceipt(from: draft, images: [image])
 
-                // Clean up the extracted content - remove extra whitespace and format nicely
-                let cleanedContent = receiptContent
-                    .split(separator: "\n")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n")
-
-                // Extract month and year from receipt title for automatic folder organization
-                var folderIdForReceipt: UUID?
-                if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
-                    // Use async folder creation to ensure folders sync before using IDs
-                    folderIdForReceipt = await notesManager.getOrCreateReceiptMonthFolderAsync(month: month, year: year)
-                    print("✅ Receipt assigned to \(notesManager.getMonthName(month)) \(year)")
-                } else {
-                    // Fallback to main Receipts folder if no date found
-                    let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
-                    folderIdForReceipt = receiptsFolderId
-                    print("⚠️ No date found in receipt title, using main Receipts folder")
-                }
-
-                // Update UI state on main actor and capture values for saving
-                let (finalTitle, finalContent) = await MainActor.run {
-                    // Add the receipt image to attachments so it shows in the eye icon
-                    imageAttachments.append(image)
-                    print("✅ Receipt image added to attachments (total: \(imageAttachments.count))")
-
-                    // Provide haptic feedback that image was captured
-                    HapticManager.shared.success()
-
-                    // Set title if empty or update it
-                    if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        title = receiptTitle
-                    }
-
-                    // Assign folder to receipt
-                    if let folderId = folderIdForReceipt {
-                        selectedFolderId = folderId
-                    }
-
-                    // Append cleaned receipt content to existing content
-                    let newContent = content.isEmpty ? cleanedContent : content + "\n\n" + cleanedContent
-                    content = newContent
-
-                    // Convert markdown to attributed string
-                    attributedContent = convertMarkdownToAttributedString(newContent)
-
-                    isProcessingReceipt = false
-                    saveToUndoHistory()
-                    
-                    // Return values for saving
-                    return (title.isEmpty ? receiptTitle : title, newContent)
-                }
-
-                // Auto-save the note with the receipt image and cleaned content (async operation)
-                await saveReceiptNoteWithImage(title: finalTitle, content: finalContent)
-
-                // Auto-dismiss after saving completes
                 await MainActor.run {
                     HapticManager.shared.success()
+                    selectedReceiptToOpen = receipt
                     receiptProcessingState = .success
                     isProcessingReceipt = false
-                    self.isPresented = false
-                    
-                    // Hide success message after 2 seconds
+
                     Task {
                         try? await Task.sleep(nanoseconds: 2_000_000_000)
                         await MainActor.run {

@@ -29,6 +29,15 @@ struct SelineWidgetEntry: TimelineEntry {
 }
 
 struct SelineWidgetProvider: TimelineProvider {
+    private let appGroupIdentifier = "group.seline"
+
+    private func sharedDefaults() -> UserDefaults? {
+        guard FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) != nil else {
+            return nil
+        }
+        return UserDefaults(suiteName: appGroupIdentifier)
+    }
+
     private func formatElapsedTime(since entryTime: Date, now: Date = Date()) -> String {
         let totalSeconds = Int(now.timeIntervalSince(entryTime))
         let hours = totalSeconds / 3600
@@ -75,7 +84,7 @@ struct SelineWidgetProvider: TimelineProvider {
         let currentDate = Date()
 
         // Load spending data from shared UserDefaults
-        let userDefaults = UserDefaults(suiteName: "group.seline")
+        let userDefaults = sharedDefaults()
         let monthlySpending = userDefaults?.double(forKey: "widgetMonthlySpending") ?? 0.0
         let monthOverMonthPercentage = userDefaults?.double(forKey: "widgetMonthOverMonthPercentage") ?? 0.0
         let isSpendingIncreasing = userDefaults?.bool(forKey: "widgetIsSpendingIncreasing") ?? false
@@ -110,7 +119,7 @@ struct SelineWidgetProvider: TimelineProvider {
 
     // Helper to load today's tasks from UserDefaults
     private func loadTodaysTasks() -> [TaskForWidget] {
-        let userDefaults = UserDefaults(suiteName: "group.seline")
+        let userDefaults = sharedDefaults()
         guard let data = userDefaults?.data(forKey: "widgetTodaysTasks") else {
             return []
         }

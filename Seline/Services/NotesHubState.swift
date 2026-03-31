@@ -6,6 +6,7 @@ final class NotesHubState: ObservableObject {
     struct Inputs: Equatable {
         let searchText: String
         let selectedFolderId: UUID?
+        let showPinnedNotesOnly: Bool
         let showUnfiledNotesOnly: Bool
         let showsCurrentMonthOnly: Bool
     }
@@ -17,6 +18,7 @@ final class NotesHubState: ObservableObject {
     @Published private(set) var displayedNotes: [Note] = []
     @Published private(set) var looseNotesCount: Int = 0
     @Published private(set) var folderNotesCount: Int = 0
+    @Published private(set) var journalEntries: [Note] = []
     @Published private(set) var latestJournalRecap: Note?
     @Published private(set) var journalOverviewStats: JournalStats = JournalStats(
         currentStreak: 0,
@@ -35,10 +37,12 @@ final class NotesHubState: ObservableObject {
     @Published private(set) var upcomingRecurringCount: Int = 0
 
     private let notesManager: NotesManager
+    private let receiptManager: ReceiptManager
     private var cancellables = Set<AnyCancellable>()
     private var inputs = Inputs(
         searchText: "",
         selectedFolderId: nil,
+        showPinnedNotesOnly: false,
         showUnfiledNotesOnly: false,
         showsCurrentMonthOnly: false
     )
@@ -47,6 +51,7 @@ final class NotesHubState: ObservableObject {
 
     init(notesManager: NotesManager? = nil) {
         self.notesManager = notesManager ?? .shared
+        self.receiptManager = .shared
 
         self.notesManager.$notes
             .combineLatest(self.notesManager.$folders)
@@ -54,11 +59,18 @@ final class NotesHubState: ObservableObject {
                 self?.refresh()
             }
             .store(in: &cancellables)
+
+        self.receiptManager.$receipts
+            .sink { [weak self] _ in
+                self?.refresh(includeAggregates: true)
+            }
+            .store(in: &cancellables)
     }
 
     func updateInputs(
         searchText: String,
         selectedFolderId: UUID?,
+        showPinnedNotesOnly: Bool,
         showUnfiledNotesOnly: Bool,
         showsCurrentMonthOnly: Bool,
         forceRefresh: Bool = false
@@ -67,6 +79,7 @@ final class NotesHubState: ObservableObject {
         let nextInputs = Inputs(
             searchText: searchText,
             selectedFolderId: selectedFolderId,
+            showPinnedNotesOnly: showPinnedNotesOnly,
             showUnfiledNotesOnly: showUnfiledNotesOnly,
             showsCurrentMonthOnly: showsCurrentMonthOnly
         )
@@ -85,11 +98,11 @@ final class NotesHubState: ObservableObject {
 
     func refresh(includeAggregates: Bool = true) {
         let currentInputs = inputs
-        let notesSnapshot = notesManager.notes
+        let notesSnapshot = receiptManager.visibleNotes(notesManager.notes)
         let foldersSnapshot = notesManager.folders
-        let pinnedNotesSnapshot = notesManager.pinnedNotes
-        let recentNotesSnapshot = notesManager.recentNotes
-        let searchedNotes = currentInputs.searchText.isEmpty ? nil : notesManager.searchNotes(query: currentInputs.searchText)
+        let pinnedNotesSnapshot = receiptManager.visibleNotes(notesManager.pinnedNotes)
+        let recentNotesSnapshot = receiptManager.visibleNotes(notesManager.recentNotes)
+        let searchedNotes = currentInputs.searchText.isEmpty ? nil : notesManager.searchNotes(query: currentInputs.searchText).filter { !receiptManager.isHiddenMigratedReceiptNote($0.id) }
 
         refreshGeneration += 1
         let generation = refreshGeneration
@@ -121,19 +134,46 @@ final class NotesHubState: ObservableObject {
             pinned = pinned.filter(standardNoteFilter)
             unpinned = unpinned.filter(standardNoteFilter)
 
+            let standardNotes = notesSnapshot
+                .filter(standardNoteFilter)
+                .sorted { $0.dateModified > $1.dateModified }
+            let scopedStandardNotes: [Note]
+            if currentInputs.showUnfiledNotesOnly {
+                scopedStandardNotes = standardNotes.filter { !$0.isPinned && $0.folderId == nil }
+            } else if let selectedFolderId = currentInputs.selectedFolderId {
+                scopedStandardNotes = standardNotes.filter { $0.folderId == selectedFolderId }
+            } else if currentInputs.showPinnedNotesOnly {
+                scopedStandardNotes = standardNotes.filter { $0.isPinned }
+            } else {
+                scopedStandardNotes = standardNotes
+            }
+
+            let monthGroupedNotes: [Note]
+            if currentInputs.showPinnedNotesOnly {
+                monthGroupedNotes = scopedStandardNotes
+            } else if currentInputs.showUnfiledNotesOnly || currentInputs.selectedFolderId != nil {
+                monthGroupedNotes = scopedStandardNotes
+            } else {
+                monthGroupedNotes = scopedStandardNotes.filter { !$0.isPinned }
+            }
+
             let calendar = Calendar.current
             let now = Date()
             let oneWeekAgo = calendar.date(byAdding: .day, value: -7, to: now) ?? now
             let recent = unpinned.filter { $0.dateModified >= oneWeekAgo }
-            let olderNotes = unpinned.filter { $0.dateModified < oneWeekAgo }
 
             let monthYearFormatter = DateFormatter()
             monthYearFormatter.dateFormat = "MMMM yyyy"
-            let grouped = Dictionary(grouping: olderNotes) { note in
+            let grouped = Dictionary(grouping: monthGroupedNotes) { note in
                 monthYearFormatter.string(from: note.dateModified)
             }
             let groupedByMonth = grouped
-                .map { (month: $0.key, notes: $0.value) }
+                .map { month, notes in
+                    (
+                        month: month,
+                        notes: notes.sorted { $0.dateModified > $1.dateModified }
+                    )
+                }
                 .sorted { lhs, rhs in
                     guard let leftDate = lhs.notes.first?.dateModified,
                           let rightDate = rhs.notes.first?.dateModified else {
@@ -142,9 +182,6 @@ final class NotesHubState: ObservableObject {
                     return leftDate > rightDate
                 }
 
-            let standardNotes = notesSnapshot
-                .filter(standardNoteFilter)
-                .sorted { $0.dateModified > $1.dateModified }
             let meaningfulJournalEntries = notesSnapshot.filter { $0.isJournalEntry && $0.isMeaningfulJournalEntry }
             let nextJournalOverviewStats = Self.journalStats(
                 for: meaningfulJournalEntries,
@@ -160,14 +197,7 @@ final class NotesHubState: ObservableObject {
                 }
                 .first
 
-            let nextDisplayedNotes: [Note]
-            if currentInputs.showUnfiledNotesOnly {
-                nextDisplayedNotes = standardNotes.filter { !$0.isPinned && $0.folderId == nil }
-            } else if let selectedFolderId = currentInputs.selectedFolderId {
-                nextDisplayedNotes = standardNotes.filter { $0.folderId == selectedFolderId }
-            } else {
-                nextDisplayedNotes = standardNotes.filter { $0.isPinned }
-            }
+            let nextDisplayedNotes = scopedStandardNotes
 
             let nextLooseNotesCount = standardNotes.filter { $0.folderId == nil }.count
             let nextFolderNotesCount = currentInputs.selectedFolderId.map { selectedFolderId in
@@ -204,6 +234,8 @@ final class NotesHubState: ObservableObject {
 
                 self.looseNotesCount = nextLooseNotesCount
                 self.folderNotesCount = nextFolderNotesCount
+                self.journalEntries = meaningfulJournalEntries
+                    .sorted { ($0.journalDate ?? $0.dateModified) > ($1.journalDate ?? $1.dateModified) }
                 self.latestJournalRecap = nextLatestJournalRecap
                 self.journalOverviewStats = nextJournalOverviewStats
 
@@ -298,8 +330,8 @@ final class NotesHubState: ObservableObject {
         let calendar = Calendar.current
         let now = Date()
         let currentYear = calendar.component(.year, from: now)
-        let yearlySummary = notesManager.getReceiptStatistics(year: currentYear).first
-            ?? notesManager.getReceiptStatistics().first
+        let yearlySummary = receiptManager.receiptStatistics(year: currentYear).first
+            ?? receiptManager.receiptStatistics().first
 
         let nextMonthlySummaries: [MonthlyReceiptSummary]
         if let yearlySummary {

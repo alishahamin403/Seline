@@ -345,6 +345,7 @@ struct DailyOverviewWidget: View {
             }
         }
         .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .homeGlassCardStyle(
             colorScheme: colorScheme,
             cornerRadius: ShadcnRadius.xl,

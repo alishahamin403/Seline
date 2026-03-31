@@ -18,6 +18,7 @@ struct SelineChatRetrievedContext {
 final class SelineChatEvidenceRetriever {
     private let emailService = EmailService.shared
     private let notesManager = NotesManager.shared
+    private let receiptManager = ReceiptManager.shared
     private let peopleManager = PeopleManager.shared
     private let locationsManager = LocationsManager.shared
     private let placesService = SelineChatPlacesService()
@@ -120,7 +121,10 @@ final class SelineChatEvidenceRetriever {
         let candidatePeopleByVisit = await peopleManager.getPeopleForVisits(visitIds: candidateVisits.map(\.id))
         var candidatePeopleByReceipt: [UUID: [Person]] = [:]
         for receipt in candidateReceipts {
-            candidatePeopleByReceipt[receipt.noteId] = await peopleManager.getPeopleForReceipt(noteId: receipt.noteId)
+            candidatePeopleByReceipt[receipt.id] = await peopleManager.getPeopleForReceipt(
+                receiptId: receipt.id,
+                legacyNoteId: receipt.legacyNoteId
+            )
         }
 
         if context.places.isEmpty,
@@ -213,14 +217,17 @@ final class SelineChatEvidenceRetriever {
                 context.openQuestions.append("Tell me which receipt or purchase you mean.")
                 return
             }
-            context.receipts = allReceipts.filter { anchor.noteIDs.contains($0.noteId) }
+            context.receipts = allReceipts.filter { anchor.noteIDs.contains($0.id) }
         case .none:
             break
         }
 
         if !context.receipts.isEmpty {
             for receipt in context.receipts {
-                context.peopleByReceipt[receipt.noteId] = await peopleManager.getPeopleForReceipt(noteId: receipt.noteId)
+                context.peopleByReceipt[receipt.id] = await peopleManager.getPeopleForReceipt(
+                    receiptId: receipt.id,
+                    legacyNoteId: receipt.legacyNoteId
+                )
             }
         }
     }
@@ -258,9 +265,9 @@ final class SelineChatEvidenceRetriever {
         context.people = Array(context.people.prefix(peopleCap))
 
         let visitIDs = Set(context.visits.map(\.id))
-        let receiptNoteIDs = Set(context.receipts.map(\.noteId))
+        let receiptIDs = Set(context.receipts.map(\.id))
         context.peopleByVisit = context.peopleByVisit.filter { visitIDs.contains($0.key) }
-        context.peopleByReceipt = context.peopleByReceipt.filter { receiptNoteIDs.contains($0.key) }
+        context.peopleByReceipt = context.peopleByReceipt.filter { receiptIDs.contains($0.key) }
 
         let retainedItemIDs = retainedEvidenceItemIDs(from: context)
         context.graphRelations = context.graphRelations.filter {
@@ -316,7 +323,7 @@ final class SelineChatEvidenceRetriever {
         let emailByID = Dictionary(uniqueKeysWithValues: emails.map { ("email-\($0.id)", $0) })
         let noteByID = Dictionary(uniqueKeysWithValues: notes.map { ("note-\($0.id.uuidString)", $0) })
         let visitByID = Dictionary(uniqueKeysWithValues: visits.map { ("visit-\($0.id.uuidString)", $0) })
-        let receiptByID = Dictionary(uniqueKeysWithValues: receipts.map { ("receipt-\($0.noteId.uuidString)", $0) })
+        let receiptByID = Dictionary(uniqueKeysWithValues: receipts.map { ("receipt-\($0.id.uuidString)", $0) })
         let placeByID = Dictionary(uniqueKeysWithValues: places.map { ("place-\($0.id.uuidString)", $0) })
         let personByID = Dictionary(uniqueKeysWithValues: people.map { ("person-\($0.id.uuidString)", $0) })
 
@@ -354,7 +361,7 @@ final class SelineChatEvidenceRetriever {
             }
             if let receipt = receiptByID[nodeID] {
                 context.receipts = mergeUniqueReceipts(context.receipts, [receipt])
-                context.peopleByReceipt[receipt.noteId] = peopleByReceipt[receipt.noteId] ?? []
+                context.peopleByReceipt[receipt.id] = peopleByReceipt[receipt.id] ?? []
                 continue
             }
             if let place = placeByID[nodeID] {
@@ -500,18 +507,19 @@ final class SelineChatEvidenceRetriever {
         }
 
         for receipt in receipts {
-            let linkedPeople = peopleByReceipt[receipt.noteId] ?? []
-            let noteContext = notesByID[receipt.noteId].map { noteSearchText($0) } ?? ""
+            let linkedPeople = peopleByReceipt[receipt.id] ?? []
+            let noteContext = receipt.legacyNoteId.flatMap { notesByID[$0] }.map { noteSearchText($0) } ?? ""
             let searchable = normalize([
                 receipt.title,
                 receipt.category,
+                receipt.searchableText,
                 noteContext,
                 linkedPeople.map(\.displayName).joined(separator: " ")
             ].joined(separator: " "))
             let matchedTerms = matchedQueryTerms(in: searchable, frame: frame)
             var refs = queryTermRefs(for: matchedTerms)
-            refs.append(SelineChatMemoryRef(kind: .noteID, value: receipt.noteId.uuidString.lowercased(), weight: 2.0))
-            refs.append(SelineChatMemoryRef(kind: .merchant, value: normalize(receipt.title), weight: 1.6))
+            refs.append(SelineChatMemoryRef(kind: .noteID, value: receipt.id.uuidString.lowercased(), weight: 2.0))
+            refs.append(SelineChatMemoryRef(kind: .merchant, value: normalize(receipt.merchant), weight: 1.6))
             refs.append(SelineChatMemoryRef(kind: .category, value: normalize(receipt.category), weight: 0.6))
             refs.append(SelineChatMemoryRef(kind: .dayKey, value: dayKey(for: receipt.date), weight: 0.8))
             refs.append(contentsOf: entityRefs(in: searchable, personAliases: personAliases, placeAliases: placeAliases))
@@ -521,7 +529,7 @@ final class SelineChatEvidenceRetriever {
 
             nodes.append(
                 SelineChatMemoryNode(
-                    id: "receipt-\(receipt.noteId.uuidString)",
+                    id: "receipt-\(receipt.id.uuidString)",
                     kind: .receipt,
                     searchableText: searchable,
                     dateInterval: DateInterval(start: receipt.date, duration: 60),
@@ -697,11 +705,11 @@ final class SelineChatEvidenceRetriever {
         let visitLinkedPeople = context.visits.flatMap { context.peopleByVisit[$0.id] ?? [] }
         context.people = mergeUniquePeople(context.people, visitLinkedPeople)
 
-        for receipt in context.receipts where context.peopleByReceipt[receipt.noteId] == nil {
-            context.peopleByReceipt[receipt.noteId] = []
+        for receipt in context.receipts where context.peopleByReceipt[receipt.id] == nil {
+            context.peopleByReceipt[receipt.id] = []
         }
 
-        let receiptLinkedPeople = context.receipts.flatMap { context.peopleByReceipt[$0.noteId] ?? [] }
+        let receiptLinkedPeople = context.receipts.flatMap { context.peopleByReceipt[$0.id] ?? [] }
         context.people = mergeUniquePeople(context.people, receiptLinkedPeople)
 
         for person in context.people {
@@ -735,7 +743,7 @@ final class SelineChatEvidenceRetriever {
 
         let relatedReceipts = allReceipts.filter { receipt in
             let merchantText = normalize(receipt.title)
-            let noteLinkedPeople = context.peopleByReceipt[receipt.noteId] ?? []
+            let noteLinkedPeople = context.peopleByReceipt[receipt.id] ?? []
             if matchedPlaceNames.contains(where: { merchantText.contains($0) || $0.contains(merchantText) }) {
                 return true
             }
@@ -755,11 +763,9 @@ final class SelineChatEvidenceRetriever {
     }
 
     private func allReceiptsSnapshot() async -> [ReceiptStat] {
+        await receiptManager.ensureLoaded()
         await notesManager.ensureReceiptDataAvailable()
-        return notesManager.getReceiptStatistics()
-            .flatMap(\.monthlySummaries)
-            .flatMap(\.receipts)
-            .sorted { $0.date > $1.date }
+        return receiptManager.receipts.sorted { $0.date > $1.date }
     }
 
     private func rankEmails(
@@ -839,7 +845,7 @@ final class SelineChatEvidenceRetriever {
         timeScope: SelineChatTimeScope?
     ) -> [ReceiptStat] {
         rank(receipts) { receipt in
-            let searchable = normalize("\(receipt.title) \(receipt.category)")
+            let searchable = normalize(receipt.searchableText)
             var score = scoreText(searchable, searchTerms: searchTerms)
             score += phraseScore(searchable, entityMentions: entityMentions)
             if timeScope?.interval.contains(receipt.date) == true {
@@ -963,7 +969,7 @@ final class SelineChatEvidenceRetriever {
         var ids = Set(context.emails.map { "email-\($0.id)" })
         ids.formUnion(context.notes.map { "note-\($0.id.uuidString)" })
         ids.formUnion(context.visits.map { "visit-\($0.id.uuidString)" })
-        ids.formUnion(context.receipts.map { "receipt-\($0.noteId.uuidString)" })
+        ids.formUnion(context.receipts.map { "receipt-\($0.id.uuidString)" })
         ids.formUnion(context.places.map { "place-\($0.id.uuidString)" })
         ids.formUnion(context.people.map { "person-\($0.id.uuidString)" })
         return ids
@@ -1277,9 +1283,9 @@ final class SelineChatEvidenceRetriever {
     }
 
     private func mergeUniqueReceipts<S: Sequence>(_ existing: [ReceiptStat], _ incoming: S) -> [ReceiptStat] where S.Element == ReceiptStat {
-        var seen = Set(existing.map(\.noteId))
+        var seen = Set(existing.map(\.id))
         var merged = existing
-        for receipt in incoming where seen.insert(receipt.noteId).inserted {
+        for receipt in incoming where seen.insert(receipt.id).inserted {
             merged.append(receipt)
         }
         return merged.sorted { $0.date > $1.date }

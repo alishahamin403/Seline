@@ -23,8 +23,8 @@ struct VisitReasonPopupCard: View {
     var body: some View {
         cardContent
             .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .homeGlassCardStyle(colorScheme: colorScheme, cornerRadius: 18, highlightStrength: 0.95)
-            .padding(.horizontal, 12)
     }
 
     // MARK: - Subviews

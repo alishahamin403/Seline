@@ -1,50 +1,236 @@
 import Foundation
 
-// MARK: - Receipt Statistics Models
+enum ReceiptSource: String, Codable, Hashable {
+    case native
+    case migratedLegacy
+    case legacyFallback
+}
 
-// Note: This file should be in the same module as NoteModels.swift
-// The Note struct is defined in NoteModels.swift
+enum ReceiptFieldKind: String, Codable, Hashable {
+    case text
+    case currency
+    case date
+    case time
+    case datetime
+}
 
-/// Represents a single receipt with parsed amount
-struct ReceiptStat: Identifiable, Hashable, Codable {
+struct ReceiptField: Identifiable, Hashable, Codable {
     let id: UUID
-    let title: String
-    let amount: Double
-    let date: Date
-    let noteId: UUID
-    let year: Int?
-    let month: String?
-    var category: String
+    let label: String
+    let value: String
+    let kind: ReceiptFieldKind
 
-    init(id: UUID = UUID(), title: String, amount: Double, date: Date, noteId: UUID, year: Int? = nil, month: String? = nil, category: String = "Other") {
+    init(id: UUID = UUID(), label: String, value: String, kind: ReceiptFieldKind = .text) {
         self.id = id
-        self.title = title
-        self.amount = amount
-        self.date = date
-        self.noteId = noteId
-        self.year = year
-        self.month = month
-        self.category = category
-    }
-
-    init(from note: Note, year: Int? = nil, month: String? = nil, date: Date? = nil, category: String = "Other") {
-        self.id = UUID()
-        self.title = note.title
-        let amountSource = [note.title, note.content]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        self.amount = CurrencyParser.extractAmount(from: amountSource)
-        // Use provided date if available, otherwise use note.dateModified
-        self.date = date ?? note.dateModified
-        self.noteId = note.id
-        self.year = year
-        self.month = month
-        self.category = category
+        self.label = label
+        self.value = value
+        self.kind = kind
     }
 }
 
-/// Represents all receipts for a specific day
-struct DailyReceiptSummary: Identifiable {
+struct ReceiptLineItem: Identifiable, Hashable, Codable {
+    let id: UUID
+    let title: String
+    let amount: Double?
+    let quantity: Double?
+
+    init(id: UUID = UUID(), title: String, amount: Double? = nil, quantity: Double? = nil) {
+        self.id = id
+        self.title = title
+        self.amount = amount
+        self.quantity = quantity
+    }
+}
+
+struct ReceiptDraft: Hashable, Codable {
+    var merchant: String
+    var total: Double
+    var transactionDate: Date
+    var transactionTime: Date?
+    var category: String
+    var subtotal: Double?
+    var tax: Double?
+    var tip: Double?
+    var paymentMethod: String?
+    var detailFields: [ReceiptField]
+    var lineItems: [ReceiptLineItem]
+    var imageUrls: [String]
+
+    init(
+        merchant: String = "",
+        total: Double = 0,
+        transactionDate: Date = Date(),
+        transactionTime: Date? = nil,
+        category: String = "Other",
+        subtotal: Double? = nil,
+        tax: Double? = nil,
+        tip: Double? = nil,
+        paymentMethod: String? = nil,
+        detailFields: [ReceiptField] = [],
+        lineItems: [ReceiptLineItem] = [],
+        imageUrls: [String] = []
+    ) {
+        self.merchant = merchant
+        self.total = total
+        self.transactionDate = transactionDate
+        self.transactionTime = transactionTime
+        self.category = category
+        self.subtotal = subtotal
+        self.tax = tax
+        self.tip = tip
+        self.paymentMethod = paymentMethod
+        self.detailFields = detailFields
+        self.lineItems = lineItems
+        self.imageUrls = imageUrls
+    }
+
+    var resolvedMerchant: String {
+        let trimmed = merchant.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Receipt" : trimmed
+    }
+
+    var resolvedTitle: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM d, yyyy"
+        return "\(resolvedMerchant) - \(formatter.string(from: transactionDate))"
+    }
+}
+
+// MARK: - Receipt Statistics Models
+
+struct ReceiptStat: Identifiable, Hashable, Codable {
+    let id: UUID
+    let source: ReceiptSource
+    let title: String
+    let merchant: String
+    let amount: Double
+    let date: Date
+    let transactionTime: Date?
+    let noteId: UUID
+    let legacyNoteId: UUID?
+    let year: Int?
+    let month: String?
+    var category: String
+    let subtotal: Double?
+    let tax: Double?
+    let tip: Double?
+    let paymentMethod: String?
+    let imageUrls: [String]
+    let detailFields: [ReceiptField]
+    let lineItems: [ReceiptLineItem]
+
+    init(
+        id: UUID = UUID(),
+        source: ReceiptSource = .native,
+        title: String,
+        merchant: String? = nil,
+        amount: Double,
+        date: Date,
+        transactionTime: Date? = nil,
+        noteId: UUID,
+        legacyNoteId: UUID? = nil,
+        year: Int? = nil,
+        month: String? = nil,
+        category: String = "Other",
+        subtotal: Double? = nil,
+        tax: Double? = nil,
+        tip: Double? = nil,
+        paymentMethod: String? = nil,
+        imageUrls: [String] = [],
+        detailFields: [ReceiptField] = [],
+        lineItems: [ReceiptLineItem] = []
+    ) {
+        self.id = id
+        self.source = source
+        self.title = title
+        self.merchant = merchant?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? ReceiptStat.extractMerchantName(from: title)
+        self.amount = amount
+        self.date = date
+        self.transactionTime = transactionTime
+        self.noteId = noteId
+        self.legacyNoteId = legacyNoteId
+        self.year = year
+        self.month = month
+        self.category = category
+        self.subtotal = subtotal
+        self.tax = tax
+        self.tip = tip
+        self.paymentMethod = paymentMethod
+        self.imageUrls = imageUrls
+        self.detailFields = detailFields
+        self.lineItems = lineItems
+    }
+
+    init(from note: Note, year: Int? = nil, month: String? = nil, date: Date? = nil, category: String = "Other") {
+        let effectiveDate = date ?? note.dateModified
+        let amountSource = [note.title, note.content]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+
+        self.init(
+            id: note.id,
+            source: .legacyFallback,
+            title: note.title,
+            merchant: ReceiptStat.extractMerchantName(from: note.title),
+            amount: CurrencyParser.extractAmount(from: amountSource),
+            date: effectiveDate,
+            transactionTime: nil,
+            noteId: note.id,
+            legacyNoteId: note.id,
+            year: year,
+            month: month,
+            category: category,
+            subtotal: nil,
+            tax: nil,
+            tip: nil,
+            paymentMethod: nil,
+            imageUrls: note.imageUrls,
+            detailFields: [],
+            lineItems: []
+        )
+    }
+
+    var canonicalReceiptId: UUID {
+        id
+    }
+
+    var searchableText: String {
+        let detailText = detailFields
+            .map { "\($0.label) \($0.value)" }
+            .joined(separator: " ")
+        let lineItemText = lineItems
+            .map { item in
+                let amountText = item.amount.map { CurrencyParser.formatAmount($0) } ?? ""
+                return "\(item.title) \(amountText)"
+            }
+            .joined(separator: " ")
+
+        return [
+            title,
+            merchant,
+            category,
+            CurrencyParser.formatAmount(amount),
+            FormatterCache.shortDate.string(from: date),
+            transactionTime.map { FormatterCache.shortTime.string(from: $0) } ?? "",
+            paymentMethod ?? "",
+            detailText,
+            lineItemText
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+    }
+
+    static func extractMerchantName(from title: String) -> String {
+        title
+            .split(separator: "-", maxSplits: 1)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmpty ?? title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct DailyReceiptSummary: Identifiable, Hashable, Codable {
     let id: UUID
     let day: Int
     let dayDate: Date
@@ -68,8 +254,7 @@ struct DailyReceiptSummary: Identifiable {
     }
 }
 
-/// Represents all receipts for a specific month
-struct MonthlyReceiptSummary: Identifiable {
+struct MonthlyReceiptSummary: Identifiable, Hashable, Codable {
     let id: UUID
     let month: String
     let monthDate: Date
@@ -88,13 +273,11 @@ struct MonthlyReceiptSummary: Identifiable {
         self.month = month
         self.monthDate = monthDate
 
-        // Group receipts by day
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: receipts) { receipt in
             calendar.startOfDay(for: receipt.date)
         }
 
-        // Create DailyReceiptSummary for each day, sorted by date (newest first)
         self.dailySummaries = grouped
             .map { dayDate, dayReceipts in
                 DailyReceiptSummary(
@@ -107,8 +290,7 @@ struct MonthlyReceiptSummary: Identifiable {
     }
 }
 
-/// Represents all receipts for a specific year
-struct YearlyReceiptSummary: Identifiable {
+struct YearlyReceiptSummary: Identifiable, Codable, Hashable {
     let id: UUID
     let year: Int
     let monthlySummaries: [MonthlyReceiptSummary]
@@ -124,14 +306,12 @@ struct YearlyReceiptSummary: Identifiable {
     init(year: Int, monthlySummaries: [MonthlyReceiptSummary]) {
         self.id = UUID()
         self.year = year
-        // Sort months in reverse chronological order (December to January)
         self.monthlySummaries = monthlySummaries.sorted { $0.monthDate > $1.monthDate }
     }
 }
 
 // MARK: - Category Statistics Models
 
-/// Represents spending in a single category
 struct CategoryStat: Identifiable, Hashable {
     let id: UUID
     let category: String
@@ -139,7 +319,6 @@ struct CategoryStat: Identifiable, Hashable {
     let count: Int
 
     var percentage: Double {
-        // Will be calculated by the parent
         0.0
     }
 
@@ -151,14 +330,13 @@ struct CategoryStat: Identifiable, Hashable {
     }
 }
 
-/// Represents category breakdown for a year
 struct YearlyCategoryBreakdown: Identifiable {
     let id: UUID
     let year: Int
     let categories: [CategoryStat]
     let yearlyTotal: Double
-    let categoryReceipts: [String: [ReceiptStat]]  // Maps category name to receipts
-    let allReceipts: [ReceiptStat]  // All receipts for the year
+    let categoryReceipts: [String: [ReceiptStat]]
+    let allReceipts: [ReceiptStat]
 
     var sortedCategories: [CategoryStatWithPercentage] {
         categories
@@ -169,7 +347,7 @@ struct YearlyCategoryBreakdown: Identifiable {
                     total: stat.total,
                     count: stat.count,
                     percentage: yearlyTotal > 0 ? (stat.total / yearlyTotal) * 100 : 0,
-                    receipts: receipts.sorted { $0.date > $1.date }  // Sort by newest first
+                    receipts: receipts.sorted { $0.date > $1.date }
                 )
             }
             .sorted { $0.total > $1.total }
@@ -185,7 +363,6 @@ struct YearlyCategoryBreakdown: Identifiable {
     }
 }
 
-/// Category stat with calculated percentage
 struct CategoryStatWithPercentage: Identifiable {
     let id: UUID = UUID()
     let category: String
@@ -200,5 +377,12 @@ struct CategoryStatWithPercentage: Identifiable {
 
     var formattedPercentage: String {
         String(format: "%.1f%%", percentage)
+    }
+}
+
+private extension String {
+    var nonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
