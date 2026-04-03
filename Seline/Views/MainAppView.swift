@@ -71,15 +71,15 @@ struct MainAppView: View {
     @EnvironmentObject var deepLinkHandler: DeepLinkHandler
     private let pageRefreshCoordinator = PageRefreshCoordinator.shared
     @State private var homeState = HomeDashboardState()
-    @StateObject private var locationsManager = LocationsManager.shared
+    @ObservedObject private var locationsManager = LocationsManager.shared
     private let locationService = LocationService.shared
-    @StateObject private var geofenceManager = GeofenceManager.shared
+    @ObservedObject private var geofenceManager = GeofenceManager.shared
     private let searchService = SearchService.shared
     private let searchIndex = SearchIndexState.shared
     private let widgetManager = WidgetManager.shared
-    @StateObject private var emailService = EmailService.shared
-    @StateObject private var taskManager = TaskManager.shared
-    @StateObject private var receiptManager = ReceiptManager.shared
+    @ObservedObject private var emailService = EmailService.shared
+    @ObservedObject private var taskManager = TaskManager.shared
+    @ObservedObject private var receiptManager = ReceiptManager.shared
     private let notesManager = NotesManager.shared
     private let tagManager = TagManager.shared
     private let peopleManager = PeopleManager.shared
@@ -147,6 +147,8 @@ struct MainAppView: View {
     @State private var syncedWidgetVisitId: UUID? = nil
     @State private var loadTodaysVisitsTask: Task<Void, Never>?
     @State private var allLocationsRefreshTask: Task<Void, Never>?
+    @State private var receiptProcessingTask: Task<Void, Never>?
+    @State private var startupGeofenceTask: Task<Void, Never>?
     @State private var lastAllLocationsRefreshAt: Date = .distantPast
     @State private var isFetchingProfilePicture = false
     @State private var isViewingNoteInNavigation = false
@@ -219,12 +221,11 @@ struct MainAppView: View {
     }
 
     private var unreadInboxCount: Int {
-        emailService.inboxEmails.filter { !$0.isRead }.count
+        emailService.unreadInboxCount
     }
 
     private var todayTodoCount: Int {
-        let today = Date()
-        return taskManager.getTasksForToday().filter { !$0.isCompletedOn(date: today) }.count
+        taskManager.todayIncompleteTaskCount
     }
 
     private func clearHomeSearch() {
@@ -307,14 +308,12 @@ struct MainAppView: View {
             ))
         }
 
-        let matchingEmails = index.emails.filter {
+        // Limit to 3 most relevant emails for faster search
+        for email in index.emails.lazy.filter({
             $0.subjectLower.contains(lowercasedSearch) ||
             $0.senderLower.contains(lowercasedSearch) ||
             $0.snippetLower.contains(lowercasedSearch)
-        }
-
-        // Limit to 3 most relevant emails for faster search
-        for email in matchingEmails.prefix(3) {
+        }).prefix(3) {
             results.append(OverlaySearchResult(
                 type: .email,
                 title: email.email.subject,
@@ -328,14 +327,12 @@ struct MainAppView: View {
             ))
         }
 
-        let matchingReceipts = index.receipts.filter {
-            $0.titleLower.contains(lowercasedSearch) ||
-                $0.categoryLower.contains(lowercasedSearch) ||
-                $0.noteTextLower.contains(lowercasedSearch)
-        }
-
         // Limit to 3 most relevant receipts for faster search
-        for receipt in matchingReceipts.prefix(3) {
+        for receipt in index.receipts.lazy.filter({
+            $0.titleLower.contains(lowercasedSearch) ||
+            $0.categoryLower.contains(lowercasedSearch) ||
+            $0.noteTextLower.contains(lowercasedSearch)
+        }).prefix(3) {
             let dateString = FormatterCache.shortDate.string(from: receipt.receipt.date)
 
             results.append(OverlaySearchResult(
@@ -352,14 +349,12 @@ struct MainAppView: View {
             ))
         }
 
-        let matchingNotes = index.notes.filter {
-            $0.isSearchable &&
-                ($0.titleLower.contains(lowercasedSearch) ||
-                 $0.contentLower.contains(lowercasedSearch))
-        }
-
         // Limit to 3 most relevant notes for faster search
-        for note in matchingNotes.prefix(3) {
+        for note in index.notes.lazy.filter({
+            $0.isSearchable &&
+            ($0.titleLower.contains(lowercasedSearch) ||
+             $0.contentLower.contains(lowercasedSearch))
+        }).prefix(3) {
             results.append(OverlaySearchResult(
                 type: .note,
                 title: note.note.title,
@@ -373,14 +368,12 @@ struct MainAppView: View {
             ))
         }
 
-        let matchingLocations = index.locations.filter {
+        // Limit to 3 most relevant locations for faster search
+        for location in index.locations.lazy.filter({
             $0.nameLower.contains(lowercasedSearch) ||
             $0.addressLower.contains(lowercasedSearch) ||
             $0.customNameLower.contains(lowercasedSearch)
-        }
-
-        // Limit to 3 most relevant locations for faster search
-        for location in matchingLocations.prefix(3) {
+        }).prefix(3) {
             results.append(OverlaySearchResult(
                 type: .location,
                 title: location.place.displayName,
@@ -394,14 +387,12 @@ struct MainAppView: View {
             ))
         }
 
-        let matchingExpenses = index.expenses.filter {
-            $0.titleLower.contains(lowercasedSearch) ||
-                $0.categoryLower.contains(lowercasedSearch) ||
-                $0.descriptionLower.contains(lowercasedSearch)
-        }
-
         // Limit to 3 most relevant expenses for faster search
-        for expense in matchingExpenses.prefix(3) {
+        for expense in index.expenses.lazy.filter({
+            $0.titleLower.contains(lowercasedSearch) ||
+            $0.categoryLower.contains(lowercasedSearch) ||
+            $0.descriptionLower.contains(lowercasedSearch)
+        }).prefix(3) {
             let nextDateString = FormatterCache.shortDate.string(from: expense.expense.nextOccurrence)
 
             results.append(OverlaySearchResult(
@@ -838,6 +829,7 @@ struct MainAppView: View {
             userDefaults.set(place.displayName, forKey: "widgetVisitedLocation")
             userDefaults.set(visit.entryTime, forKey: "widgetVisitEntryTime")
             userDefaults.removeObject(forKey: "widgetElapsedTime")
+            userDefaults.synchronize()
         }
 
         syncedWidgetVisitId = visit.id
@@ -851,6 +843,7 @@ struct MainAppView: View {
             userDefaults.removeObject(forKey: "widgetVisitedLocation")
             userDefaults.removeObject(forKey: "widgetVisitEntryTime")
             userDefaults.removeObject(forKey: "widgetElapsedTime")
+            userDefaults.synchronize()
         }
 
         syncedWidgetVisitId = nil
@@ -940,28 +933,25 @@ struct MainAppView: View {
     private func presentOverlay(_ route: OverlayRoute) {
         dismissActiveKeyboard()
 
-        let openRoute = {
-            withAnimation(.smoothTabTransition) {
-                activeOverlayRoute = route
+        guard activeOverlayRoute != route else { return }
+
+        if showingHomeDrawer {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                showingHomeDrawer = false
+                isSidebarOverlayVisible = false
             }
         }
 
-        if showingHomeDrawer {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showingHomeDrawer = false
-            }
-            // Wait for sidebar close animation to finish before opening overlay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                openRoute()
-            }
-        } else {
-            openRoute()
+        withAnimation(.navigationOverlayTransition) {
+            activeOverlayRoute = route
         }
     }
 
     private func dismissOverlay() {
         HapticManager.shared.soft()
-        withAnimation(.overlayDismiss) {
+        withAnimation(.navigationOverlayTransition) {
             activeOverlayRoute = nil
         }
     }
@@ -1073,9 +1063,11 @@ struct MainAppView: View {
                     locationService.requestLocationPermission()
                     geofenceManager.requestLocationPermission()
 
-                    Task {
+                    startupGeofenceTask = Task {
                         try? await Task.sleep(nanoseconds: 500_000_000)
+                        guard !Task.isCancelled else { return }
                         await geofenceManager.loadIncompleteVisitsFromSupabase()
+                        guard !Task.isCancelled else { return }
                         await MainActor.run {
                             hasLoadedIncompleteVisits = true
                             updateCurrentLocation()
@@ -1169,6 +1161,8 @@ struct MainAppView: View {
                     allLocationsRefreshTask?.cancel()
                     searchDebounceTask?.cancel()
                     homeSearchIndexRefreshTask?.cancel()
+                    receiptProcessingTask?.cancel()
+                    startupGeofenceTask?.cancel()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                     if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
@@ -1199,10 +1193,6 @@ struct MainAppView: View {
             mainContentObserved
                 .sheet(item: $selectedReceiptToOpen) { receipt in
                     ReceiptDetailSheet(receipt: receipt)
-                        .presentationDetents([.medium, .large])
-                        .presentationDragIndicator(.visible)
-                        .modifier(PresentationModifiers())
-                        .presentationBg()
                 }
                 .fullScreenCover(item: $selectedNoteToOpen) { note in
                     NoteEditView(note: note, isPresented: Binding<Bool>(
@@ -1569,6 +1559,11 @@ struct MainAppView: View {
         geometry.safeAreaInsets.bottom > 0 ? 10 : 4
     }
 
+    private func overlayUnderlayOffset(for geometry: GeometryProxy) -> CGFloat {
+        guard activeOverlayRoute != nil else { return 0 }
+        return -min(32, geometry.size.width * 0.08)
+    }
+
     private func mainContentVStack(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
             activeTabContent
@@ -1583,6 +1578,8 @@ struct MainAppView: View {
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
         .background(Color.appBackground(colorScheme))
+        .offset(x: overlayUnderlayOffset(for: geometry))
+        .animation(.navigationOverlayTransition, value: activeOverlayRoute)
         // Swipe gestures disabled - user requested removal of left/right swipe navigation
     }
 
@@ -1733,7 +1730,7 @@ struct MainAppView: View {
         }
         .offset(x: planActive ? 0 : geometry.size.width)
         .allowsHitTesting(planActive)
-        .animation(planActive ? .smoothTabTransition : .overlayDismiss, value: planActive)
+        .animation(.navigationOverlayTransition, value: planActive)
         .zIndex(planActive ? 20 : 0)
 
         // All other overlays remain conditional — they are accessed infrequently
@@ -1953,14 +1950,16 @@ struct MainAppView: View {
 
     private var emailDetailContent: some View {
         VStack(alignment: .leading, spacing: 4) {
-            let unreadEmails = emailService.inboxEmails.filter { !$0.isRead }.prefix(5)
+            // Use the pre-computed count from emailService (O(1)), then slice for display.
+            let totalUnread = emailService.unreadInboxCount
+            let unreadEmails = emailService.inboxEmails.lazy.filter { !$0.isRead }.prefix(5)
 
-            if unreadEmails.isEmpty {
+            if totalUnread == 0 {
                 Text("No unread emails")
                     .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             } else {
-                ForEach(Array(unreadEmails.enumerated()), id: \.element.id) { index, email in
+                ForEach(Array(unreadEmails), id: \.id) { email in
                     Button(action: {
                         HapticManager.shared.email()
                         searchSelectedEmail = email
@@ -1995,11 +1994,11 @@ struct MainAppView: View {
                     .buttonStyle(PlainButtonStyle())
                 }
 
-                if emailService.inboxEmails.filter({ !$0.isRead }).count > 5 {
+                if totalUnread > 5 {
                     Button(action: {
                         openPlanInbox()
                     }) {
-                        Text("... and \(emailService.inboxEmails.filter { !$0.isRead }.count - 5) more")
+                        Text("... and \(totalUnread - 5) more")
                             .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     }
@@ -3416,8 +3415,9 @@ struct MainAppView: View {
             currentProcessingIndex = 0
 
             // Hide the success message after 1 second
-            Task {
+            receiptProcessingTask = Task {
                 try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     receiptProcessingState = .idle
                 }
@@ -3431,7 +3431,7 @@ struct MainAppView: View {
 
         print("📸 Processing receipt \(currentNumber) of \(totalCount)")
 
-        Task {
+        receiptProcessingTask = Task {
             // Show processing indicator with count
             await MainActor.run {
                 if totalCount > 1 {
@@ -3441,37 +3441,40 @@ struct MainAppView: View {
                 }
             }
 
+            guard !Task.isCancelled else { return }
+
             do {
                 let draft = try await GeminiService.shared.analyzeReceiptImageDraft(image)
                 _ = try await receiptManager.createReceipt(from: draft, images: [image])
 
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     HapticManager.shared.success()
                     print("✅ Receipt \(currentNumber) of \(totalCount) saved")
-
                     currentProcessingIndex += 1
                     receiptProcessingState = .success
-                    Task {
-                        try? await Task.sleep(nanoseconds: 500_000_000)
-                        await MainActor.run {
-                            processNextReceiptInQueue()
-                        }
-                    }
+                }
+
+                // Advance to next receipt after a short pause
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    processNextReceiptInQueue()
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     print("❌ Error processing receipt \(currentNumber): \(error.localizedDescription)")
                     HapticManager.shared.error()
                     receiptProcessingState = .error(error.localizedDescription)
+                }
 
-                    // Skip this receipt and move to next after showing error
-                    Task {
-                        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-                        await MainActor.run {
-                            currentProcessingIndex += 1
-                            processNextReceiptInQueue()
-                        }
-                    }
+                // Skip this receipt and move to next after showing error
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    currentProcessingIndex += 1
+                    processNextReceiptInQueue()
                 }
             }
         }

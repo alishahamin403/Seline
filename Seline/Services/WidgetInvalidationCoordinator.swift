@@ -31,11 +31,14 @@ final class WidgetInvalidationCoordinator {
 
     /// Write current location to the shared App Group UserDefaults so the widget can read
     /// it immediately after a timeline reload — even when the app is in the background.
+    /// synchronize() is required for cross-process UserDefaults (app → widget extension),
+    /// as each process has its own in-memory cache that isn't automatically flushed.
     static func writeLocationData(placeName: String, entryTime: Date) {
         guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
         userDefaults.set(placeName, forKey: "widgetVisitedLocation")
         userDefaults.set(entryTime, forKey: "widgetVisitEntryTime")
         userDefaults.removeObject(forKey: "widgetElapsedTime")
+        userDefaults.synchronize()
     }
 
     /// Remove location data from the shared App Group UserDefaults after a visit ends.
@@ -44,5 +47,6 @@ final class WidgetInvalidationCoordinator {
         userDefaults.removeObject(forKey: "widgetVisitedLocation")
         userDefaults.removeObject(forKey: "widgetVisitEntryTime")
         userDefaults.removeObject(forKey: "widgetElapsedTime")
+        userDefaults.synchronize()
     }
 }
