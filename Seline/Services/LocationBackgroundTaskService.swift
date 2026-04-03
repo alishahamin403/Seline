@@ -182,9 +182,12 @@ class LocationBackgroundTaskService {
                 // User is outside but has active visit - end it!
                 print("🚨 DETECTED: User outside \(place.displayName) but HAS active visit!")
                 print("   Distance: \(String(format: "%.0f", distance))m, Radius: \(String(format: "%.0f", radius))m")
-                
+
                 await endVisitFromBackground(for: place.id, placeName: place.displayName)
-                
+
+                // Clear widget data BEFORE reload so widget reads nil even when app is in background
+                WidgetInvalidationCoordinator.clearLocationData()
+
                 // Refresh widgets immediately
                 WidgetInvalidationCoordinator.shared.requestReload(reason: "background_visit_ended")
             }

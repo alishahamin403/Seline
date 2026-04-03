@@ -889,6 +889,11 @@ class GeofenceManager: NSObject, ObservableObject {
                 // Invalidate caches
                 LocationVisitAnalytics.shared.invalidateAllVisitCaches()
 
+                // Write widget data BEFORE reload so the widget reads fresh data even in background
+                if let place = LocationsManager.shared.savedPlaces.first(where: { $0.id == placeId }) {
+                    WidgetInvalidationCoordinator.writeLocationData(placeName: place.displayName, entryTime: visit.entryTime)
+                }
+
                 // Notify UI
                 NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
 
@@ -1124,6 +1129,9 @@ class GeofenceManager: NSObject, ObservableObject {
                     await self.updateVisitInSupabase(visit)
                 }
 
+                // Clear widget location data BEFORE reload so the widget reads nil in background
+                WidgetInvalidationCoordinator.clearLocationData()
+
                 // Reload widgets so they reflect the visit has ended
                 WidgetInvalidationCoordinator.shared.requestReload(reason: "visit_exited")
                 print("🔄 Widget timelines reloaded after visit exit")
@@ -1247,6 +1255,11 @@ class GeofenceManager: NSObject, ObservableObject {
                 LocationVisitAnalytics.shared.invalidateAllVisitCaches()
 
                 await self.saveVisitToSupabase(visit)
+
+                // Write widget data BEFORE reload so the widget reads fresh data even in background
+                if let place = LocationsManager.shared.savedPlaces.first(where: { $0.id == placeId }) {
+                    WidgetInvalidationCoordinator.writeLocationData(placeName: place.displayName, entryTime: visit.entryTime)
+                }
 
                 NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
 
@@ -1611,6 +1624,10 @@ class GeofenceManager: NSObject, ObservableObject {
         }
 
         print("✅ Created visit for \(place.displayName)")
+
+        // Write widget data BEFORE reload so the widget reads fresh data even in background
+        let widgetEntryTime = activeVisitsLock.withCriticalRegion { self.activeVisits[place.id] }?.entryTime ?? Date()
+        WidgetInvalidationCoordinator.writeLocationData(placeName: place.displayName, entryTime: widgetEntryTime)
 
         // Notify that visits have been updated so UI can refresh
         NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)

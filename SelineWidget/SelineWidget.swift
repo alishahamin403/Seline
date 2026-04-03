@@ -111,8 +111,10 @@ struct SelineWidgetProvider: TimelineProvider {
 
         entries.append(entry)
 
-        // Update timeline more frequently (every minute) to keep time display current
-        let timeline = Timeline(entries: entries, policy: .after(Date(timeIntervalSinceNow: 60)))
+        // Refresh every 15 minutes as a fallback — real-time updates are pushed via
+        // WidgetCenter.shared.reloadAllTimelines() from the main app on geofence events.
+        // The elapsed-time counter shows hours/minutes, so 15-min polling is sufficient.
+        let timeline = Timeline(entries: entries, policy: .after(Date(timeIntervalSinceNow: 15 * 60)))
         completion(timeline)
     }
 
