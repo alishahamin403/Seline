@@ -5,6 +5,10 @@ final class WidgetInvalidationCoordinator {
     static let shared = WidgetInvalidationCoordinator()
 
     private static let appGroupIdentifier = "group.seline"
+    // File-based storage for location data — bypasses cfprefsd which rejects cross-process
+    // UserDefaults reads for App Groups with the error:
+    // "Using kCFPreferencesAnyUser with a container is only allowed for System Containers"
+    static let locationFileName = "widget_location.json"
 
     @MainActor private var reloadTask: Task<Void, Never>?
 
@@ -27,26 +31,34 @@ final class WidgetInvalidationCoordinator {
         }
     }
 
-    // MARK: - Widget Location Data (written from service layer for background support)
+    // MARK: - Widget Location Data
 
-    /// Write current location to the shared App Group UserDefaults so the widget can read
-    /// it immediately after a timeline reload — even when the app is in the background.
-    /// synchronize() is required for cross-process UserDefaults (app → widget extension),
-    /// as each process has its own in-memory cache that isn't automatically flushed.
-    static func writeLocationData(placeName: String, entryTime: Date) {
-        guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
-        userDefaults.set(placeName, forKey: "widgetVisitedLocation")
-        userDefaults.set(entryTime, forKey: "widgetVisitEntryTime")
-        userDefaults.removeObject(forKey: "widgetElapsedTime")
-        userDefaults.synchronize()
+    /// Shared payload written to the App Group container as a JSON file.
+    /// Defined here and mirrored in SelineWidget.swift (separate target, can't share types).
+    struct LocationPayload: Codable {
+        let placeName: String
+        let entryTime: Date
     }
 
-    /// Remove location data from the shared App Group UserDefaults after a visit ends.
+    private static func locationFileURL() -> URL? {
+        FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)?
+            .appendingPathComponent(locationFileName)
+    }
+
+    /// Write current location to the App Group shared container as a JSON file.
+    /// Uses file I/O instead of UserDefaults to avoid the cfprefsd cross-process rejection.
+    static func writeLocationData(placeName: String, entryTime: Date) {
+        guard let url = locationFileURL() else { return }
+        let payload = LocationPayload(placeName: placeName, entryTime: entryTime)
+        if let data = try? JSONEncoder().encode(payload) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// Delete the location JSON file — widget will show "Not at saved location".
     static func clearLocationData() {
-        guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
-        userDefaults.removeObject(forKey: "widgetVisitedLocation")
-        userDefaults.removeObject(forKey: "widgetVisitEntryTime")
-        userDefaults.removeObject(forKey: "widgetElapsedTime")
-        userDefaults.synchronize()
+        guard let url = locationFileURL() else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 }

@@ -825,12 +825,7 @@ struct MainAppView: View {
     private func syncCurrentLocationWidgetIfNeeded(place: SavedPlace, visit: LocationVisitRecord) {
         guard syncedWidgetVisitId != visit.id else { return }
 
-        if let userDefaults = UserDefaults(suiteName: "group.seline") {
-            userDefaults.set(place.displayName, forKey: "widgetVisitedLocation")
-            userDefaults.set(visit.entryTime, forKey: "widgetVisitEntryTime")
-            userDefaults.removeObject(forKey: "widgetElapsedTime")
-            userDefaults.synchronize()
-        }
+        WidgetInvalidationCoordinator.writeLocationData(placeName: place.displayName, entryTime: visit.entryTime)
 
         syncedWidgetVisitId = visit.id
         WidgetInvalidationCoordinator.shared.requestReload(reason: "current_location_sync")
@@ -839,12 +834,7 @@ struct MainAppView: View {
     private func clearCurrentLocationWidgetIfNeeded() {
         guard syncedWidgetVisitId != nil else { return }
 
-        if let userDefaults = UserDefaults(suiteName: "group.seline") {
-            userDefaults.removeObject(forKey: "widgetVisitedLocation")
-            userDefaults.removeObject(forKey: "widgetVisitEntryTime")
-            userDefaults.removeObject(forKey: "widgetElapsedTime")
-            userDefaults.synchronize()
-        }
+        WidgetInvalidationCoordinator.clearLocationData()
 
         syncedWidgetVisitId = nil
         WidgetInvalidationCoordinator.shared.requestReload(reason: "current_location_clear")

@@ -28,14 +28,34 @@ struct SelineWidgetEntry: TimelineEntry {
     let elapsedTime: String?
 }
 
+// Mirror of WidgetInvalidationCoordinator.LocationPayload (separate target — can't share types).
+private struct WidgetLocationPayload: Codable {
+    let placeName: String
+    let entryTime: Date
+}
+
 struct SelineWidgetProvider: TimelineProvider {
     private let appGroupIdentifier = "group.seline"
+    private let locationFileName = "widget_location.json"
 
     private func sharedDefaults() -> UserDefaults? {
         guard FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) != nil else {
             return nil
         }
         return UserDefaults(suiteName: appGroupIdentifier)
+    }
+
+    /// Read location data from the JSON file in the App Group container.
+    /// Falls back to nil (shows "Not at saved location") if the file is absent or unreadable.
+    private func loadLocationData(now: Date) -> (placeName: String?, elapsedTime: String?) {
+        guard
+            let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier),
+            let data = try? Data(contentsOf: containerURL.appendingPathComponent(locationFileName)),
+            let payload = try? JSONDecoder().decode(WidgetLocationPayload.self, from: data)
+        else {
+            return (nil, nil)
+        }
+        return (payload.placeName, formatElapsedTime(since: payload.entryTime, now: now))
     }
 
     private func formatElapsedTime(since entryTime: Date, now: Date = Date()) -> String {
@@ -89,10 +109,9 @@ struct SelineWidgetProvider: TimelineProvider {
         let monthOverMonthPercentage = userDefaults?.double(forKey: "widgetMonthOverMonthPercentage") ?? 0.0
         let isSpendingIncreasing = userDefaults?.bool(forKey: "widgetIsSpendingIncreasing") ?? false
         let dailySpending = userDefaults?.double(forKey: "widgetDailySpending") ?? 0.0
-        let visitedLocation = userDefaults?.string(forKey: "widgetVisitedLocation")
-        let visitEntryTime = userDefaults?.object(forKey: "widgetVisitEntryTime") as? Date
-        let elapsedTime = visitEntryTime.map { formatElapsedTime(since: $0, now: currentDate) }
-            ?? userDefaults?.string(forKey: "widgetElapsedTime")
+
+        // Load location from JSON file — avoids cfprefsd cross-process UserDefaults rejection
+        let (visitedLocation, elapsedTime) = loadLocationData(now: currentDate)
 
         // Load today's tasks
         let todaysTasks = loadTodaysTasks()
