@@ -723,6 +723,7 @@ struct PlanView: View, Searchable {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(18)
             .searchResultsCardStyle(colorScheme: colorScheme, cornerRadius: 24)
             .padding(.horizontal, 8)
@@ -1041,6 +1042,7 @@ struct PlanView: View, Searchable {
                     highlightStrength: 0.42
                 )
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(.horizontal, 8)
             .padding(.top, 10)
             .padding(.bottom, 90)

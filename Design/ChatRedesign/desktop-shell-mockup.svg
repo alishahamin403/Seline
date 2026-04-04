@@ -1,0 +1,108 @@
+<svg width="1440" height="1120" viewBox="0 0 1440 1120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1440" y2="1120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8F4EE"/>
+      <stop offset="1" stop-color="#F4EEE6"/>
+    </linearGradient>
+    <linearGradient id="sidebar" x1="0" y1="0" x2="280" y2="1120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFDF9"/>
+      <stop offset="1" stop-color="#FBF5EE"/>
+    </linearGradient>
+    <linearGradient id="composer" x1="388" y1="968" x2="1052" y2="1036" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFDF9"/>
+      <stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <filter id="shadow" x="360" y="940" width="720" height="132" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#A98F77" flood-opacity="0.18"/>
+    </filter>
+    <filter id="cardShadow" x="534" y="432" width="420" height="208" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000000" flood-opacity="0.05"/>
+    </filter>
+  </defs>
+
+  <rect width="1440" height="1120" fill="url(#bg)"/>
+  <circle cx="1168" cy="132" r="220" fill="#F7C7A5" fill-opacity="0.18"/>
+  <circle cx="1226" cy="814" r="280" fill="#F8E8D8" fill-opacity="0.65"/>
+  <circle cx="168" cy="1040" r="220" fill="#EDE1D3" fill-opacity="0.85"/>
+
+  <rect x="0" y="0" width="284" height="1120" fill="url(#sidebar)"/>
+  <line x1="284.5" y1="0" x2="284.5" y2="1120" stroke="#E6DED3"/>
+
+  <text x="28" y="42" fill="#171412" font-size="17" font-family="Arial, sans-serif" font-weight="700">Seline</text>
+  <rect x="22" y="62" width="238" height="38" rx="12" fill="#F3ECE3" stroke="#E6DED3"/>
+  <text x="40" y="86" fill="#7A7067" font-size="14" font-family="Arial, sans-serif">Search chats</text>
+
+  <rect x="22" y="120" width="238" height="54" rx="16" fill="#FCE6D8" stroke="#F3C5A6"/>
+  <text x="42" y="145" fill="#171412" font-size="15" font-family="Arial, sans-serif" font-weight="700">How is my day looking tomorrow?</text>
+  <text x="42" y="164" fill="#6E655D" font-size="12" font-family="Arial, sans-serif">Calendar, visits, notes, inbox</text>
+
+  <text x="22" y="214" fill="#8A7F75" font-size="11" font-family="Arial, sans-serif" font-weight="700">TODAY</text>
+  <text x="22" y="244" fill="#171412" font-size="14" font-family="Arial, sans-serif">When is my flight?</text>
+  <text x="22" y="266" fill="#7A7067" font-size="12" font-family="Arial, sans-serif">Uses email and itinerary details</text>
+  <text x="22" y="310" fill="#171412" font-size="14" font-family="Arial, sans-serif">What did I spend on coffee this month?</text>
+  <text x="22" y="332" fill="#7A7067" font-size="12" font-family="Arial, sans-serif">Receipts and notes</text>
+  <text x="22" y="376" fill="#171412" font-size="14" font-family="Arial, sans-serif">Is Niku BBQ open and how far is it?</text>
+  <text x="22" y="398" fill="#7A7067" font-size="12" font-family="Arial, sans-serif">Maps and live hours</text>
+
+  <text x="316" y="42" fill="#171412" font-size="15" font-family="Arial, sans-serif">☰</text>
+  <text x="676" y="41" fill="#171412" font-size="18" font-family="Arial, sans-serif" font-weight="700">Seline</text>
+  <text x="642" y="60" fill="#8A7F75" font-size="12" font-family="Arial, sans-serif">Grounded in your life and the live world</text>
+  <rect x="1098" y="20" width="122" height="34" rx="17" fill="#FFFDF9" stroke="#E6DED3"/>
+  <text x="1134" y="41" fill="#171412" font-size="13" font-family="Arial, sans-serif" font-weight="700">New chat</text>
+
+  <text x="534" y="128" fill="#8A7F75" font-size="11" font-family="Arial, sans-serif" font-weight="700">CALENDAR  INBOX  VISITS</text>
+  <text x="534" y="164" fill="#171412" font-size="31" font-family="Arial, sans-serif" font-weight="700">Tomorrow is stacked but manageable.</text>
+  <text x="534" y="196" fill="#2D2723" font-size="16" font-family="Arial, sans-serif">You have a 9:00 AM meeting, a lunch at 12:30, and a flight check-in email that suggests</text>
+  <text x="534" y="220" fill="#2D2723" font-size="16" font-family="Arial, sans-serif">you should leave for the airport around 4:50 PM. You also have one open follow-up note</text>
+  <text x="534" y="244" fill="#2D2723" font-size="16" font-family="Arial, sans-serif">from your visit with Sarah, so the only real risk is a tight afternoon.</text>
+
+  <text x="534" y="292" fill="#8A7F75" font-size="11" font-family="Arial, sans-serif" font-weight="700">KEY CONTEXT</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="534" y="314" width="420" height="136" rx="24" fill="#FFFDF9"/>
+    <rect x="534.5" y="314.5" width="419" height="135" rx="23.5" stroke="#E6DED3"/>
+  </g>
+  <circle cx="572" cy="352" r="16" fill="#FCE6D8"/>
+  <text x="566" y="357" fill="#D3783B" font-size="14" font-family="Arial, sans-serif">✈</text>
+  <text x="598" y="344" fill="#8A7F75" font-size="11" font-family="Arial, sans-serif" font-weight="700">EMAIL</text>
+  <text x="908" y="344" fill="#6E655D" font-size="12" font-family="Arial, sans-serif">2:14 PM</text>
+  <text x="598" y="372" fill="#171412" font-size="15" font-family="Arial, sans-serif" font-weight="700">Air Canada check-in reminder</text>
+  <text x="598" y="397" fill="#2D2723" font-size="14" font-family="Arial, sans-serif">Toronto to San Francisco departs at 7:35 PM tomorrow.</text>
+  <rect x="598" y="414" width="74" height="24" rx="12" fill="#F4EEE6"/>
+  <text x="616" y="430" fill="#6E655D" font-size="11" font-family="Arial, sans-serif">Itinerary</text>
+  <rect x="680" y="414" width="86" height="24" rx="12" fill="#F4EEE6"/>
+  <text x="700" y="430" fill="#6E655D" font-size="11" font-family="Arial, sans-serif">Exact time</text>
+
+  <rect x="534" y="474" width="420" height="116" rx="24" fill="#FFFDF9" stroke="#E6DED3"/>
+  <circle cx="572" cy="512" r="16" fill="#E6EEF7"/>
+  <text x="566" y="517" fill="#5E7A99" font-size="14" font-family="Arial, sans-serif">◴</text>
+  <text x="598" y="504" fill="#8A7F75" font-size="11" font-family="Arial, sans-serif" font-weight="700">CALENDAR</text>
+  <text x="880" y="504" fill="#6E655D" font-size="12" font-family="Arial, sans-serif">9:00 AM</text>
+  <text x="598" y="532" fill="#171412" font-size="15" font-family="Arial, sans-serif" font-weight="700">Team sync</text>
+  <text x="598" y="556" fill="#2D2723" font-size="14" font-family="Arial, sans-serif">30 minutes, downtown. Enough room before lunch if you leave on time.</text>
+
+  <text x="534" y="644" fill="#8A7F75" font-size="11" font-family="Arial, sans-serif" font-weight="700">YOU COULD ALSO ASK</text>
+  <rect x="534" y="658" width="182" height="34" rx="17" fill="#FFF7F1" stroke="#EAD7C7"/>
+  <text x="554" y="680" fill="#171412" font-size="13" font-family="Arial, sans-serif">What should I leave for later?</text>
+  <rect x="726" y="658" width="168" height="34" rx="17" fill="#FFF7F1" stroke="#EAD7C7"/>
+  <text x="746" y="680" fill="#171412" font-size="13" font-family="Arial, sans-serif">How far is the airport?</text>
+
+  <text x="534" y="762" fill="#6E655D" font-size="13" font-family="Arial, sans-serif">You</text>
+  <rect x="760" y="734" width="262" height="66" rx="26" fill="#F1EBE3" stroke="#E4D9CB"/>
+  <text x="784" y="763" fill="#171412" font-size="15" font-family="Arial, sans-serif">how is my day looking tomorrow?</text>
+
+  <g filter="url(#shadow)">
+    <rect x="388" y="964" width="664" height="72" rx="36" fill="url(#composer)"/>
+    <rect x="388.5" y="964.5" width="663" height="71" rx="35.5" stroke="#E6DED3"/>
+  </g>
+  <circle cx="434" cy="1000" r="18" fill="#F3ECE3"/>
+  <text x="428" y="1005" fill="#6E655D" font-size="15" font-family="Arial, sans-serif">◎</text>
+  <text x="472" y="1006" fill="#7A7067" font-size="15" font-family="Arial, sans-serif">Ask anything about your life, plans, places, or inbox</text>
+  <circle cx="1008" cy="1000" r="22" fill="#F4A16C"/>
+  <text x="1001" y="1006" fill="white" font-size="15" font-family="Arial, sans-serif">↑</text>
+
+  <rect x="534" y="902" width="134" height="32" rx="16" fill="#FFF7F1" stroke="#EAD7C7"/>
+  <text x="556" y="923" fill="#171412" font-size="13" font-family="Arial, sans-serif">When is my flight?</text>
+  <rect x="680" y="902" width="162" height="32" rx="16" fill="#FFF7F1" stroke="#EAD7C7"/>
+  <text x="702" y="923" fill="#171412" font-size="13" font-family="Arial, sans-serif">Anything urgent in email?</text>
+</svg>

@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seline Chat — Redesign Mockup</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0d0d0d;
+    --surface: #161616;
+    --surface-2: #1c1c1c;
+    --surface-3: #222222;
+    --border: rgba(255,255,255,0.07);
+    --border-strong: rgba(255,255,255,0.11);
+    --text-primary: rgba(255,255,255,0.92);
+    --text-secondary: rgba(255,255,255,0.48);
+    --text-muted: rgba(255,255,255,0.28);
+    --accent: #E07850;
+    --accent-soft: rgba(224,120,80,0.12);
+    --accent-glow: rgba(224,120,80,0.06);
+    --sidebar-w: 260px;
+    --input-radius: 16px;
+    --font: 'Inter', -apple-system, sans-serif;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text-primary);
+    height: 100vh;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ─── SIDEBAR ─── */
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .sidebar-header {
+    padding: 16px 12px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 8px;
+  }
+
+  .logo-dot {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: var(--accent);
+    display: flex; align-items:center; justify-content:center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.3px;
+  }
+
+  .logo-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.2px;
+  }
+
+  .sidebar-actions {
+    display: flex;
+    gap: 4px;
+  }
+
+  .icon-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex; align-items:center; justify-content:center;
+    font-size: 14px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .icon-btn:hover { background: rgba(255,255,255,0.06); color: var(--text-primary); }
+
+  .sidebar-search {
+    margin: 0 12px 14px;
+    position: relative;
+  }
+  .sidebar-search input {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 7px 10px 7px 30px;
+    font-family: var(--font);
+    font-size: 12.5px;
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .sidebar-search input::placeholder { color: var(--text-muted); }
+  .sidebar-search input:focus { border-color: var(--border-strong); }
+  .sidebar-search svg {
+    position: absolute;
+    left: 9px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+  }
+
+  .new-chat-btn {
+    margin: 0 12px 16px;
+    width: calc(100% - 24px);
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 9px 14px;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex; align-items:center; gap: 7px;
+    transition: opacity 0.15s;
+    letter-spacing: -0.1px;
+  }
+  .new-chat-btn:hover { opacity: 0.88; }
+  .new-chat-btn svg { opacity: 0.9; }
+
+  .sidebar-section {
+    padding: 0 12px;
+    margin-bottom: 4px;
+  }
+  .sidebar-section-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 6px 4px 4px;
+  }
+
+  .thread {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.12s;
+    margin-bottom: 1px;
+  }
+  .thread:hover { background: rgba(255,255,255,0.04); }
+  .thread.active { background: rgba(255,255,255,0.07); }
+
+  .thread-icon {
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+  }
+
+  .thread-content { flex: 1; min-width: 0; }
+  .thread-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+  }
+  .thread.active .thread-title { color: var(--text-primary); }
+  .thread-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .user-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 8px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .user-row:hover { background: rgba(255,255,255,0.04); }
+  .user-avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex; align-items:center; justify-content:center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .user-info { flex: 1; min-width: 0; }
+  .user-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+  .user-plan { font-size: 11px; color: var(--text-muted); }
+
+  /* ─── MAIN ─── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--bg);
+  }
+
+  .topbar {
+    height: 52px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .topbar-model {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    transition: border-color 0.15s;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .topbar-model:hover { border-color: var(--border-strong); color: var(--text-primary); }
+  .model-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  .topbar-right { display:flex; gap: 8px; align-items:center; }
+
+  .topbar-btn {
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .topbar-btn:hover { border-color: var(--border-strong); color: var(--text-primary); }
+
+  /* ─── CHAT AREA ─── */
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 32px 0 24px;
+    scroll-behavior: smooth;
+  }
+  .chat-area::-webkit-scrollbar { width: 4px; }
+  .chat-area::-webkit-scrollbar-track { background: transparent; }
+  .chat-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+  .messages {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  /* ─── USER BUBBLE ─── */
+  .msg-user {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .user-bubble {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 18px 18px 4px 18px;
+    padding: 12px 16px;
+    max-width: 80%;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--text-primary);
+    font-weight: 400;
+  }
+
+  /* ─── ASSISTANT TURN ─── */
+  .msg-assistant {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .assistant-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: -4px;
+  }
+  .assistant-avatar {
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+  }
+  .assistant-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: -0.1px;
+  }
+
+  .assistant-text {
+    font-size: 14.5px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    font-weight: 400;
+    padding-left: 32px;
+  }
+  .assistant-text strong { font-weight: 600; }
+  .assistant-text p + p { margin-top: 10px; }
+
+  /* ─── SOURCES BLOCK ─── */
+  .sources-block {
+    padding-left: 32px;
+  }
+  .sources-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 8px;
+  }
+  .sources-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* Source chip — minimal pill */
+  .source-chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    text-decoration: none;
+  }
+  .source-chip:hover { border-color: var(--border-strong); background: var(--surface-3); }
+  .source-chip-icon {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    background: var(--accent-soft);
+    display: flex; align-items:center; justify-content:center;
+    flex-shrink: 0;
+  }
+  .source-chip-icon svg { color: var(--accent); }
+  .source-chip-text {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .source-chip-num {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--surface-3);
+    width: 16px; height: 16px;
+    border-radius: 4px;
+    display: flex; align-items:center; justify-content:center;
+    flex-shrink: 0;
+  }
+
+  /* ─── EVIDENCE CARDS ─── */
+  .evidence-block {
+    padding-left: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .evidence-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    transition: border-color 0.15s;
+    cursor: pointer;
+  }
+  .evidence-card:hover { border-color: var(--border-strong); }
+
+  .ev-icon-wrap {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    display: flex; align-items:center; justify-content:center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .ev-icon-wrap svg { color: var(--accent); }
+
+  .ev-body { flex: 1; min-width: 0; }
+  .ev-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.3;
+    margin-bottom: 3px;
+  }
+  .ev-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+  }
+  .ev-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .ev-tag {
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 2px 7px;
+  }
+  .ev-tag.accent { color: var(--accent); background: var(--accent-soft); border-color: rgba(224,120,80,0.2); }
+  .ev-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+
+  .ev-arrow {
+    color: var(--text-muted);
+    margin-top: 6px;
+    flex-shrink: 0;
+  }
+
+  /* ─── PLACES CARDS ─── */
+  .places-grid {
+    padding-left: 32px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .place-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .place-card:hover { border-color: var(--border-strong); }
+
+  .place-icon {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: rgba(220,80,80,0.1);
+    display: flex; align-items:center; justify-content:center;
+    flex-shrink: 0;
+    font-size: 14px;
+  }
+  .place-body { flex: 1; min-width: 0; }
+  .place-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .place-addr {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .place-rating {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .star { color: #E0A830; }
+
+  /* ─── THINKING ROW ─── */
+  .thinking-row {
+    padding-left: 32px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .thinking-dots {
+    display: flex; gap: 4px;
+  }
+  .thinking-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+  .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.3; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1); }
+  }
+  .thinking-text {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  /* ─── FOLLOW-UPS ─── */
+  .followups {
+    padding-left: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .followup-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-family: var(--font);
+    font-weight: 400;
+  }
+  .followup-chip:hover {
+    background: var(--surface);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+  .followup-arrow {
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  /* ─── INPUT BAR ─── */
+  .input-wrap {
+    padding: 12px 20px 20px;
+    flex-shrink: 0;
+  }
+  .input-container {
+    max-width: 720px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--input-radius);
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.15s;
+  }
+  .input-container:focus-within {
+    border-color: var(--border-strong);
+  }
+
+  .input-row {
+    display: flex;
+    align-items: flex-end;
+    padding: 12px 12px 10px 16px;
+    gap: 10px;
+  }
+
+  textarea {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-family: var(--font);
+    font-size: 14.5px;
+    color: var(--text-primary);
+    resize: none;
+    line-height: 1.55;
+    min-height: 24px;
+    max-height: 160px;
+    overflow-y: auto;
+    padding: 0;
+  }
+  textarea::placeholder { color: var(--text-muted); }
+
+  .input-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px 10px 14px;
+    border-top: 1px solid var(--border);
+  }
+  .input-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 11.5px;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .input-action-btn:hover { border-color: var(--border-strong); color: var(--text-secondary); background: var(--surface-2); }
+
+  .send-btn {
+    width: 32px; height: 32px;
+    border-radius: 9px;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    display: flex; align-items:center; justify-content:center;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+    margin-left: auto;
+  }
+  .send-btn:hover { opacity: 0.85; }
+  .send-btn.disabled { background: var(--surface-3); cursor: default; opacity: 1; }
+  .send-btn.disabled svg { color: var(--text-muted); }
+
+  /* ─── EMPTY STATE ─── */
+  .empty-state {
+    max-width: 580px;
+    margin: 48px auto 0;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 28px;
+  }
+  .empty-greeting {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .empty-icon {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: var(--accent);
+    display: flex; align-items:center; justify-content:center;
+    font-size: 20px; font-weight: 700; color: #fff;
+    margin-bottom: 4px;
+  }
+  .empty-title {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.4px;
+    line-height: 1.2;
+  }
+  .empty-sub {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    max-width: 340px;
+  }
+
+  .suggestions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+  .suggestion-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .suggestion-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
+  .suggestion-icon { font-size: 16px; margin-bottom: 2px; }
+  .suggestion-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.3;
+  }
+  .suggestion-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* ─── TABS (views toggle) ─── */
+  .view-tabs {
+    display: none; /* hidden in mockup but shown in sidebar footer */
+  }
+
+  /* ─── ANNOTATION: design notes ─── */
+  .design-notes {
+    position: fixed;
+    right: 0; top: 0; bottom: 0;
+    width: 280px;
+    background: #0a0a0a;
+    border-left: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .notes-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .note-section { display: flex; flex-direction: column; gap: 10px; }
+  .note-heading {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .note-item {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .note-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-top: 5px;
+    flex-shrink: 0;
+  }
+  .note-text {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+  .note-text strong { color: var(--text-primary); font-weight: 600; }
+  .color-swatch {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .swatch-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .swatch {
+    width: 16px; height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .swatch-name { font-size: 11px; color: var(--text-secondary); }
+  .swatch-val { font-size: 10px; color: var(--text-muted); margin-left: auto; }
+</style>
+</head>
+<body>
+
+<!-- ─── SIDEBAR ─── -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">
+      <div class="logo-dot">S</div>
+      <span class="logo-name">Seline</span>
+    </div>
+    <div class="sidebar-actions">
+      <button class="icon-btn" title="Search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      </button>
+      <button class="icon-btn" title="New chat">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="sidebar-search">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <input type="text" placeholder="Search chats…">
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Today</div>
+    <div class="thread active">
+      <svg class="thread-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <div class="thread-content">
+        <div class="thread-title">Coffee shops near me today</div>
+        <div class="thread-meta">Just now</div>
+      </div>
+    </div>
+    <div class="thread">
+      <svg class="thread-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <div class="thread-content">
+        <div class="thread-title">Summary of my morning</div>
+        <div class="thread-meta">2h ago</div>
+      </div>
+    </div>
+    <div class="thread">
+      <svg class="thread-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <div class="thread-content">
+        <div class="thread-title">What did I eat this week?</div>
+        <div class="thread-meta">5h ago</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Yesterday</div>
+    <div class="thread">
+      <svg class="thread-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <div class="thread-content">
+        <div class="thread-title">My most visited places</div>
+        <div class="thread-meta">Mar 30</div>
+      </div>
+    </div>
+    <div class="thread">
+      <svg class="thread-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <div class="thread-content">
+        <div class="thread-title">Steps and activity this week</div>
+        <div class="thread-meta">Mar 30</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">This Week</div>
+    <div class="thread">
+      <svg class="thread-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <div class="thread-content">
+        <div class="thread-title">Favourite restaurants March</div>
+        <div class="thread-meta">Mar 28</div>
+      </div>
+    </div>
+    <div class="thread">
+      <svg class="thread-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <div class="thread-content">
+        <div class="thread-title">Sleep patterns last 7 days</div>
+        <div class="thread-meta">Mar 26</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="user-row">
+      <div class="user-avatar">A</div>
+      <div class="user-info">
+        <div class="user-name">Ali Shahamin</div>
+        <div class="user-plan">Seline Pro</div>
+      </div>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted)"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </div>
+  </div>
+</aside>
+
+<!-- ─── MAIN ─── -->
+<main class="main">
+  <div class="topbar">
+    <button class="topbar-model">
+      <div class="model-dot"></div>
+      Gemini Flash Lite
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+    <div class="topbar-right">
+      <button class="topbar-btn">Share</button>
+      <button class="icon-btn" title="More">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="chat-area" id="chatArea">
+    <div class="messages">
+
+      <!-- USER MESSAGE -->
+      <div class="msg-user">
+        <div class="user-bubble">
+          Find me good coffee shops near where I was this morning
+        </div>
+      </div>
+
+      <!-- ASSISTANT MESSAGE -->
+      <div class="msg-assistant">
+        <div class="assistant-header">
+          <div class="assistant-avatar">S</div>
+          <span class="assistant-name">Seline</span>
+        </div>
+
+        <!-- Sources row -->
+        <div class="sources-block">
+          <div class="sources-label">Sources</div>
+          <div class="sources-row">
+            <a class="source-chip" href="#">
+              <div class="source-chip-icon">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              </div>
+              <span class="source-chip-text">Location history</span>
+              <span class="source-chip-num">3</span>
+            </a>
+            <a class="source-chip" href="#">
+              <div class="source-chip-icon">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              </div>
+              <span class="source-chip-text">This morning</span>
+              <span class="source-chip-num">1</span>
+            </a>
+            <a class="source-chip" href="#">
+              <div class="source-chip-icon">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              </div>
+              <span class="source-chip-text">Google Maps</span>
+              <span class="source-chip-num">6</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Text -->
+        <div class="assistant-text">
+          Based on your location history, you were around <strong>Fitzroy, Melbourne</strong> between 8:30–10:15am. Here are some well-rated coffee spots nearby that fit your usual morning radius.
+        </div>
+
+        <!-- Places grid -->
+        <div class="places-grid">
+          <div class="place-card">
+            <div class="place-icon">☕</div>
+            <div class="place-body">
+              <div class="place-name">Patricia Coffee</div>
+              <div class="place-addr">493 Little Bourke St</div>
+              <div class="place-rating"><span class="star">★</span> 4.8 · 320m away</div>
+            </div>
+          </div>
+          <div class="place-card">
+            <div class="place-icon">☕</div>
+            <div class="place-body">
+              <div class="place-name">ST. ALi</div>
+              <div class="place-addr">12-18 Yarra Pl, S. Melbourne</div>
+              <div class="place-rating"><span class="star">★</span> 4.6 · 1.2km away</div>
+            </div>
+          </div>
+          <div class="place-card">
+            <div class="place-icon">☕</div>
+            <div class="place-body">
+              <div class="place-name">Ona Coffee</div>
+              <div class="place-addr">Level 1, 247 Flinders Ln</div>
+              <div class="place-rating"><span class="star">★</span> 4.7 · 650m away</div>
+            </div>
+          </div>
+          <div class="place-card">
+            <div class="place-icon">☕</div>
+            <div class="place-body">
+              <div class="place-name">Dukes Coffee</div>
+              <div class="place-addr">247 Flinders Lane</div>
+              <div class="place-rating"><span class="star">★</span> 4.5 · 800m away</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Follow-ups -->
+        <div class="followups">
+          <div class="followup-chip">
+            Get directions to Patricia Coffee
+            <svg class="followup-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg>
+          </div>
+          <div class="followup-chip">
+            Show me where I was this morning on a map
+            <svg class="followup-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg>
+          </div>
+          <div class="followup-chip">
+            What coffee places have I been to before?
+            <svg class="followup-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- USER MESSAGE 2 -->
+      <div class="msg-user">
+        <div class="user-bubble">
+          What were my most important moments from today?
+        </div>
+      </div>
+
+      <!-- ASSISTANT MESSAGE 2 — evidence cards -->
+      <div class="msg-assistant">
+        <div class="assistant-header">
+          <div class="assistant-avatar">S</div>
+          <span class="assistant-name">Seline</span>
+        </div>
+
+        <div class="assistant-text">
+          Here's what stood out from your day — pulled from your activity, location, and health data.
+        </div>
+
+        <!-- Evidence cards -->
+        <div class="evidence-block">
+          <div class="evidence-card">
+            <div class="ev-icon-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            </div>
+            <div class="ev-body">
+              <div class="ev-title">Visited QV Market</div>
+              <div class="ev-sub">Spent 48 minutes at Queen Victoria Market, your first visit in 3 weeks.</div>
+              <div class="ev-meta">
+                <span class="ev-tag accent">Location</span>
+                <span class="ev-tag">48 min</span>
+                <span class="ev-time">9:14am</span>
+              </div>
+            </div>
+            <div class="ev-arrow">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            </div>
+          </div>
+
+          <div class="evidence-card">
+            <div class="ev-icon-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <div class="ev-body">
+              <div class="ev-title">Personal best steps</div>
+              <div class="ev-sub">You hit 14,832 steps — your best day this month by a big margin.</div>
+              <div class="ev-meta">
+                <span class="ev-tag accent">Health</span>
+                <span class="ev-tag">14,832 steps</span>
+                <span class="ev-time">All day</span>
+              </div>
+            </div>
+            <div class="ev-arrow">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            </div>
+          </div>
+
+          <div class="evidence-card">
+            <div class="ev-icon-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            </div>
+            <div class="ev-body">
+              <div class="ev-title">Lunch with James</div>
+              <div class="ev-sub">2-hour calendar event at Chin Chin — flagged as a recurring monthly catch-up.</div>
+              <div class="ev-meta">
+                <span class="ev-tag accent">Calendar</span>
+                <span class="ev-tag">2hr</span>
+                <span class="ev-time">12:30pm</span>
+              </div>
+            </div>
+            <div class="ev-arrow">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Follow-ups -->
+        <div class="followups">
+          <div class="followup-chip">
+            Compare today's steps to last week
+            <svg class="followup-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg>
+          </div>
+          <div class="followup-chip">
+            How often do I visit QV Market?
+            <svg class="followup-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── INPUT BAR ─── -->
+  <div class="input-wrap">
+    <div class="input-container">
+      <div class="input-row">
+        <textarea rows="1" placeholder="Ask anything about your day…" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+        <button class="send-btn disabled">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+        </button>
+      </div>
+      <div class="input-actions">
+        <button class="input-action-btn">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          Attachments
+        </button>
+        <button class="input-action-btn">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          Voice
+        </button>
+        <button class="input-action-btn">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Search
+        </button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Design notes panel -->
+<aside class="design-notes">
+  <div class="notes-title">Design Notes</div>
+
+  <div class="note-section">
+    <div class="note-heading">Typography</div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text"><strong>Inter</strong> font — same weight feel as Geist, maps 1:1 to existing codebase fonts</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">Body text: <strong>14.5px / 1.7lh</strong> — roomier than current 15pt tight lines</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">Labels: <strong>10.5–11px uppercase 0.5–0.6px tracking</strong> — consistent hierarchy</div></div>
+  </div>
+
+  <div class="note-section">
+    <div class="note-heading">Sidebar</div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text"><strong>260px fixed width</strong> (vs current min 336px) — leaner, less intrusive</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">Persistent sidebar (not overlay) — ChatGPT pattern, always visible</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text"><strong>Thread rows</strong> — icon + title + meta, no preview text — cleaner scan</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">User profile pinned to bottom footer</div></div>
+  </div>
+
+  <div class="note-section">
+    <div class="note-heading">Source Chips</div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text"><strong>Minimal pill</strong> with icon + label + count badge — replaces current large bordered chips</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">No heavy borders — subtle surface-2 bg, thin border only</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">Icon uses <strong>accent-soft background</strong> for visual anchor</div></div>
+  </div>
+
+  <div class="note-section">
+    <div class="note-heading">Evidence Cards</div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text"><strong>12px radius</strong> (vs current 18px) — subtler, less bubbly</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">Single-row metadata: accent tag + neutral tag + right-aligned time</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">Small accent icon box (32px) — not large circles</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">Chevron right arrow affordance on each card</div></div>
+  </div>
+
+  <div class="note-section">
+    <div class="note-heading">Input Bar</div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text"><strong>Two-row layout</strong>: textarea on top, action buttons below — like ChatGPT</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">16px radius container, subtle border only</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">Send button: <strong>32px accent square</strong> (not circle)</div></div>
+    <div class="note-item"><div class="note-dot"></div><div class="note-text">Bottom toolbar: Attachments · Voice · Search — all as ghost pills</div></div>
+  </div>
+
+  <div class="note-section">
+    <div class="note-heading">Colors</div>
+    <div class="color-swatch">
+      <div class="swatch-row"><div class="swatch" style="background:#0d0d0d;border:1px solid #333"></div><span class="swatch-name">Background</span><span class="swatch-val">#0d0d0d</span></div>
+      <div class="swatch-row"><div class="swatch" style="background:#161616;border:1px solid #333"></div><span class="swatch-name">Surface</span><span class="swatch-val">#161616</span></div>
+      <div class="swatch-row"><div class="swatch" style="background:#222222;border:1px solid #333"></div><span class="swatch-name">Surface-3</span><span class="swatch-val">#222222</span></div>
+      <div class="swatch-row"><div class="swatch" style="background:#E07850"></div><span class="swatch-name">Accent</span><span class="swatch-val">#E07850</span></div>
+      <div class="swatch-row"><div class="swatch" style="background:rgba(255,255,255,0.07);border:1px solid #333"></div><span class="swatch-name">Border</span><span class="swatch-val">white 7%</span></div>
+    </div>
+  </div>
+</aside>
+
+<script>
+  // Interactive send button
+  const textarea = document.querySelector('textarea');
+  const sendBtn = document.querySelector('.send-btn');
+  textarea.addEventListener('input', () => {
+    if (textarea.value.trim()) {
+      sendBtn.classList.remove('disabled');
+    } else {
+      sendBtn.classList.add('disabled');
+    }
+  });
+</script>
+</body>
+</html>

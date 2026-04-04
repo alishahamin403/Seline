@@ -1,0 +1,72 @@
+<svg width="1440" height="980" viewBox="0 0 1440 980" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="980" fill="#F6F2EA"/>
+  <text x="74" y="86" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="38" font-weight="700">Evidence Card System</text>
+  <text x="74" y="120" fill="#6E675F" font-family="Arial, Helvetica, sans-serif" font-size="18">ChatGPT-like restraint, but with higher-quality structured cards for personal data.</text>
+
+  <rect x="74" y="170" width="412" height="148" rx="24" fill="#FFFDFC" stroke="#E7E0D4"/>
+  <circle cx="118" cy="216" r="16" fill="#E8E0D4"/>
+  <text x="109" y="220" fill="#896D4F" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700">EM</text>
+  <text x="148" y="201" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" letter-spacing="1.2">EMAIL</text>
+  <text x="392" y="201" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="12">4:18 PM</text>
+  <text x="148" y="231" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Check in for your flight</text>
+  <text x="148" y="260" fill="#3E3933" font-family="Arial, Helvetica, sans-serif" font-size="15">Delta Air Lines</text>
+  <text x="148" y="287" fill="#6B645B" font-family="Arial, Helvetica, sans-serif" font-size="14">Boarding and check-in are now open for tomorrow’s itinerary.</text>
+
+  <rect x="514" y="170" width="412" height="148" rx="24" fill="#FFFDFC" stroke="#E7E0D4"/>
+  <circle cx="558" cy="216" r="16" fill="#DCE7DB"/>
+  <text x="549" y="220" fill="#557051" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700">EV</text>
+  <text x="588" y="201" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" letter-spacing="1.2">EVENT</text>
+  <text x="828" y="201" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="12">9:00 AM</text>
+  <text x="588" y="231" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Client Strategy Call</text>
+  <text x="588" y="260" fill="#3E3933" font-family="Arial, Helvetica, sans-serif" font-size="15">Zoom meeting</text>
+  <text x="588" y="287" fill="#6B645B" font-family="Arial, Helvetica, sans-serif" font-size="14">45 minutes · still active · tied to tomorrow’s schedule</text>
+
+  <rect x="954" y="170" width="412" height="148" rx="24" fill="#FFFDFC" stroke="#E7E0D4"/>
+  <circle cx="998" cy="216" r="16" fill="#DCE6EA"/>
+  <text x="989" y="220" fill="#54717C" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700">RC</text>
+  <text x="1028" y="201" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" letter-spacing="1.2">RECEIPT</text>
+  <text x="1280" y="201" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="12">$32.50</text>
+  <text x="1028" y="231" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Airport Parking Reservation</text>
+  <text x="1028" y="260" fill="#3E3933" font-family="Arial, Helvetica, sans-serif" font-size="15">Travel</text>
+  <text x="1028" y="287" fill="#6B645B" font-family="Arial, Helvetica, sans-serif" font-size="14">Receipt card emphasizes amount and category without overpowering the answer.</text>
+
+  <rect x="74" y="362" width="412" height="152" rx="24" fill="#FFFDFC" stroke="#E7E0D4"/>
+  <circle cx="118" cy="408" r="16" fill="#E6E1F0"/>
+  <text x="109" y="412" fill="#6B5B95" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700">VS</text>
+  <text x="148" y="393" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" letter-spacing="1.2">VISIT</text>
+  <text x="388" y="393" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="12">52 min</text>
+  <text x="148" y="423" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Yorkville Cafe</text>
+  <text x="148" y="452" fill="#3E3933" font-family="Arial, Helvetica, sans-serif" font-size="15">With Sarah and Leila</text>
+  <text x="148" y="479" fill="#6B645B" font-family="Arial, Helvetica, sans-serif" font-size="14">Visit cards foreground people connections and elapsed time.</text>
+
+  <rect x="514" y="362" width="412" height="152" rx="24" fill="#FFFDFC" stroke="#E7E0D4"/>
+  <circle cx="558" cy="408" r="16" fill="#E0E9E2"/>
+  <text x="550" y="412" fill="#557051" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700">PR</text>
+  <text x="588" y="393" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" letter-spacing="1.2">PERSON</text>
+  <text x="588" y="423" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Sarah Ahmed</text>
+  <text x="588" y="452" fill="#3E3933" font-family="Arial, Helvetica, sans-serif" font-size="15">Close Friend</text>
+  <text x="588" y="479" fill="#6B645B" font-family="Arial, Helvetica, sans-serif" font-size="14">Person cards are compact and relational, not profile-heavy.</text>
+
+  <rect x="954" y="362" width="412" height="152" rx="24" fill="#FFFDFC" stroke="#E7E0D4"/>
+  <circle cx="998" cy="408" r="16" fill="#E9E4D6"/>
+  <text x="989" y="412" fill="#8B6F4A" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700">PL</text>
+  <text x="1028" y="393" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" letter-spacing="1.2">PLACE</text>
+  <rect x="1248" y="389" width="82" height="24" rx="12" fill="#E9F0E8"/>
+  <text x="1271" y="405" fill="#557051" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700">Open now</text>
+  <text x="1028" y="423" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Niku BBQ</text>
+  <text x="1028" y="452" fill="#3E3933" font-family="Arial, Helvetica, sans-serif" font-size="15">Japanese BBQ · 4.7 ★</text>
+  <text x="1028" y="479" fill="#6B645B" font-family="Arial, Helvetica, sans-serif" font-size="14">Place cards get tighter browse-like utility rows.</text>
+
+  <text x="74" y="590" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" letter-spacing="1.6">SOURCE LINKS</text>
+  <rect x="74" y="612" width="1292" height="66" rx="18" fill="#FBF8F2" stroke="#E7E0D4"/>
+  <text x="104" y="652" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">Delta flight check-in details</text>
+  <text x="1245" y="652" fill="#7C746A" font-family="Arial, Helvetica, sans-serif" font-size="14">delta.com</text>
+
+  <text x="74" y="748" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" letter-spacing="1.6">FOLLOW-UP CHIPS</text>
+  <rect x="74" y="770" width="274" height="42" rx="21" fill="#F1ECE3" stroke="#E7E0D4"/>
+  <text x="98" y="796" fill="#2C2722" font-family="Arial, Helvetica, sans-serif" font-size="14">What else happened that day?</text>
+  <rect x="362" y="770" width="228" height="42" rx="21" fill="#F1ECE3" stroke="#E7E0D4"/>
+  <text x="386" y="796" fill="#2C2722" font-family="Arial, Helvetica, sans-serif" font-size="14">Show me the exact email</text>
+  <rect x="604" y="770" width="200" height="42" rx="21" fill="#F1ECE3" stroke="#E7E0D4"/>
+  <text x="628" y="796" fill="#2C2722" font-family="Arial, Helvetica, sans-serif" font-size="14">How far is it right now?</text>
+</svg>

@@ -213,6 +213,7 @@ struct SettingsView: View {
 
                     Spacer(minLength: 50)
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
                 .padding(.bottom, 50)

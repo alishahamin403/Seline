@@ -645,6 +645,8 @@ struct SpendingAndETAWidget: View {
         Text("ADD RECEIPT")
             .font(FontManager.geist(size: 13, weight: .semibold))
             .foregroundColor(.black)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .padding(.horizontal, 18)
             .frame(height: 36)
             .background(

@@ -852,10 +852,11 @@ struct NotesView: View, Searchable {
                         Spacer()
                             .frame(height: 80)
                     }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(.horizontal, 8)
                     .padding(.top, 8)
                 }
-                .scrollDismissesKeyboard(.interactively)
+                .selinePrimaryPageScroll()
             }
         case .receipts:
             receiptsTabContent

@@ -1,0 +1,51 @@
+<svg width="900" height="1600" viewBox="0 0 900 1600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="1600" fill="#EEE8DE"/>
+  <rect x="170" y="28" width="560" height="1544" rx="54" fill="#F9F5EE" stroke="#D9D2C6" stroke-width="6"/>
+  <rect x="394" y="54" width="112" height="18" rx="9" fill="#D9D2C6"/>
+
+  <text x="250" y="132" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700">Chat</text>
+  <circle cx="218" cy="124" r="18" fill="#171717"/>
+  <circle cx="218" cy="124" r="7" fill="#8FA58C"/>
+  <circle cx="664" cy="124" r="20" fill="#EFE9DE" stroke="#E7E0D4"/>
+  <path d="M657 124H671" stroke="#171717" stroke-width="2" stroke-linecap="round"/>
+  <path d="M664 117V131" stroke="#171717" stroke-width="2" stroke-linecap="round"/>
+
+  <text x="232" y="198" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700">Seline</text>
+  <circle cx="206" cy="192" r="14" fill="#171717"/>
+  <circle cx="206" cy="192" r="5" fill="#8FA58C"/>
+  <rect x="232" y="210" width="56" height="22" rx="11" fill="#ECE6DA"/>
+  <text x="249" y="225" fill="#6B645B" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700">Emails</text>
+  <rect x="294" y="210" width="54" height="22" rx="11" fill="#ECE6DA"/>
+  <text x="311" y="225" fill="#6B645B" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700">Events</text>
+
+  <text x="192" y="274" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700">Your flight leaves tomorrow evening.</text>
+  <text x="192" y="324" fill="#312C27" font-family="Arial, Helvetica, sans-serif" font-size="20">The latest travel email says check-in is open now, and the itinerary points to a 7:45 PM departure from Pearson.</text>
+
+  <rect x="192" y="408" width="516" height="128" rx="24" fill="#FFFDFC" stroke="#E7E0D4"/>
+  <circle cx="232" cy="454" r="16" fill="#E8E0D4"/>
+  <text x="223" y="458" fill="#896D4F" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700">EM</text>
+  <text x="262" y="439" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" letter-spacing="1.2">EMAIL</text>
+  <text x="614" y="439" fill="#8A8176" font-family="Arial, Helvetica, sans-serif" font-size="12">Today</text>
+  <text x="262" y="468" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">Check in for your flight to Atlanta</text>
+  <text x="262" y="497" fill="#4F4841" font-family="Arial, Helvetica, sans-serif" font-size="14">Delta Air Lines · boarding info inside</text>
+
+  <rect x="192" y="552" width="250" height="42" rx="21" fill="#F1ECE3" stroke="#E7E0D4"/>
+  <text x="216" y="578" fill="#2C2722" font-family="Arial, Helvetica, sans-serif" font-size="14">Show me the exact email</text>
+  <rect x="454" y="552" width="208" height="42" rx="21" fill="#F1ECE3" stroke="#E7E0D4"/>
+  <text x="478" y="578" fill="#2C2722" font-family="Arial, Helvetica, sans-serif" font-size="14">How far is the airport?</text>
+
+  <rect x="334" y="664" width="374" height="58" rx="24" fill="#E9E5DC"/>
+  <text x="364" y="701" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="17">When did I get that email?</text>
+
+  <text x="232" y="804" fill="#171717" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700">Seline</text>
+  <circle cx="206" cy="798" r="14" fill="#171717"/>
+  <circle cx="206" cy="798" r="5" fill="#8FA58C"/>
+  <text x="192" y="866" fill="#312C27" font-family="Arial, Helvetica, sans-serif" font-size="20">You got it today at 4:18 PM. It came from Delta Air Lines and it’s the same thread that contains the departure details.</text>
+
+  <rect x="192" y="1320" width="516" height="108" rx="28" fill="#FFFDFC" stroke="#E7E0D4"/>
+  <text x="230" y="1378" fill="#857B70" font-family="Arial, Helvetica, sans-serif" font-size="18">Message Seline…</text>
+  <circle cx="652" cy="1374" r="28" fill="#171717"/>
+  <path d="M643 1374H661" stroke="#F8F5EF" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M652 1365L661 1374L652 1383" stroke="#F8F5EF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="220" y="1446" width="460" height="10" rx="5" fill="#D9D2C6"/>
+</svg>

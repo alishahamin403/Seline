@@ -3055,15 +3055,6 @@ struct MainAppView: View {
             },
             onReceiptSelected: { receipt in
                 handleSpendingReceiptSelection(receipt)
-            },
-            onRefresh: {
-                Task {
-                    pageRefreshCoordinator.markDirty(.home, reason: .manualRefresh)
-                    await refreshAllData()
-                    await MainActor.run {
-                        homeState.refreshAll()
-                    }
-                }
             }
         )
     }

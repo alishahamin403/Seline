@@ -31,62 +31,63 @@ struct HomeWidgetStackView: View {
     let onAddReceiptFromCamera: () -> Void
     let onAddReceiptFromGallery: () -> Void
     let onReceiptSelected: (ReceiptStat) -> Void
-    let onRefresh: () -> Void
 
     private var homeCardHorizontalPadding: CGFloat {
         ShadcnSpacing.screenEdgeHorizontal
     }
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 8) {
-                if homeState.hasPendingLocationSuggestion {
-                    NewLocationSuggestionCard()
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .top).combined(with: .opacity),
-                            removal: .move(edge: .top).combined(with: .opacity)
-                        ))
+        GeometryReader { geometry in
+            let contentWidth = max(0, geometry.size.width - (homeCardHorizontalPadding * 2))
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 8) {
+                    if homeState.hasPendingLocationSuggestion {
+                        NewLocationSuggestionCard()
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .move(edge: .top).combined(with: .opacity)
+                            ))
+                    }
+
+                    DailyOverviewWidget(
+                        homeState: homeState,
+                        isExpanded: $isDailyOverviewExpanded,
+                        isVisible: isVisible,
+                        currentLocationName: currentLocationName,
+                        nearbyLocation: nearbyLocation,
+                        nearbyLocationPlace: nearbyLocationPlace,
+                        distanceToNearest: distanceToNearest,
+                        onNoteSelected: onNoteSelected,
+                        onEmailSelected: onEmailSelected,
+                        onTaskSelected: onTaskSelected,
+                        onPersonSelected: onPersonSelected,
+                        onLocationSelected: { place in
+                            selectedPlace = place
+                        },
+                        onAddTask: onAddTask,
+                        onAddTaskFromPhoto: onAddTaskFromPhoto,
+                        onAddNote: onAddNote
+                    )
+                    .zIndex(isDailyOverviewExpanded ? 10 : 1)
+
+                    SpendingAndETAWidget(
+                        isVisible: isVisible,
+                        onAddReceiptManually: onAddReceiptManually,
+                        onAddReceipt: onAddReceiptFromCamera,
+                        onAddReceiptFromGallery: onAddReceiptFromGallery,
+                        onReceiptSelected: onReceiptSelected
+                    )
+                    .padding(.top, 4)
+                    .padding(.bottom, 6)
                 }
-
-                DailyOverviewWidget(
-                    homeState: homeState,
-                    isExpanded: $isDailyOverviewExpanded,
-                    isVisible: isVisible,
-                    currentLocationName: currentLocationName,
-                    nearbyLocation: nearbyLocation,
-                    nearbyLocationPlace: nearbyLocationPlace,
-                    distanceToNearest: distanceToNearest,
-                    onNoteSelected: onNoteSelected,
-                    onEmailSelected: onEmailSelected,
-                    onTaskSelected: onTaskSelected,
-                    onPersonSelected: onPersonSelected,
-                    onLocationSelected: { place in
-                        selectedPlace = place
-                    },
-                    onAddTask: onAddTask,
-                    onAddTaskFromPhoto: onAddTaskFromPhoto,
-                    onAddNote: onAddNote
-                )
-                .zIndex(isDailyOverviewExpanded ? 10 : 1)
-
-                SpendingAndETAWidget(
-                    isVisible: isVisible,
-                    onAddReceiptManually: onAddReceiptManually,
-                    onAddReceipt: onAddReceiptFromCamera,
-                    onAddReceiptFromGallery: onAddReceiptFromGallery,
-                    onReceiptSelected: onReceiptSelected
-                )
-                .padding(.top, 4)
-                .padding(.bottom, 6)
+                .frame(width: contentWidth, alignment: .topLeading)
+                .padding(.horizontal, homeCardHorizontalPadding)
+                .padding(.top, 12)
+                .padding(.bottom, 96)
             }
-            .padding(.horizontal, homeCardHorizontalPadding)
-            .padding(.top, 12)
-            .padding(.bottom, 96)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .selinePrimaryPageScroll()
-        .refreshable {
-            onRefresh()
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .selinePrimaryPageScroll()
         }
     }
 }
