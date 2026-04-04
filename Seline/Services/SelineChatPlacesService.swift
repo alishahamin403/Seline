@@ -90,6 +90,8 @@ final class SelineChatPlacesService {
             Optional(place.displayName),
             Optional(place.name),
             place.address,
+            place.city,
+            place.province,
             place.category,
             place.userNotes,
             place.userCuisine

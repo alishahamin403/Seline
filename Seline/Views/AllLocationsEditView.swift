@@ -205,25 +205,25 @@ struct AllLocationsEditView: View {
     private func selectPlace(_ place: PlaceSearchResult, index: Int) {
         switch index {
         case 1:
-            location1Address = place.name
+            location1Address = place.address
             location1Latitude = place.latitude
             location1Longitude = place.longitude
             location1SearchResults = []
             location1SearchQuery = ""
         case 2:
-            location2Address = place.name
+            location2Address = place.address
             location2Latitude = place.latitude
             location2Longitude = place.longitude
             location2SearchResults = []
             location2SearchQuery = ""
         case 3:
-            location3Address = place.name
+            location3Address = place.address
             location3Latitude = place.latitude
             location3Longitude = place.longitude
             location3SearchResults = []
             location3SearchQuery = ""
         case 4:
-            location4Address = place.name
+            location4Address = place.address
             location4Latitude = place.latitude
             location4Longitude = place.longitude
             location4SearchResults = []

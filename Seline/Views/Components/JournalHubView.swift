@@ -19,6 +19,11 @@ struct JournalHubView: View {
         from: Calendar.current.dateComponents([.year, .month], from: Date())
     ) ?? Date()
     @State private var selectedHistoryDate = Calendar.current.startOfDay(for: Date())
+    @State private var historyMonthPageSelection: Int = 1
+    @State private var isHandlingHistoryMonthPageTurn = false
+
+    private let historyCalendarRowHeight: CGFloat = 58
+    private let historyMonthGridRowCount = 6
 
     private var journalStats: JournalStats {
         journalService.stats(referenceDate: Date())
@@ -98,9 +103,9 @@ struct JournalHubView: View {
         ["S", "M", "T", "W", "T", "F", "S"]
     }
 
-    private var historyCalendarWeeks: [[Date?]] {
+    private func historyCalendarWeeks(for month: Date) -> [[Date?]] {
         let calendar = Calendar.current
-        guard let monthInterval = calendar.dateInterval(of: .month, for: visibleHistoryMonth) else { return [] }
+        guard let monthInterval = calendar.dateInterval(of: .month, for: month) else { return [] }
         let firstDay = calendar.startOfDay(for: monthInterval.start)
         let weekdayIndex = calendar.component(.weekday, from: firstDay)
         let leadingEmptyDays = (weekdayIndex - calendar.firstWeekday + 7) % 7
@@ -118,9 +123,15 @@ struct JournalHubView: View {
             dates.append(nil)
         }
 
-        return stride(from: 0, to: dates.count, by: 7).map { index in
+        var weeks = stride(from: 0, to: dates.count, by: 7).map { index in
             Array(dates[index..<min(index + 7, dates.count)])
         }
+
+        while weeks.count < historyMonthGridRowCount {
+            weeks.append(Array(repeating: nil, count: 7))
+        }
+
+        return weeks
     }
 
     private var selectedHistoryEntry: Note? {
@@ -457,12 +468,46 @@ struct JournalHubView: View {
     }
 
     private var historyMonthGrid: some View {
+        let previousMonth = monthStart(for: Calendar.current.date(byAdding: .month, value: -1, to: visibleHistoryMonth) ?? visibleHistoryMonth)
+        let nextMonth = monthStart(for: Calendar.current.date(byAdding: .month, value: 1, to: visibleHistoryMonth) ?? visibleHistoryMonth)
+
+        return TabView(selection: $historyMonthPageSelection) {
+            historyMonthGridPage(for: previousMonth)
+                .frame(height: historyMonthGridHeight, alignment: .top)
+                .tag(0)
+
+            historyMonthGridPage(for: visibleHistoryMonth)
+                .frame(height: historyMonthGridHeight, alignment: .top)
+                .tag(1)
+
+            historyMonthGridPage(for: nextMonth)
+                .frame(height: historyMonthGridHeight, alignment: .top)
+                .tag(2)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: historyMonthGridHeight)
+        .padding(.bottom, 10)
+        .onChange(of: historyMonthPageSelection) { newValue in
+            guard !isHandlingHistoryMonthPageTurn, newValue != 1 else { return }
+
+            isHandlingHistoryMonthPageTurn = true
+            let monthOffset = newValue == 0 ? -1 : 1
+            resetHistoryMonthPager()
+            shiftHistoryMonth(by: monthOffset)
+
+            DispatchQueue.main.async {
+                isHandlingHistoryMonthPageTurn = false
+            }
+        }
+    }
+
+    private func historyMonthGridPage(for month: Date) -> some View {
         VStack(spacing: 0) {
-            ForEach(Array(historyCalendarWeeks.enumerated()), id: \.offset) { _, week in
+            ForEach(Array(historyCalendarWeeks(for: month).enumerated()), id: \.offset) { _, week in
                 HStack(spacing: 0) {
                     ForEach(Array(week.enumerated()), id: \.offset) { _, date in
                         if let date {
-                            historyCalendarDayCell(for: date, in: visibleHistoryMonth)
+                            historyCalendarDayCell(for: date, in: month)
                                 .frame(maxWidth: .infinity)
                         } else {
                             Color.clear
@@ -471,10 +516,9 @@ struct JournalHubView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .frame(height: 58)
+                .frame(height: historyCalendarRowHeight)
             }
         }
-        .padding(.bottom, 10)
     }
 
     private func historyCalendarDayCell(for date: Date, in month: Date) -> some View {
@@ -867,9 +911,22 @@ struct JournalHubView: View {
         }
     }
 
+    private var historyMonthGridHeight: CGFloat {
+        CGFloat(historyMonthGridRowCount) * historyCalendarRowHeight
+    }
+
+    private func resetHistoryMonthPager() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            historyMonthPageSelection = 1
+        }
+    }
+
     private func jumpToCurrentHistoryMonth() {
         visibleHistoryMonth = currentMonthStart
         selectedHistoryDate = Calendar.current.startOfDay(for: Date())
+        resetHistoryMonthPager()
         HapticManager.shared.selection()
     }
 

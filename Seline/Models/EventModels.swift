@@ -485,6 +485,9 @@ class TaskManager: ObservableObject {
     static let shared = TaskManager()
 
     @Published var tasks: [WeekDay: [TaskItem]] = [:]
+    /// Pre-computed count of incomplete tasks due today.
+    /// Updated whenever tasks change — use instead of calling getTasksForToday() in view bodies.
+    @Published private(set) var todayIncompleteTaskCount: Int = 0
 
     struct TaskSyncDiagnostics {
         let fetchedAt: Date
@@ -552,6 +555,15 @@ class TaskManager: ObservableObject {
         // Don't load from Supabase here - wait for authentication!
         // The app will call loadTasksFromSupabase() after user authenticates
         // This ensures EncryptionManager.setupEncryption() is called FIRST
+
+        // Keep todayIncompleteTaskCount in sync without calling getTasksForToday() on every view render.
+        $tasks
+            .map { [weak self] _ -> Int in
+                guard let self else { return 0 }
+                let today = Date()
+                return self.getTasksForToday().filter { !$0.isCompletedOn(date: today) }.count
+            }
+            .assign(to: &$todayIncompleteTaskCount)
     }
 
     private func cachedTaskCount() -> Int {

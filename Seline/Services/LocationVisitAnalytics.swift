@@ -32,15 +32,52 @@ struct ProcessedVisitDisplayContext {
 
 // MARK: - LocationVisitAnalytics Service
 
-@MainActor
 class LocationVisitAnalytics: ObservableObject {
     static let shared = LocationVisitAnalytics()
 
-    @Published var visitStats: [UUID: LocationVisitStats] = [:] // [placeId: stats]
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+    // @MainActor on each @Published property ensures UI updates hop to the main thread
+    // while the actual visit computation (clustering, merging, stats) runs off main.
+    @MainActor @Published var visitStats: [UUID: LocationVisitStats] = [:] // [placeId: stats]
+    @MainActor @Published var isLoading = false
+    @MainActor @Published var errorMessage: String?
 
     private let authManager = AuthenticationManager.shared
+
+    // MARK: - Main-Actor UI State Helpers
+
+    private func setVisitStats(_ stats: LocationVisitStats, for placeId: UUID, cacheKey: String? = nil) async {
+        await MainActor.run {
+            self.visitStats[placeId] = stats
+        }
+
+        if let cacheKey {
+            CacheManager.shared.set(stats, forKey: cacheKey, ttl: CacheManager.TTL.medium)
+        }
+    }
+
+    private func setIsLoading(_ isLoading: Bool) async {
+        await MainActor.run {
+            self.isLoading = isLoading
+        }
+    }
+
+    private func setErrorMessage(_ message: String?) async {
+        await MainActor.run {
+            self.errorMessage = message
+        }
+    }
+
+    private func getActiveVisit(for placeId: UUID) async -> LocationVisitRecord? {
+        await GeofenceManager.shared.getActiveVisit(for: placeId)
+    }
+
+    private func updateActiveVisit(_ visit: LocationVisitRecord, for placeId: UUID) async {
+        await GeofenceManager.shared.updateActiveVisit(visit, for: placeId)
+    }
+
+    private func removeActiveVisit(for placeId: UUID) async {
+        await GeofenceManager.shared.removeActiveVisit(for: placeId)
+    }
 
     // MARK: - Public Methods
 
@@ -50,18 +87,16 @@ class LocationVisitAnalytics: ObservableObject {
 
         // OPTIMIZATION: Check CacheManager first before querying Supabase
         if let cachedStats: LocationVisitStats = CacheManager.shared.get(forKey: cacheKey) {
-            await MainActor.run {
-                self.visitStats[placeId] = cachedStats
-            }
+            await setVisitStats(cachedStats, for: placeId)
             return
         }
 
-        isLoading = true
-        errorMessage = nil
+        await setIsLoading(true)
+        await setErrorMessage(nil)
 
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
-            errorMessage = "User not authenticated"
-            isLoading = false
+            await setErrorMessage("User not authenticated")
+            await setIsLoading(false)
             print("❌ LocationVisitAnalytics: User not authenticated when fetching stats for \(placeId)")
             return
         }
@@ -70,21 +105,18 @@ class LocationVisitAnalytics: ObservableObject {
             let visits = try await fetchVisits(for: placeId, userId: userId)
 
             // Include the active visit if one exists for this location
-            let activeVisit = GeofenceManager.shared.activeVisits[placeId]
+            let activeVisit = await getActiveVisit(for: placeId)
             let stats = calculateStats(from: visits, activeVisit: activeVisit)
 
-            await MainActor.run {
-                self.visitStats[placeId] = stats
-                // OPTIMIZATION: Cache using CacheManager with 5-minute TTL for faster updates
-                CacheManager.shared.set(stats, forKey: cacheKey, ttl: CacheManager.TTL.medium)
-            }
+            // OPTIMIZATION: Cache using CacheManager with 5-minute TTL for faster updates
+            await setVisitStats(stats, for: placeId, cacheKey: cacheKey)
         } catch {
-            errorMessage = "Failed to fetch visit stats: \(error.localizedDescription)"
+            await setErrorMessage("Failed to fetch visit stats: \(error.localizedDescription)")
             print("❌ Error fetching stats for place \(placeId): \(error.localizedDescription)")
             print("   Full error: \(error)")
         }
 
-        isLoading = false
+        await setIsLoading(false)
     }
 
     /// Fetch all visit stats for all locations (not just favorites)
@@ -343,7 +375,7 @@ class LocationVisitAnalytics: ObservableObject {
     /// Uses the same query pattern as calendar view but filtered by location
     func fetchVisitHistory(for placeId: UUID, limit: Int = 20) async -> [VisitHistoryItem] {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
-            errorMessage = "User not authenticated"
+            await setErrorMessage("User not authenticated")
             return []
         }
 
@@ -410,7 +442,7 @@ class LocationVisitAnalytics: ObservableObject {
 
             return historyItems
         } catch {
-            errorMessage = "Failed to fetch visit history: \(error.localizedDescription)"
+            await setErrorMessage("Failed to fetch visit history: \(error.localizedDescription)")
             return []
         }
     }
@@ -738,7 +770,7 @@ class LocationVisitAnalytics: ObservableObject {
     /// Delete a specific visit from history
     func deleteVisit(id: String) async -> Bool {
         guard let visitId = UUID(uuidString: id) else {
-            errorMessage = "Invalid visit ID"
+            await setErrorMessage("Invalid visit ID")
             print("❌ LocationVisitAnalytics: Invalid visit ID \(id)")
             return false
         }
@@ -751,7 +783,7 @@ class LocationVisitAnalytics: ObservableObject {
         guard !uniqueIds.isEmpty else { return true }
 
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
-            errorMessage = "User not authenticated"
+            await setErrorMessage("User not authenticated")
             print("❌ LocationVisitAnalytics: User not authenticated when deleting visit")
             return false
         }
@@ -770,7 +802,7 @@ class LocationVisitAnalytics: ObservableObject {
             invalidateAllVisitCaches()
             return true
         } catch {
-            errorMessage = "Failed to delete visit: \(error.localizedDescription)"
+            await setErrorMessage("Failed to delete visit: \(error.localizedDescription)")
             print("❌ LocationVisitAnalytics: Failed to delete visit: \(error.localizedDescription)")
             return false
         }
@@ -783,31 +815,31 @@ class LocationVisitAnalytics: ObservableObject {
         exitTime: Date?
     ) async -> Bool {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
-            errorMessage = "User not authenticated"
+            await setErrorMessage("User not authenticated")
             print("❌ LocationVisitAnalytics: User not authenticated when updating visit")
             return false
         }
 
         guard !sourceVisits.isEmpty else {
-            errorMessage = "Could not resolve visit details"
+            await setErrorMessage("Could not resolve visit details")
             print("❌ LocationVisitAnalytics: Missing source visits for display visit \(displayedVisit.id)")
             return false
         }
 
         if isDerivedSplitDisplayVisit(displayedVisit, sourceVisits: sourceVisits) {
-            errorMessage = "Overnight visits can't be edited from this view yet."
+            await setErrorMessage("Overnight visits can't be edited from this view yet.")
             print("⚠️ LocationVisitAnalytics: Edit blocked for derived split visit \(displayedVisit.id)")
             return false
         }
 
         if let exitTime, exitTime <= entryTime {
-            errorMessage = "End time must be after start time"
+            await setErrorMessage("End time must be after start time")
             print("❌ LocationVisitAnalytics: Invalid visit time range")
             return false
         }
 
         guard var primaryVisit = preferredRawVisit(for: displayedVisit, sourceVisits: sourceVisits) else {
-            errorMessage = "Could not find visit to update"
+            await setErrorMessage("Could not find visit to update")
             print("❌ LocationVisitAnalytics: Unable to choose primary source visit")
             return false
         }
@@ -864,12 +896,12 @@ class LocationVisitAnalytics: ObservableObject {
                     .execute()
             }
 
-            if let activeVisit = GeofenceManager.shared.activeVisits[primaryVisit.savedPlaceId],
+            if let activeVisit = await getActiveVisit(for: primaryVisit.savedPlaceId),
                activeVisit.id == primaryVisit.id {
                 if primaryVisit.exitTime == nil {
-                    GeofenceManager.shared.updateActiveVisit(primaryVisit, for: primaryVisit.savedPlaceId)
+                    await updateActiveVisit(primaryVisit, for: primaryVisit.savedPlaceId)
                 } else {
-                    GeofenceManager.shared.activeVisits.removeValue(forKey: primaryVisit.savedPlaceId)
+                    await removeActiveVisit(for: primaryVisit.savedPlaceId)
                 }
             }
 
@@ -877,7 +909,7 @@ class LocationVisitAnalytics: ObservableObject {
             invalidateAllVisitCaches()
             return true
         } catch {
-            errorMessage = "Failed to update visit: \(error.localizedDescription)"
+            await setErrorMessage("Failed to update visit: \(error.localizedDescription)")
             print("❌ LocationVisitAnalytics: Failed to update visit timing: \(error.localizedDescription)")
             return false
         }
@@ -892,7 +924,7 @@ class LocationVisitAnalytics: ObservableObject {
     /// - Returns: True if merge was successful
     func manualMergeVisits(firstVisitId: UUID, secondVisitId: UUID) async -> Bool {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
-            errorMessage = "User not authenticated"
+            await setErrorMessage("User not authenticated")
             print("❌ LocationVisitAnalytics: User not authenticated when merging visits")
             return false
         }
@@ -922,7 +954,7 @@ class LocationVisitAnalytics: ObservableObject {
 
             guard visits.count == 2 else {
                 print("❌ LocationVisitAnalytics: Could not find both visits to merge (found \(visits.count))")
-                errorMessage = "Could not find both visits (found \(visits.count) of 2)"
+                await setErrorMessage("Could not find both visits (found \(visits.count) of 2)")
                 return false
             }
 
@@ -936,7 +968,7 @@ class LocationVisitAnalytics: ObservableObject {
             // Verify both visits are at the same place
             guard firstVisit.savedPlaceId == secondVisit.savedPlaceId else {
                 print("❌ LocationVisitAnalytics: Cannot merge visits at different locations")
-                errorMessage = "Cannot merge visits at different locations"
+                await setErrorMessage("Cannot merge visits at different locations")
                 return false
             }
 
@@ -1004,7 +1036,7 @@ class LocationVisitAnalytics: ObservableObject {
 
             return true
         } catch {
-            errorMessage = "Failed to merge visits: \(error.localizedDescription)"
+            await setErrorMessage("Failed to merge visits: \(error.localizedDescription)")
             print("❌ LocationVisitAnalytics: Failed to merge visits: \(error)")
             return false
         }

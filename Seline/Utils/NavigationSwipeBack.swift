@@ -211,26 +211,52 @@ private struct EdgeSwipeBackModifier: ViewModifier {
                         let vertical = abs(value.translation.height)
 
                         guard horizontal > vertical else { return }
-                        dragX = max(0, horizontal)
+
+                        if supportsSystemInteractiveDismiss {
+                            dragX = max(0, horizontal)
+                        }
 
                         guard horizontal >= triggerDistance else { return }
                         guard vertical <= maxVerticalTravel else { return }
 
                         hasTriggeredDismiss = true
                         HapticManager.shared.light()
+
+                        guard supportsSystemInteractiveDismiss else {
+                            action?()
+                            resetGestureState()
+                            return
+                        }
+
                         withAnimation(.easeOut(duration: 0.14)) {
                             isAnimatingOffscreen = true
                             dragX = UIScreen.main.bounds.width
                         }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                            if !NavigationSwipeBack.performBackNavigation() {
-                                action?()
-                            }
+                            _ = NavigationSwipeBack.performBackNavigation()
                             resetGestureState()
                         }
                     }
-                    .onEnded { _ in
+                    .onEnded { value in
                         guard !isAnimatingOffscreen else { return }
+
+                        let horizontal = value.translation.width
+                        let vertical = abs(value.translation.height)
+                        let predictedHorizontal = max(horizontal, value.predictedEndTranslation.width)
+
+                        if isTrackingFromEdge,
+                           !hasTriggeredDismiss,
+                           !supportsSystemInteractiveDismiss,
+                           horizontal > vertical,
+                           predictedHorizontal >= triggerDistance,
+                           vertical <= maxVerticalTravel {
+                            hasTriggeredDismiss = true
+                            HapticManager.shared.light()
+                            action?()
+                            resetGestureState()
+                            return
+                        }
+
                         withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.85)) {
                             dragX = 0
                         }
@@ -244,6 +270,10 @@ private struct EdgeSwipeBackModifier: ViewModifier {
     private var canBeginGesture: Bool {
         guard isEnabled else { return false }
         return NavigationSwipeBack.canPerformBackNavigation() || action != nil
+    }
+
+    private var supportsSystemInteractiveDismiss: Bool {
+        action == nil && NavigationSwipeBack.canPerformBackNavigation()
     }
 
     private var currentOffsetX: CGFloat {

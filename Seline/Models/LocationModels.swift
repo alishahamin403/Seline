@@ -146,6 +146,38 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         return customName ?? name
     }
 
+    var searchableText: String {
+        let values: [String?] = [
+            displayName,
+            name,
+            customName,
+            address,
+            category,
+            city,
+            province,
+            country,
+            phone,
+            userCuisine,
+            userNotes,
+            isFavourite ? "favorite favourite starred bookmarked" : nil
+        ] + searchAliases.map(Optional.some)
+
+        return Self.normalizedSearchText(from: values)
+    }
+
+    func matchesSearchQuery(_ query: String) -> Bool {
+        let normalizedQuery = Self.normalizedSearchText(query)
+        guard !normalizedQuery.isEmpty else { return true }
+
+        let searchable = searchableText
+        if searchable.contains(normalizedQuery) {
+            return true
+        }
+
+        let terms = normalizedQuery.split { $0.isWhitespace }
+        return !terms.isEmpty && terms.allSatisfy { searchable.contains(String($0)) }
+    }
+
     var formattedAddress: String {
         // Shorten address if too long
         if address.count > 50 {
@@ -213,6 +245,87 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         }
 
         return (city, province, country)
+    }
+
+    private var searchAliases: [String] {
+        var aliases = Set<String>()
+
+        switch userIcon ?? getDisplayIcon() {
+        case "house.fill":
+            aliases.formUnion(["home", "house", "residence"])
+        case "briefcase.fill":
+            aliases.formUnion(["work", "office", "job"])
+        case "dumbbell.fill":
+            aliases.formUnion(["gym", "fitness", "workout"])
+        case "fork.knife":
+            aliases.formUnion(["restaurant", "food", "dining"])
+        case "tree.fill":
+            aliases.formUnion(["park", "outdoors"])
+        case "heart.fill", "heart.circle.fill", "cross.case.fill":
+            aliases.formUnion(["medical", "health", "hospital", "clinic"])
+        case "bag.fill":
+            aliases.formUnion(["shop", "shopping", "store"])
+        case "book.fill", "graduationcap.fill":
+            aliases.formUnion(["school", "education", "university"])
+        case "star.fill":
+            aliases.formUnion(["favorite", "favourite", "starred"])
+        case "cup.and.saucer", "cup.and.saucer.fill":
+            aliases.formUnion(["coffee", "cafe"])
+        case "car.fill":
+            aliases.formUnion(["car", "vehicle", "auto"])
+        case "airplane":
+            aliases.formUnion(["travel", "airport"])
+        case "film.fill":
+            aliases.formUnion(["entertainment", "movie", "theater"])
+        case "gamecontroller.fill":
+            aliases.formUnion(["gaming", "games"])
+        case "music.note":
+            aliases.formUnion(["music", "audio"])
+        case "camera.fill":
+            aliases.formUnion(["photo", "camera"])
+        case "bicycle":
+            aliases.formUnion(["bike", "cycling"])
+        case "building.fill":
+            aliases.formUnion(["hotel", "stay"])
+        case "building.2.fill":
+            aliases.formUnion(["building"])
+        case "scissors":
+            aliases.formUnion(["barber", "haircut", "salon"])
+        default:
+            break
+        }
+
+        let normalizedCategory = category.lowercased()
+        if normalizedCategory.contains("personal") {
+            aliases.formUnion(["personal", "saved"])
+        }
+        if normalizedCategory.contains("restaurant") || normalizedCategory.contains("cafe") {
+            aliases.formUnion(["food", "dining"])
+        }
+        if normalizedCategory.contains("gym") || normalizedCategory.contains("fitness") {
+            aliases.formUnion(["workout"])
+        }
+
+        return Array(aliases)
+    }
+
+    private static func normalizedSearchText(from values: [String?]) -> String {
+        values
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map(normalizedSearchText)
+            .joined(separator: " ")
+    }
+
+    private static func normalizedSearchText(_ value: String) -> String {
+        let folded = value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        let sanitized = folded.unicodeScalars
+            .map { CharacterSet.alphanumerics.contains($0) ? String($0) : " " }
+            .joined()
+
+        return sanitized
+            .split { $0.isWhitespace }
+            .joined(separator: " ")
     }
 }
 
@@ -312,11 +425,16 @@ class LocationsManager: ObservableObject {
         }
     }
 
-    func addFolder(_ name: String) {
+    @discardableResult
+    func addFolder(_ name: String) -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty && !categories.contains(trimmed) else { return }
+        let conflictsWithExisting = categories.contains {
+            $0.caseInsensitiveCompare(trimmed) == .orderedSame
+        }
+        guard !trimmed.isEmpty && !conflictsWithExisting else { return false }
         userFolders.insert(trimmed)
         savePlacesToStorage()
+        return true
     }
 
     func removeUserFolder(_ name: String) {
@@ -677,9 +795,20 @@ class LocationsManager: ObservableObject {
         }
     }
 
-    func renameCategory(_ oldName: String, to newName: String) {
+    @discardableResult
+    func renameCategory(_ oldName: String, to newName: String) -> Bool {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty && trimmed != oldName else { return }
+        guard !trimmed.isEmpty else { return false }
+        guard trimmed != oldName else { return false }
+
+        let hasExistingFolder = categories.contains(oldName) || userFolders.contains(oldName)
+        guard hasExistingFolder else { return false }
+
+        let conflictsWithExisting = categories.contains {
+            $0.caseInsensitiveCompare(trimmed) == .orderedSame &&
+            $0 != oldName
+        }
+        guard !conflictsWithExisting else { return false }
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -697,10 +826,43 @@ class LocationsManager: ObservableObject {
             }
 
             self.savePlacesToStorage()
+            self.invalidateLocationCaches()
 
             for place in updatedPlaces {
                 Task {
                     await self.updatePlaceInSupabase(place)
+                }
+            }
+        }
+        return true
+    }
+
+    func deleteFolder(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            let deletedPlaces = self.savedPlaces.filter { $0.category == trimmed }
+            let hadUserFolder = self.userFolders.contains(trimmed)
+            guard hadUserFolder || !deletedPlaces.isEmpty else { return }
+
+            self.savedPlaces.removeAll { $0.category == trimmed }
+            self.userFolders.remove(trimmed)
+            self.savePlacesToStorage()
+
+            self.invalidateLocationCaches()
+
+            for place in deletedPlaces {
+                GoogleMapsService.shared.clearLocationCache(for: place.googlePlaceId)
+            }
+
+            self.notifyLocationServicesOfPlaceChange()
+
+            for place in deletedPlaces {
+                Task {
+                    await self.deletePlaceFromSupabase(place.id)
                 }
             }
         }
@@ -767,9 +929,7 @@ class LocationsManager: ObservableObject {
         }
 
         return savedPlaces.filter { place in
-            place.name.localizedCaseInsensitiveContains(query) ||
-            place.address.localizedCaseInsensitiveContains(query) ||
-            place.category.localizedCaseInsensitiveContains(query)
+            place.matchesSearchQuery(query)
         }.sorted { $0.dateModified > $1.dateModified }
     }
 

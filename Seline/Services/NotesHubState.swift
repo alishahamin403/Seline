@@ -28,6 +28,9 @@ final class NotesHubState: ObservableObject {
         lastEntryDate: nil,
         todayStatus: .missing
     )
+    /// Count of user-visible folders excluding system folders (Receipts, Journal).
+    /// Pre-computed to avoid filtering notesManager.folders on every view render.
+    @Published private(set) var dashboardFolderCount: Int = 0
     @Published private(set) var hubReceiptMonthlySummaries: [MonthlyReceiptSummary] = []
     @Published private(set) var hubReceiptTotal: Double = 0
     @Published private(set) var hubReceiptCount: Int = 0
@@ -203,6 +206,9 @@ final class NotesHubState: ObservableObject {
             let nextFolderNotesCount = currentInputs.selectedFolderId.map { selectedFolderId in
                 standardNotes.filter { $0.folderId == selectedFolderId }.count
             } ?? 0
+            let nextDashboardFolderCount = foldersSnapshot.filter { folder in
+                folder.name != "Receipts" && folder.name != "Journal"
+            }.count
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -234,6 +240,7 @@ final class NotesHubState: ObservableObject {
 
                 self.looseNotesCount = nextLooseNotesCount
                 self.folderNotesCount = nextFolderNotesCount
+                self.dashboardFolderCount = nextDashboardFolderCount
                 self.journalEntries = meaningfulJournalEntries
                     .sorted { ($0.journalDate ?? $0.dateModified) > ($1.journalDate ?? $1.dateModified) }
                 self.latestJournalRecap = nextLatestJournalRecap

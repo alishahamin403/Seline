@@ -14,8 +14,8 @@ final class SelineChatStore: ObservableObject, SelineChatThreadProviding {
     @Published private(set) var selectedThreadID: UUID?
     @Published private(set) var thinkingState: SelineChatThinkingState?
 
-    private let threadsStorageKey = "selineChatThreads.v2"
-    private let lastActiveThreadKey = "selineChatLastActiveThreadID.v2"
+    private let threadsStorageKey = "selineChatThreads.v3"
+    private let lastActiveThreadKey = "selineChatLastActiveThreadID.v3"
     private let orchestrator: SelineChatOrchestrator
     private var sendTask: Task<Void, Never>?
 
@@ -153,18 +153,18 @@ final class SelineChatStore: ObservableObject, SelineChatThreadProviding {
                 turn.text += delta
                 turn.isStreaming = true
             }
-        case .completed(let payload):
+        case .completed(let completion):
             thinkingState = nil
-            if let threadIndex = threads.firstIndex(where: { $0.id == threadID }) {
-                threads[threadIndex].activeContext = mergeActiveContext(
-                    existing: threads[threadIndex].activeContext,
-                    incoming: payload.activeContext
-                )
-            }
             updateAssistantTurn(id: assistantTurnID, in: threadID) { turn in
-                turn.text = payload.primaryText
-                turn.assistantPayload = payload
+                turn.text = completion.payload.primaryText
+                turn.assistantPayload = completion.payload
+                turn.debugTrace = completion.turnTrace
                 turn.isStreaming = false
+            }
+            if let threadIndex = threads.firstIndex(where: { $0.id == threadID }) {
+                threads[threadIndex].activeContext = completion.payload.activeContext
+                threads[threadIndex].providerState = completion.providerState
+                threads[threadIndex].lastEvidenceBundle = completion.lastEvidenceBundle
             }
             sendTask = nil
             saveThreads()
@@ -265,17 +265,4 @@ final class SelineChatStore: ObservableObject, SelineChatThreadProviding {
         return String(trimmed.prefix(maxLength - 1)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
-    private func mergeActiveContext(
-        existing: SelineChatActiveContext?,
-        incoming: SelineChatActiveContext?
-    ) -> SelineChatActiveContext? {
-        guard existing != nil || incoming != nil else { return nil }
-        return SelineChatActiveContext(
-            placeAnchor: incoming?.placeAnchor ?? existing?.placeAnchor,
-            emailAnchor: incoming?.emailAnchor ?? existing?.emailAnchor,
-            episodeAnchor: incoming?.episodeAnchor ?? existing?.episodeAnchor,
-            personAnchor: incoming?.personAnchor ?? existing?.personAnchor,
-            receiptClusterAnchor: incoming?.receiptClusterAnchor ?? existing?.receiptClusterAnchor
-        )
-    }
 }

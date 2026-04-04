@@ -92,6 +92,9 @@ struct MapsViewNew: View, Searchable {
     @State private var placeToMove: SavedPlace? = nil  // Place being moved to different folder
     @State private var showNewFolderAlert = false  // Controls new folder alert
     @State private var newFolderName = ""  // Name for the new folder
+    @State private var folderToRename: String? = nil
+    @State private var folderRenameDraft = ""
+    @State private var folderToDelete: String? = nil
     @State private var showingFolderSidebar = false
     @State private var isSidebarOverlayVisible = false
     @State private var folderSidebarSearchText = ""
@@ -100,6 +103,13 @@ struct MapsViewNew: View, Searchable {
     @State private var newPlaceName = ""  // New name for the place
     @FocusState private var isSearchFocused: Bool  // For search bar focus
     @Namespace private var mapsTabAnimation
+    @State private var lastVisibilityRefreshAt: Date = .distantPast
+    @State private var mapsRefreshTask: Task<Void, Never>?
+    @State private var hubPeriodLoadTask: Task<Void, Never>?
+    @State private var derivedDataRefreshTask: Task<Void, Never>?
+    @State private var topLocationsLoadTask: Task<Void, Never>?
+    @State private var embeddedTimelineMountTask: Task<Void, Never>?
+    @State private var shouldRenderEmbeddedTimeline = false
 
     init(
         isVisible: Bool = true,
@@ -149,6 +159,15 @@ struct MapsViewNew: View, Searchable {
                     folder: folder,
                     onPlaceTap: { place in
                         selectedPlace = place
+                    },
+                    onFolderChanged: { folderName in
+                        refreshSelectedSavedFolder(named: folderName)
+                    },
+                    onFolderRenamed: { oldName, newName in
+                        renameFolder(oldName, to: newName)
+                    },
+                    onFolderDeleted: { folderName in
+                        deleteFolderNamed(folderName)
                     },
                     onDismiss: {
                         selectedSavedFolder = nil
@@ -214,7 +233,8 @@ struct MapsViewNew: View, Searchable {
                 Button("Rename") {
                     if let place = placeToRename {
                         var updatedPlace = place
-                        updatedPlace.customName = newPlaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let trimmedName = newPlaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        updatedPlace.customName = trimmedName.isEmpty ? nil : trimmedName
                         locationsManager.updatePlace(updatedPlace)
                         placeToRename = nil
                         newPlaceName = ""
@@ -222,6 +242,52 @@ struct MapsViewNew: View, Searchable {
                 }
             } message: {
                 Text("Enter a new name for this place")
+            }
+            .alert("Rename Folder", isPresented: Binding(
+                get: { folderToRename != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        folderToRename = nil
+                        folderRenameDraft = ""
+                    }
+                }
+            )) {
+                TextField("Folder name", text: $folderRenameDraft)
+                Button("Cancel", role: .cancel) {
+                    folderToRename = nil
+                    folderRenameDraft = ""
+                }
+                Button("Rename") {
+                    if let oldName = folderToRename {
+                        renameFolder(oldName, to: folderRenameDraft)
+                    }
+                    folderToRename = nil
+                    folderRenameDraft = ""
+                }
+            } message: {
+                Text("Enter a new name for this folder")
+            }
+            .confirmationDialog("Delete Folder", isPresented: Binding(
+                get: { folderToDelete != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        folderToDelete = nil
+                    }
+                }
+            ), titleVisibility: .visible) {
+                Button("Delete Folder", role: .destructive) {
+                    if let folderName = folderToDelete {
+                        deleteFolderNamed(folderName)
+                    }
+                    folderToDelete = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    folderToDelete = nil
+                }
+            } message: {
+                if let folder = folderPendingDeleteSelection {
+                    Text("Delete '\(folder.name)' and all \(folder.places.count) saved place\(folder.places.count == 1 ? "" : "s") inside it?")
+                }
             }
             .task {
                 // Use .task for async setup - only runs once per view lifecycle
@@ -236,8 +302,9 @@ struct MapsViewNew: View, Searchable {
                 handleVisibilityChange(newValue, reason: "visibility")
             }
             .onReceive(locationService.$currentLocation) { location in
-                currentMapLocation = location
                 guard isVisible else { return }
+                guard shouldApplyMapLocationUpdate(location) else { return }
+                currentMapLocation = location
                 handleLocationUpdate()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
@@ -245,26 +312,14 @@ struct MapsViewNew: View, Searchable {
                     pageRefreshCoordinator.markDirty([.home, .maps], reason: .visitHistoryChanged)
                     return
                 }
-                updateCurrentLocation()
-                Task {
-                    await refreshHubData(forceRefresh: true)
-                    await MainActor.run {
-                        pageRefreshCoordinator.markValidated(.maps)
-                    }
-                }
+                scheduleMapsRefresh(forceRefresh: true, refreshCurrentLocation: true, delayNanoseconds: 250_000_000)
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
                 guard isVisible else {
                     pageRefreshCoordinator.markDirty([.home, .maps], reason: .visitHistoryChanged)
                     return
                 }
-                updateCurrentLocation()
-                Task {
-                    await refreshHubData(forceRefresh: true)
-                    await MainActor.run {
-                        pageRefreshCoordinator.markValidated(.maps)
-                    }
-                }
+                scheduleMapsRefresh(forceRefresh: true, refreshCurrentLocation: true, delayNanoseconds: 250_000_000)
             }
             .onChange(of: externalSelectedFolder) { newFolder in
                 handleExternalFolderSelection(newFolder)
@@ -284,11 +339,7 @@ struct MapsViewNew: View, Searchable {
                     return
                 }
                 updateCurrentLocation()
-                // Debounce to batch multiple place edits together.
-                Task {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    await refreshDerivedLocationData(forceRefresh: true)
-                }
+                scheduleDerivedLocationRefresh(forceRefresh: true, delayNanoseconds: 500_000_000)
             }
             .onChange(of: hubPeriod) { _ in
                 syncPageStateInputs()
@@ -296,12 +347,7 @@ struct MapsViewNew: View, Searchable {
                     pageRefreshCoordinator.markDirty(.maps, reason: .manualRefresh)
                     return
                 }
-                Task {
-                    await loadHubPeriodVisits()
-                    await MainActor.run {
-                        pageRefreshCoordinator.markValidated(.maps)
-                    }
-                }
+                scheduleHubPeriodVisitsLoad(delayNanoseconds: 120_000_000)
             }
             .onChange(of: locationSearchText) { _ in
                 syncPageStateInputs()
@@ -335,6 +381,9 @@ struct MapsViewNew: View, Searchable {
             }
             .onAppear {
                 syncFloatingActionState()
+            }
+            .onDisappear {
+                cancelMapsTasks()
             }
             .onReceive(NotificationCenter.default.publisher(for: .mapsShellAddRequested)) { _ in
                 performFloatingMapsAddAction()
@@ -1192,6 +1241,35 @@ struct MapsViewNew: View, Searchable {
         pageState.savedFolderBreakdownRows
     }
 
+    private var landingMapPlaces: [SavedPlace] {
+        let places = filteredSavedPlacesForQuery
+        let hasSearchQuery = !locationSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let maxAnnotations = hasSearchQuery ? 24 : 40
+
+        guard places.count > maxAnnotations else {
+            return places
+        }
+
+        var prioritized: [SavedPlace] = []
+        var seen = Set<UUID>()
+
+        func append(_ candidates: [SavedPlace]) {
+            guard prioritized.count < maxAnnotations else { return }
+            for place in candidates where seen.insert(place.id).inserted {
+                prioritized.append(place)
+                if prioritized.count >= maxAnnotations {
+                    break
+                }
+            }
+        }
+
+        append(hubVisitedPlacesByCount.map(\.place))
+        append(filteredFavouritePlacesForQuery)
+        append(places)
+
+        return Array(prioritized.prefix(maxAnnotations))
+    }
+
     private var todayVisitCount: Int {
         let calendar = Calendar.current
         return hubPeriodVisits.filter { calendar.isDateInToday($0.entryTime) }.count
@@ -1353,7 +1431,6 @@ struct MapsViewNew: View, Searchable {
         }
 
         loadTopLocations()
-        loadRecentlyVisited()
     }
 
     @MainActor
@@ -1379,6 +1456,11 @@ struct MapsViewNew: View, Searchable {
             since: range.start,
             limit: hubVisitFetchLimit
         )
+
+        guard !Task.isCancelled else {
+            isLoadingHubPeriodVisits = false
+            return
+        }
 
         let filtered = fetched
             .filter { $0.entryTime >= range.start && $0.entryTime <= range.end }
@@ -1442,6 +1524,12 @@ struct MapsViewNew: View, Searchable {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         selectedCategory = nil
                     }
+                },
+                onFolderRenamed: { oldName, newName in
+                    renameFolder(oldName, to: newName)
+                },
+                onFolderDeleted: { folderName in
+                    deleteFolderNamed(folderName)
                 }
             )
             .zIndex(999)
@@ -1450,15 +1538,81 @@ struct MapsViewNew: View, Searchable {
     }
 
     private func savedFolderSelection(for category: String) -> SavedPlacesFolderSelection? {
-        savedFolderBreakdownRows.first(where: { $0.name == category }).map { folder in
-            SavedPlacesFolderSelection(
-                id: folder.name,
-                name: folder.name,
-                places: folder.places.sorted {
-                    $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-                },
-                favourites: folder.favourites
-            )
+        let places = locationsManager.savedPlaces
+            .filter { $0.category == category }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        let isUserFolder = locationsManager.userFolders.contains(category)
+
+        guard isUserFolder || !places.isEmpty else { return nil }
+
+        return SavedPlacesFolderSelection(
+            id: category,
+            name: category,
+            places: places,
+            favourites: places.filter(\.isFavourite).count
+        )
+    }
+
+    private func refreshSelectedSavedFolder(named folderName: String) {
+        selectedSavedFolder = savedFolderSelection(for: folderName)
+    }
+
+    private func beginRenamingFolder(_ folderName: String) {
+        folderToRename = folderName
+        folderRenameDraft = folderName
+    }
+
+    private func beginDeletingFolder(_ folderName: String) {
+        folderToDelete = folderName
+    }
+
+    private func renameFolder(_ oldName: String, to newName: String) {
+        guard locationsManager.renameCategory(oldName, to: newName) else { return }
+
+        DispatchQueue.main.async {
+            if selectedCategory == oldName {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    selectedCategory = newName
+                }
+            }
+
+            if selectedSavedFolder?.name == oldName {
+                refreshSelectedSavedFolder(named: newName)
+            }
+        }
+    }
+
+    private func deleteFolderNamed(_ folderName: String) {
+        locationsManager.deleteFolder(folderName)
+
+        if selectedCategory == folderName {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedCategory = nil
+            }
+        }
+
+        if selectedSavedFolder?.name == folderName {
+            selectedSavedFolder = nil
+        }
+    }
+
+    private var folderPendingDeleteSelection: SavedPlacesFolderSelection? {
+        guard let folderToDelete else { return nil }
+        return savedFolderSelection(for: folderToDelete)
+    }
+
+    @ViewBuilder
+    private func folderManagementContextMenu(for folderName: String) -> some View {
+        Button(action: {
+            beginRenamingFolder(folderName)
+        }) {
+            Label("Rename", systemImage: "pencil")
+        }
+
+        Button(role: .destructive, action: {
+            beginDeletingFolder(folderName)
+        }) {
+            Label("Delete", systemImage: "trash")
         }
     }
     
@@ -1475,6 +1629,86 @@ struct MapsViewNew: View, Searchable {
             hubDateRange: hubDateRange
         )
     }
+
+    private func shouldApplyMapLocationUpdate(_ location: CLLocation?) -> Bool {
+        switch (currentMapLocation, location) {
+        case (.none, .none):
+            return false
+        case (.some, .none), (.none, .some):
+            return true
+        case let (.some(existing), .some(next)):
+            return next.distance(from: existing) >= 25
+        }
+    }
+
+    @MainActor
+    private func scheduleEmbeddedTimelineMountIfNeeded() {
+        guard !shouldRenderEmbeddedTimeline else { return }
+        embeddedTimelineMountTask?.cancel()
+        embeddedTimelineMountTask = Task {
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            guard !Task.isCancelled else { return }
+            shouldRenderEmbeddedTimeline = true
+        }
+    }
+
+    @MainActor
+    private func scheduleDerivedLocationRefresh(forceRefresh: Bool = false, delayNanoseconds: UInt64 = 0) {
+        derivedDataRefreshTask?.cancel()
+        derivedDataRefreshTask = Task {
+            if delayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            }
+            guard !Task.isCancelled else { return }
+            refreshDerivedLocationData(forceRefresh: forceRefresh)
+        }
+    }
+
+    @MainActor
+    private func scheduleHubPeriodVisitsLoad(delayNanoseconds: UInt64 = 0) {
+        hubPeriodLoadTask?.cancel()
+        hubPeriodLoadTask = Task {
+            if delayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            }
+            guard !Task.isCancelled else { return }
+            await loadHubPeriodVisits()
+            guard !Task.isCancelled else { return }
+            pageRefreshCoordinator.markValidated(.maps)
+        }
+    }
+
+    @MainActor
+    private func scheduleMapsRefresh(
+        forceRefresh: Bool,
+        refreshCurrentLocation: Bool = false,
+        delayNanoseconds: UInt64 = 0
+    ) {
+        mapsRefreshTask?.cancel()
+        hubPeriodLoadTask?.cancel()
+        derivedDataRefreshTask?.cancel()
+        mapsRefreshTask = Task {
+            if delayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            }
+            guard !Task.isCancelled else { return }
+            if refreshCurrentLocation {
+                updateCurrentLocation()
+            }
+            await refreshHubData(forceRefresh: forceRefresh)
+            guard !Task.isCancelled else { return }
+            pageRefreshCoordinator.markValidated(.maps)
+        }
+    }
+
+    @MainActor
+    private func cancelMapsTasks() {
+        mapsRefreshTask?.cancel()
+        hubPeriodLoadTask?.cancel()
+        derivedDataRefreshTask?.cancel()
+        topLocationsLoadTask?.cancel()
+        embeddedTimelineMountTask?.cancel()
+    }
     
     private func setupOnAppear() async {
         SearchService.shared.registerSearchableProvider(self)
@@ -1489,22 +1723,21 @@ struct MapsViewNew: View, Searchable {
         await MainActor.run {
             updateCurrentLocation()
             hasLoadedIncompleteVisits = true
+            scheduleEmbeddedTimelineMountIfNeeded()
         }
 
-        // OPTIMIZATION: Load data in background (non-blocking) so UI appears immediately
-        // Only load if data is empty or stale
-        if topLocations.isEmpty {
-            loadTopLocations()
-        }
-        if recentlyVisitedPlaces.isEmpty {
-            loadRecentlyVisited()
+        // Load only the data used by the current landing page.
+        if allLocations.isEmpty {
+            await MainActor.run {
+                scheduleDerivedLocationRefresh()
+            }
         }
         
         locationService.requestLocationPermission()
-        await loadHubPeriodVisits()
         await MainActor.run {
             currentMapLocation = locationService.currentLocation
             syncPageStateInputs()
+            scheduleHubPeriodVisitsLoad()
         }
     }
     
@@ -1530,7 +1763,16 @@ struct MapsViewNew: View, Searchable {
             }
         }
     }
-    
+
+    @MainActor
+    private func performLightweightVisibleRefresh() {
+        let now = Date()
+        if now.timeIntervalSince(lastVisibilityRefreshAt) >= 1.0 {
+            lastVisibilityRefreshAt = now
+            updateCurrentLocation()
+        }
+    }
+
     @MainActor
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         guard isVisible else {
@@ -1539,13 +1781,10 @@ struct MapsViewNew: View, Searchable {
 
         if newPhase == .active {
             pageRefreshCoordinator.pageBecameVisible(.maps)
-            updateCurrentLocation()
-            Task {
-                guard pageRefreshCoordinator.isDirty(.maps) else { return }
-                await refreshHubData(forceRefresh: true)
-                await MainActor.run {
-                    pageRefreshCoordinator.markValidated(.maps)
-                }
+            performLightweightVisibleRefresh()
+            scheduleEmbeddedTimelineMountIfNeeded()
+            if pageRefreshCoordinator.isDirty(.maps) {
+                scheduleMapsRefresh(forceRefresh: false, delayNanoseconds: 120_000_000)
             }
             if let currentLoc = locationService.currentLocation {
                 Task {
@@ -1561,19 +1800,17 @@ struct MapsViewNew: View, Searchable {
     @MainActor
     private func handleVisibilityChange(_ visible: Bool, reason: String) {
         guard visible else {
+            cancelMapsTasks()
             return
         }
 
         syncPageStateInputs()
         pageRefreshCoordinator.pageBecameVisible(.maps)
-        updateCurrentLocation()
+        performLightweightVisibleRefresh()
+        scheduleEmbeddedTimelineMountIfNeeded()
 
-        Task {
-            guard pageRefreshCoordinator.isDirty(.maps) else { return }
-            await refreshHubData(forceRefresh: true)
-            await MainActor.run {
-                pageRefreshCoordinator.markValidated(.maps)
-            }
+        if pageRefreshCoordinator.isDirty(.maps) {
+            scheduleMapsRefresh(forceRefresh: false, delayNanoseconds: 120_000_000)
         }
     }
 
@@ -1604,10 +1841,34 @@ struct MapsViewNew: View, Searchable {
                     .id(LocationsSectionAnchor.map.rawValue)
             }
 
-            LocationTimelineView(
-                colorScheme: colorScheme,
-                displayMode: .embedded
-            )
+            if shouldRenderEmbeddedTimeline {
+                LocationTimelineView(
+                    colorScheme: colorScheme,
+                    displayMode: .embedded,
+                    isActive: isVisible
+                )
+            } else {
+                mapsSectionCard {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(Color.appTextSecondary(colorScheme))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Loading timeline")
+                                .font(FontManager.geist(size: 15, weight: .semibold))
+                                .foregroundColor(Color.appTextPrimary(colorScheme))
+
+                            Text("Visits will appear once the map settles.")
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
 
             Spacer().frame(height: 100)
         }
@@ -1890,7 +2151,7 @@ struct MapsViewNew: View, Searchable {
                 .fill(Color.appSectionCard(colorScheme))
 
             MiniMapView(
-                places: filteredSavedPlacesForQuery,
+                places: landingMapPlaces,
                 currentLocation: currentMapLocation,
                 colorScheme: colorScheme,
                 showsExpandControl: false,
@@ -2076,12 +2337,7 @@ struct MapsViewNew: View, Searchable {
     private func locationsSavedFolderRow(_ folder: (name: String, places: [SavedPlace], favourites: Int)) -> some View {
         Button(action: {
             HapticManager.shared.selection()
-            selectedSavedFolder = SavedPlacesFolderSelection(
-                id: folder.name,
-                name: folder.name,
-                places: folder.places.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending },
-                favourites: folder.favourites
-            )
+            selectedSavedFolder = savedFolderSelection(for: folder.name)
         }) {
             HStack(spacing: 12) {
                 ZStack {
@@ -2116,6 +2372,9 @@ struct MapsViewNew: View, Searchable {
             .padding(.vertical, 13)
         }
         .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            folderManagementContextMenu(for: folder.name)
+        }
     }
 
     private func folderMeta(for folder: (name: String, places: [SavedPlace], favourites: Int)) -> String {
@@ -2277,6 +2536,9 @@ struct MapsViewNew: View, Searchable {
                                         isSelected: false
                                     ) {
                                         openFolderCategory(folder.name)
+                                    }
+                                    .contextMenu {
+                                        folderManagementContextMenu(for: folder.name)
                                     }
                                 }
                             }
@@ -2539,7 +2801,7 @@ struct MapsViewNew: View, Searchable {
     @ViewBuilder
     private var miniMapSection: some View {
         MiniMapView(
-            places: filteredSavedPlacesForQuery,
+            places: landingMapPlaces,
             currentLocation: currentMapLocation,
             colorScheme: colorScheme,
             showsExpandControl: true,
@@ -2814,7 +3076,8 @@ struct MapsViewNew: View, Searchable {
     }
 
     private func loadTopLocations() {
-        Task {
+        topLocationsLoadTask?.cancel()
+        topLocationsLoadTask = Task {
             // OPTIMIZATION: Check cache first to avoid expensive Supabase queries
             typealias LocationTuple = (id: UUID, displayName: String, visitCount: Int)
             
@@ -2835,6 +3098,7 @@ struct MapsViewNew: View, Searchable {
                 
                 if !cachedAllLocations.isEmpty {
                     cachedLocations = Array(cachedAllLocations.prefix(3))
+                    guard !Task.isCancelled else { return }
                     await MainActor.run {
                         topLocations = cachedLocations
                         allLocations = cachedAllLocations
@@ -2879,6 +3143,7 @@ struct MapsViewNew: View, Searchable {
             // Top 3 for the card
             let top3 = allSorted.prefix(3).map { $0 }
 
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 topLocations = top3
                 allLocations = allSorted  // Store all locations for "See All" feature
@@ -4247,9 +4512,21 @@ private struct SavedPlacesFolderSheet: View {
     let colorScheme: ColorScheme
     let folder: SavedPlacesFolderSelection
     let onPlaceTap: (SavedPlace) -> Void
+    let onFolderChanged: (String) -> Void
+    let onFolderRenamed: (String, String) -> Void
+    let onFolderDeleted: (String) -> Void
     let onDismiss: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var locationsManager = LocationsManager.shared
+    @State private var selectedPlace: SavedPlace? = nil
+    @State private var showingRenamePlaceAlert = false
+    @State private var showingDeletePlaceConfirm = false
+    @State private var showingFolderActions = false
+    @State private var showingRenameFolderAlert = false
+    @State private var showingDeleteFolderConfirm = false
+    @State private var newPlaceName = ""
+    @State private var newFolderName = ""
 
     var body: some View {
         NavigationStack {
@@ -4266,6 +4543,15 @@ private struct SavedPlacesFolderSheet: View {
                     }
 
                     Spacer()
+
+                    Button(action: {
+                        showingFolderActions = true
+                    }) {
+                        Image(systemName: "ellipsis.circle")
+                            .font(FontManager.geist(size: 18, weight: .regular))
+                            .foregroundColor(Color.appTextSecondary(colorScheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
 
                     Button(action: close) {
                         Image(systemName: "xmark.circle.fill")
@@ -4330,6 +4616,22 @@ private struct SavedPlacesFolderSheet: View {
                                     .padding(.vertical, 14)
                                 }
                                 .buttonStyle(PlainButtonStyle())
+                                .contextMenu {
+                                    Button(action: {
+                                        selectedPlace = place
+                                        newPlaceName = place.customName ?? place.name
+                                        showingRenamePlaceAlert = true
+                                    }) {
+                                        Label("Rename", systemImage: "pencil")
+                                    }
+
+                                    Button(role: .destructive, action: {
+                                        selectedPlace = place
+                                        showingDeletePlaceConfirm = true
+                                    }) {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
 
                                 if index < folder.places.count - 1 {
                                     Divider()
@@ -4354,6 +4656,81 @@ private struct SavedPlacesFolderSheet: View {
             .background(Color.appBackground(colorScheme))
             .navigationBarHidden(true)
         }
+        .confirmationDialog("Folder Actions", isPresented: $showingFolderActions, titleVisibility: .visible) {
+            Button("Rename Folder") {
+                newFolderName = folder.name
+                showingRenameFolderAlert = true
+            }
+
+            Button("Delete Folder", role: .destructive) {
+                showingDeleteFolderConfirm = true
+            }
+
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Rename Folder", isPresented: $showingRenameFolderAlert) {
+            TextField("Folder name", text: $newFolderName)
+            Button("Cancel", role: .cancel) {
+                newFolderName = ""
+            }
+            Button("Rename") {
+                let trimmed = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                onFolderRenamed(folder.name, trimmed)
+                newFolderName = ""
+            }
+        } message: {
+            Text("Enter a new name for this folder")
+        }
+        .confirmationDialog("Delete Folder", isPresented: $showingDeleteFolderConfirm, titleVisibility: .visible) {
+            Button("Delete Folder", role: .destructive) {
+                onFolderDeleted(folder.name)
+                close()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Delete '\(folder.name)' and all \(folder.places.count) saved place\(folder.places.count == 1 ? "" : "s") inside it?")
+        }
+        .alert("Rename Place", isPresented: $showingRenamePlaceAlert) {
+            TextField("Place name", text: $newPlaceName)
+            Button("Cancel", role: .cancel) {
+                selectedPlace = nil
+                newPlaceName = ""
+            }
+            Button("Rename") {
+                if let place = selectedPlace {
+                    var updatedPlace = place
+                    let trimmedName = newPlaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    updatedPlace.customName = trimmedName.isEmpty ? nil : trimmedName
+                    locationsManager.updatePlace(updatedPlace)
+                    DispatchQueue.main.async {
+                        onFolderChanged(folder.name)
+                    }
+                    selectedPlace = nil
+                    newPlaceName = ""
+                }
+            }
+        } message: {
+            Text("Enter a new name for this place")
+        }
+        .confirmationDialog("Delete Place", isPresented: $showingDeletePlaceConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let place = selectedPlace {
+                    locationsManager.deletePlace(place)
+                    DispatchQueue.main.async {
+                        onFolderChanged(folder.name)
+                    }
+                    selectedPlace = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                selectedPlace = nil
+            }
+        } message: {
+            if let place = selectedPlace {
+                Text("Are you sure you want to delete '\(place.displayName)'?")
+            }
+        }
     }
 
     private var folderMetaText: String {
@@ -4374,6 +4751,18 @@ private struct SavedPlacesFolderPage: View {
     let folder: SavedPlacesFolderSelection
     let onPlaceTap: (SavedPlace) -> Void
     let onDismiss: () -> Void
+    let onFolderRenamed: (String, String) -> Void
+    let onFolderDeleted: (String) -> Void
+
+    @StateObject private var locationsManager = LocationsManager.shared
+    @State private var selectedPlace: SavedPlace? = nil
+    @State private var showingFolderActions = false
+    @State private var showingRenameFolderAlert = false
+    @State private var showingDeleteFolderConfirm = false
+    @State private var showingRenamePlaceAlert = false
+    @State private var showingDeletePlaceConfirm = false
+    @State private var newFolderName = ""
+    @State private var newPlaceName = ""
 
     var body: some View {
         ZStack {
@@ -4401,6 +4790,74 @@ private struct SavedPlacesFolderPage: View {
             }
         }
         .ignoresSafeArea(edges: .bottom)
+        .confirmationDialog("Folder Actions", isPresented: $showingFolderActions, titleVisibility: .visible) {
+            Button("Rename Folder") {
+                newFolderName = folder.name
+                showingRenameFolderAlert = true
+            }
+
+            Button("Delete Folder", role: .destructive) {
+                showingDeleteFolderConfirm = true
+            }
+
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Rename Folder", isPresented: $showingRenameFolderAlert) {
+            TextField("Folder name", text: $newFolderName)
+            Button("Cancel", role: .cancel) {
+                newFolderName = ""
+            }
+            Button("Rename") {
+                let trimmed = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                onFolderRenamed(folder.name, trimmed)
+                newFolderName = ""
+            }
+        } message: {
+            Text("Enter a new name for this folder")
+        }
+        .confirmationDialog("Delete Folder", isPresented: $showingDeleteFolderConfirm, titleVisibility: .visible) {
+            Button("Delete Folder", role: .destructive) {
+                onFolderDeleted(folder.name)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Delete '\(folder.name)' and all \(folder.places.count) saved place\(folder.places.count == 1 ? "" : "s") inside it?")
+        }
+        .alert("Rename Place", isPresented: $showingRenamePlaceAlert) {
+            TextField("Place name", text: $newPlaceName)
+            Button("Cancel", role: .cancel) {
+                selectedPlace = nil
+                newPlaceName = ""
+            }
+            Button("Rename") {
+                if let place = selectedPlace {
+                    var updatedPlace = place
+                    let trimmedName = newPlaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    updatedPlace.customName = trimmedName.isEmpty ? nil : trimmedName
+                    locationsManager.updatePlace(updatedPlace)
+                    selectedPlace = nil
+                    newPlaceName = ""
+                }
+            }
+        } message: {
+            Text("Enter a new name for this place")
+        }
+        .confirmationDialog("Delete Place", isPresented: $showingDeletePlaceConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let place = selectedPlace {
+                    locationsManager.deletePlace(place)
+                    selectedPlace = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                selectedPlace = nil
+            }
+        } message: {
+            if let place = selectedPlace {
+                Text("Are you sure you want to delete '\(place.displayName)'?")
+            }
+        }
     }
 
     private var header: some View {
@@ -4426,8 +4883,15 @@ private struct SavedPlacesFolderPage: View {
 
             Spacer(minLength: 0)
 
-            Color.clear
-                .frame(width: 36, height: 36)
+            Button(action: {
+                showingFolderActions = true
+            }) {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
         .padding(.top, 6)
@@ -4537,6 +5001,22 @@ private struct SavedPlacesFolderPage: View {
                     .padding(.vertical, 14)
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    Button(action: {
+                        selectedPlace = place
+                        newPlaceName = place.customName ?? place.name
+                        showingRenamePlaceAlert = true
+                    }) {
+                        Label("Rename", systemImage: "pencil")
+                    }
+
+                    Button(role: .destructive, action: {
+                        selectedPlace = place
+                        showingDeletePlaceConfirm = true
+                    }) {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
 
                 if index < folder.places.count - 1 {
                     Divider()

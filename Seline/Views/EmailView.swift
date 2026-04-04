@@ -11,9 +11,9 @@ struct PlanView: View, Searchable {
         let filter: EmailHubState.ContextFilter
     }
 
-    @StateObject private var emailService = EmailService.shared
-    @StateObject private var taskManager = TaskManager.shared
-    @StateObject private var tagManager = TagManager.shared
+    @ObservedObject private var emailService = EmailService.shared
+    @ObservedObject private var taskManager = TaskManager.shared
+    @ObservedObject private var tagManager = TagManager.shared
     private let pageRefreshCoordinator = PageRefreshCoordinator.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
@@ -401,38 +401,37 @@ struct PlanView: View, Searchable {
 
     @ViewBuilder
     private func overlayHeaderSection(action: @escaping () -> Void) -> some View {
-        Group {
-            if selectedTab == .inbox {
-                HStack(spacing: 12) {
-                    overlayDismissButton(action: action)
-                        .fixedSize()
+        HStack(spacing: 12) {
+            overlayDismissButton(action: action)
+                .fixedSize()
 
-                    overlayInboxCategoryStrip
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                HStack(spacing: 10) {
-                    overlayDismissButton(action: action)
-                        .frame(width: 42, height: 42)
-
-                    Spacer(minLength: 0)
-
-                    Text(currentPageTitle)
-                        .font(FontManager.geist(size: 18, weight: .semibold))
-                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                        .lineLimit(1)
-
-                    Spacer(minLength: 0)
-
-                    Color.clear
-                        .frame(width: 42, height: 42)
-                }
-            }
+            headerCenterContent
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.top, 4)
     }
 
-    private var overlayInboxCategoryStrip: some View {
+    @ViewBuilder
+    private var headerCenterContent: some View {
+        switch selectedTab {
+        case .inbox:
+            inboxHeaderCategoryStrip
+        case .calendar:
+            calendarHeaderFilterStrip
+        case .sent:
+            mailHeaderTitle("Sent")
+        }
+    }
+
+    private func mailHeaderTitle(_ title: String) -> some View {
+        Text(title)
+            .font(FontManager.geist(size: 17, weight: .semibold))
+            .foregroundColor(Color.appTextPrimary(colorScheme))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 4)
+    }
+
+    private var inboxHeaderCategoryStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 EmailCategoryChip(
@@ -521,8 +520,8 @@ struct PlanView: View, Searchable {
         HStack(spacing: 10) {
             headerLeadingActionButton
                 .frame(width: 42, height: 42)
-            EmailTabView(selectedTab: $selectedTab)
-                .frame(maxWidth: .infinity)
+            headerCenterContent
+                .frame(maxWidth: .infinity, alignment: .leading)
             headerPrimaryActionButton
                 .frame(width: 42, height: 42)
             if selectedTab != .calendar {
@@ -866,13 +865,15 @@ struct PlanView: View, Searchable {
         Task {
             emailService.notificationService.clearEmailNotifications()
 
-            if pageRefreshCoordinator.shouldRevalidate(
+            if selectedTab == .calendar {
+                refreshHubState()
+            } else if pageRefreshCoordinator.shouldRevalidate(
                 .plan,
                 maxAge: pageRefreshCoordinator.defaultMaxAge(for: .plan)
             ) {
                 await prepareCurrentFolderForDisplay(folder: selectedTab.folder, reason: reason)
                 pageRefreshCoordinator.markValidated(.plan)
-            } else if selectedTab != .calendar {
+            } else {
                 scheduleAvatarPrefetch(for: emailService.getEmails(for: selectedTab.folder))
             }
 
@@ -889,7 +890,12 @@ struct PlanView: View, Searchable {
         monthViewContent
     }
 
-    private var tagFilterButtons: some View {
+    private var calendarHeaderFilterStrip: some View {
+        calendarFilterButtonsContent(horizontalPadding: 0, verticalPadding: 2)
+            .hideScrollContentInsetIfAvailable()
+    }
+
+    private func calendarFilterButtonsContent(horizontalPadding: CGFloat, verticalPadding: CGFloat) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 // "All" button
@@ -958,15 +964,9 @@ struct PlanView: View, Searchable {
                     .buttonStyle(PlainButtonStyle())
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 14)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
         }
-        .appAmbientCardStyle(
-            colorScheme: colorScheme,
-            variant: pageCardVariant,
-            cornerRadius: 22,
-            highlightStrength: 0.45
-        )
     }
 
     private func filterButtonTextColor(isSelected: Bool) -> Color {
@@ -997,8 +997,6 @@ struct PlanView: View, Searchable {
     private var monthViewContent: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 14) {
-                tagFilterButtons
-
                 CalendarMonthView(
                     selectedDate: $selectedDate,
                     selectedTagId: selectedTagId,
@@ -1059,8 +1057,6 @@ struct PlanView: View, Searchable {
                 } else if selectedTab == .sent {
                     sentContextStrip
                 }
-
-                EmailCategoryFilterView(selectedCategory: $selectedCategory)
             }
         )
     }

@@ -102,120 +102,13 @@ struct PlaceDetailSheet: View {
                         .ignoresSafeArea()
                 )
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Spacer()
-                            .frame(height: 8)
-
-                        sectionCard {
-                            VStack(alignment: .leading, spacing: 14) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(place.displayName)
-                                        .font(FontManager.geist(size: 34, weight: .bold))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                                    HStack(spacing: 8) {
-                                        Text(place.category)
-                                            .font(FontManager.geist(size: 12, weight: .semibold))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 5)
-                                            .background(
-                                                Capsule()
-                                                    .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
-                                            )
-
-                                        if let rating = resolvedRating {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "star.fill")
-                                                    .font(FontManager.geist(size: 12, weight: .semibold))
-                                                    .foregroundColor(.yellow)
-                                                Text(String(format: "%.1f", rating))
-                                                    .font(FontManager.geist(size: 14, weight: .semibold))
-                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                                                if let totalRatings = resolvedTotalRatings {
-                                                    Text("(\(totalRatings))")
-                                                        .font(FontManager.geist(size: 12, weight: .medium))
-                                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                                }
-                                            }
-                                        }
-
-                                        if isLoadingDetails {
-                                            ProgressView()
-                                                .scaleEffect(0.72)
-                                        }
-                                    }
-                                }
-
-                                Text(place.address)
-                                    .font(FontManager.geist(size: 16, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.82) : Color.black.opacity(0.82))
-
-                                HStack(spacing: 10) {
-                                    if let phone = resolvedPhone {
-                                        Button(action: { callPhone(phone) }) {
-                                            Text("Call")
-                                                .font(FontManager.geist(size: 14, weight: .semibold))
-                                                .foregroundColor(colorScheme == .dark ? .black : .white)
-                                                .padding(.horizontal, 18)
-                                                .padding(.vertical, 9)
-                                                .background(
-                                                    Capsule()
-                                                        .fill(colorScheme == .dark ? Color.white : Color.black)
-                                                )
-                                        }
-                                        .buttonStyle(PlainButtonStyle())
-                                    }
-
-                                    Button(action: { openInMaps(place: place) }) {
-                                        Text("Directions")
-                                            .font(FontManager.geist(size: 14, weight: .semibold))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            .padding(.horizontal, 18)
-                                            .padding(.vertical, 9)
-                                            .background(
-                                                Capsule()
-                                                    .fill(colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.06))
-                                            )
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-
-                        if !resolvedPhotoURLs.isEmpty {
-                            sectionCard {
-                                placePhotoGallerySection
-                            }
-                        }
-
-                        if !resolvedOpeningHours.isEmpty {
-                            sectionCard {
-                                OpeningHoursSection(hours: resolvedOpeningHours, colorScheme: colorScheme)
-                            }
-                        }
-
-                        if !sortedReviews.isEmpty {
-                            sectionCard {
-                                reviewsSection
-                            }
-                        }
-
-                        sectionCard {
-                            LocationMemorySection(place: place, colorScheme: colorScheme)
-                        }
-
-                        if !isFromRanking {
-                            PlaceVisitCalendarHistoryCard(place: place)
-                        }
-
-                        Spacer()
-                            .frame(height: 40)
+                Group {
+                    if #available(iOS 16.4, *) {
+                        placeDetailScrollView
+                            .scrollBounceBehavior(.basedOnSize)
+                    } else {
+                        placeDetailScrollView
                     }
-                    .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
                 }
                 .background(pageBackgroundColor)
                 .task(id: place.googlePlaceId) {
@@ -236,6 +129,124 @@ struct PlaceDetailSheet: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Which map app would you like to use? This will be your default choice.")
+        }
+    }
+
+    private var placeDetailScrollView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                Spacer()
+                    .frame(height: 8)
+
+                sectionCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(place.displayName)
+                                .font(FontManager.geist(size: 34, weight: .bold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                            HStack(spacing: 8) {
+                                Text(place.category)
+                                    .font(FontManager.geist(size: 12, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        Capsule()
+                                            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                                    )
+
+                                if let rating = resolvedRating {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "star.fill")
+                                            .font(FontManager.geist(size: 12, weight: .semibold))
+                                            .foregroundColor(.yellow)
+                                        Text(String(format: "%.1f", rating))
+                                            .font(FontManager.geist(size: 14, weight: .semibold))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                        if let totalRatings = resolvedTotalRatings {
+                                            Text("(\(totalRatings))")
+                                                .font(FontManager.geist(size: 12, weight: .medium))
+                                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                        }
+                                    }
+                                }
+
+                                if isLoadingDetails {
+                                    ProgressView()
+                                        .scaleEffect(0.72)
+                                }
+                            }
+                        }
+
+                        Text(place.address)
+                            .font(FontManager.geist(size: 16, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.82) : Color.black.opacity(0.82))
+
+                        HStack(spacing: 10) {
+                            if let phone = resolvedPhone {
+                                Button(action: { callPhone(phone) }) {
+                                    Text("Call")
+                                        .font(FontManager.geist(size: 14, weight: .semibold))
+                                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                                        .padding(.horizontal, 18)
+                                        .padding(.vertical, 9)
+                                        .background(
+                                            Capsule()
+                                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                                        )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+
+                            Button(action: { openInMaps(place: place) }) {
+                                Text("Directions")
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .padding(.horizontal, 18)
+                                    .padding(.vertical, 9)
+                                    .background(
+                                        Capsule()
+                                            .fill(colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.06))
+                                    )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if !resolvedPhotoURLs.isEmpty {
+                    sectionCard {
+                        placePhotoGallerySection
+                    }
+                }
+
+                if !resolvedOpeningHours.isEmpty {
+                    sectionCard {
+                        OpeningHoursSection(hours: resolvedOpeningHours, colorScheme: colorScheme)
+                    }
+                }
+
+                if !sortedReviews.isEmpty {
+                    sectionCard {
+                        reviewsSection
+                    }
+                }
+
+                sectionCard {
+                    LocationMemorySection(place: place, colorScheme: colorScheme)
+                }
+
+                if !isFromRanking {
+                    PlaceVisitCalendarHistoryCard(place: place)
+                }
+
+                Spacer()
+                    .frame(height: 40)
+            }
+            .padding(.horizontal, ShadcnSpacing.screenEdgeHorizontal)
         }
     }
 
@@ -483,9 +494,11 @@ struct PlaceVisitCalendarHistoryCard: View {
     @State private var currentMonth = Calendar.current.startOfDay(for: Date())
     @State private var selectedDate = Calendar.current.startOfDay(for: Date())
     @State private var monthPageSelection: Int = 1
+    @State private var isHandlingMonthPageTurn = false
 
     private let calendar = Calendar.current
     private let rowHeight: CGFloat = 50
+    private let monthGridRowCount: CGFloat = 6
 
     private var cardFill: Color {
         colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03)
@@ -666,8 +679,8 @@ struct PlaceVisitCalendarHistoryCard: View {
                     let today = calendar.startOfDay(for: Date())
                     currentMonth = today
                     selectedDate = today
-                    monthPageSelection = 1
                 }
+                resetMonthPager()
                 HapticManager.shared.selection()
             }) {
                 Text("Today")
@@ -717,29 +730,35 @@ struct PlaceVisitCalendarHistoryCard: View {
     }
 
     private var swipeableMonthGrid: some View {
-        TabView(selection: $monthPageSelection) {
-            monthGrid(for: monthOffset(-1))
-                .frame(height: CGFloat(weeksInMonth(for: monthOffset(-1)).count) * rowHeight, alignment: .top)
+        let previousMonth = monthOffset(-1)
+        let nextMonth = monthOffset(1)
+
+        return TabView(selection: $monthPageSelection) {
+            monthGrid(for: previousMonth)
+                .frame(height: monthGridHeight, alignment: .top)
                 .tag(0)
 
             monthGrid(for: currentMonth)
-                .frame(height: CGFloat(weeksInMonth(for: currentMonth).count) * rowHeight, alignment: .top)
+                .frame(height: monthGridHeight, alignment: .top)
                 .tag(1)
 
-            monthGrid(for: monthOffset(1))
-                .frame(height: CGFloat(weeksInMonth(for: monthOffset(1)).count) * rowHeight, alignment: .top)
+            monthGrid(for: nextMonth)
+                .frame(height: monthGridHeight, alignment: .top)
                 .tag(2)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: CGFloat(weeksInMonth(for: currentMonth).count) * rowHeight)
+        .frame(height: monthGridHeight)
         .padding(.bottom, 10)
         .onChange(of: monthPageSelection) { newValue in
-            guard newValue != 1 else { return }
-            withAnimation(.easeInOut(duration: 0.25)) {
-                shiftMonth(by: newValue == 0 ? -1 : 1)
-            }
+            guard !isHandlingMonthPageTurn, newValue != 1 else { return }
+
+            isHandlingMonthPageTurn = true
+            let monthOffset = newValue == 0 ? -1 : 1
+            resetMonthPager()
+            shiftMonth(by: monthOffset)
+
             DispatchQueue.main.async {
-                monthPageSelection = 1
+                isHandlingMonthPageTurn = false
             }
         }
     }
@@ -868,7 +887,7 @@ struct PlaceVisitCalendarHistoryCard: View {
                     currentMonth = selectedDate
                 }
 
-                monthPageSelection = 1
+                resetMonthPager()
                 isLoading = false
             }
         }
@@ -885,6 +904,10 @@ struct PlaceVisitCalendarHistoryCard: View {
 
     private func shiftMonth(by value: Int) {
         currentMonth = calendar.date(byAdding: .month, value: value, to: currentMonth) ?? currentMonth
+    }
+
+    private var monthGridHeight: CGFloat {
+        monthGridRowCount * rowHeight
     }
 
     private func weeksInMonth(for month: Date) -> [[Date?]] {
@@ -906,8 +929,22 @@ struct PlaceVisitCalendarHistoryCard: View {
             days.append(nil)
         }
 
-        return stride(from: 0, to: days.count, by: 7).map { index in
+        var weeks = stride(from: 0, to: days.count, by: 7).map { index in
             Array(days[index..<index+7])
+        }
+
+        while weeks.count < Int(monthGridRowCount) {
+            weeks.append(Array(repeating: nil, count: 7))
+        }
+
+        return weeks
+    }
+
+    private func resetMonthPager() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            monthPageSelection = 1
         }
     }
 

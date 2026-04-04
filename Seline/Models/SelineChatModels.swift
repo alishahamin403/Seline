@@ -7,11 +7,14 @@ enum SelineChatRole: String, Codable, Hashable {
 
 enum SelineChatDomain: String, Codable, CaseIterable, Hashable {
     case emails
+    case events
     case notes
     case visits
     case places
     case people
     case receipts
+    case daySummaries
+    case trackers
 }
 
 enum SelineChatArtifactKind: String, Codable, CaseIterable, Hashable {
@@ -21,6 +24,7 @@ enum SelineChatArtifactKind: String, Codable, CaseIterable, Hashable {
     case placeCards
     case receiptCards
     case personCards
+    case trackerCards
     case placeMap
 }
 
@@ -63,6 +67,126 @@ struct SelineChatQuestionFrame: Codable, Hashable {
     let wantsMap: Bool
     let wantsSpecificObject: Bool
     let prefersMostRecent: Bool
+    let isFollowUpLike: Bool
+    let recentContextRefs: [String]
+    let recentContextSummary: [String]
+}
+
+enum SelineChatSourceKind: String, Codable, CaseIterable, Hashable {
+    case email
+    case event
+    case note
+    case receipt
+    case visit
+    case person
+    case place
+    case daySummary
+    case tracker
+    case web
+
+    var label: String {
+        switch self {
+        case .email: return "Emails"
+        case .event: return "Events"
+        case .note: return "Notes"
+        case .receipt: return "Receipts"
+        case .visit: return "Visits"
+        case .person: return "People"
+        case .place: return "Places"
+        case .daySummary: return "Day Summaries"
+        case .tracker: return "Trackers"
+        case .web: return "Web"
+        }
+    }
+}
+
+struct SelineChatProviderState: Codable, Hashable {
+    var previousResponseID: String?
+}
+
+struct SelineChatToolTraceEntry: Identifiable, Codable, Hashable {
+    let id: String
+    let toolName: String
+    let argumentsSummary: String
+    let latencyMS: Int
+    let resultCount: Int
+    let evidenceIDs: [String]
+    let note: String?
+
+    init(
+        toolName: String,
+        argumentsSummary: String,
+        latencyMS: Int,
+        resultCount: Int,
+        evidenceIDs: [String],
+        note: String? = nil
+    ) {
+        self.id = UUID().uuidString
+        self.toolName = toolName
+        self.argumentsSummary = argumentsSummary
+        self.latencyMS = latencyMS
+        self.resultCount = resultCount
+        self.evidenceIDs = evidenceIDs
+        self.note = note
+    }
+}
+
+struct SelineChatTurnTrace: Codable, Hashable {
+    let query: String
+    let startedAt: Date
+    let completedAt: Date
+    let toolCalls: [SelineChatToolTraceEntry]
+    let finalEvidenceIDs: [String]
+    let noAnswerReason: String?
+}
+
+struct SelineChatEvidenceRecord: Identifiable, Codable, Hashable {
+    let id: String
+    let sourceKind: SelineChatSourceKind
+    let title: String
+    let snippet: String
+    let timestamp: Date?
+    let relationIDs: [String]
+    let externalURL: String?
+}
+
+struct SelineChatEvidenceBundle: Codable, Hashable {
+    let id: String
+    let query: String
+    let generatedAt: Date
+    var records: [SelineChatEvidenceRecord]
+    var items: [SelineChatEvidenceItem]
+    var places: [SelineChatPlaceResult]
+    var citations: [SelineChatWebCitation]
+    var trace: [SelineChatToolTraceEntry]
+
+    init(
+        query: String,
+        generatedAt: Date = Date(),
+        records: [SelineChatEvidenceRecord] = [],
+        items: [SelineChatEvidenceItem] = [],
+        places: [SelineChatPlaceResult] = [],
+        citations: [SelineChatWebCitation] = [],
+        trace: [SelineChatToolTraceEntry] = []
+    ) {
+        self.id = UUID().uuidString
+        self.query = query
+        self.generatedAt = generatedAt
+        self.records = records
+        self.items = items
+        self.places = places
+        self.citations = citations
+        self.trace = trace
+    }
+
+    var topContextLines: [String] {
+        Array(records.prefix(8).map { record in
+            if let timestamp = record.timestamp {
+                return "\(record.id) | \(record.sourceKind.rawValue) | \(record.title) | \(FormatterCache.shortDate.string(from: timestamp))"
+            }
+            return "\(record.id) | \(record.sourceKind.rawValue) | \(record.title)"
+        })
+    }
 }
 
 struct SelineChatGroundedFact: Identifiable, Codable, Hashable {
@@ -99,42 +223,31 @@ enum SelineChatEvidenceKind: String, Codable, Hashable {
     case visit
     case person
     case daySummary
+    case tracker
 
     var label: String {
         switch self {
-        case .email:
-            return "Email"
-        case .event:
-            return "Event"
-        case .note:
-            return "Note"
-        case .receipt:
-            return "Receipt"
-        case .visit:
-            return "Visit"
-        case .person:
-            return "Person"
-        case .daySummary:
-            return "Summary"
+        case .email: return "Email"
+        case .event: return "Event"
+        case .note: return "Note"
+        case .receipt: return "Receipt"
+        case .visit: return "Visit"
+        case .person: return "Person"
+        case .daySummary: return "Summary"
+        case .tracker: return "Tracker"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .email:
-            return "tray.fill"
-        case .event:
-            return "calendar"
-        case .note:
-            return "note.text"
-        case .receipt:
-            return "creditcard"
-        case .visit:
-            return "location"
-        case .person:
-            return "person.fill"
-        case .daySummary:
-            return "sun.max"
+        case .email: return "tray.fill"
+        case .event: return "calendar"
+        case .note: return "note.text"
+        case .receipt: return "creditcard"
+        case .visit: return "location"
+        case .person: return "person.fill"
+        case .daySummary: return "sun.max"
+        case .tracker: return "chart.line.uptrend.xyaxis"
         }
     }
 }
@@ -221,6 +334,7 @@ struct SelineChatEvidencePacket: Codable, Hashable {
     let openQuestions: [String]
     let allowedArtifacts: Set<SelineChatArtifactKind>
     let places: [SelineChatPlaceResult]
+    var webSearchResult: String? = nil
 
     var referencedItemIDs: [String] {
         Array(Set(facts.flatMap(\.sourceItemIDs)))
@@ -239,6 +353,38 @@ struct SelineChatArtifactRequest: Identifiable, Codable, Hashable {
     }
 }
 
+struct SelineChatInlineSource: Identifiable, Codable, Hashable {
+    let id: String
+    let displayText: String
+    let evidenceItem: SelineChatEvidenceItem?
+    let placeResult: SelineChatPlaceResult?
+    let citation: SelineChatWebCitation?
+
+    init(evidenceItem: SelineChatEvidenceItem, displayText: String) {
+        self.id = "inline-evidence-\(evidenceItem.id)"
+        self.displayText = displayText
+        self.evidenceItem = evidenceItem
+        self.placeResult = nil
+        self.citation = nil
+    }
+
+    init(placeResult: SelineChatPlaceResult, displayText: String) {
+        self.id = "inline-place-\(placeResult.id)"
+        self.displayText = displayText
+        self.evidenceItem = nil
+        self.placeResult = placeResult
+        self.citation = nil
+    }
+
+    init(citation: SelineChatWebCitation, displayText: String? = nil) {
+        self.id = "inline-citation-\(citation.id)"
+        self.displayText = displayText ?? citation.source ?? citation.title
+        self.evidenceItem = nil
+        self.placeResult = nil
+        self.citation = citation
+    }
+}
+
 struct SelineChatPlaceAnchor: Codable, Hashable {
     let savedPlaceID: UUID
     let name: String
@@ -254,6 +400,7 @@ struct SelineChatEpisodeAnchor: Codable, Hashable {
     let placeIDs: [UUID]
     let personIDs: [UUID]
     let label: String
+    var visitDates: [Date]  // actual dates of the visits, used for day-scoped follow-up retrieval
 }
 
 struct SelineChatPersonAnchor: Codable, Hashable {
@@ -354,6 +501,48 @@ struct SelineChatAssistantPayload: Codable, Hashable {
     let sourceChips: [String]
     let responseBlocks: [SelineChatResponseBlock]
     let activeContext: SelineChatActiveContext?
+    let inlineSources: [SelineChatInlineSource]
+    var followUpSuggestions: [String]
+
+    init(
+        sourceChips: [String],
+        responseBlocks: [SelineChatResponseBlock],
+        activeContext: SelineChatActiveContext?,
+        inlineSources: [SelineChatInlineSource] = [],
+        followUpSuggestions: [String] = []
+    ) {
+        self.sourceChips = sourceChips
+        self.responseBlocks = responseBlocks
+        self.activeContext = activeContext
+        self.inlineSources = inlineSources
+        self.followUpSuggestions = followUpSuggestions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sourceChips
+        case responseBlocks
+        case activeContext
+        case inlineSources
+        case followUpSuggestions
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sourceChips = try container.decode([String].self, forKey: .sourceChips)
+        self.responseBlocks = try container.decode([SelineChatResponseBlock].self, forKey: .responseBlocks)
+        self.activeContext = try container.decodeIfPresent(SelineChatActiveContext.self, forKey: .activeContext)
+        self.inlineSources = try container.decodeIfPresent([SelineChatInlineSource].self, forKey: .inlineSources) ?? []
+        self.followUpSuggestions = try container.decodeIfPresent([String].self, forKey: .followUpSuggestions) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sourceChips, forKey: .sourceChips)
+        try container.encode(responseBlocks, forKey: .responseBlocks)
+        try container.encodeIfPresent(activeContext, forKey: .activeContext)
+        try container.encode(inlineSources, forKey: .inlineSources)
+        try container.encode(followUpSuggestions, forKey: .followUpSuggestions)
+    }
 
     var primaryText: String {
         for block in responseBlocks {
@@ -370,6 +559,7 @@ struct SelineChatTurn: Identifiable, Codable, Hashable {
     let role: SelineChatRole
     var text: String
     var assistantPayload: SelineChatAssistantPayload?
+    var debugTrace: SelineChatTurnTrace?
     var isStreaming: Bool
     let createdAt: Date
 
@@ -378,6 +568,7 @@ struct SelineChatTurn: Identifiable, Codable, Hashable {
         role: SelineChatRole,
         text: String,
         assistantPayload: SelineChatAssistantPayload? = nil,
+        debugTrace: SelineChatTurnTrace? = nil,
         isStreaming: Bool = false,
         createdAt: Date = Date()
     ) {
@@ -385,6 +576,7 @@ struct SelineChatTurn: Identifiable, Codable, Hashable {
         self.role = role
         self.text = text
         self.assistantPayload = assistantPayload
+        self.debugTrace = debugTrace
         self.isStreaming = isStreaming
         self.createdAt = createdAt
     }
@@ -402,19 +594,25 @@ struct SelineChatThread: Identifiable, Codable, Hashable {
     var turns: [SelineChatTurn]
     var updatedAt: Date
     var activeContext: SelineChatActiveContext?
+    var providerState: SelineChatProviderState?
+    var lastEvidenceBundle: SelineChatEvidenceBundle?
 
     init(
         id: UUID = UUID(),
         title: String,
         turns: [SelineChatTurn] = [],
         updatedAt: Date = Date(),
-        activeContext: SelineChatActiveContext? = nil
+        activeContext: SelineChatActiveContext? = nil,
+        providerState: SelineChatProviderState? = nil,
+        lastEvidenceBundle: SelineChatEvidenceBundle? = nil
     ) {
         self.id = id
         self.title = title
         self.turns = turns
         self.updatedAt = updatedAt
         self.activeContext = activeContext
+        self.providerState = providerState
+        self.lastEvidenceBundle = lastEvidenceBundle
     }
 
     var previewText: String {
@@ -431,9 +629,16 @@ struct SelineChatThinkingState: Hashable {
     let sourceChips: [String]
 }
 
+struct SelineChatCompletionContext {
+    let payload: SelineChatAssistantPayload
+    let providerState: SelineChatProviderState?
+    let lastEvidenceBundle: SelineChatEvidenceBundle?
+    let turnTrace: SelineChatTurnTrace?
+}
+
 enum SelineChatStreamEvent {
     case status(title: String, sourceChips: [String])
     case textDelta(String)
-    case completed(SelineChatAssistantPayload)
+    case completed(SelineChatCompletionContext)
     case failed(String)
 }

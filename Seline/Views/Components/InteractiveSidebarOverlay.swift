@@ -2,25 +2,28 @@ import SwiftUI
 import UIKit
 
 struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View {
-    private enum CloseDragAxis: Equatable {
+    private enum DragAxis: Equatable {
         case horizontal
         case vertical
     }
 
     @Binding var isPresented: Bool
     let canOpen: Bool
+    let allowsInteractiveDrag: Bool
     let sidebarWidth: CGFloat
     let colorScheme: ColorScheme
     let onOverlayVisibilityChanged: ((Bool) -> Void)?
     let mainContent: MainContent
     let sidebarContent: SidebarContent
     @State private var dragOffset: CGFloat = 0
-    @State private var closeDragAxis: CloseDragAxis?
+    @State private var closeDragAxis: DragAxis?
+    @State private var openDragAxis: DragAxis?
     @State private var suppressSidebarContentTouches = false
 
     init(
         isPresented: Binding<Bool>,
         canOpen: Bool = true,
+        allowsInteractiveDrag: Bool = true,
         sidebarWidth: CGFloat,
         colorScheme: ColorScheme,
         onOverlayVisibilityChanged: ((Bool) -> Void)? = nil,
@@ -29,6 +32,7 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
     ) {
         self._isPresented = isPresented
         self.canOpen = canOpen
+        self.allowsInteractiveDrag = allowsInteractiveDrag
         self.sidebarWidth = sidebarWidth
         self.colorScheme = colorScheme
         self.onOverlayVisibilityChanged = onOverlayVisibilityChanged
@@ -46,6 +50,10 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
 
     private var shouldKeepSidebarMounted: Bool {
         canOpen || shouldRenderOverlay
+    }
+
+    private var shouldEnableInteractiveDrag: Bool {
+        allowsInteractiveDrag && canOpen
     }
 
     /// How far the sidebar has slid into view (0 = fully hidden, sidebarWidth = fully open).
@@ -76,6 +84,10 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
     private func resetCloseDragTracking() {
         closeDragAxis = nil
         suppressSidebarContentTouches = false
+    }
+
+    private func resetOpenDragTracking() {
+        openDragAxis = nil
     }
 
     private func dismissSidebar() {
@@ -189,21 +201,50 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
             }
 
             // Edge pan gesture catcher (always at the screen's left edge)
-            if canOpen && !isPresented {
+            if shouldEnableInteractiveDrag && !isPresented {
                 NativeEdgePanCapture(
                     edgeActivationWidth: 26,
-                    onChanged: { translationX, _ in
+                    onChanged: { translation, velocity in
                         guard canOpen, !isPresented else { return }
-                        let horizontal = max(0, translationX)
-                        dragOffset = min(horizontal, sidebarWidth)
+                        let horizontal = max(0, translation.x)
+                        let verticalMagnitude = abs(translation.y)
+
+                        if openDragAxis == nil {
+                            if horizontal > 14,
+                               horizontal > verticalMagnitude * 1.35 {
+                                openDragAxis = .horizontal
+                            } else if verticalMagnitude > 8,
+                                      verticalMagnitude > max(1, horizontal) * 1.05 {
+                                openDragAxis = .vertical
+                                return
+                            } else {
+                                return
+                            }
+                        }
+
+                        guard openDragAxis == .horizontal else { return }
+
+                        // Ignore ambiguous swipes and only start shifting the page
+                        // once the edge gesture is clearly horizontal.
+                        let projectedHorizontal = max(horizontal, horizontal + max(0, velocity.x) * 0.02)
+                        dragOffset = min(projectedHorizontal, sidebarWidth)
                     },
-                    onEnded: { translationX, velocityX in
+                    onEnded: { translation, velocity in
+                        defer { resetOpenDragTracking() }
+
                         guard canOpen, !isPresented else {
                             dragOffset = 0
                             return
                         }
 
-                        let projected = max(translationX + (velocityX * 0.18), translationX)
+                        guard openDragAxis == .horizontal else {
+                            withAnimation(spring) {
+                                dragOffset = 0
+                            }
+                            return
+                        }
+
+                        let projected = max(translation.x + (velocity.x * 0.18), translation.x)
                         let shouldOpen = projected > sidebarWidth * 0.35
 
                         withAnimation(spring) {
@@ -224,7 +265,7 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
             overlayBody(mainOffset: mainOffset)
                 .simultaneousGesture(
                     sidebarCloseDragGesture,
-                    including: isPresented ? .all : .none
+                    including: isPresented && allowsInteractiveDrag ? .all : .none
                 )
         }
         .onAppear {
@@ -237,11 +278,13 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
             if !isVisible {
                 dragOffset = 0
                 resetCloseDragTracking()
+                resetOpenDragTracking()
             }
         }
         .onDisappear {
             dragOffset = 0
             resetCloseDragTracking()
+            resetOpenDragTracking()
             publishOverlayVisibility(false)
         }
     }
@@ -249,8 +292,8 @@ struct InteractiveSidebarOverlay<MainContent: View, SidebarContent: View>: View 
 
 private struct NativeEdgePanCapture: UIViewRepresentable {
     let edgeActivationWidth: CGFloat
-    let onChanged: (CGFloat, CGFloat) -> Void
-    let onEnded: (CGFloat, CGFloat) -> Void
+    let onChanged: (CGPoint, CGPoint) -> Void
+    let onEnded: (CGPoint, CGPoint) -> Void
 
     func makeUIView(context: Context) -> UIView {
         let view = EdgePassthroughView()
@@ -284,26 +327,26 @@ private struct NativeEdgePanCapture: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var onChanged: (CGFloat, CGFloat) -> Void
-        var onEnded: (CGFloat, CGFloat) -> Void
+        var onChanged: (CGPoint, CGPoint) -> Void
+        var onEnded: (CGPoint, CGPoint) -> Void
 
         init(
-            onChanged: @escaping (CGFloat, CGFloat) -> Void,
-            onEnded: @escaping (CGFloat, CGFloat) -> Void
+            onChanged: @escaping (CGPoint, CGPoint) -> Void,
+            onEnded: @escaping (CGPoint, CGPoint) -> Void
         ) {
             self.onChanged = onChanged
             self.onEnded = onEnded
         }
 
         @objc func handlePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
-            let translationX = gesture.translation(in: gesture.view).x
-            let velocityX = gesture.velocity(in: gesture.view).x
+            let translation = gesture.translation(in: gesture.view)
+            let velocity = gesture.velocity(in: gesture.view)
 
             switch gesture.state {
             case .began, .changed:
-                onChanged(translationX, velocityX)
+                onChanged(translation, velocity)
             case .ended, .cancelled, .failed:
-                onEnded(translationX, velocityX)
+                onEnded(translation, velocity)
             default:
                 break
             }

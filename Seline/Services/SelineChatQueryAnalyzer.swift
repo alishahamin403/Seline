@@ -6,7 +6,10 @@ struct SelineChatQuestionInterpreter {
     private let followUpSignals: [(target: SelineChatFollowUpTargetType, phrases: [String])] = [
         (.place, ["this place", "that place", "this location", "that location", "this restaurant", "that restaurant", "this spot", "that spot"]),
         (.email, ["this email", "that email", "this message", "that message"]),
-        (.episode, ["that trip", "this trip", "that visit", "this visit", "that day", "this day"]),
+        (.episode, ["that trip", "this trip", "that visit", "this visit", "that day", "this day",
+                    "that whole day", "that entire day", "that weekend", "that same day",
+                    "what else happened", "what else did i do", "more about that day",
+                    "show me that day", "what happened that day", "that time we"]),
         (.person, ["that person", "this person", "them again"]),
         (.receiptCluster, ["that receipt", "those receipts", "that purchase", "those purchases"])
     ]
@@ -23,12 +26,17 @@ struct SelineChatQuestionInterpreter {
         "detail", "details", "more"
     ]
 
-    func interpret(_ question: String, activeContext: SelineChatActiveContext?) -> SelineChatQuestionFrame {
+    func interpret(
+        _ question: String,
+        activeContext: SelineChatActiveContext?,
+        recentEvidence: SelineChatEvidenceBundle? = nil
+    ) -> SelineChatQuestionFrame {
         let normalizedQuestion = normalizeWhitespace(question)
         let lowercased = normalizedQuestion.lowercased()
         let timeScope = interpretTimeScope(from: lowercased)
         let followUpTarget = detectFollowUpTarget(in: lowercased, activeContext: activeContext)
         let isExplicitFollowUp = followUpTarget != nil
+        let isFollowUpLike = isExplicitFollowUp || detectGenericFollowUp(in: lowercased)
         let searchTerms = extractSearchTerms(from: normalizedQuestion)
         let entityMentions = extractEntityMentions(from: normalizedQuestion)
         let requestedDomains = detectRequestedDomains(in: lowercased, searchTerms: searchTerms)
@@ -40,6 +48,8 @@ struct SelineChatQuestionInterpreter {
             || entityMentions.count == 1
         )
         let prefersMostRecent = containsAny(lowercased, phrases: ["last", "latest", "most recent", "recently"])
+        let recentContextRefs = recentContextRefs(for: lowercased, bundle: recentEvidence)
+        let recentContextSummary = recentContextSummary(for: recentContextRefs, bundle: recentEvidence)
 
         return SelineChatQuestionFrame(
             originalQuestion: question,
@@ -54,8 +64,70 @@ struct SelineChatQuestionInterpreter {
             wantsList: wantsList,
             wantsMap: wantsMap,
             wantsSpecificObject: wantsSpecificObject,
-            prefersMostRecent: prefersMostRecent
+            prefersMostRecent: prefersMostRecent,
+            isFollowUpLike: isFollowUpLike,
+            recentContextRefs: recentContextRefs,
+            recentContextSummary: recentContextSummary
         )
+    }
+
+    private func detectGenericFollowUp(in query: String) -> Bool {
+        containsAny(query, phrases: [
+            "what else happened",
+            "what else did i do",
+            "that day",
+            "that flight",
+            "that email",
+            "that place",
+            "that trip",
+            "more on that",
+            "tell me more",
+            "more details",
+            "show details",
+            "what about that",
+            "how about that",
+            "and what about",
+            "there",
+            "it"
+        ])
+    }
+
+    private func recentContextRefs(for query: String, bundle: SelineChatEvidenceBundle?) -> [String] {
+        guard let bundle else { return [] }
+        guard detectGenericFollowUp(in: query) else { return [] }
+
+        let preferredKinds: Set<SelineChatSourceKind> = {
+            if containsAny(query, phrases: ["day", "happened", "else"]) {
+                return [.daySummary, .event, .visit, .email, .note, .receipt]
+            }
+            if containsAny(query, phrases: ["flight", "email", "message"]) {
+                return [.email]
+            }
+            if containsAny(query, phrases: ["place", "there", "restaurant", "location"]) {
+                return [.place, .visit]
+            }
+            return []
+        }()
+
+        let filtered = bundle.records.filter { record in
+            preferredKinds.isEmpty || preferredKinds.contains(record.sourceKind)
+        }
+        let refs = filtered.isEmpty ? bundle.records : filtered
+        return Array(refs.prefix(8).map(\.id))
+    }
+
+    private func recentContextSummary(for refs: [String], bundle: SelineChatEvidenceBundle?) -> [String] {
+        guard let bundle, !refs.isEmpty else { return [] }
+        let allowed = Set(refs)
+        return bundle.records
+            .filter { allowed.contains($0.id) }
+            .prefix(8)
+            .map { record in
+                if let timestamp = record.timestamp {
+                    return "\(record.id) | \(record.title) | \(FormatterCache.shortDate.string(from: timestamp))"
+                }
+                return "\(record.id) | \(record.title)"
+            }
     }
 
     private func interpretTimeScope(from query: String) -> SelineChatTimeScope? {
@@ -108,6 +180,14 @@ struct SelineChatQuestionInterpreter {
         if containsAny(query, phrases: ["email", "emails", "inbox", "reply", "replies", "message", "messages", "sent"]) {
             domains.insert(.emails)
         }
+        // Travel/booking queries → search emails for confirmations, itineraries, etc.
+        if containsAny(query, phrases: ["flight", "flights", "booking", "reservation", "itinerary",
+                                        "hotel", "hostel", "airbnb", "ticket", "tickets",
+                                        "boarding pass", "check-in", "check in", "arrive", "arriving",
+                                        "departure", "departing", "depart", "layover", "gate",
+                                        "terminal", "baggage", "luggage"]) {
+            domains.formUnion([.emails, .notes])
+        }
         if containsAny(query, phrases: ["note", "notes", "journal", "journals", "wrote", "write down", "recap"]) {
             domains.insert(.notes)
         }
@@ -124,17 +204,61 @@ struct SelineChatQuestionInterpreter {
             domains.insert(.receipts)
         }
 
-        if containsAny(query, phrases: ["how was my day", "how's my day", "what happened today", "what did i do", "what happened this week"]) {
-            domains.formUnion(Set(SelineChatDomain.allCases))
+        if containsAny(query, phrases: ["tracker", "trackers", "tracking", "track my", "how is my", "update on my", "status of my", "progress on"]) {
+            domains.insert(.trackers)
         }
+        if containsAny(query, phrases: [
+            "how was my day", "how's my day", "what happened today", "what did i do today",
+            "what happened this week", "how was my week", "week recap", "weekly recap",
+            "recap", "summary of my day", "summary of my week", "summarize my day", "summarize my week",
+            "what did i do this week", "what happened last week"
+        ]) {
+            domains.insert(.daySummaries)
+            domains.formUnion([.notes, .visits, .receipts, .people])
+        }
+        // Temporal "what's happening" queries → pull day summaries + events across all domains
+        if containsAny(query, phrases: [
+            "what is happening", "what's happening", "what's going on", "what is going on",
+            "any plans", "do i have anything", "what do i have", "what's on my schedule",
+            "what's on for", "what's planned", "anything happening", "anything planned",
+            "anything coming up", "coming up", "upcoming", "schedule for"
+        ]) {
+            domains.insert(.daySummaries)
+            domains.formUnion([.notes, .visits, .emails, .people])
+        }
+
+        if containsAny(query, phrases: [
+            "recent notes", "what did i write", "latest note", "notes from", "what have i written",
+            "what did i write about", "my notes"
+        ]) {
+            domains.insert(.notes)
+        }
+
+        if containsAny(query, phrases: [
+            "what did i do with", "when did i last see", "last time i saw", "have i seen",
+            "activities with", "went with", "been with", "spent time with"
+        ]) {
+            domains.formUnion([.people, .visits, .receipts, .emails])
+        }
+
+        if containsAny(query, phrases: [
+            "how much did i spend", "spending this", "budget", "how much have i spent",
+            "total spending", "expenses this", "cost me", "total cost"
+        ]) {
+            domains.insert(.receipts)
+        }
+
+        // Base domains for generic fallback — deliberately excludes daySummaries and trackers
+        // to avoid slow fetches on ambiguous queries. Those only activate via explicit phrases above.
+        let baseDomains: Set<SelineChatDomain> = [.emails, .notes, .visits, .places, .people, .receipts]
 
         if domains.isEmpty {
             if searchTerms.isEmpty {
-                domains = Set(SelineChatDomain.allCases)
+                domains = baseDomains
             } else if containsAny(query, phrases: ["known for", "reviews", "rating", "open", "hours"]) {
                 domains = [.places, .visits]
             } else {
-                domains = Set(SelineChatDomain.allCases)
+                domains = baseDomains
             }
         }
 

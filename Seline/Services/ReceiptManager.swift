@@ -167,6 +167,70 @@ final class ReceiptManager: ObservableObject {
         return receipt
     }
 
+    func updateReceipt(_ receipt: ReceiptStat, title: String, draft: ReceiptDraft) -> ReceiptStat {
+        let fallbackDate = receipt.date
+        let normalized = normalizedDraft(draft, fallbackDate: fallbackDate)
+        let calendar = Calendar.current
+        let effectiveDate = normalized.transactionDate
+        let year = calendar.component(.year, from: effectiveDate)
+        let month = calendar.monthSymbols[calendar.component(.month, from: effectiveDate) - 1]
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? normalized.resolvedTitle
+            : title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let updatedSource: ReceiptSource = receipt.legacyNoteId != nil && receipt.source == .legacyFallback
+            ? .migratedLegacy
+            : receipt.source
+
+        let updatedReceipt = ReceiptStat(
+            id: receipt.id,
+            source: updatedSource,
+            title: normalizedTitle,
+            merchant: normalized.resolvedMerchant,
+            amount: normalized.total,
+            date: effectiveDate,
+            transactionTime: normalized.transactionTime,
+            noteId: receipt.noteId,
+            legacyNoteId: receipt.legacyNoteId,
+            year: year,
+            month: month,
+            category: normalized.category,
+            subtotal: normalized.subtotal,
+            tax: normalized.tax,
+            tip: normalized.tip,
+            paymentMethod: normalized.paymentMethod,
+            imageUrls: normalized.imageUrls.isEmpty ? receipt.imageUrls : normalized.imageUrls,
+            detailFields: normalized.detailFields,
+            lineItems: normalized.lineItems
+        )
+
+        nativeReceipts.removeAll { $0.id == updatedReceipt.id }
+        nativeReceipts.append(updatedReceipt)
+        nativeReceipts.sort { $0.date > $1.date }
+        persistNativeReceiptsToStorage()
+        rebuildUnifiedReceipts()
+        syncLegacyNoteIfNeeded(with: updatedReceipt)
+
+        Task {
+            await self.upsertReceiptToSupabase(updatedReceipt)
+        }
+
+        return updatedReceipt
+    }
+
+    func deleteReceipt(_ receipt: ReceiptStat) {
+        if let linkedNote = note(for: receipt) {
+            notesManager.deleteNote(linkedNote)
+        }
+
+        nativeReceipts.removeAll { $0.id == receipt.id }
+        persistNativeReceiptsToStorage()
+        rebuildUnifiedReceipts()
+
+        Task {
+            await self.deleteReceiptFromSupabase(receipt.id)
+        }
+    }
+
     private func bind() {
         notesManager.$notes
             .combineLatest(notesManager.$folders)
@@ -286,6 +350,22 @@ final class ReceiptManager: ObservableObject {
                 .execute()
         } catch {
             print("❌ Error saving receipt to Supabase: \(error)")
+            lastMigrationError = error.localizedDescription
+        }
+    }
+
+    private func deleteReceiptFromSupabase(_ receiptId: UUID) async {
+        guard SupabaseManager.shared.getCurrentUser() != nil else { return }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("receipts")
+                .delete()
+                .eq("id", value: receiptId.uuidString)
+                .execute()
+        } catch {
+            print("❌ Error deleting receipt from Supabase: \(error)")
             lastMigrationError = error.localizedDescription
         }
     }
@@ -593,6 +673,61 @@ final class ReceiptManager: ObservableObject {
         return Array(items.prefix(16))
     }
 
+    private func syncLegacyNoteIfNeeded(with receipt: ReceiptStat) {
+        guard let legacyNote = note(for: receipt) else { return }
+
+        var updatedNote = legacyNote
+        updatedNote.title = receipt.title
+        updatedNote.content = legacyNoteContent(for: receipt)
+        updatedNote.imageUrls = receipt.imageUrls
+        notesManager.updateNote(updatedNote)
+    }
+
+    private func legacyNoteContent(for receipt: ReceiptStat) -> String {
+        var lines: [String] = []
+
+        func append(_ label: String, _ value: String?) {
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return }
+            lines.append("\(label): \(value)")
+        }
+
+        append("Merchant", receipt.merchant)
+        append("Total", CurrencyParser.formatAmount(receipt.amount))
+        append("Category", receipt.category)
+        append("Time", receipt.transactionTime.map { FormatterCache.shortTime.string(from: $0) })
+        append("Payment", receipt.paymentMethod)
+        append("Subtotal", receipt.subtotal.map { CurrencyParser.formatAmount($0) })
+        append("Tax", receipt.tax.map { CurrencyParser.formatAmount($0) })
+        append("Tip", receipt.tip.map { CurrencyParser.formatAmount($0) })
+
+        var seenLabels = Set(lines.map { line in
+            line.split(separator: ":", maxSplits: 1).first.map(String.init)?.lowercased() ?? line.lowercased()
+        })
+        for field in receipt.detailFields {
+            let label = field.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = label.lowercased()
+            guard !label.isEmpty, !seenLabels.contains(key) else { continue }
+            append(label, field.value)
+            seenLabels.insert(key)
+        }
+
+        if !receipt.lineItems.isEmpty {
+            lines.append("Items Purchased:")
+            for item in receipt.lineItems {
+                let value = item.amount.map { CurrencyParser.formatAmount($0) }
+                    ?? item.quantity.map { "Qty \(ReceiptDisplayNumberFormatter.string(from: NSNumber(value: $0)) ?? "\($0)")" }
+                    ?? ""
+                if value.isEmpty {
+                    lines.append("• \(item.title)")
+                } else {
+                    lines.append("• \(item.title): \(value)")
+                }
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
     private func invalidateCaches() {
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.receiptStatsAll)
         CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.lastKnownReceiptStatsAll)
@@ -605,6 +740,20 @@ final class ReceiptManager: ObservableObject {
         DispatchQueue.main.async {
             SpendingAndETAWidget.refreshWidgetSpendingData()
         }
+    }
+}
+
+private enum ReceiptDisplayNumberFormatter {
+    static let formatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        formatter.numberStyle = .decimal
+        return formatter
+    }()
+
+    static func string(from number: NSNumber) -> String? {
+        formatter.string(from: number)
     }
 }
 

@@ -10,6 +10,13 @@ extension Animation {
         dampingFraction: 0.8,
         blendDuration: 0.1
     )
+
+    /// Navigation-style overlay push/pop used for home-sidebar destinations.
+    static let navigationOverlayTransition = Animation.interactiveSpring(
+        response: 0.34,
+        dampingFraction: 0.92,
+        blendDuration: 0.16
+    )
     
     /// Sheet presentation animation
     static let sheetPresentation = Animation.spring(
@@ -60,51 +67,15 @@ struct PresentationModifiers: ViewModifier {
 
 // MARK: - Scroll Gesture Helpers
 
-private struct ScrollSafeTapModifier: ViewModifier {
-    let minimumDragDistance: CGFloat
-    let action: () -> Void
-
-    @State private var isDragGestureActive = false
-
-    func body(content: Content) -> some View {
-        content.simultaneousGesture(
-            DragGesture(minimumDistance: 0, coordinateSpace: .local)
-                .onChanged { value in
-                    if abs(value.translation.width) > minimumDragDistance ||
-                        abs(value.translation.height) > minimumDragDistance {
-                        isDragGestureActive = true
-                    }
-                }
-                .onEnded { value in
-                    defer { isDragGestureActive = false }
-
-                    let moved = abs(value.translation.width) > minimumDragDistance ||
-                        abs(value.translation.height) > minimumDragDistance
-                    guard !moved && !isDragGestureActive else { return }
-                    action()
-                }
-        )
-    }
-}
-
 extension View {
-    /// Makes buttons and interactive elements allow scroll gestures to pass through to parent ScrollView
-    /// This prevents buttons from blocking scrolling when dragging on them, even immediately after a tap
-    /// Uses simultaneous gesture recognition so the parent ScrollView can still win vertical scrolling
     func allowsParentScrolling() -> some View {
-        self.simultaneousGesture(
-            DragGesture(minimumDistance: 3, coordinateSpace: .local)
-                .onChanged { _ in }
-                .onEnded { _ in }
-        )
+        self
     }
 
-    /// Executes tap action only when finger movement stays below threshold.
-    /// This prevents accidental row opens when the user intended to scroll.
     func scrollSafeTapAction(
         minimumDragDistance: CGFloat = 8,
         action: @escaping () -> Void
     ) -> some View {
-        self.modifier(ScrollSafeTapModifier(minimumDragDistance: minimumDragDistance, action: action))
+        self.onTapGesture(perform: action)
     }
 }

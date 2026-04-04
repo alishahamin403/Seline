@@ -37,7 +37,6 @@ struct SelineApp: App {
     @State private var foregroundWarmupTask: Task<Void, Never>? = nil
 
     init() {
-        ScrollExperienceConfigurator.installGlobalAppearance()
         NavigationSwipeBack.installGlobalSupport()
         configureSupabase()
         configureGoogleSignIn()
@@ -125,7 +124,6 @@ struct SelineApp: App {
         foregroundMaintenanceTask?.cancel()
         foregroundWarmupTask?.cancel()
 
-        ScrollExperienceConfigurator.applyToVisibleScrollViews()
         WidgetInvalidationCoordinator.shared.requestReload(reason: "app_active")
         updateUnreadBadge()
 
@@ -240,8 +238,14 @@ struct SelineApp: App {
                         await EmailService.shared.handleBackgroundRefresh()
                     }
 
-                    // Vector embedding sync (keeps semantic search up-to-date)
+                    // Vector embedding sync — skip if a foreground sync ran within 10 min
+                    // to prevent background tasks from re-running work just done in the foreground
                     group.addTask {
+                        let lastSync = await MainActor.run { VectorSearchService.shared.lastSyncTime }
+                        if let lastSync, Date().timeIntervalSince(lastSync) < 10 * 60 {
+                            print("⚡ Skipping background embedding sync - foreground synced \(Int(Date().timeIntervalSince(lastSync)))s ago")
+                            return
+                        }
                         await VectorSearchService.shared.syncEmbeddingsIfNeeded()
                     }
                 }

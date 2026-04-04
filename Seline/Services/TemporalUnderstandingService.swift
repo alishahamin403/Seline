@@ -82,6 +82,16 @@ class TemporalUnderstandingService {
             return range
         }
 
+        // Pattern: "weekend of Feb 7th" / "weekend around 2026-02-07"
+        if let range = parseWeekendOfSpecificDatePattern(query, currentYear: currentYear, today: today) {
+            return range
+        }
+
+        // Pattern: "specific date" (e.g., "December 25", "Feb 7th", "2026-02-07")
+        if let range = parseSpecificDatePattern(query, currentYear: currentYear, today: today) {
+            return range
+        }
+
         // Pattern: "month year" (e.g., "January 2024", "Dec 2023")
         if let range = parseMonthYearPattern(query, currentYear: currentYear) {
             return range
@@ -89,11 +99,6 @@ class TemporalUnderstandingService {
 
         // Pattern: "year" (e.g., "2024", "2023")
         if let range = parseYearPattern(query, currentYear: currentYear) {
-            return range
-        }
-
-        // Pattern: "specific date" (e.g., "December 25", "12/25")
-        if let range = parseSpecificDatePattern(query) {
             return range
         }
 
@@ -369,24 +374,44 @@ class TemporalUnderstandingService {
         return nil
     }
 
-    private func parseSpecificDatePattern(_ query: String) -> DateRange? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MM/dd/yyyy"
-
-        // Try multiple date formats
-        let formats = ["MM/dd/yyyy", "MM/dd/yy", "MM-dd-yyyy", "yyyy-MM-dd"]
-        for format in formats {
-            formatter.dateFormat = format
-            if let date = formatter.date(from: query) {
-                return DateRange(
-                    startDate: date,
-                    endDate: date,
-                    description: formatter.string(from: date)
-                )
-            }
+    private func parseSpecificDatePattern(_ query: String, currentYear: Int, today: Date) -> DateRange? {
+        guard let detectedDate = detectSpecificDate(in: query, currentYear: currentYear, today: today) else {
+            return nil
         }
 
-        return nil
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+
+        return DateRange(
+            startDate: detectedDate,
+            endDate: detectedDate,
+            description: formatter.string(from: detectedDate)
+        )
+    }
+
+    private func parseWeekendOfSpecificDatePattern(_ query: String, currentYear: Int, today: Date) -> DateRange? {
+        let normalizedQuery = query.lowercased()
+        guard normalizedQuery.contains("weekend") else { return nil }
+        guard let detectedDate = detectSpecificDate(in: query, currentYear: currentYear, today: today) else {
+            return nil
+        }
+
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: detectedDate)
+        let weekday = calendar.component(.weekday, from: dayStart) // 1 = Sunday, 7 = Saturday
+
+        let saturday: Date
+        switch weekday {
+        case 7:
+            saturday = dayStart
+        case 1:
+            saturday = calendar.date(byAdding: .day, value: -1, to: dayStart) ?? dayStart
+        default:
+            let daysBackToSaturday = (weekday + 1) % 7
+            saturday = calendar.date(byAdding: .day, value: -daysBackToSaturday, to: dayStart) ?? dayStart
+        }
+
+        return weekendRange(starting: saturday, description: "Weekend Of \(formattedMonthDay(detectedDate))", calendar: calendar)
     }
 
     private func parseRelativeWeekendExpressions(_ query: String, calendar: Calendar, today: Date) -> DateRange? {
@@ -692,5 +717,207 @@ class TemporalUnderstandingService {
         let date = calendar.date(from: DateComponents(year: year, month: month, day: 1))!
         let range = calendar.range(of: .day, in: .month, for: date)!
         return range.count
+    }
+
+    private func detectSpecificDate(in query: String, currentYear: Int, today: Date) -> Date? {
+        let sanitized = sanitizeOrdinalDates(query.lowercased())
+
+        if let detected = detectISODate(in: sanitized) {
+            return detected
+        }
+
+        if let detected = detectNumericDate(in: sanitized, currentYear: currentYear, today: today) {
+            return detected
+        }
+
+        if let detected = detectMonthNameDate(in: sanitized, currentYear: currentYear, today: today) {
+            return detected
+        }
+
+        if let detected = detectDayMonthDate(in: sanitized, currentYear: currentYear, today: today) {
+            return detected
+        }
+
+        return nil
+    }
+
+    private func sanitizeOrdinalDates(_ query: String) -> String {
+        query.replacingOccurrences(
+            of: #"(\d{1,2})(st|nd|rd|th)\b"#,
+            with: "$1",
+            options: .regularExpression
+        )
+    }
+
+    private func detectISODate(in query: String) -> Date? {
+        guard let regex = try? NSRegularExpression(pattern: #"\b(\d{4})-(\d{1,2})-(\d{1,2})\b"#) else {
+            return nil
+        }
+        let nsRange = NSRange(query.startIndex..<query.endIndex, in: query)
+        guard let match = regex.firstMatch(in: query, range: nsRange),
+              let yearRange = Range(match.range(at: 1), in: query),
+              let monthRange = Range(match.range(at: 2), in: query),
+              let dayRange = Range(match.range(at: 3), in: query),
+              let year = Int(query[yearRange]),
+              let month = Int(query[monthRange]),
+              let day = Int(query[dayRange]) else {
+            return nil
+        }
+
+        return Calendar.current.date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    private func detectNumericDate(in query: String, currentYear: Int, today: Date) -> Date? {
+        guard let regex = try? NSRegularExpression(pattern: #"\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b"#) else {
+            return nil
+        }
+
+        let nsRange = NSRange(query.startIndex..<query.endIndex, in: query)
+        guard let match = regex.firstMatch(in: query, range: nsRange),
+              let monthRange = Range(match.range(at: 1), in: query),
+              let dayRange = Range(match.range(at: 2), in: query),
+              let month = Int(query[monthRange]),
+              let day = Int(query[dayRange]) else {
+            return nil
+        }
+
+        let explicitYear: Int? = {
+            guard match.numberOfRanges > 3,
+                  let yearRange = Range(match.range(at: 3), in: query),
+                  !yearRange.isEmpty else {
+                return nil
+            }
+            let raw = Int(query[yearRange]) ?? currentYear
+            if raw < 100 {
+                return raw >= 70 ? 1900 + raw : 2000 + raw
+            }
+            return raw
+        }()
+
+        let year = inferredYear(
+            explicitYear: explicitYear,
+            month: month,
+            day: day,
+            currentYear: currentYear,
+            today: today,
+            query: query
+        )
+        return Calendar.current.date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    private func detectMonthNameDate(in query: String, currentYear: Int, today: Date) -> Date? {
+        let monthNames = monthNameLookup
+        let pattern = #"\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let nsRange = NSRange(query.startIndex..<query.endIndex, in: query)
+        guard let match = regex.firstMatch(in: query, range: nsRange),
+              let monthRange = Range(match.range(at: 1), in: query),
+              let dayRange = Range(match.range(at: 2), in: query),
+              let month = monthNames[String(query[monthRange]).lowercased()],
+              let day = Int(query[dayRange]) else {
+            return nil
+        }
+
+        let explicitYear = match.numberOfRanges > 3
+            ? Range(match.range(at: 3), in: query).flatMap { Int(query[$0]) }
+            : nil
+        let year = inferredYear(
+            explicitYear: explicitYear,
+            month: month,
+            day: day,
+            currentYear: currentYear,
+            today: today,
+            query: query
+        )
+        return Calendar.current.date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    private func detectDayMonthDate(in query: String, currentYear: Int, today: Date) -> Date? {
+        let monthNames = monthNameLookup
+        let pattern = #"\b(\d{1,2})\s+(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)(?:\s*,?\s*(\d{4}))?\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let nsRange = NSRange(query.startIndex..<query.endIndex, in: query)
+        guard let match = regex.firstMatch(in: query, range: nsRange),
+              let dayRange = Range(match.range(at: 1), in: query),
+              let monthRange = Range(match.range(at: 2), in: query),
+              let day = Int(query[dayRange]),
+              let month = monthNames[String(query[monthRange]).lowercased()] else {
+            return nil
+        }
+
+        let explicitYear = match.numberOfRanges > 3
+            ? Range(match.range(at: 3), in: query).flatMap { Int(query[$0]) }
+            : nil
+        let year = inferredYear(
+            explicitYear: explicitYear,
+            month: month,
+            day: day,
+            currentYear: currentYear,
+            today: today,
+            query: query
+        )
+        return Calendar.current.date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    private var monthNameLookup: [String: Int] {
+        [
+            "january": 1, "jan": 1,
+            "february": 2, "feb": 2,
+            "march": 3, "mar": 3,
+            "april": 4, "apr": 4,
+            "may": 5,
+            "june": 6, "jun": 6,
+            "july": 7, "jul": 7,
+            "august": 8, "aug": 8,
+            "september": 9, "sept": 9, "sep": 9,
+            "october": 10, "oct": 10,
+            "november": 11, "nov": 11,
+            "december": 12, "dec": 12
+        ]
+    }
+
+    private func inferredYear(
+        explicitYear: Int?,
+        month: Int,
+        day: Int,
+        currentYear: Int,
+        today: Date,
+        query: String
+    ) -> Int {
+        if let explicitYear {
+            return explicitYear
+        }
+
+        let calendar = Calendar.current
+        let normalizedQuery = query.lowercased()
+        let todayStart = calendar.startOfDay(for: today)
+
+        guard let candidate = calendar.date(from: DateComponents(year: currentYear, month: month, day: day)) else {
+            return currentYear
+        }
+
+        let likelyPastReference = normalizedQuery.contains("last")
+            || normalizedQuery.contains("previous")
+            || normalizedQuery.contains("ago")
+            || normalizedQuery.contains("that weekend")
+
+        if likelyPastReference,
+           candidate > calendar.date(byAdding: .day, value: 30, to: todayStart) ?? todayStart {
+            return currentYear - 1
+        }
+
+        return currentYear
+    }
+
+    private func formattedMonthDay(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter.string(from: date)
     }
 }

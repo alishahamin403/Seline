@@ -1,18 +1,5 @@
 import SwiftUI
 
-private struct GlobalScrollEnvironmentModifier: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 16.4, *) {
-            content
-                .scrollBounceBehavior(.basedOnSize)
-                .scrollDismissesKeyboard(.interactively)
-        } else {
-            content
-        }
-    }
-}
-
 struct RootView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @ObservedObject var themeManager = ThemeManager.shared
@@ -39,16 +26,11 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: authManager.isAuthenticated)
-        .modifier(GlobalScrollEnvironmentModifier())
         .preferredColorScheme(themeManager.getPreferredColorScheme())
         .task {
             // When in auto mode, sync with actual system color scheme
             if themeManager.selectedTheme == .auto {
                 themeManager.systemColorScheme = systemColorScheme
-            }
-
-            await MainActor.run {
-                ScrollExperienceConfigurator.applyToVisibleScrollViews()
             }
         }
         .onChange(of: systemColorScheme) { newScheme in

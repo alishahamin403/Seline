@@ -17,20 +17,21 @@ import Foundation
  *
  * IMPORTANT: After updating embedding model, run syncEmbeddingsImmediately() to re-index all documents
  */
-@MainActor
 class VectorSearchService: ObservableObject {
     static let shared = VectorSearchService()
-    
+
     // MARK: - Published State
-    
-    @Published var isIndexing = false
-    @Published var lastSyncTime: Date?
-    @Published var embeddingsCount: Int = 0
-    
+    // @MainActor on each @Published property ensures mutations happen on the main thread
+    // while heavy embedding/search computation can run on background threads.
+
+    @MainActor @Published var isIndexing = false
+    @MainActor @Published var lastSyncTime: Date?
+    @MainActor @Published var embeddingsCount: Int = 0
+
     // MARK: - Embedding Progress Tracking
-    @Published var embeddingProgress: Double = 0.0 // 0.0 to 1.0
-    @Published var embeddingStatus: String = "Ready" // Status message
-    @Published var hasCompletedFirstSync: Bool = false // Track if first sync done
+    @MainActor @Published var embeddingProgress: Double = 0.0 // 0.0 to 1.0
+    @MainActor @Published var embeddingStatus: String = "Ready" // Status message
+    @MainActor @Published var hasCompletedFirstSync: Bool = false // Track if first sync done
     
     // MARK: - Configuration
 
@@ -41,9 +42,9 @@ class VectorSearchService: ObservableObject {
     private let historicalSearchCandidateMultiplier = 8
     private let historicalBackfillPageSize = 50
     private let historicalBackfillPagesPerMailbox = 12
-    private let historicalBackfillCoverageYears = 5
+    private let historicalBackfillCoverageYears = 1
     private let historicalBackfillRefreshInterval: TimeInterval = 60 * 60 * 6
-    private let visitEmbeddingRefreshCooldown: TimeInterval = 12
+    private let visitEmbeddingRefreshCooldown: TimeInterval = 60
     // Removed recentDaysThreshold - now embedding ALL historical data
     
     // MARK: - Cache
@@ -103,9 +104,157 @@ class VectorSearchService: ObservableObject {
     // MARK: - Initialization
     
     private init() {
+        // Restore last sync time from disk so the cooldown survives app kills/restarts.
+        // Without this, lastSyncTime is always nil on launch and a full sync fires immediately.
+        if let savedInterval = UserDefaults.standard.object(forKey: "vectorSearch.lastSyncTime") as? TimeInterval {
+            let restored = Date(timeIntervalSince1970: savedInterval)
+            Task { @MainActor in
+                self.lastSyncTime = restored
+            }
+        }
         // Start background sync on init
         Task {
             await syncEmbeddingsIfNeeded()
+        }
+    }
+
+    private struct NotesSnapshot {
+        let notes: [Note]
+        let folderNamesById: [UUID: String]
+        let notesById: [UUID: Note]
+    }
+
+    private struct BudgetSnapshot {
+        let budgets: [(budget: ExpenseBudget, status: ExpenseBudgetStatus)]
+        let reminders: [ExpenseReminder]
+    }
+
+    private struct LinkedReceiptContext {
+        let parsedDate: Date
+        let category: String?
+    }
+
+    private func notesSnapshot() async -> NotesSnapshot {
+        await MainActor.run {
+            let notesManager = NotesManager.shared
+            let notes = notesManager.notes
+            return NotesSnapshot(
+                notes: notes,
+                folderNamesById: Dictionary(
+                    uniqueKeysWithValues: notesManager.folders.map { ($0.id, $0.name) }
+                ),
+                notesById: Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0) })
+            )
+        }
+    }
+
+    private func emailSnapshot() async -> [(email: Email, mailbox: String)] {
+        await MainActor.run {
+            let emailService = EmailService.shared
+            return emailService.inboxEmails.map { ($0, "inbox") } +
+                emailService.sentEmails.map { ($0, "sent") }
+        }
+    }
+
+    private func taskSnapshot() async -> [TaskItem] {
+        await MainActor.run {
+            TaskManager.shared.tasks.values
+                .flatMap { $0 }
+                .filter { !$0.isDeleted }
+        }
+    }
+
+    private func tagsByIdSnapshot() async -> [String: Tag] {
+        await MainActor.run {
+            let tagsById: [String: Tag] = Dictionary(
+                uniqueKeysWithValues: TagManager.shared.tags.map { ($0.id, $0) }
+            )
+            return tagsById
+        }
+    }
+
+    private func budgetSnapshot() async -> BudgetSnapshot {
+        await MainActor.run {
+            let budgetService = ExpenseBudgetService.shared
+            return BudgetSnapshot(
+                budgets: budgetService.budgets.map { ($0, budgetService.status(for: $0)) },
+                reminders: ExpenseReminderService.shared.reminders
+            )
+        }
+    }
+
+    private func trackerThreadsSnapshot() async -> [TrackerThread] {
+        await MainActor.run {
+            TrackerStore.shared.threads
+        }
+    }
+
+    private func receiptStatsSnapshot() async -> [ReceiptStat] {
+        await MainActor.run {
+            ReceiptManager.shared.receipts
+        }
+    }
+
+    private func linkedReceiptContextByNoteId(
+        noteIds: Set<UUID>,
+        notesById: [UUID: Note]
+    ) async -> [UUID: LinkedReceiptContext] {
+        guard !noteIds.isEmpty else { return [:] }
+
+        return await MainActor.run {
+            let notesManager = NotesManager.shared
+            let categorizationService = ReceiptCategorizationService.shared
+
+            return noteIds.reduce(into: [UUID: LinkedReceiptContext]()) { partialResult, noteId in
+                guard let note = notesById[noteId] else { return }
+                partialResult[noteId] = LinkedReceiptContext(
+                    parsedDate: notesManager.extractFullDateFromTitle(note.title) ?? note.dateCreated,
+                    category: categorizationService.quickCategorizeReceipt(
+                        title: note.title,
+                        content: note.content
+                    )
+                )
+            }
+        }
+    }
+
+    private func isIndexingSnapshot() async -> Bool {
+        await MainActor.run { self.isIndexing }
+    }
+
+    private func lastSyncTimeSnapshot() async -> Date? {
+        await MainActor.run { self.lastSyncTime }
+    }
+
+    private func beginSyncState() async {
+        await MainActor.run {
+            self.isIndexing = true
+            self.embeddingProgress = 0.0
+            self.embeddingStatus = "Starting sync..."
+        }
+    }
+
+    private func updateSyncState(status: String? = nil, progress: Double? = nil) async {
+        await MainActor.run {
+            if let status {
+                self.embeddingStatus = status
+            }
+            if let progress {
+                self.embeddingProgress = progress
+            }
+        }
+    }
+
+    private func completeSyncState(totalCount: Int, completedAt: Date) async {
+        await MainActor.run {
+            self.isIndexing = false
+            self.embeddingProgress = 1.0
+            self.embeddingStatus = "Complete"
+            self.embeddingsCount = totalCount
+            self.lastSyncTime = completedAt
+            self.hasCompletedFirstSync = true
+            // Persist so the cooldown survives app kills
+            UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: "vectorSearch.lastSyncTime")
         }
     }
     
@@ -878,13 +1027,13 @@ class VectorSearchService: ObservableObject {
     /// Refresh journal-specific note embeddings on demand so historical journal queries
     /// do not depend on a full corpus sync having already completed.
     func ensureJournalNoteEmbeddingsCurrent() async {
-        let notesManager = NotesManager.shared
-        let journalNotes = notesManager.notes.filter { $0.isJournalEntry || $0.isJournalWeeklyRecap }
+        let notesData = await notesSnapshot()
+        let journalNotes = notesData.notes.filter { $0.isJournalEntry || $0.isJournalWeeklyRecap }
         guard !journalNotes.isEmpty else { return }
 
         let documents = journalNotes.map { note -> [String: Any] in
             let folderName = note.folderId.flatMap { id in
-                notesManager.folders.first(where: { $0.id == id })?.name
+                notesData.folderNamesById[id]
             }
             let content = note.embeddingContent(resolvedFolderName: folderName)
             return [
@@ -1168,12 +1317,37 @@ class VectorSearchService: ObservableObject {
         }
 
         var results: [SearchResult] = []
+        let notesData: NotesSnapshot? = if typeFilter == nil || typeFilter?.contains(.note) == true || typeFilter?.contains(.attachment) == true {
+            await notesSnapshot()
+        } else {
+            nil
+        }
+        let emailTuples: [(email: Email, mailbox: String)] = if typeFilter == nil || typeFilter?.contains(.email) == true {
+            await emailSnapshot()
+        } else {
+            []
+        }
+        let taskItems: [TaskItem] = if typeFilter == nil || typeFilter?.contains(.task) == true {
+            await taskSnapshot()
+        } else {
+            []
+        }
+        let budgetData: BudgetSnapshot? = if typeFilter == nil || typeFilter?.contains(.budget) == true {
+            await budgetSnapshot()
+        } else {
+            nil
+        }
+        let trackerThreads: [TrackerThread] = if typeFilter == nil || typeFilter?.contains(.tracker) == true {
+            await trackerThreadsSnapshot()
+        } else {
+            []
+        }
 
         // Notes
-        if typeFilter == nil || typeFilter?.contains(.note) == true {
-            for note in NotesManager.shared.notes {
+        if let notesData, typeFilter == nil || typeFilter?.contains(.note) == true {
+            for note in notesData.notes {
                 let folderName = note.folderId.flatMap { id in
-                    NotesManager.shared.folders.first(where: { $0.id == id })?.name
+                    notesData.folderNamesById[id]
                 }
                 let content = note.embeddingContent(resolvedFolderName: folderName)
                 let s = score(for: content)
@@ -1196,11 +1370,7 @@ class VectorSearchService: ObservableObject {
 
         // Emails
         if typeFilter == nil || typeFilter?.contains(.email) == true {
-            let inboxEmails = EmailService.shared.inboxEmails.map { ($0, "inbox") }
-            let sentEmails = EmailService.shared.sentEmails.map { ($0, "sent") }
-            let allEmails = inboxEmails + sentEmails
-
-            for (email, mailbox) in allEmails {
+            for (email, mailbox) in emailTuples {
                 var content = """
                 Subject: \(email.subject)
                 From: \(email.sender.displayName) <\(email.sender.email)>
@@ -1247,8 +1417,7 @@ class VectorSearchService: ObservableObject {
 
         // Tasks
         if typeFilter == nil || typeFilter?.contains(.task) == true {
-            let allTasks = TaskManager.shared.tasks.values.flatMap { $0 }.filter { !$0.isDeleted }
-            for task in allTasks {
+            for task in taskItems {
                 var content = task.title
                 if let desc = task.description, !desc.isEmpty {
                     content += "\n\(desc)"
@@ -1311,7 +1480,7 @@ class VectorSearchService: ObservableObject {
         // Receipts (notes under receipts folder)
         if typeFilter == nil || typeFilter?.contains(.receipt) == true {
             await ReceiptManager.shared.ensureLoaded()
-            let receiptStats = await MainActor.run { ReceiptManager.shared.receipts }
+            let receiptStats = await receiptStatsSnapshot()
 
             for receipt in receiptStats {
                 var content = receipt.searchableText
@@ -1503,10 +1672,10 @@ class VectorSearchService: ObservableObject {
         }
 
         // Budgets and reminders
-        if typeFilter == nil || typeFilter?.contains(.budget) == true {
-            let budgetService = ExpenseBudgetService.shared
-            for budget in budgetService.budgets {
-                let status = budgetService.status(for: budget)
+        if let budgetData, typeFilter == nil || typeFilter?.contains(.budget) == true {
+            for budgetEntry in budgetData.budgets {
+                let budget = budgetEntry.budget
+                let status = budgetEntry.status
                 let content = """
                 Expense Budget: \(budget.name)
                 Period: \(budget.period.displayName)
@@ -1536,7 +1705,7 @@ class VectorSearchService: ObservableObject {
                 }
             }
 
-            for reminder in ExpenseReminderService.shared.reminders {
+            for reminder in budgetData.reminders {
                 let content = """
                 Expense Reminder: \(reminder.expenseName)
                 Frequency: \(reminder.frequency.displayName)
@@ -1566,7 +1735,7 @@ class VectorSearchService: ObservableObject {
 
         // Tracker threads
         if typeFilter == nil || typeFilter?.contains(.tracker) == true {
-            for thread in TrackerStore.shared.threads {
+            for thread in trackerThreads {
                 let sortedChanges = thread.memorySnapshot.changeLog.sorted { lhs, rhs in
                     if lhs.effectiveAt == rhs.effectiveAt {
                         return lhs.createdAt > rhs.createdAt
@@ -1635,7 +1804,7 @@ class VectorSearchService: ObservableObject {
                         return (extracted.attachmentId, extracted)
                     }
                 )
-                let notesById = Dictionary(uniqueKeysWithValues: NotesManager.shared.notes.map { ($0.id, $0) })
+                let notesById = notesData?.notesById ?? [:]
 
                 for attachment in attachments {
                     let extracted = extractedByAttachmentId[attachment.id]
@@ -1986,9 +2155,10 @@ class VectorSearchService: ObservableObject {
         interactiveRequestCount = max(0, interactiveRequestCount - 1)
         if interactiveRequestCount == 0 {
             print("▶️ Chat-priority mode cleared (\(reason))")
-            if pendingFullSyncRequested, !isIndexing {
-                pendingFullSyncRequested = false
-                Task { @MainActor in
+            if pendingFullSyncRequested {
+                Task {
+                    guard !(await self.isIndexingSnapshot()) else { return }
+                    self.pendingFullSyncRequested = false
                     await self.syncAllEmbeddings()
                 }
             }
@@ -2004,15 +2174,15 @@ class VectorSearchService: ObservableObject {
     /// Call this on app launch and periodically
     func syncEmbeddingsIfNeeded() async {
         // Only sync if not already syncing
-        guard !isIndexing else { return }
+        guard !(await isIndexingSnapshot()) else { return }
         guard !isInteractiveRequestActive else {
             deferFullSync(reason: "syncEmbeddingsIfNeeded")
             return
         }
         
-        // Check if we've synced recently (within 30 seconds to allow immediate embedding of new data)
-        if let lastSync = lastSyncTime,
-           Date().timeIntervalSince(lastSync) < 30 {
+        // Skip if synced within 5 minutes — reduces redundant calls from foreground/background overlap
+        if let lastSync = await lastSyncTimeSnapshot(),
+           Date().timeIntervalSince(lastSync) < 5 * 60 {
             print("⚡ Skipping embedding sync - synced \(Int(Date().timeIntervalSince(lastSync)))s ago")
             return
         }
@@ -2023,7 +2193,7 @@ class VectorSearchService: ObservableObject {
     /// Force immediate sync (bypasses cooldown) - useful for immediate embedding after create/update
     func syncEmbeddingsImmediately() async {
         // Only sync if not already syncing
-        guard !isIndexing else { return }
+        guard !(await isIndexingSnapshot()) else { return }
         guard !isInteractiveRequestActive else {
             deferFullSync(reason: "syncEmbeddingsImmediately")
             return
@@ -2048,7 +2218,7 @@ class VectorSearchService: ObservableObject {
             return
         }
 
-        guard !isIndexing else {
+        guard !(await isIndexingSnapshot()) else {
             print("⚡️ Skipping visit embedding refresh (\(reason)) - full sync in progress")
             return
         }
@@ -2069,15 +2239,7 @@ class VectorSearchService: ObservableObject {
             return false
         }
 
-        isIndexing = true
-        embeddingProgress = 0.0
-        embeddingStatus = "Starting sync..."
-        defer { 
-            isIndexing = false 
-            if embeddingProgress >= 1.0 {
-                hasCompletedFirstSync = true
-            }
-        }
+        await beginSyncState()
 
         print("🔄 Starting embedding sync...")
         print("⚠️  NOTE: Embedding sync requires 'embeddings-proxy' edge function to be deployed")
@@ -2100,18 +2262,14 @@ class VectorSearchService: ObservableObject {
         var phaseCounts: [String: Int] = [:]
 
         for (index, phase) in phases.enumerated() {
-            embeddingStatus = phase.status
+            await updateSyncState(status: phase.status)
             phaseCounts[phase.status] = await phase.run()
-            embeddingProgress = Double(index + 1) / Double(phases.count)
+            await updateSyncState(progress: Double(index + 1) / Double(phases.count))
         }
 
-        embeddingProgress = 1.0
-        embeddingStatus = "Complete"
-
         let totalCount = phaseCounts.values.reduce(0, +)
-        embeddingsCount = totalCount
-        lastSyncTime = Date()
-        hasCompletedFirstSync = true
+        let completedAt = Date()
+        await completeSyncState(totalCount: totalCount, completedAt: completedAt)
 
         let duration = Date().timeIntervalSince(startTime)
         print("✅ Embedding sync complete: \(totalCount) documents in \(String(format: "%.1f", duration))s")
@@ -2133,17 +2291,16 @@ class VectorSearchService: ObservableObject {
     
     /// Sync note embeddings - embed ALL notes (no date limit)
     private func syncNoteEmbeddings() async -> Int {
-        let allNotes = NotesManager.shared.notes
+        let notesData = await notesSnapshot()
+        let allNotes = notesData.notes
         guard !allNotes.isEmpty else { return 0 }
 
         print("📝 Notes: Syncing all \(allNotes.count) notes (no date limit)")
 
-        let notesManager = NotesManager.shared
-
         // Prepare documents for embedding
         let documents = allNotes.map { note -> [String: Any] in
             let folderName = note.folderId.flatMap { id in
-                notesManager.folders.first(where: { $0.id == id })?.name
+                notesData.folderNamesById[id]
             }
             let content = note.embeddingContent(resolvedFolderName: folderName)
             return [
@@ -2313,9 +2470,7 @@ class VectorSearchService: ObservableObject {
     }
 
     private func collectLiveEmailsForEmbedding() async -> [(email: Email, mailbox: String)] {
-        let inboxEmails = EmailService.shared.inboxEmails.map { ($0, "inbox") }
-        let sentEmails = EmailService.shared.sentEmails.map { ($0, "sent") }
-        var merged = dedupeEmailTuples(inboxEmails + sentEmails)
+        var merged = dedupeEmailTuples(await emailSnapshot())
 
         let hasFreshCachedBackfill = {
             guard
@@ -2512,10 +2667,9 @@ class VectorSearchService: ObservableObject {
 
     /// Sync task embeddings - embed ALL tasks (no date limit)
     private func syncTaskEmbeddings() async -> Int {
-        let allTasks = TaskManager.shared.tasks.values
-            .flatMap { $0 }
-            .filter { !$0.isDeleted }
+        let allTasks = await taskSnapshot()
         guard !allTasks.isEmpty else { return 0 }
+        let tagsById = await tagsByIdSnapshot()
 
         print("📅 Tasks: Syncing all \(allTasks.count) tasks (no date limit)")
 
@@ -2523,7 +2677,7 @@ class VectorSearchService: ObservableObject {
             let calendar = Calendar.current
             let iso = ISO8601DateFormatter()
             
-            let tag = TagManager.shared.getTag(by: task.tagId)
+            let tag = task.tagId.flatMap { tagsById[$0] }
             let tagName = tag?.name ?? "Personal"
             
             let start = task.scheduledTime ?? task.targetDate ?? task.createdAt
@@ -2923,7 +3077,8 @@ class VectorSearchService: ObservableObject {
 
         do {
             await ReceiptManager.shared.ensureLoaded()
-            let allReceipts = ReceiptManager.shared.receipts
+            let allReceipts = await receiptStatsSnapshot()
+            let notesData = await notesSnapshot()
 
             guard !allReceipts.isEmpty else { return 0 }
 
@@ -2938,7 +3093,7 @@ class VectorSearchService: ObservableObject {
                 let date = receipt.date
                 let amount = receipt.amount
                 let category = receipt.category
-                let legacyContent = ReceiptManager.shared.note(for: receipt)?.content ?? ""
+                let legacyContent = receipt.legacyNoteId.flatMap { notesData.notesById[$0]?.content } ?? ""
                 
                 var content = """
                 Receipt: \(receipt.title)
@@ -3173,9 +3328,13 @@ class VectorSearchService: ObservableObject {
             print("📍 Visits: Syncing all \(visits.count) visits (no date limit)")
 
             let locations = LocationsManager.shared.savedPlaces
-            let notesManager = NotesManager.shared
-            let notesById = Dictionary(uniqueKeysWithValues: notesManager.notes.map { ($0.id, $0) })
+            let notesData = await notesSnapshot()
+            let notesById = notesData.notesById
             let visitReceiptLinks = VisitReceiptLinkStore.allLinks()
+            let linkedReceiptContexts = await linkedReceiptContextByNoteId(
+                noteIds: Set(visitReceiptLinks.values),
+                notesById: notesById
+            )
             let iso = ISO8601DateFormatter()
             let memories = await fetchAllMemories()
             
@@ -3270,17 +3429,9 @@ class VectorSearchService: ObservableObject {
                     let amountSource = linkedReceiptNote.content.isEmpty ? linkedReceiptNote.title : linkedReceiptNote.content
                     return CurrencyParser.extractAmount(from: amountSource)
                 }()
-                let linkedReceiptDate: Date? = {
-                    guard let linkedReceiptNote else { return nil }
-                    return notesManager.extractFullDateFromTitle(linkedReceiptNote.title) ?? linkedReceiptNote.dateCreated
-                }()
-                let linkedReceiptCategory: String? = {
-                    guard let linkedReceiptNote else { return nil }
-                    return ReceiptCategorizationService.shared.quickCategorizeReceipt(
-                        title: linkedReceiptNote.title,
-                        content: linkedReceiptNote.content
-                    )
-                }()
+                let linkedReceiptContext = linkedReceiptNote.flatMap { linkedReceiptContexts[$0.id] }
+                let linkedReceiptDate = linkedReceiptContext?.parsedDate
+                let linkedReceiptCategory = linkedReceiptContext?.category
                 if let linkedReceiptNote {
                     content += "\nLinked receipt: \(linkedReceiptNote.title)"
                     if let amount = linkedReceiptAmount {
@@ -3656,7 +3807,7 @@ class VectorSearchService: ObservableObject {
                     return (extracted.attachmentId, extracted)
                 }
             )
-            let notesById = Dictionary(uniqueKeysWithValues: NotesManager.shared.notes.map { ($0.id, $0) })
+            let notesById = await notesSnapshot().notesById
             let iso = ISO8601DateFormatter()
             let dateFormatter = DateFormatter()
             dateFormatter.dateStyle = .medium
@@ -3710,7 +3861,7 @@ class VectorSearchService: ObservableObject {
     }
 
     private func syncTrackerEmbeddings() async -> Int {
-        let threads = TrackerStore.shared.threads
+        let threads = await trackerThreadsSnapshot()
         guard !threads.isEmpty else { return 0 }
 
         let iso = ISO8601DateFormatter()
@@ -3779,16 +3930,17 @@ class VectorSearchService: ObservableObject {
     }
 
     private func syncBudgetEmbeddings() async -> Int {
-        let budgets = ExpenseBudgetService.shared.budgets
-        let reminders = ExpenseReminderService.shared.reminders
+        let budgetData = await budgetSnapshot()
+        let budgets = budgetData.budgets
+        let reminders = budgetData.reminders
         guard !budgets.isEmpty || !reminders.isEmpty else { return 0 }
 
-        let budgetService = ExpenseBudgetService.shared
         let iso = ISO8601DateFormatter()
         var documents: [[String: Any]] = []
 
-        for budget in budgets {
-            let status = budgetService.status(for: budget)
+        for budgetEntry in budgets {
+            let budget = budgetEntry.budget
+            let status = budgetEntry.status
             let content = """
             Expense Budget: \(budget.name)
             Period: \(budget.period.displayName)

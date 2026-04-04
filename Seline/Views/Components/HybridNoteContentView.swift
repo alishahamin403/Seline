@@ -424,16 +424,10 @@ struct InlineTableView: View {
         .frame(width: cellWidth, height: cellHeight)
         .overlay(Rectangle().stroke(borderColor, lineWidth: 0.5))
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            // Double tap - show delete menu
-            showDeleteMenu(rowIndex: rowIndex, colIndex: colIndex)
-        }
         .onTapGesture {
-            // Single tap - switch to cell
             switchToCell(row: rowIndex, col: colIndex, content: content)
         }
         .onLongPressGesture {
-            // Long press - show delete menu
             showDeleteMenu(rowIndex: rowIndex, colIndex: colIndex)
         }
     }

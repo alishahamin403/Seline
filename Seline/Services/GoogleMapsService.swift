@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import CoreLocation
+import MapKit
 
 class GoogleMapsService: ObservableObject {
     static let shared = GoogleMapsService()
@@ -71,6 +72,8 @@ class GoogleMapsService: ObservableObject {
         if let cachedEntry = searchCache[cacheKey], isSearchCacheValid(cachedEntry) {
             return cachedEntry.results
         }
+
+        let isAddressLikeQuery = queryLooksLikeStreetAddress(queryToSearch)
 
         // Use new Places API (Text Search)
         let urlString = "\(placesBaseURL)/places:searchText"
@@ -173,14 +176,34 @@ class GoogleMapsService: ObservableObject {
                 )
             }
 
+            let fallbackResults: [PlaceSearchResult]
+            if searchResults.isEmpty || isAddressLikeQuery {
+                fallbackResults = await searchAddressResults(query: queryToSearch, currentLocation: currentLocation)
+            } else {
+                fallbackResults = []
+            }
+
+            let mergedResults = mergeSearchResults(
+                primary: isAddressLikeQuery ? fallbackResults : searchResults,
+                secondary: isAddressLikeQuery ? searchResults : fallbackResults
+            )
+
             // Cache the results
-            self.searchCache[cacheKey] = SearchCacheEntry(results: searchResults, timestamp: Date())
+            self.searchCache[cacheKey] = SearchCacheEntry(results: mergedResults, timestamp: Date())
 
-            return searchResults
+            return mergedResults
 
-        } catch let error as MapsError {
-            throw error
         } catch {
+            let fallbackResults = await searchAddressResults(query: queryToSearch, currentLocation: currentLocation)
+            if !fallbackResults.isEmpty {
+                self.searchCache[cacheKey] = SearchCacheEntry(results: fallbackResults, timestamp: Date())
+                return fallbackResults
+            }
+
+            if let mapsError = error as? MapsError {
+                throw mapsError
+            }
+
             throw MapsError.networkError(error)
         }
     }
@@ -413,6 +436,239 @@ class GoogleMapsService: ObservableObject {
         }
 
         return ""
+    }
+
+    private func queryLooksLikeStreetAddress(_ query: String) -> Bool {
+        let lower = query.lowercased()
+        let hasStreetNumber = lower.range(of: #"\b\d+[a-z]?\b"#, options: .regularExpression) != nil
+        let streetKeywords = [
+            "street", "st", "road", "rd", "avenue", "ave", "boulevard", "blvd",
+            "drive", "dr", "lane", "ln", "court", "ct", "circle", "cir",
+            "trail", "trl", "way", "parkway", "pkwy", "place", "pl"
+        ]
+        let hasStreetKeyword = streetKeywords.contains { keyword in
+            lower.contains(" \(keyword) ") || lower.hasSuffix(" \(keyword)")
+        }
+
+        return hasStreetNumber || hasStreetKeyword || lower.contains(",")
+    }
+
+    private func searchAddressResults(query: String, currentLocation: CLLocation?) async -> [PlaceSearchResult] {
+        var results: [PlaceSearchResult] = []
+
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        request.resultTypes = .address
+
+        if let currentLocation, !queryLooksLikeStreetAddress(query) {
+            request.region = MKCoordinateRegion(
+                center: currentLocation.coordinate,
+                latitudinalMeters: 200000,
+                longitudinalMeters: 200000
+            )
+        }
+
+        do {
+            let response = try await MKLocalSearch(request: request).start()
+            results.append(contentsOf: response.mapItems.prefix(8).compactMap(makeAddressSearchResult))
+        } catch {
+            print("⚠️ MapKit address search failed for '\(query)': \(error.localizedDescription)")
+        }
+
+        if !results.isEmpty {
+            return dedupeSearchResults(results)
+        }
+
+        let geocoder = CLGeocoder()
+        do {
+            let placemarks = try await geocoder.geocodeAddressString(query)
+            results.append(contentsOf: placemarks.prefix(3).compactMap(makeAddressSearchResult))
+        } catch {
+            print("⚠️ Address geocoding failed for '\(query)': \(error.localizedDescription)")
+        }
+
+        return dedupeSearchResults(results)
+    }
+
+    private func mergeSearchResults(primary: [PlaceSearchResult], secondary: [PlaceSearchResult]) -> [PlaceSearchResult] {
+        dedupeSearchResults(primary + secondary)
+    }
+
+    private func dedupeSearchResults(_ results: [PlaceSearchResult]) -> [PlaceSearchResult] {
+        var seen = Set<String>()
+        var deduped: [PlaceSearchResult] = []
+
+        for result in results {
+            let key = dedupeKey(for: result)
+            guard seen.insert(key).inserted else { continue }
+            deduped.append(result)
+        }
+
+        return deduped
+    }
+
+    private func dedupeKey(for result: PlaceSearchResult) -> String {
+        let normalizedAddress = result.address
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let roundedLat = String(format: "%.5f", result.latitude)
+        let roundedLon = String(format: "%.5f", result.longitude)
+        return "\(normalizedAddress)|\(roundedLat)|\(roundedLon)"
+    }
+
+    private func makeAddressSearchResult(from mapItem: MKMapItem) -> PlaceSearchResult? {
+        let placemark = mapItem.placemark
+        let coordinate = placemark.coordinate
+        guard CLLocationCoordinate2DIsValid(coordinate) else { return nil }
+
+        let address = formattedAddress(for: placemark)
+        let name = resolvedName(
+            explicitName: mapItem.name,
+            address: address,
+            fallbackName: placemark.name
+        )
+        let syntheticId = syntheticAddressPlaceId(name: name, address: address, coordinate: coordinate)
+        let result = PlaceSearchResult(
+            id: syntheticId,
+            name: name,
+            address: address,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            types: ["street_address"],
+            photoURL: nil
+        )
+
+        cacheFallbackDetails(for: result)
+        return result
+    }
+
+    private func makeAddressSearchResult(from placemark: CLPlacemark) -> PlaceSearchResult? {
+        guard let location = placemark.location else { return nil }
+
+        let address = formattedAddress(for: placemark)
+        let name = resolvedName(
+            explicitName: placemark.name,
+            address: address,
+            fallbackName: placemark.thoroughfare
+        )
+        let coordinate = location.coordinate
+        let syntheticId = syntheticAddressPlaceId(name: name, address: address, coordinate: coordinate)
+        let result = PlaceSearchResult(
+            id: syntheticId,
+            name: name,
+            address: address,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            types: ["street_address"],
+            photoURL: nil
+        )
+
+        cacheFallbackDetails(for: result)
+        return result
+    }
+
+    private func cacheFallbackDetails(for result: PlaceSearchResult) {
+        detailsCache[result.id] = PlaceDetails(
+            name: result.name,
+            address: result.address,
+            phone: nil,
+            latitude: result.latitude,
+            longitude: result.longitude,
+            photoURLs: [],
+            rating: nil,
+            totalRatings: 0,
+            reviews: [],
+            website: nil,
+            isOpenNow: nil,
+            openingHours: [],
+            priceLevel: nil,
+            types: result.types
+        )
+    }
+
+    private func resolvedName(explicitName: String?, address: String, fallbackName: String?) -> String {
+        let trimmedExplicit = explicitName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedExplicit.isEmpty {
+            return trimmedExplicit
+        }
+
+        let trimmedFallback = fallbackName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedFallback.isEmpty {
+            return trimmedFallback
+        }
+
+        return address.isEmpty ? "Address Result" : address
+    }
+
+    private func formattedAddress(for placemark: MKPlacemark) -> String {
+        var addressParts: [String] = []
+
+        if let subThoroughfare = placemark.subThoroughfare, let thoroughfare = placemark.thoroughfare {
+            addressParts.append("\(subThoroughfare) \(thoroughfare)")
+        } else if let thoroughfare = placemark.thoroughfare {
+            addressParts.append(thoroughfare)
+        } else if let name = placemark.name {
+            addressParts.append(name)
+        }
+
+        if let locality = placemark.locality {
+            addressParts.append(locality)
+        }
+        if let administrativeArea = placemark.administrativeArea {
+            addressParts.append(administrativeArea)
+        }
+        if let postalCode = placemark.postalCode {
+            addressParts.append(postalCode)
+        }
+        if let country = placemark.country {
+            addressParts.append(country)
+        }
+
+        return addressParts.isEmpty ? "Address Result" : addressParts.joined(separator: ", ")
+    }
+
+    private func formattedAddress(for placemark: CLPlacemark) -> String {
+        var addressParts: [String] = []
+
+        if let subThoroughfare = placemark.subThoroughfare, let thoroughfare = placemark.thoroughfare {
+            addressParts.append("\(subThoroughfare) \(thoroughfare)")
+        } else if let thoroughfare = placemark.thoroughfare {
+            addressParts.append(thoroughfare)
+        } else if let name = placemark.name {
+            addressParts.append(name)
+        }
+
+        if let locality = placemark.locality {
+            addressParts.append(locality)
+        }
+        if let administrativeArea = placemark.administrativeArea {
+            addressParts.append(administrativeArea)
+        }
+        if let postalCode = placemark.postalCode {
+            addressParts.append(postalCode)
+        }
+        if let country = placemark.country {
+            addressParts.append(country)
+        }
+
+        return addressParts.isEmpty ? "Address Result" : addressParts.joined(separator: ", ")
+    }
+
+    private func syntheticAddressPlaceId(
+        name: String,
+        address: String,
+        coordinate: CLLocationCoordinate2D
+    ) -> String {
+        let signature = [
+            name.lowercased(),
+            address.lowercased(),
+            String(format: "%.5f", coordinate.latitude),
+            String(format: "%.5f", coordinate.longitude)
+        ]
+        .joined(separator: "|")
+
+        return "address-search-\(HashUtils.deterministicHash(signature).magnitude)"
     }
 
     // MARK: - Open in Google Maps

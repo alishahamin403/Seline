@@ -12,6 +12,12 @@ struct SelineChatRetrievedContext {
     var peopleByReceipt: [UUID: [Person]] = [:]
     var graphRelations: [SelineChatEvidenceRelation] = []
     var openQuestions: [String] = []
+    var daySummaries: [DaySummaryService.DaySummary] = []
+    var trackers: [TrackerThread] = []
+    /// Full email bodies keyed by email.id — fetched on demand for top relevant emails
+    var emailBodies: [String: String] = [:]
+    /// Web search result text — populated when the query needs external/factual information
+    var webSearchResult: String? = nil
 }
 
 @MainActor
@@ -39,10 +45,16 @@ final class SelineChatEvidenceRetriever {
         var context = SelineChatRetrievedContext(frame: frame)
 
         let allEmails = allEmailsSnapshot()
-        let allNotes = notesManager.notes
         let allPeople = peopleManager.people
         let allPlaces = locationsManager.savedPlaces
         let allReceipts = await allReceiptsSnapshot()
+
+        // Exclude legacy receipt-backed notes from note retrieval — receipts are their own domain now
+        let receiptNoteIDs = Set(allReceipts.compactMap(\.legacyNoteId))
+        let allNotes = notesManager.notes.filter { !receiptNoteIDs.contains($0.id) }
+
+        // Fetch semantic search scores in parallel with keyword retrieval
+        let semanticScores = await fetchSemanticScores(for: frame)
 
         if frame.isExplicitFollowUp {
             await seedFromExplicitFollowUp(
@@ -56,6 +68,32 @@ final class SelineChatEvidenceRetriever {
             )
 
             if !context.openQuestions.isEmpty {
+                finalize(&context, frame: frame)
+                return context
+            }
+
+            // For episode follow-ups that resolved specific visits, expand the context
+            // with notes/receipts from those visit dates and return immediately.
+            // Skipping the full pipeline prevents the cluster resolver from overwriting
+            // the anchor visits with unrelated recent activity.
+            if frame.followUpTargetType == .episode, !context.visits.isEmpty {
+                let visitDates = context.visits.map { Calendar.current.startOfDay(for: $0.entryTime) }
+                let uniqueDates = Array(Set(visitDates))
+
+                // Pull in notes from the same day(s) as the anchor visits
+                let anchorNotes = allNotes.filter { note in
+                    let noteDate = Calendar.current.startOfDay(for: note.journalDate ?? note.dateModified)
+                    return uniqueDates.contains(noteDate)
+                }
+                context.notes = Array(anchorNotes.prefix(noteCap))
+
+                // Pull in receipts from the same day(s)
+                let anchorReceipts = allReceipts.filter { receipt in
+                    let receiptDate = Calendar.current.startOfDay(for: receipt.date)
+                    return uniqueDates.contains(receiptDate)
+                }
+                context.receipts = Array(anchorReceipts.prefix(receiptCap))
+
                 finalize(&context, frame: frame)
                 return context
             }
@@ -127,8 +165,15 @@ final class SelineChatEvidenceRetriever {
             )
         }
 
+        // Only disambiguate places when the query is genuinely about a saved place —
+        // NOT when it's a general/travel/email query (e.g. "my flight to Atlanta", "flight info").
+        // A places-focused query has places as its primary domain, not mixed in via baseDomains fallback.
+        // Heuristic: skip disambiguation when emails are also requested (travel/booking queries)
+        // or when places is not the only domain alongside visits.
+        let isPlacesFocusedQuery = frame.requestedDomains.isSubset(of: [.places, .visits, .people])
         if context.places.isEmpty,
            frame.requestedDomains.contains(.places),
+           isPlacesFocusedQuery,
            frame.wantsSpecificObject,
            !frame.isExplicitFollowUp {
             if rankedPlaces.isEmpty {
@@ -141,34 +186,155 @@ final class SelineChatEvidenceRetriever {
             }
         }
 
-        if let clusteredContext = buildClusteredContext(
+        // Apply semantic boost: re-rank candidates by promoting semantically matched items
+        let semanticallyBoostedEmails = applySemanticBoost(to: candidateEmails, docType: "email", idKeyPath: \.id, semanticScores: semanticScores)
+        let semanticallyBoostedNotes = applySemanticBoost(to: candidateNotes, docType: "note", idKeyPath: { $0.id.uuidString }, semanticScores: semanticScores)
+        let semanticallyBoostedReceipts = applySemanticBoost(to: candidateReceipts, docType: "receipt", idKeyPath: { $0.id.uuidString }, semanticScores: semanticScores)
+        let semanticallyBoostedPeople = applySemanticBoost(to: candidatePeople, docType: "person", idKeyPath: { $0.id.uuidString }, semanticScores: semanticScores)
+
+        // Specific queries (any named entity or time scope) bypass the cluster resolver.
+        // The cluster picks ONE best-scoring theme and silently drops everything else —
+        // exactly wrong when the user asks about a specific person, place, date, or combo.
+        // For specific queries, all retrieval paths have already run and candidates are
+        // scored; use them directly so the LLM sees the full relevant picture.
+        //
+        // The cluster is reserved for truly ambient queries ("what have I been up to?")
+        // where there are no anchors and theme-picking is actually useful.
+        let isSpecificQuery = !frame.entityMentions.isEmpty || frame.timeScope != nil
+
+        if !isSpecificQuery, let clusteredContext = buildClusteredContext(
             frame: frame,
             baseContext: context,
             allPeople: allPeople,
             allPlaces: allPlaces,
-            emails: candidateEmails,
-            notes: candidateNotes,
+            emails: semanticallyBoostedEmails,
+            notes: semanticallyBoostedNotes,
             visits: candidateVisits,
-            receipts: candidateReceipts,
+            receipts: semanticallyBoostedReceipts,
             places: mergeUniquePlaces(candidatePlaces, context.places),
-            people: mergeUniquePeople(candidatePeople, context.people),
+            people: semanticallyBoostedPeople,
             peopleByVisit: candidatePeopleByVisit,
             peopleByReceipt: candidatePeopleByReceipt
         ) {
+            // Ambient query — cluster resolved a dominant theme.
             context = clusteredContext
         } else {
-            context.emails = Array(candidateEmails.prefix(emailCap))
-            context.notes = Array(candidateNotes.prefix(noteCap))
+            // Specific query (or cluster returned nothing) — use scored candidates directly.
+            // Every retrieval path has run; this gives the LLM the full relevant context.
+            context.emails = Array(semanticallyBoostedEmails.prefix(emailCap))
+            context.notes = Array(semanticallyBoostedNotes.prefix(noteCap))
             context.visits = Array(candidateVisits.prefix(visitCap))
-            context.receipts = Array(candidateReceipts.prefix(receiptCap))
-            context.places = Array(mergeUniquePlaces(context.places, candidatePlaces).prefix(placeCap))
-            context.people = Array(mergeUniquePeople(context.people, candidatePeople).prefix(peopleCap))
+            context.receipts = Array(semanticallyBoostedReceipts.prefix(receiptCap))
+            context.people = Array(semanticallyBoostedPeople.prefix(peopleCap))
             context.peopleByVisit = candidatePeopleByVisit
             context.peopleByReceipt = candidatePeopleByReceipt
+            // Enrich places: matched places + places from the retrieved visits themselves
+            let visitPlaces = context.visits.compactMap { visit in
+                locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId })
+            }
+            context.places = Array(mergeUniquePlaces(
+                mergeUniquePlaces(context.places, candidatePlaces),
+                visitPlaces
+            ).prefix(placeCap))
+        }
+
+        // Fetch day summaries when query is temporal/reflective
+        if frame.requestedDomains.contains(.daySummaries) || isDaySummaryQuery(frame) {
+            context.daySummaries = await retrieveDaySummaries(for: frame)
+        }
+
+        // Fetch trackers when query involves tracker domain
+        if frame.requestedDomains.contains(.trackers) {
+            context.trackers = retrieveTrackers(for: frame)
         }
 
         finalize(&context, frame: frame)
+
+        // Fetch full email bodies for the top relevant emails so the LLM gets
+        // complete content (not just the 150-char snippet from Gmail metadata).
+        if !context.emails.isEmpty {
+            context.emailBodies = await fetchEmailBodies(for: context.emails)
+        }
+
         return context
+    }
+
+    /// Fetches full email body text for the top 3 relevant emails via Gmail API.
+    private func fetchEmailBodies(for emails: [Email]) async -> [String: String] {
+        var bodies: [String: String] = [:]
+        for email in emails.prefix(3) {
+            let messageId = email.gmailMessageId ?? email.id
+            if let body = (try? await GmailAPIClient.shared.fetchBodyForAI(messageId: messageId)) ?? nil,
+               !body.isEmpty {
+                bodies[email.id] = body
+            } else if !email.snippet.isEmpty {
+                bodies[email.id] = email.snippet
+            }
+        }
+        return bodies
+    }
+
+    private func isDaySummaryQuery(_ frame: SelineChatQuestionFrame) -> Bool {
+        let q = frame.normalizedQuestion.lowercased()
+        return q.contains("how was my day") || q.contains("how was my week") ||
+               q.contains("what happened today") || q.contains("what did i do today") ||
+               q.contains("recap") || q.contains("weekly recap") ||
+               q.contains("summary of") || q.contains("summarize my") ||
+               q.contains("what is happening") || q.contains("what's happening") ||
+               q.contains("what's going on") || q.contains("anything happening") ||
+               q.contains("anything planned") || q.contains("anything coming up") ||
+               q.contains("what do i have") || q.contains("do i have anything") ||
+               q.contains("upcoming") || q.contains("coming up") ||
+               q.contains("schedule for") || q.contains("what's on")
+    }
+
+    private func retrieveDaySummaries(for frame: SelineChatQuestionFrame) async -> [DaySummaryService.DaySummary] {
+        var summaries: [DaySummaryService.DaySummary] = []
+        let service = DaySummaryService.shared
+
+        if let scope = frame.timeScope {
+            // Fetch summaries for each day in the time scope (capped at 7 days)
+            var current = scope.interval.start
+            let calendar = Calendar.current
+            let maxDays = 7
+            var count = 0
+            while current <= scope.interval.end && count < maxDays {
+                if let summary = await service.summary(for: current) {
+                    summaries.append(summary)
+                }
+                current = calendar.date(byAdding: .day, value: 1, to: current) ?? current
+                count += 1
+            }
+        } else {
+            // Default: today and yesterday
+            if let today = await service.summary(for: Date()) {
+                summaries.append(today)
+            }
+            if let yesterday = await service.summary(for: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()) {
+                summaries.append(yesterday)
+            }
+        }
+
+        return summaries.filter(\.hasMeaningfulEvidence)
+    }
+
+    private func retrieveTrackers(for frame: SelineChatQuestionFrame) -> [TrackerThread] {
+        let allTrackers = TrackerStore.shared.threads
+        let q = frame.normalizedQuestion.lowercased()
+        let terms = frame.searchTerms.map { $0.lowercased() }
+
+        // If query mentions a specific tracker by name, prioritize those
+        let matched = allTrackers.filter { tracker in
+            let title = tracker.title.lowercased()
+            return terms.contains(where: { title.contains($0) }) ||
+                   q.contains(title)
+        }
+
+        // Return matched trackers, or all active trackers if no specific match
+        if !matched.isEmpty {
+            return matched
+        }
+        return Array(allTrackers.filter { $0.status == .active }.prefix(5))
     }
 
     private func seedFromExplicitFollowUp(
@@ -200,7 +366,19 @@ final class SelineChatEvidenceRetriever {
                 context.openQuestions.append("Tell me which trip or visit you mean.")
                 return
             }
-            let visits = await fetchVisits(withIDs: anchor.visitIDs)
+            // Primary: fetch by stored IDs
+            var visits = await fetchVisits(withIDs: anchor.visitIDs)
+            // Fallback: if ID lookup returned nothing but we have stored dates,
+            // fetch all visits for those days so the early-return path can still fire.
+            if visits.isEmpty, !anchor.visitDates.isEmpty {
+                let calendar = Calendar.current
+                let dayStarts = anchor.visitDates.map { calendar.startOfDay(for: $0) }
+                let earliestDay = dayStarts.min() ?? Date()
+                let latestDay = dayStarts.max() ?? Date()
+                let endOfLatestDay = calendar.date(byAdding: .day, value: 1, to: latestDay) ?? latestDay
+                let interval = DateInterval(start: earliestDay, end: endOfLatestDay)
+                visits = await fetchVisits(in: interval, limit: visitCap * 2)
+            }
             context.visits = visits
             context.people = allPeople.filter { anchor.personIDs.contains($0.id) }
             context.places = allPlaces.filter { anchor.placeIDs.contains($0.id) }
@@ -244,17 +422,43 @@ final class SelineChatEvidenceRetriever {
             context.people = []
             context.peopleByVisit = [:]
             context.peopleByReceipt = [:]
+            context.daySummaries = []
+            context.trackers = []
         } else if frame.requestedDomains == [.receipts] {
             context.emails = []
             context.visits = []
             context.notes = []
             context.peopleByVisit = [:]
+            context.daySummaries = []
+            context.trackers = []
         } else if frame.requestedDomains == [.notes] {
             context.emails = []
             context.visits = []
             context.receipts = []
             context.peopleByVisit = [:]
             context.peopleByReceipt = [:]
+            context.daySummaries = []
+            context.trackers = []
+        } else if frame.requestedDomains == [.trackers] {
+            context.emails = []
+            context.notes = []
+            context.visits = []
+            context.receipts = []
+            context.places = []
+            context.people = []
+            context.peopleByVisit = [:]
+            context.peopleByReceipt = [:]
+            context.daySummaries = []
+        } else if frame.requestedDomains == [.daySummaries] {
+            context.emails = []
+            context.notes = []
+            context.visits = []
+            context.receipts = []
+            context.places = []
+            context.people = []
+            context.peopleByVisit = [:]
+            context.peopleByReceipt = [:]
+            context.trackers = []
         }
 
         context.emails = Array(context.emails.prefix(emailCap))
@@ -641,11 +845,18 @@ final class SelineChatEvidenceRetriever {
             }
         }
 
+        // Always search visit_notes when search terms exist — runs alongside place and
+        // people fetches to catch any textual connection: a person mentioned in notes,
+        // an area name (e.g. "niagara"), an event description, anything.
+        if !frame.searchTerms.isEmpty {
+            candidates.append(contentsOf: await fetchVisitsByNotes(searchTerms: frame.searchTerms, limit: limit))
+        }
+
         if candidates.isEmpty, frame.timeScope != nil {
             candidates.append(contentsOf: await fetchVisits(in: frame.timeScope!.interval, limit: limit))
         }
 
-        if candidates.isEmpty || frame.prefersMostRecent {
+        if candidates.isEmpty {
             candidates.append(contentsOf: await fetchRecentVisits(limit: limit))
         }
 
@@ -755,6 +966,67 @@ final class SelineChatEvidenceRetriever {
         }
 
         context.receipts = mergeUniqueReceipts(context.receipts, relatedReceipts.prefix(receiptCap))
+    }
+
+    // MARK: - Semantic Search Boost
+
+    /// Fetches semantic similarity scores from VectorSearchService for the query.
+    /// Returns a dict of "docType::docId" → similarity score.
+    private func fetchSemanticScores(for frame: SelineChatQuestionFrame) async -> [String: Float] {
+        guard !frame.searchTerms.isEmpty || !frame.entityMentions.isEmpty else { return [:] }
+
+        let docTypes = semanticDocumentTypes(for: frame.requestedDomains)
+        guard !docTypes.isEmpty else { return [:] }
+
+        let dateRange: (start: Date, end: Date)? = frame.timeScope.map {
+            (start: $0.interval.start, end: $0.interval.end)
+        }
+
+        do {
+            let results = try await VectorSearchService.shared.search(
+                query: frame.normalizedQuestion,
+                documentTypes: docTypes,
+                limit: 20,
+                dateRange: dateRange
+            )
+            var scores: [String: Float] = [:]
+            for result in results {
+                let key = "\(result.documentType.rawValue)::\(result.documentId)"
+                scores[key] = result.similarity
+            }
+            return scores
+        } catch {
+            return [:]
+        }
+    }
+
+    private func semanticDocumentTypes(for domains: Set<SelineChatDomain>) -> [VectorSearchService.DocumentType] {
+        var types: [VectorSearchService.DocumentType] = []
+        if domains.contains(.emails) { types.append(.email) }
+        if domains.contains(.notes) { types.append(.note) }
+        if domains.contains(.receipts) { types.append(.receipt) }
+        if domains.contains(.people) { types.append(.person) }
+        if domains.contains(.visits) { types.append(.visit) }
+        if domains.contains(.trackers) { types.append(.tracker) }
+        return types
+    }
+
+    /// Re-ranks a list by promoting items that appear in semantic results to the top.
+    private func applySemanticBoost<T>(
+        to items: [T],
+        docType: String,
+        idKeyPath: (T) -> String,
+        semanticScores: [String: Float]
+    ) -> [T] {
+        guard !semanticScores.isEmpty else { return items }
+
+        return items.sorted { a, b in
+            let keyA = "\(docType)::\(idKeyPath(a))"
+            let keyB = "\(docType)::\(idKeyPath(b))"
+            let scoreA = semanticScores[keyA] ?? 0
+            let scoreB = semanticScores[keyB] ?? 0
+            return scoreA > scoreB
+        }
     }
 
     private func allEmailsSnapshot() -> [Email] {
@@ -965,6 +1237,35 @@ final class SelineChatEvidenceRetriever {
         }
     }
 
+    /// Fetches visits whose visit_notes contain any of the given search terms (case-insensitive).
+    /// Used when a place isn't in saved places but the user references it by name in the query.
+    private func fetchVisitsByNotes(searchTerms: [String], limit: Int) async -> [LocationVisitRecord] {
+        guard let userID = SupabaseManager.shared.getCurrentUser()?.id,
+              !searchTerms.isEmpty else { return [] }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            var allVisits: [LocationVisitRecord] = []
+
+            for term in searchTerms.prefix(3) where term.count >= 3 {
+                let response = try await client
+                    .from("location_visits")
+                    .select()
+                    .eq("user_id", value: userID.uuidString)
+                    .ilike("visit_notes", pattern: "%\(term)%")
+                    .order("entry_time", ascending: false)
+                    .execute()
+
+                let visits = try JSONDecoder.supabaseDecoder().decode([LocationVisitRecord].self, from: response.data)
+                allVisits.append(contentsOf: visits.prefix(limit))
+            }
+
+            return dedupeVisits(allVisits)
+        } catch {
+            return []
+        }
+    }
+
     private func retainedEvidenceItemIDs(from context: SelineChatRetrievedContext) -> Set<String> {
         var ids = Set(context.emails.map { "email-\($0.id)" })
         ids.formUnion(context.notes.map { "note-\($0.id.uuidString)" })
@@ -1106,7 +1407,9 @@ final class SelineChatEvidenceRetriever {
         }
 
         if frame.requestedDomains.contains(domain(for: kind)) {
-            score += 0.7
+            // Give visits a stronger boost when the query is explicitly about visits,
+            // so the cluster resolver doesn't drop them in favour of email/people clusters.
+            score += (kind == .visit && frame.requestedDomains.contains(.visits)) ? 1.4 : 0.7
         }
 
         if frame.isExplicitFollowUp {

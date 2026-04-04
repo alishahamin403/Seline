@@ -12,11 +12,13 @@ struct CalendarMonthView: View {
     
     @State private var currentMonth: Date
     @State private var monthPageSelection: Int = 1
+    @State private var isHandlingMonthPageTurn = false
     @State private var cachedEventsForMonth: [String: [TaskItem]] = [:] // Cache: dateKey -> filtered events
     @State private var cachedTagId: String? = nil // Track which tag filter is cached
     
     private let calendar = Calendar.current
     private let rowHeight: CGFloat = 58
+    private let monthGridRowCount = 6
     private static let cacheKeyDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -79,6 +81,10 @@ struct CalendarMonthView: View {
         weeksInMonth(for: monthOffset(1))
     }
 
+    private var monthGridHeight: CGFloat {
+        CGFloat(monthGridRowCount) * rowHeight
+    }
+
     private func daysInMonth(for month: Date) -> [Date] {
         guard let monthInterval = calendar.dateInterval(of: .month, for: month) else {
             return []
@@ -133,6 +139,10 @@ struct CalendarMonthView: View {
             }
             weeks.append(currentWeek)
         }
+
+        while weeks.count < monthGridRowCount {
+            weeks.append(Array(repeating: nil, count: 7))
+        }
         
         return weeks
     }
@@ -160,7 +170,7 @@ struct CalendarMonthView: View {
         }
         .onChange(of: currentMonth) { _ in
             rebuildCacheForCurrentMonth()
-            monthPageSelection = 1
+            resetMonthPager()
         }
         .onChange(of: selectedTagId) { _ in
             rebuildCacheForCurrentMonth()
@@ -208,6 +218,7 @@ struct CalendarMonthView: View {
                     selectedDate = today
                     currentMonth = today
                 }
+                resetMonthPager()
                 HapticManager.shared.selection()
             }) {
                 Text("Today")
@@ -265,54 +276,59 @@ struct CalendarMonthView: View {
     // MARK: - Calendar Grid
     
     private var calendarGrid: some View {
-        TabView(selection: $monthPageSelection) {
-            monthGrid(weeks: previousMonthWeeks)
-                .frame(height: CGFloat(previousMonthWeeks.count) * rowHeight, alignment: .top)
+        let previousMonthDate = monthOffset(-1)
+        let nextMonthDate = monthOffset(1)
+
+        return TabView(selection: $monthPageSelection) {
+            monthGrid(weeks: previousMonthWeeks, month: previousMonthDate)
+                .frame(height: monthGridHeight, alignment: .top)
                 .tag(0)
 
-            monthGrid(weeks: weeksInMonth)
-                .frame(height: CGFloat(weeksInMonth.count) * rowHeight, alignment: .top)
+            monthGrid(weeks: weeksInMonth, month: currentMonth)
+                .frame(height: monthGridHeight, alignment: .top)
                 .tag(1)
 
-            monthGrid(weeks: nextMonthWeeks)
-                .frame(height: CGFloat(nextMonthWeeks.count) * rowHeight, alignment: .top)
+            monthGrid(weeks: nextMonthWeeks, month: nextMonthDate)
+                .frame(height: monthGridHeight, alignment: .top)
                 .tag(2)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: CGFloat(weeksInMonth.count) * rowHeight)
+        .frame(height: monthGridHeight)
         .padding(.bottom, 10)
         .onChange(of: monthPageSelection) { newSelection in
-            guard newSelection != 1 else { return }
+            guard !isHandlingMonthPageTurn, newSelection != 1 else { return }
 
-            withAnimation(.easeInOut(duration: 0.26)) {
-                if newSelection == 0 {
-                    previousMonth()
-                } else {
-                    nextMonth()
-                }
+            isHandlingMonthPageTurn = true
+            let isMovingBackward = newSelection == 0
+            resetMonthPager()
+
+            if isMovingBackward {
+                previousMonth()
+            } else {
+                nextMonth()
             }
 
             DispatchQueue.main.async {
-                monthPageSelection = 1
+                isHandlingMonthPageTurn = false
             }
         }
     }
 
-    private func monthGrid(weeks: [[Date?]]) -> some View {
+    private func monthGrid(weeks: [[Date?]], month: Date) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(weeks.enumerated()), id: \.offset) { weekIndex, week in
-                weekRow(week: week, weekIndex: weekIndex)
+                weekRow(week: week, weekIndex: weekIndex, month: month)
             }
         }
     }
     
     // MARK: - Week Row
     
-    private func weekRow(week: [Date?], weekIndex: Int) -> some View {
+    private func weekRow(week: [Date?], weekIndex: Int, month: Date) -> some View {
         HStack(spacing: 0) {
             ForEach(Array(week.enumerated()), id: \.offset) { dayIndex, date in
                 if let date = date {
-                    dayCell(date: date, in: currentMonth)
+                    dayCell(date: date, in: month)
                         .frame(maxWidth: .infinity)
                 } else {
                     Color.clear
@@ -491,6 +507,14 @@ struct CalendarMonthView: View {
 
     private func monthOffset(_ value: Int) -> Date {
         calendar.date(byAdding: .month, value: value, to: currentMonth) ?? currentMonth
+    }
+
+    private func resetMonthPager() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            monthPageSelection = 1
+        }
     }
 }
 

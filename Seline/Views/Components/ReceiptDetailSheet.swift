@@ -4,8 +4,9 @@ struct ReceiptDetailSheet: View {
     let receipt: ReceiptStat
     let note: Note?
 
-    @State private var showNoteEditor = false
-    @Environment(\.colorScheme) private var colorScheme
+    @StateObject private var receiptManager = ReceiptManager.shared
+    @State private var showReceiptEditor = false
+    @State private var showDeleteConfirmation = false
     @Environment(\.dismiss) private var dismiss
 
     init(receipt: ReceiptStat, note: Note? = nil, folderName: String? = nil) {
@@ -13,29 +14,17 @@ struct ReceiptDetailSheet: View {
         self.note = note
     }
 
+    private var currentReceipt: ReceiptStat {
+        receiptManager.receipt(by: receipt.id) ?? receipt
+    }
+
     private var legacyNote: Note? {
-        note ?? ReceiptManager.shared.note(for: receipt)
-    }
-
-    private var primaryText: Color {
-        colorScheme == .dark ? .white : Color.emailLightTextPrimary
-    }
-
-    private var secondaryText: Color {
-        colorScheme == .dark ? Color.white.opacity(0.62) : Color.emailLightTextSecondary
-    }
-
-    private var cardColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.07) : Color.emailLightSurface
-    }
-
-    private var cardBorder: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightBorder
+        note ?? receiptManager.note(for: currentReceipt)
     }
 
     private var displayFields: [ReceiptField] {
-        if !receipt.detailFields.isEmpty {
-            return receipt.detailFields
+        if !currentReceipt.detailFields.isEmpty {
+            return currentReceipt.detailFields
         }
 
         guard let legacyNote else { return [] }
@@ -72,8 +61,8 @@ struct ReceiptDetailSheet: View {
     }
 
     private var extractedLineItems: [ReceiptLineItem] {
-        if !receipt.lineItems.isEmpty {
-            return receipt.lineItems
+        if !currentReceipt.lineItems.isEmpty {
+            return currentReceipt.lineItems
         }
 
         guard let legacyNote else { return [] }
@@ -100,176 +89,169 @@ struct ReceiptDetailSheet: View {
         }
     }
 
+    private var keyInfoRows: [ReceiptInfoRow] {
+        var rows: [ReceiptInfoRow] = []
+        var seenLabels = Set<String>()
+
+        func append(label: String, value: String?) {
+            let normalizedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !normalizedLabel.isEmpty, !normalizedValue.isEmpty else { return }
+            let key = normalizedLabel.lowercased()
+            guard !seenLabels.contains(key) else { return }
+            rows.append(ReceiptInfoRow(label: normalizedLabel, value: normalizedValue))
+            seenLabels.insert(key)
+        }
+
+        append(label: "Category", value: currentReceipt.category)
+        append(label: "Time", value: currentReceipt.transactionTime.map { FormatterCache.shortTime.string(from: $0) })
+        append(label: "Payment", value: currentReceipt.paymentMethod)
+        append(label: "Subtotal", value: currentReceipt.subtotal.map { CurrencyParser.formatAmount($0) })
+        append(label: "Tax", value: currentReceipt.tax.map { CurrencyParser.formatAmount($0) })
+        append(label: "Tip", value: currentReceipt.tip.map { CurrencyParser.formatAmount($0) })
+
+        for field in displayFields {
+            append(label: field.label, value: field.value)
+        }
+
+        for item in extractedLineItems {
+            let value = item.amount.map { CurrencyParser.formatAmount($0) }
+                ?? item.quantity.map { "Qty \(ReceiptEditorNumberFormatter.string(from: NSNumber(value: $0)) ?? "\($0)")" }
+                ?? "Included"
+            append(label: item.title, value: value)
+        }
+
+        return rows
+    }
+
     private var imageURLs: [String] {
-        if !receipt.imageUrls.isEmpty {
-            return receipt.imageUrls
+        if !currentReceipt.imageUrls.isEmpty {
+            return currentReceipt.imageUrls
         }
         return legacyNote?.imageUrls ?? []
     }
 
-    private var supportsLegacyNoteActions: Bool {
-        receipt.source == .legacyFallback && legacyNote != nil
+    private var showsRawContentSection: Bool {
+        legacyNote != nil
     }
 
     var body: some View {
-        ZStack {
-            (colorScheme == .dark ? Color.black : Color.emailLightBackground)
-                .ignoresSafeArea()
+        NavigationStack {
+            List {
+                summarySection
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 12) {
-                    summaryCard
-                    if !displayFields.isEmpty {
-                        keyInfoCard
-                    }
-                    lineItemsCard
-                    receiptImageCard
-                    if supportsLegacyNoteActions {
-                        rawContentCard
-                        actionsCard
-                    } else {
-                        closeCard
+                if !keyInfoRows.isEmpty {
+                    keyInfoSection
+                }
+
+                receiptImageSection
+
+                if showsRawContentSection {
+                    rawContentSection
+                }
+
+                actionsSection
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Receipt")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Done") {
+                        dismiss()
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 16)
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Edit") {
+                        showReceiptEditor = true
+                    }
+                }
             }
         }
-        .sheet(isPresented: $showNoteEditor) {
-            if let legacyNote {
-                NavigationView {
-                    NoteEditView(
-                        note: legacyNote,
-                        isPresented: Binding<Bool>(
-                            get: { showNoteEditor },
-                            set: { showNoteEditor = $0 }
-                        )
-                    )
-                }
+        .sheet(isPresented: $showReceiptEditor) {
+            ReceiptEditorSheet(receipt: currentReceipt) { title, draft in
+                _ = receiptManager.updateReceipt(currentReceipt, title: title, draft: draft)
+                HapticManager.shared.success()
             }
+        }
+        .confirmationDialog("Delete Receipt", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                HapticManager.shared.delete()
+                receiptManager.deleteReceipt(currentReceipt)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Delete this receipt? This will remove the receipt from your records.")
         }
     }
 
-    private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Merchant")
-                .font(FontManager.geist(size: 11, weight: .semibold))
-                .foregroundColor(secondaryText)
+    private var summarySection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(currentReceipt.title)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(3)
 
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(receipt.merchant)
-                        .font(FontManager.geist(size: 28, weight: .bold))
-                        .foregroundColor(primaryText)
-                        .lineLimit(2)
+                        if currentReceipt.merchant != currentReceipt.title {
+                            Text(currentReceipt.merchant)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
 
-                    Text(formattedDate(receipt.date))
-                        .font(FontManager.geist(size: 13, weight: .medium))
-                        .foregroundColor(secondaryText)
-                }
+                        Text(formattedDate(currentReceipt.date))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
 
-                Spacer(minLength: 8)
-
-                Text(CurrencyParser.formatAmount(receipt.amount))
-                    .font(FontManager.geist(size: 32, weight: .bold))
-                    .foregroundColor(primaryText)
-                    .minimumScaleFactor(0.7)
-            }
-
-            HStack(spacing: 8) {
-                Text(receipt.category)
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .black : primaryText)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(colorScheme == .dark ? Color.white : Color.emailLightChipIdle)
-                    )
-
-                if receipt.source != .legacyFallback {
-                    Text(receipt.source == .migratedLegacy ? "Migrated" : "Native")
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(secondaryText)
-                }
-            }
-        }
-        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
-    }
-
-    private var keyInfoCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Key Info")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(secondaryText)
-
-            ForEach(displayFields) { field in
-                HStack(spacing: 10) {
-                    Text(field.label)
-                        .font(FontManager.geist(size: 12, weight: .medium))
-                        .foregroundColor(secondaryText)
                     Spacer(minLength: 8)
-                    Text(field.value)
-                        .font(FontManager.geist(size: 12, weight: .semibold))
-                        .foregroundColor(primaryText)
+
+                    Text(CurrencyParser.formatAmount(currentReceipt.amount))
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(.primary)
                         .multilineTextAlignment(.trailing)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightChipIdle.opacity(0.55))
-                )
+
+                HStack(spacing: 8) {
+                    Text(currentReceipt.category)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.quaternary, in: Capsule())
+
+                    if currentReceipt.source != .legacyFallback {
+                        Text(currentReceipt.source == .migratedLegacy ? "Migrated" : "Native")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
+            .padding(.vertical, 4)
         }
-        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
     }
 
-    private var lineItemsCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Extracted Line Items")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(secondaryText)
-
-            if extractedLineItems.isEmpty {
-                Text("No line items detected")
-                    .font(FontManager.geist(size: 13, weight: .regular))
-                    .foregroundColor(secondaryText)
-            } else {
-                ForEach(extractedLineItems) { item in
-                    HStack {
-                        Text(item.title)
-                            .font(FontManager.geist(size: 13, weight: .medium))
-                            .foregroundColor(primaryText)
-                            .lineLimit(1)
-                        Spacer()
-                        if let amount = item.amount {
-                            Text(CurrencyParser.formatAmount(amount))
-                                .font(FontManager.geist(size: 13, weight: .semibold))
-                                .foregroundColor(primaryText)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightChipIdle.opacity(0.55))
-                    )
+    private var keyInfoSection: some View {
+        Section("Key Info") {
+            ForEach(keyInfoRows) { row in
+                LabeledContent(row.label) {
+                    Text(row.value)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.trailing)
                 }
             }
         }
-        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
     }
 
     @ViewBuilder
-    private var receiptImageCard: some View {
+    private var receiptImageSection: some View {
         if let firstImageURL = imageURLs.first, let url = URL(string: firstImageURL) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Receipt Image")
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(secondaryText)
-
+            Section("Receipt Image") {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
@@ -281,11 +263,9 @@ struct ReceiptDetailSheet: View {
                             .resizable()
                             .scaledToFit()
                             .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     case .failure:
                         Text("Unable to load image")
-                            .font(FontManager.geist(size: 13, weight: .regular))
-                            .foregroundColor(secondaryText)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 18)
                     @unknown default:
@@ -293,78 +273,31 @@ struct ReceiptDetailSheet: View {
                     }
                 }
             }
-            .cardShell(cardColor: cardColor, cardBorder: cardBorder)
         }
     }
 
-    private var rawContentCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Raw Note Content")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(secondaryText)
-
+    private var rawContentSection: some View {
+        Section("Raw Note Content") {
             Text(legacyNote?.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? (legacyNote?.content ?? "") : "No content")
-                .font(FontManager.geist(size: 12, weight: .regular))
-                .foregroundColor(primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.emailLightChipIdle.opacity(0.55))
-                )
+                .textSelection(.enabled)
         }
-        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
     }
 
-    private var actionsCard: some View {
-        HStack(spacing: 10) {
-            Button(action: {
-                showNoteEditor = true
-            }) {
-                Text("Edit Note")
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .black : .white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule()
-                            .fill(colorScheme == .dark ? Color.white : Color.emailLightTextPrimary)
-                    )
+    private var actionsSection: some View {
+        Section {
+            Button {
+                showReceiptEditor = true
+            } label: {
+                Text("Edit Receipt")
             }
-            .buttonStyle(.plain)
 
-            Button(action: {
-                dismiss()
-            }) {
-                Text("Close")
-                    .font(FontManager.geist(size: 12, weight: .semibold))
-                    .foregroundColor(primaryText)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
-                    )
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                Text("Delete Receipt")
             }
-            .buttonStyle(.plain)
         }
-        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
-    }
-
-    private var closeCard: some View {
-        Button(action: { dismiss() }) {
-            Text("Close")
-                .font(FontManager.geist(size: 12, weight: .semibold))
-                .foregroundColor(primaryText)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(
-                    Capsule()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.emailLightChipIdle)
-                )
-        }
-        .buttonStyle(.plain)
-        .cardShell(cardColor: cardColor, cardBorder: cardBorder)
     }
 
     private func formattedDate(_ date: Date) -> String {
@@ -375,16 +308,215 @@ struct ReceiptDetailSheet: View {
     }
 }
 
-private extension View {
-    func cardShell(cardColor: Color, cardBorder: Color) -> some View {
-        padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(cardColor)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(cardBorder, lineWidth: 1)
+private struct ReceiptInfoRow: Identifiable {
+    let id = UUID()
+    let label: String
+    let value: String
+}
+
+private struct ReceiptEditorSheet: View {
+    let receipt: ReceiptStat
+    let onSave: (String, ReceiptDraft) async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+
+    @State private var title: String
+    @State private var merchant: String
+    @State private var total: String
+    @State private var transactionDate: Date
+    @State private var includesTime: Bool
+    @State private var transactionTime: Date
+    @State private var category: String
+    @State private var paymentMethod: String
+    @State private var subtotal: String
+    @State private var tax: String
+    @State private var tip: String
+    @State private var lineItems: [EditableReceiptLineItem]
+    @State private var isSaving = false
+
+    init(receipt: ReceiptStat, onSave: @escaping (String, ReceiptDraft) async -> Void) {
+        self.receipt = receipt
+        self.onSave = onSave
+        _title = State(initialValue: receipt.title)
+        _merchant = State(initialValue: receipt.merchant)
+        _total = State(initialValue: ReceiptEditorNumberFormatter.string(from: NSNumber(value: receipt.amount)) ?? "\(receipt.amount)")
+        _transactionDate = State(initialValue: receipt.date)
+        _includesTime = State(initialValue: receipt.transactionTime != nil)
+        _transactionTime = State(initialValue: receipt.transactionTime ?? receipt.date)
+        _category = State(initialValue: receipt.category)
+        _paymentMethod = State(initialValue: receipt.paymentMethod ?? "")
+        _subtotal = State(initialValue: Self.decimalFieldText(receipt.subtotal))
+        _tax = State(initialValue: Self.decimalFieldText(receipt.tax))
+        _tip = State(initialValue: Self.decimalFieldText(receipt.tip))
+        _lineItems = State(initialValue: receipt.lineItems.isEmpty ? [EditableReceiptLineItem()] : receipt.lineItems.map(EditableReceiptLineItem.init))
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("Summary") {
+                    TextField("Title", text: $title)
+                    TextField("Merchant", text: $merchant)
+                    TextField("Total", text: $total)
+                        .keyboardType(.decimalPad)
+
+                    DatePicker("Date", selection: $transactionDate, displayedComponents: .date)
+
+                    Toggle("Add time", isOn: $includesTime)
+                    if includesTime {
+                        DatePicker("Time", selection: $transactionTime, displayedComponents: .hourAndMinute)
+                    }
+
+                    TextField("Category", text: $category)
+                    TextField("Payment method", text: $paymentMethod)
+                }
+
+                Section("Key Info") {
+                    TextField("Subtotal", text: $subtotal)
+                        .keyboardType(.decimalPad)
+                    TextField("Tax", text: $tax)
+                        .keyboardType(.decimalPad)
+                    TextField("Tip", text: $tip)
+                        .keyboardType(.decimalPad)
+                }
+
+                Section("Line Items") {
+                    ForEach($lineItems) { $item in
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextField("Item name", text: $item.title)
+                            TextField("Amount", text: $item.amount)
+                                .keyboardType(.decimalPad)
+                        }
+                        .padding(.vertical, 4)
+                    }
+
+                    Button {
+                        lineItems.append(EditableReceiptLineItem())
+                    } label: {
+                        Label("Add line item", systemImage: "plus")
+                    }
+                }
+            }
+            .navigationTitle("Edit Receipt")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(isSaving ? "Saving..." : "Save") {
+                        save()
+                    }
+                    .disabled(
+                        isSaving ||
+                        merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        decimal(total) == nil
                     )
-            )
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(colorScheme == .dark ? Color.black : Color.emailLightBackground)
+        }
+    }
+
+    private func save() {
+        guard let totalValue = decimal(total) else { return }
+        isSaving = true
+
+        let detailFields = [
+            paymentMethod.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : ReceiptField(label: "Payment", value: paymentMethod, kind: .text),
+            decimal(subtotal).map { ReceiptField(label: "Subtotal", value: CurrencyParser.formatAmount($0), kind: .currency) },
+            decimal(tax).map { ReceiptField(label: "Tax", value: CurrencyParser.formatAmount($0), kind: .currency) },
+            decimal(tip).map { ReceiptField(label: "Tip", value: CurrencyParser.formatAmount($0), kind: .currency) }
+        ].compactMap { $0 }
+
+        let draft = ReceiptDraft(
+            merchant: merchant,
+            total: totalValue,
+            transactionDate: transactionDate,
+            transactionTime: includesTime ? mergedDateTime : nil,
+            category: category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Other" : category,
+            subtotal: decimal(subtotal),
+            tax: decimal(tax),
+            tip: decimal(tip),
+            paymentMethod: paymentMethod.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : paymentMethod,
+            detailFields: detailFields,
+            lineItems: lineItems.compactMap { item in
+                let normalizedTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !normalizedTitle.isEmpty else { return nil }
+                return ReceiptLineItem(title: normalizedTitle, amount: decimal(item.amount))
+            },
+            imageUrls: receipt.imageUrls
+        )
+
+        Task {
+            await onSave(title, draft)
+            await MainActor.run {
+                isSaving = false
+                dismiss()
+            }
+        }
+    }
+
+    private var mergedDateTime: Date {
+        let calendar = Calendar.current
+        let dateComponents = calendar.dateComponents([.year, .month, .day], from: transactionDate)
+        let timeComponents = calendar.dateComponents([.hour, .minute], from: transactionTime)
+        var combined = DateComponents()
+        combined.year = dateComponents.year
+        combined.month = dateComponents.month
+        combined.day = dateComponents.day
+        combined.hour = timeComponents.hour
+        combined.minute = timeComponents.minute
+        return calendar.date(from: combined) ?? transactionDate
+    }
+
+    private func decimal(_ value: String) -> Double? {
+        let cleaned = value
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return Double(cleaned)
+    }
+
+    private static func decimalFieldText(_ value: Double?) -> String {
+        guard let value else { return "" }
+        return ReceiptEditorNumberFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+}
+
+private struct EditableReceiptLineItem: Identifiable {
+    let id: UUID
+    var title: String
+    var amount: String
+
+    init(id: UUID = UUID(), title: String = "", amount: String = "") {
+        self.id = id
+        self.title = title
+        self.amount = amount
+    }
+
+    init(_ item: ReceiptLineItem) {
+        self.id = item.id
+        self.title = item.title
+        self.amount = item.amount.flatMap { ReceiptEditorNumberFormatter.string(from: NSNumber(value: $0)) } ?? ""
+    }
+}
+
+private enum ReceiptEditorNumberFormatter {
+    static let formatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        return formatter
+    }()
+
+    static func string(from number: NSNumber) -> String? {
+        formatter.string(from: number)
     }
 }

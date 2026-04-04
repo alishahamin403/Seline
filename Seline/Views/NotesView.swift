@@ -24,11 +24,11 @@ struct NotesView: View, Searchable {
         case journal = "Journal"
     }
 
-    @StateObject private var notesManager = NotesManager.shared
-    @StateObject private var receiptManager = ReceiptManager.shared
-    @StateObject private var journalService = JournalService.shared
+    @ObservedObject private var notesManager = NotesManager.shared
+    @ObservedObject private var receiptManager = ReceiptManager.shared
+    @ObservedObject private var journalService = JournalService.shared
     private let pageRefreshCoordinator = PageRefreshCoordinator.shared
-    @StateObject private var floatingActionCoordinator = FloatingActionCoordinator.shared
+    @ObservedObject private var floatingActionCoordinator = FloatingActionCoordinator.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
     @State private var searchText = ""
@@ -146,9 +146,7 @@ struct NotesView: View, Searchable {
     }
 
     private var notesDashboardFolderCount: Int {
-        notesManager.folders.filter { folder in
-            folder.name != "Receipts" && folder.name != "Journal"
-        }.count
+        hubState.dashboardFolderCount
     }
 
     private var notesHomeRecentHighlightNotes: [Note] {
@@ -163,14 +161,10 @@ struct NotesView: View, Searchable {
         return Array(fallback.prefix(3))
     }
 
-    private var notesHomeFocusNote: Note? {
-        notesHomeRecentHighlightNotes.first ?? hubDisplayedNotes.first
-    }
-
-    private var notesHomeArchiveGroups: [(month: String, notes: [Note])] {
-        let featuredIds = Set(notesHomeRecentHighlightNotes.map(\.id))
-
-        return cachedNotesByMonth.compactMap { group in
+    // NOTE: Call notesHomeRecentHighlightNotes first and pass featuredIds here
+    // to avoid recomputing the Set when both properties are used in the same body.
+    private func notesHomeArchiveGroups(excludingIds featuredIds: Set<UUID>) -> [(month: String, notes: [Note])] {
+        cachedNotesByMonth.compactMap { group in
             let remainingNotes = group.notes.filter { !featuredIds.contains($0.id) }
             guard !remainingNotes.isEmpty else { return nil }
             return (month: group.month, notes: remainingNotes)
@@ -184,48 +178,6 @@ struct NotesView: View, Searchable {
         return hubDisplayedNotes.filter { note in
             calendar.isDate(note.dateModified, equalTo: now, toGranularity: .weekOfYear)
         }
-    }
-
-    private var notesHomeAttentionText: String? {
-        let looseCount = hubState.looseNotesCount
-        guard looseCount >= 2 else { return nil }
-
-        let noun = looseCount == 1 ? "note" : "notes"
-        return "\(looseCount) \(noun) still need filing. Put them into folders so Home stays easy to scan."
-    }
-
-    private var notesHomeWeeklySummaryText: String {
-        guard !hubDisplayedNotes.isEmpty else {
-            return "Create your first note and this space will start surfacing what matters most."
-        }
-
-        var sentences: [String] = []
-        let weekCount = notesThisWeekNotes.count
-
-        if weekCount > 0 {
-            let noun = weekCount == 1 ? "note" : "notes"
-            sentences.append("\(weekCount) \(noun) edited this week.")
-
-            let topAreas = notesTopActivityLabels(in: notesThisWeekNotes)
-            if topAreas.count == 1 {
-                sentences.append("Most activity was in \(topAreas[0]).")
-            } else if topAreas.count >= 2 {
-                sentences.append("\(topAreas[0]) and \(topAreas[1]) were most active.")
-            }
-        } else {
-            sentences.append("Nothing changed in notes this week yet.")
-        }
-
-        let looseCount = hubState.looseNotesCount
-        if looseCount > 0 {
-            let noun = looseCount == 1 ? "note" : "notes"
-            let verb = looseCount == 1 ? "needs" : "need"
-            sentences.append("\(looseCount) \(noun) still \(verb) filing.")
-        } else if let focusNote = notesHomeFocusNote {
-            sentences.append("Last edit was \(notesHeroRelativeDate(for: focusNote.dateModified)).")
-        }
-
-        return sentences.joined(separator: " ")
     }
 
     private var notesHeroContextMetric: (title: String, value: String) {
@@ -272,6 +224,7 @@ struct NotesView: View, Searchable {
     }
 
     private var isShellFloatingActionVisible: Bool {
+        selectedMainPage != .notes &&
         navigationPath.isEmpty &&
         !isSidebarOverlayVisible &&
         !showReceiptStats &&
@@ -721,9 +674,6 @@ struct NotesView: View, Searchable {
         }
         .sheet(item: $selectedReceiptToOpen) { receipt in
             ReceiptDetailSheet(receipt: receipt)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationBg()
         }
         .confirmationDialog("Add Receipt", isPresented: $showingReceiptAddOptions, titleVisibility: .visible) {
             Button("Add Manually") {
@@ -905,7 +855,7 @@ struct NotesView: View, Searchable {
                     .padding(.horizontal, 8)
                     .padding(.top, 8)
                 }
-                .selinePrimaryPageScroll()
+                .scrollDismissesKeyboard(.interactively)
             }
         case .receipts:
             receiptsTabContent
@@ -1077,11 +1027,10 @@ struct NotesView: View, Searchable {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
-        .scrollSafeTapAction(minimumDragDistance: 3) {
+        .onTapGesture {
             HapticManager.shared.selection()
             journalExistingNoteToOpen = note
         }
-        .allowsParentScrolling()
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 HapticManager.shared.delete()
@@ -1128,14 +1077,17 @@ struct NotesView: View, Searchable {
                 )
             }
 
-            if !notesHomeRecentHighlightNotes.isEmpty {
+            let recentHighlights = notesHomeRecentHighlightNotes
+            let featuredIds = Set(recentHighlights.map(\.id))
+
+            if !recentHighlights.isEmpty {
                 notesListSectionCard(
                     title: "Recent",
-                    notes: notesHomeRecentHighlightNotes
+                    notes: recentHighlights
                 )
             }
 
-            ForEach(notesHomeArchiveGroups, id: \.month) { group in
+            ForEach(notesHomeArchiveGroups(excludingIds: featuredIds), id: \.month) { group in
                 notesListSectionCard(
                     title: group.month,
                     notes: group.notes
@@ -1178,7 +1130,6 @@ struct NotesView: View, Searchable {
                             journalEntryRow(for: note)
                         }
                     }
-                    .allowsParentScrolling()
                 }
             }
         }
@@ -1256,11 +1207,7 @@ struct NotesView: View, Searchable {
         VStack(spacing: 0) {
             hubCardHeader(
                 title: notesSectionTitle,
-                count: hubDisplayedNotes.count,
-                addAction: {
-                    HapticManager.shared.buttonTap()
-                    openNewNoteEditor()
-                }
+                count: hubDisplayedNotes.count
             )
 
             if hubDisplayedNotes.isEmpty {
@@ -1661,19 +1608,6 @@ struct NotesView: View, Searchable {
     private var notesDashboardContent: some View {
         VStack(spacing: 14) {
             notesDashboardHeroCard
-
-            if let notesHomeAttentionText {
-                notesInsightCard(
-                    title: "Needs attention",
-                    body: notesHomeAttentionText
-                )
-            }
-
-            notesInsightCard(
-                title: "This Week in Notes",
-                body: notesHomeWeeklySummaryText
-            )
-
             unifiedContentList
         }
     }
@@ -1715,59 +1649,6 @@ struct NotesView: View, Searchable {
                 notesHeroMetricTile(title: "Folders", value: "\(notesDashboardFolderCount)")
                 notesHeroMetricTile(title: "This week", value: "\(notesThisWeekNotes.count)")
             }
-
-            Button(action: {
-                HapticManager.shared.selection()
-                if let focusNote = notesHomeFocusNote {
-                    navigationPath.append(focusNote)
-                } else {
-                    openNewNoteEditor()
-                }
-            }) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Continue where you left off")
-                            .font(FontManager.geist(size: 14, weight: .semibold))
-                            .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                        if let focusNote = notesHomeFocusNote {
-                            Text(focusNote.title.isEmpty ? "Untitled" : focusNote.title)
-                                .font(FontManager.geist(size: 16, weight: .semibold))
-                                .foregroundColor(Color.appTextPrimary(colorScheme))
-                                .lineLimit(2)
-
-                            Text(notesDashboardFocusMeta(for: focusNote))
-                                .font(FontManager.geist(size: 12, weight: .regular))
-                                .foregroundColor(Color.appTextSecondary(colorScheme))
-                                .lineLimit(2)
-                        } else {
-                            Text("Start your first note")
-                                .font(FontManager.geist(size: 16, weight: .semibold))
-                                .foregroundColor(Color.appTextPrimary(colorScheme))
-
-                            Text("Capture an idea, save a reference, or write down something you want to keep.")
-                                .font(FontManager.geist(size: 12, weight: .regular))
-                                .foregroundColor(Color.appTextSecondary(colorScheme))
-                                .lineLimit(3)
-                        }
-                    }
-
-                    Spacer(minLength: 0)
-
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                        .padding(.top, 2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.appInnerSurface(colorScheme))
-                )
-            }
-            .buttonStyle(PlainButtonStyle())
         }
         .padding(16)
         .background(notesDashboardHeroBackground)
@@ -1781,22 +1662,6 @@ struct NotesView: View, Searchable {
             x: 0,
             y: 6
         )
-    }
-
-    private func notesInsightCard(title: String, body: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(FontManager.geist(size: 18, weight: .semibold))
-                .foregroundColor(Color.appTextPrimary(colorScheme))
-
-            Text(body)
-                .font(FontManager.geist(size: 14, weight: .regular))
-                .foregroundColor(Color.appTextSecondary(colorScheme))
-                .lineSpacing(1.5)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(16)
-        .background(notesDashboardSectionCardBackground)
     }
 
     private var notesOverviewCard: some View {
@@ -1957,54 +1822,56 @@ struct NotesView: View, Searchable {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(notesHeroPinnedNotes) { note in
-                        Button(action: {
+                        let openPinnedNote = {
                             HapticManager.shared.selection()
                             navigationPath.append(note)
-                        }) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                HStack(alignment: .top, spacing: 8) {
-                                    Text(note.title.isEmpty ? "Untitled" : note.title)
-                                        .font(FontManager.geist(size: 14, weight: .semibold))
-                                        .foregroundColor(Color.appTextPrimary(colorScheme))
-                                        .lineLimit(2)
+                        }
 
-                                    Spacer(minLength: 0)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(note.title.isEmpty ? "Untitled" : note.title)
+                                    .font(FontManager.geist(size: 14, weight: .semibold))
+                                    .foregroundColor(Color.appTextPrimary(colorScheme))
+                                    .lineLimit(2)
 
-                                    Image(systemName: "pin.fill")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(Color.appTextSecondary(colorScheme))
-                                }
+                                Spacer(minLength: 0)
 
-                                Text(notesHeroPreview(for: note))
-                                    .font(FontManager.geist(size: 12, weight: .regular))
+                                Image(systemName: "pin.fill")
+                                    .font(.system(size: 11, weight: .semibold))
                                     .foregroundColor(Color.appTextSecondary(colorScheme))
-                                    .lineLimit(3)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
 
-                                HStack(spacing: 6) {
-                                    Text(notesHeroRelativeDate(for: note.dateModified))
+                            Text(notesHeroPreview(for: note))
+                                .font(FontManager.geist(size: 12, weight: .regular))
+                                .foregroundColor(Color.appTextSecondary(colorScheme))
+                                .lineLimit(3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            HStack(spacing: 6) {
+                                Text(notesHeroRelativeDate(for: note.dateModified))
+                                    .font(FontManager.geist(size: 11, weight: .medium))
+                                    .foregroundColor(Color.appTextSecondary(colorScheme))
+                                    .lineLimit(1)
+
+                                if let reminderDate = note.reminderDate {
+                                    Circle()
+                                        .fill(Color.appBorder(colorScheme))
+                                        .frame(width: 3, height: 3)
+
+                                    Text(notesHeroReminderText(for: reminderDate))
                                         .font(FontManager.geist(size: 11, weight: .medium))
-                                        .foregroundColor(Color.appTextSecondary(colorScheme))
+                                        .foregroundColor(note.isReminderDue ? hubAccentColor : Color.appTextSecondary(colorScheme))
                                         .lineLimit(1)
-
-                                    if let reminderDate = note.reminderDate {
-                                        Circle()
-                                            .fill(Color.appBorder(colorScheme))
-                                            .frame(width: 3, height: 3)
-
-                                        Text(notesHeroReminderText(for: reminderDate))
-                                            .font(FontManager.geist(size: 11, weight: .medium))
-                                            .foregroundColor(note.isReminderDue ? hubAccentColor : Color.appTextSecondary(colorScheme))
-                                            .lineLimit(1)
-                                    }
                                 }
                             }
-                            .frame(width: 190, alignment: .leading)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 14)
-                            .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
                         }
-                        .buttonStyle(PlainButtonStyle())
+                        .frame(width: 190, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 14)
+                        .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
+                        .contentShape(RoundedRectangle(cornerRadius: 18))
+                        .onTapGesture(perform: openPinnedNote)
+                        .accessibilityAddTraits(.isButton)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -2058,10 +1925,10 @@ struct NotesView: View, Searchable {
         .appAmbientInnerSurfaceStyle(colorScheme: colorScheme, cornerRadius: 18)
 
         if makesWholeCardTappable {
-            Button(action: action) {
-                cardContent
-            }
-            .buttonStyle(PlainButtonStyle())
+            cardContent
+                .contentShape(RoundedRectangle(cornerRadius: 18))
+                .onTapGesture(perform: action)
+                .accessibilityAddTraits(.isButton)
         } else {
             cardContent
         }
@@ -2522,21 +2389,6 @@ struct NotesView: View, Searchable {
         }
 
         return FormatterCache.shortMonthDay.string(from: date)
-    }
-
-    private func notesDashboardFocusMeta(for note: Note) -> String {
-        var fragments: [String] = ["Edited \(notesHeroRelativeDate(for: note.dateModified))"]
-        let folderName = notesFolderLabel(for: note)
-        if folderName != "Notes" {
-            fragments.append(folderName)
-        }
-
-        let preview = notesHeroPreview(for: note)
-        if preview != "No additional text" {
-            fragments.append(preview)
-        }
-
-        return fragments.joined(separator: " • ")
     }
 
     private func notesTopActivityLabels(in notes: [Note]) -> [String] {
@@ -3114,9 +2966,6 @@ struct NoteEditView: View {
         }
         .sheet(item: $selectedReceiptToOpen) { receipt in
             ReceiptDetailSheet(receipt: receipt)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationBg()
         }
         .fullScreenCover(isPresented: $showingImageViewer) {
             if selectedImageIndex < imageAttachments.count {
@@ -6729,7 +6578,6 @@ struct NotesArchiveView: View {
                 .padding(.horizontal, 4)
             }
             .buttonStyle(PlainButtonStyle())
-            .allowsParentScrolling()
 
             if expandedMonths.contains(monthGroup.month) {
                 VStack(spacing: 10) {
@@ -6836,10 +6684,9 @@ struct NotesArchiveView: View {
                 )
         )
         .contentShape(RoundedRectangle(cornerRadius: 20))
-        .scrollSafeTapAction(minimumDragDistance: 10) {
+        .onTapGesture {
             onOpenNote(note)
         }
-        .allowsParentScrolling()
     }
 
     private var monthSectionBackground: some View {

@@ -4,8 +4,8 @@ import UIKit
 class CalendarPhotoExtractionService {
     static let shared = CalendarPhotoExtractionService()
 
-    private let apiKey = Config.openAIAPIKey
-    private let baseURL = "https://api.openai.com/v1/chat/completions"
+    private let apiKey = Config.geminiAPIKey
+    private let model = "gemini-2.5-flash"
 
     // Rate limiting properties
     private let requestQueue = DispatchQueue(label: "calendar-extraction-requests", qos: .utility)
@@ -49,13 +49,15 @@ class CalendarPhotoExtractionService {
     func extractEventsFromPhoto(_ image: UIImage) async throws -> CalendarPhotoExtractionResponse {
         await enforceRateLimit()
 
-        guard let url = URL(string: baseURL) else {
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent?key=\(apiKey)"
+        guard let url = URL(string: urlString) else {
             throw ExtractionError.invalidURL
         }
 
         // Convert image to base64 with adaptive quality based on image size
         // For large images (from gallery), use lower compression to avoid memory issues
         var base64Image: String
+        var mimeType: String
 
         // Determine compression quality based on image size
         let imagePixels = image.size.width * image.size.height * image.scale * image.scale
@@ -64,8 +66,10 @@ class CalendarPhotoExtractionService {
         // Try JPEG first with adaptive quality, then PNG if JPEG fails
         if let jpegData = image.jpegData(compressionQuality: compressionQuality) {
             base64Image = jpegData.base64EncodedString()
+            mimeType = "image/jpeg"
         } else if let pngData = image.pngData() {
             base64Image = pngData.base64EncodedString()
+            mimeType = "image/png"
         } else {
             throw ExtractionError.imageConversionError
         }
@@ -272,35 +276,32 @@ class CalendarPhotoExtractionService {
         """
 
         let requestBody: [String: Any] = [
-            "model": "gpt-4o-mini",
-            "messages": [
-                [
-                    "role": "system",
-                    "content": systemPrompt
-                ],
+            "contents": [
                 [
                     "role": "user",
-                    "content": [
+                    "parts": [
+                        ["text": userPrompt],
                         [
-                            "type": "text",
-                            "text": userPrompt
-                        ],
-                        [
-                            "type": "image_url",
-                            "image_url": [
-                                "url": "data:image/png;base64,\(base64Image)"
+                            "inlineData": [
+                                "mimeType": mimeType,
+                                "data": base64Image
                             ]
                         ]
                     ]
                 ]
             ],
-            "max_tokens": 2000,
-            "temperature": 0.1
+            "systemInstruction": [
+                "parts": [["text": systemPrompt]]
+            ],
+            "generationConfig": [
+                "temperature": 0.1,
+                "maxOutputTokens": 2000
+            ]
         ]
 
         // Validate API key before making request
-        if apiKey.isEmpty || apiKey.contains("YOUR_") || apiKey == "sk-" {
-            throw ExtractionError.apiError("Invalid OpenAI API key. Please check Config.swift")
+        if apiKey.isEmpty || apiKey.contains("YOUR_") {
+            throw ExtractionError.apiError("Invalid Gemini API key. Please check Config.swift")
         }
 
         var request = URLRequest(url: url)
@@ -309,7 +310,6 @@ class CalendarPhotoExtractionService {
         let timeoutInterval: TimeInterval = base64Image.count > 10_000_000 ? 60 : 45
         request.timeoutInterval = timeoutInterval
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
@@ -334,11 +334,11 @@ class CalendarPhotoExtractionService {
             case .networkConnectionLost:
                 throw ExtractionError.apiError("Network connection lost. Try again.")
             case .dnsLookupFailed:
-                throw ExtractionError.apiError("Cannot reach OpenAI servers. Check your DNS.")
+                throw ExtractionError.apiError("Cannot reach AI servers. Check your DNS.")
             case .badServerResponse:
                 throw ExtractionError.apiError("Server returned an invalid response. Try again.")
             case .cannotConnectToHost:
-                throw ExtractionError.apiError("Cannot connect to OpenAI servers. Check your internet and DNS.")
+                throw ExtractionError.apiError("Cannot connect to AI servers. Check your internet and DNS.")
             default:
                 throw ExtractionError.networkError(error)
             }
@@ -374,17 +374,20 @@ class CalendarPhotoExtractionService {
             throw ExtractionError.apiError(statusDescription)
         }
 
-        guard let decodedResponse = try? JSONDecoder().decode(OpenAIResponse.self, from: data),
-              let content = decodedResponse.choices.first?.message.content else {
-            // Log the raw response for debugging
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let firstCandidate = candidates.first,
+              let content = firstCandidate["content"] as? [String: Any],
+              let parts = content["parts"] as? [[String: Any]],
+              let firstPart = parts.first,
+              let responseText = firstPart["text"] as? String else {
             if let responseString = String(data: data, encoding: .utf8) {
                 print("🔍 API Response: \(responseString)")
             }
             throw ExtractionError.decodingError
         }
 
-        // Parse the JSON response from GPT-4o
-        return try parseExtractionResponse(content)
+        return try parseExtractionResponse(responseText)
     }
 
     // MARK: - Private Methods

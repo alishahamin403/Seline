@@ -9,6 +9,9 @@ class EmailService: ObservableObject {
     // Folder-based email storage
     @Published var inboxEmails: [Email] = []
     @Published var sentEmails: [Email] = []
+    /// Pre-computed unread inbox count — updated whenever inboxEmails changes.
+    /// Use this instead of filtering inboxEmails in view bodies.
+    @Published private(set) var unreadInboxCount: Int = 0
 
     // Loading states for each folder
     @Published var inboxLoadingState: EmailLoadingState = .idle
@@ -52,6 +55,10 @@ class EmailService: ObservableObject {
         }
     }
 
+    /// Maximum number of emails kept in the in-memory collection per folder.
+    /// Older emails beyond this limit are evicted; they remain accessible via pagination.
+    private let maxInMemoryEmailsPerFolder = 500
+
     // Request management
     private var currentTasks: [EmailFolder: Task<Void, Never>] = [:]
 
@@ -82,6 +89,10 @@ class EmailService: ObservableObject {
         if !sentEmails.isEmpty {
             sentLoadingState = .loaded(sentEmails)
         }
+        // Keep unreadInboxCount in sync without O(n) filtering on every view render.
+        $inboxEmails
+            .map { emails in emails.filter { !$0.isRead }.count }
+            .assign(to: &$unreadInboxCount)
     }
 
     deinit {
@@ -382,10 +393,10 @@ class EmailService: ObservableObject {
     private func updateEmailsForFolder(_ folder: EmailFolder, emails: [Email]) {
         switch folder {
         case .inbox:
-            inboxEmails = emails
-            seedKnownInboxMessageIdsIfNeeded(from: emails)
+            inboxEmails = Array(emails.prefix(maxInMemoryEmailsPerFolder))
+            seedKnownInboxMessageIdsIfNeeded(from: inboxEmails)
         case .sent:
-            sentEmails = emails
+            sentEmails = Array(emails.prefix(maxInMemoryEmailsPerFolder))
         default:
             break // Handle other folders if needed
         }
@@ -1224,7 +1235,8 @@ class EmailService: ObservableObject {
         // Load cached emails from persistent storage
         if let inboxData = UserDefaults.standard.data(forKey: CacheKeys.inboxEmails),
            let cachedInboxEmails = try? JSONDecoder().decode([Email].self, from: inboxData) {
-            let (normalizedInbox, didMutateInbox) = normalizeCachedAISummaries(in: cachedInboxEmails)
+            let capped = Array(cachedInboxEmails.prefix(maxInMemoryEmailsPerFolder))
+            let (normalizedInbox, didMutateInbox) = normalizeCachedAISummaries(in: capped)
             inboxEmails = normalizedInbox
             if didMutateInbox {
                 persistEmailsToCache(normalizedInbox, key: CacheKeys.inboxEmails)
@@ -1233,7 +1245,8 @@ class EmailService: ObservableObject {
 
         if let sentData = UserDefaults.standard.data(forKey: CacheKeys.sentEmails),
            let cachedSentEmails = try? JSONDecoder().decode([Email].self, from: sentData) {
-            let (normalizedSent, didMutateSent) = normalizeCachedAISummaries(in: cachedSentEmails)
+            let capped = Array(cachedSentEmails.prefix(maxInMemoryEmailsPerFolder))
+            let (normalizedSent, didMutateSent) = normalizeCachedAISummaries(in: capped)
             sentEmails = normalizedSent
             if didMutateSent {
                 persistEmailsToCache(normalizedSent, key: CacheKeys.sentEmails)

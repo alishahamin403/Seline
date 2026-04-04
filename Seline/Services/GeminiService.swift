@@ -9,24 +9,25 @@ import UIKit
  * - Limits max output tokens for lower spend
  * - Logs per-request token usage and estimated USD cost
  */
-@MainActor
 class GeminiService: ObservableObject {
     static let shared = GeminiService()
-    nonisolated private static let defaultModelName = "gemini-2.5-flash-lite"
-    nonisolated private static let fallbackModelName = "gemini-2.5-flash"
-    nonisolated private static let defaultMaxOutputTokens = 900
-    nonisolated private static let defaultStreamingOutputTokens = 900
+    private static let defaultModelName = "gemini-2.5-flash-lite"
+    private static let fallbackModelName = "gemini-2.5-flash"
+    private static let defaultMaxOutputTokens = 900
+    private static let defaultStreamingOutputTokens = 900
 
     // Published properties for UI
-    @Published var quotaUsed: Int = 0
-    @Published var quotaLimit: Int = 100_000
-    @Published var quotaPercentage: Double = 0.0
-    @Published var cacheSavings: Double = 0.0
-    @Published var lastSearchAnswer: SearchAnswer?
+    // @MainActor on each @Published property ensures mutations happen on the main thread
+    // while async LLM calls can run on background threads.
+    @MainActor @Published var quotaUsed: Int = 0
+    @MainActor @Published var quotaLimit: Int = 100_000
+    @MainActor @Published var quotaPercentage: Double = 0.0
+    @MainActor @Published var cacheSavings: Double = 0.0
+    @MainActor @Published var lastSearchAnswer: SearchAnswer?
 
     // Daily usage tracking
-    @Published var dailyTokensUsed: Int = 0
-    @Published var dailyQueryCount: Int = 0
+    @MainActor @Published var dailyTokensUsed: Int = 0
+    @MainActor @Published var dailyQueryCount: Int = 0
     private var lastResetDate: Date = Date()
     private let dailyTokenLimit: Int = 1_500_000 // 1.5M tokens per day (~$0.30/day at 70/30 input/output ratio)
 
@@ -766,8 +767,12 @@ class GeminiService: ObservableObject {
                 .value
 
             if let status = response.first {
-                self.quotaUsed = status.quota_used ?? status.quota_used_this_month ?? 0
-                self.quotaLimit = status.quota_tokens ?? status.monthly_quota_tokens ?? 1000000
+                let used = status.quota_used ?? status.quota_used_this_month ?? 0
+                let limit = status.quota_tokens ?? status.monthly_quota_tokens ?? 1000000
+                await MainActor.run {
+                    self.quotaUsed = used
+                    self.quotaLimit = limit
+                }
             }
         } catch {
             // If table doesn't exist, use defaults
@@ -778,17 +783,17 @@ class GeminiService: ObservableObject {
     /// Check if user has enough quota
     func hasQuota(estimatedTokens: Int = 2000) async -> Bool {
         await loadQuotaStatus()
-        return (quotaUsed + estimatedTokens) <= quotaLimit
+        return await MainActor.run { (quotaUsed + estimatedTokens) <= quotaLimit }
     }
 
     /// Get formatted quota status string for UI
-    var quotaStatusString: String {
+    @MainActor var quotaStatusString: String {
         let remaining = quotaLimit - quotaUsed
         return "\(remaining.formatted()) / \(quotaLimit.formatted()) tokens remaining"
     }
 
     /// Get cache savings string for UI
-    var cacheSavingsString: String {
+    @MainActor var cacheSavingsString: String {
         return "Saved $\(String(format: "%.4f", cacheSavings)) from caching"
     }
 
@@ -816,21 +821,29 @@ class GeminiService: ObservableObject {
         }
 
         if !calendar.isDate(lastResetDate, inSameDayAs: today) {
-            dailyTokensUsed = 0
-            dailyQueryCount = 0
+            await MainActor.run {
+                dailyTokensUsed = 0
+                dailyQueryCount = 0
+            }
             lastResetDate = today
-            saveDailyUsage()
+            await saveDailyUsage()
         } else {
-            dailyTokensUsed = UserDefaults.standard.integer(forKey: tokensKey)
-            dailyQueryCount = UserDefaults.standard.integer(forKey: queryCountKey)
+            let tokens = UserDefaults.standard.integer(forKey: tokensKey)
+            let queries = UserDefaults.standard.integer(forKey: queryCountKey)
+            await MainActor.run {
+                dailyTokensUsed = tokens
+                dailyQueryCount = queries
+                quotaPercentage = (Double(dailyTokensUsed) / Double(dailyTokenLimit)) * 100
+            }
         }
-        
-        quotaPercentage = (Double(dailyTokensUsed) / Double(dailyTokenLimit)) * 100
-        print("📊 Gemini Daily Usage Loaded: \(dailyTokensUsed) tokens, \(dailyQueryCount) queries, \(String(format: "%.1f", quotaPercentage))% used")
+
+        await MainActor.run {
+            print("📊 Gemini Daily Usage Loaded: \(dailyTokensUsed) tokens, \(dailyQueryCount) queries, \(String(format: "%.1f", quotaPercentage))% used")
+        }
     }
 
     /// Save daily usage to UserDefaults
-    private func saveDailyUsage() {
+    @MainActor private func saveDailyUsage() {
         let tokensKey = getUserKey("gemini_dailyTokensUsed")
         let queryCountKey = getUserKey("gemini_dailyQueryCount")
         let dateKey = getUserKey("gemini_lastResetDate")
@@ -844,11 +857,13 @@ class GeminiService: ObservableObject {
     /// Track tokens used in a request
     func trackTokenUsage(tokens: Int) async {
         await loadDailyUsage()
-        dailyTokensUsed += tokens
-        dailyQueryCount += 1
-        averageTokensPerQuery = dailyTokensUsed / max(dailyQueryCount, 1)
-        quotaPercentage = (Double(dailyTokensUsed) / Double(dailyTokenLimit)) * 100
-        saveDailyUsage()
+        await MainActor.run {
+            dailyTokensUsed += tokens
+            dailyQueryCount += 1
+            averageTokensPerQuery = dailyTokensUsed / max(dailyQueryCount, 1)
+            quotaPercentage = (Double(dailyTokensUsed) / Double(dailyTokenLimit)) * 100
+        }
+        await saveDailyUsage()
     }
 
     /// Track request usage for Gemini globally.
@@ -857,23 +872,23 @@ class GeminiService: ObservableObject {
     }
 
     /// Get remaining tokens for today
-    var dailyTokensRemaining: Int {
+    @MainActor var dailyTokensRemaining: Int {
         max(0, dailyTokenLimit - dailyTokensUsed)
     }
-    
+
     /// Get daily usage percentage (0-100) for real-time display
-    var dailyUsagePercentage: Double {
+    @MainActor var dailyUsagePercentage: Double {
         min(100.0, (Double(dailyTokensUsed) / Double(dailyTokenLimit)) * 100)
     }
 
     /// Get estimated queries remaining
-    var estimatedQueriesRemaining: Int {
+    @MainActor var estimatedQueriesRemaining: Int {
         let remaining = dailyTokensRemaining
         return max(0, remaining / averageTokensPerQuery)
     }
 
     /// Get formatted daily usage string for UI
-    var dailyUsageString: String {
+    @MainActor var dailyUsageString: String {
         let usedFormatted = formatTokenCount(dailyTokensUsed)
         let limitFormatted = formatTokenCount(dailyTokenLimit)
         return "\(usedFormatted) / \(limitFormatted) tokens"

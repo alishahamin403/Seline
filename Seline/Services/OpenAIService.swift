@@ -1576,12 +1576,6 @@ class OpenAIService: ObservableObject {
     // MARK: - Receipt Categorization
 
     func categorizeReceipt(title: String) async throws -> String {
-        await enforceRateLimit()
-
-        guard let url = URL(string: baseURL) else {
-            throw SummaryError.invalidURL
-        }
-
         let systemPrompt = """
         You are a helpful assistant that categorizes receipts and invoices.
         Categorize the receipt into ONE of these 13 categories only:
@@ -1637,17 +1631,13 @@ class OpenAIService: ObservableObject {
         Category:
         """
 
-        let requestBody: [String: Any] = [
-            "model": "gpt-4o-mini",
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": userPrompt]
-            ],
-            "max_tokens": 20,
-            "temperature": 0.3
-        ]
-
-        return try await makeOpenAIRequest(url: url, requestBody: requestBody)
+        return try await GeminiService.shared.generateText(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            maxTokens: 20,
+            temperature: 0.3,
+            operationType: "categorize_receipt"
+        )
     }
 
     // MARK: - Streaming Helper
@@ -1786,10 +1776,6 @@ class OpenAIService: ObservableObject {
     func analyzeReceiptImageDraft(_ image: UIImage) async throws -> ReceiptDraft {
         await enforceRateLimit()
 
-        guard let url = URL(string: baseURL) else {
-            throw SummaryError.invalidURL
-        }
-
         // Convert image to base64
         guard let imageData = image.jpegData(compressionQuality: 0.8) else {
             throw SummaryError.apiError("Failed to convert image to JPEG")
@@ -1825,37 +1811,39 @@ class OpenAIService: ObservableObject {
         - Keep detailFields focused on useful user-facing receipt facts.
         """
 
+        let geminiKey = Config.geminiAPIKey
+        let geminiURLString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=\(geminiKey)"
+        guard let geminiURL = URL(string: geminiURLString) else {
+            throw SummaryError.invalidURL
+        }
+
         let requestBody: [String: Any] = [
-            "model": "gpt-4o-mini",
-            "messages": [
-                [
-                    "role": "system",
-                    "content": systemPrompt
-                ],
+            "contents": [
                 [
                     "role": "user",
-                    "content": [
+                    "parts": [
+                        ["text": userPrompt],
                         [
-                            "type": "text",
-                            "text": userPrompt
-                        ],
-                        [
-                            "type": "image_url",
-                            "image_url": [
-                                "url": "data:image/jpeg;base64,\(base64Image)"
+                            "inlineData": [
+                                "mimeType": "image/jpeg",
+                                "data": base64Image
                             ]
                         ]
                     ]
                 ]
             ],
-            "max_tokens": 900,
-            "temperature": 0.1
+            "systemInstruction": [
+                "parts": [["text": systemPrompt]]
+            ],
+            "generationConfig": [
+                "temperature": 0.1,
+                "maxOutputTokens": 900
+            ]
         ]
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: geminiURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
@@ -1871,12 +1859,6 @@ class OpenAIService: ObservableObject {
                     if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let error = errorData["error"] as? [String: Any],
                        let message = error["message"] as? String {
-
-                        if httpResponse.statusCode == 429 || message.contains("Rate limit") {
-                            let retryAfter = extractRetryAfterFromMessage(message)
-                            throw SummaryError.rateLimitExceeded(retryAfter: retryAfter)
-                        }
-
                         throw SummaryError.apiError(message)
                     } else {
                         throw SummaryError.apiError("HTTP \(httpResponse.statusCode)")
@@ -1884,15 +1866,17 @@ class OpenAIService: ObservableObject {
                 }
             }
 
-            guard let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let choices = jsonResponse["choices"] as? [[String: Any]],
-                  let firstChoice = choices.first,
-                  let message = firstChoice["message"] as? [String: Any],
-                  let content = message["content"] as? String else {
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let candidates = json["candidates"] as? [[String: Any]],
+                  let firstCandidate = candidates.first,
+                  let content = firstCandidate["content"] as? [String: Any],
+                  let parts = content["parts"] as? [[String: Any]],
+                  let firstPart = parts.first,
+                  let responseText = firstPart["text"] as? String else {
                 throw SummaryError.decodingError
             }
 
-            return await parseReceiptDraftResponse(content)
+            return await parseReceiptDraftResponse(responseText)
 
         } catch let error as SummaryError {
             throw error

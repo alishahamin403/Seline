@@ -33,10 +33,7 @@ struct DailyOverviewWidget: View {
     @State private var editingQuickNote: QuickNote? = nil
     @State private var hasPerformedInitialRefresh = false
     @State private var weatherRefreshTask: Task<Void, Never>?
-    @State private var aiLocationDaySummary: String?
-    @State private var isGeneratingLocationDaySummary = false
-    @State private var lastGeneratedLocationSummaryKey: String?
-    
+
     private enum TodoRowMode {
         case today
         case missed
@@ -80,25 +77,6 @@ struct DailyOverviewWidget: View {
 
     private var formattedDate: String {
         FormatterCache.weekdayMonthDay.string(from: Date())
-    }
-
-    private var weatherSummary: String {
-        guard let weather = weatherService.weatherData else {
-            return "Weather unavailable"
-        }
-
-        let desc = weather.description.capitalized
-        let temp = "\(weather.temperature)°"
-        let feelsLike = "Feels like \(weather.feelsLike)°"
-        let location = weather.locationName.isEmpty ? locationService.locationName : weather.locationName
-        return "\(location) • \(desc) • \(temp) • \(feelsLike)"
-    }
-
-    private var weatherChipText: String {
-        guard let weather = weatherService.weatherData else {
-            return "Weather --"
-        }
-        return "\(weather.temperature)° Feels \(weather.feelsLike)°"
     }
 
     private var homeAccentColor: Color {
@@ -200,122 +178,12 @@ struct DailyOverviewWidget: View {
         }
     }
 
-    private var heroSummary: String {
-        let weatherLead = weatherService.weatherData?.description.lowercased() ?? "conditions shifting"
-        let overdueCount = missedTodos.count
-        let upNextCount = upNextShown.count
-
-        if actionableCount == 0 {
-            return "The day looks open, with \(weatherLead) and room to move at your own pace."
-        }
-
-        if overdueCount > 0 && upNextCount > 0 {
-            return "\(overdueCount) overdue, \(upNextCount) still queued, and \(weatherLead) in the mix."
-        }
-
-        if overdueCount > 0 {
-            return "\(overdueCount) items have slipped past their window, with \(weatherLead) around you."
-        }
-
-        if upNextCount > 0 {
-            return "\(upNextCount) timed items are lined up next, with \(weatherLead) through the day."
-        }
-
-        return "Your day is centered on what still needs closing, with \(weatherLead) carrying through."
-    }
-
     private var todayVisitTimeline: [HomeVisitTimelineItem] {
         homeState.todayVisitTimeline
     }
 
-    private var currentLocationDisplay: String {
-        if let nearbyLocation, !nearbyLocation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return nearbyLocation
-        }
-
-        let trimmed = currentLocationName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Current Location" }
-
-        switch trimmed {
-        case "Finding location...", "Location not available", "Unknown Location", "Current Location":
-            return trimmed
-        default:
-            if let city = trimmed.split(separator: ",").first {
-                let cityString = city.trimmingCharacters(in: .whitespacesAndNewlines)
-                return cityString.isEmpty ? trimmed : cityString
-            }
-            return trimmed
-        }
-    }
-
-    private var activeTimelineVisit: HomeVisitTimelineItem? {
-        todayVisitTimeline.last(where: { $0.isActive })
-    }
-
-    private var locationSummaryPatternSignature: String {
-        let timelineFingerprint = todayVisitTimeline.map { visit in
-            [
-                visit.visitId.uuidString,
-                visit.placeId.uuidString,
-                visit.displayName,
-                FormatterCache.shortDateTime.string(from: visit.entryTime),
-                visit.exitTime.map { FormatterCache.shortDateTime.string(from: $0) } ?? "active",
-                visit.notes ?? "",
-                visit.peopleNames.joined(separator: ",")
-            ]
-            .joined(separator: "::")
-        }
-        .joined(separator: "|")
-
-        return [
-            "v2",
-            FormatterCache.shortDate.string(from: dayStart),
-            currentLocationDisplay,
-            timelineFingerprint
-        ]
-        .joined(separator: "||")
-    }
-
-    private var locationSummaryTaskToken: String {
-        "\(locationSummaryPatternSignature)|visible:\(isVisible)"
-    }
-
-    private var locationSummaryCacheKey: String {
-        "cache.home.locationDaySummary.\(locationSummaryPatternSignature)"
-    }
-
-    private var displayedLocationDaySummary: String {
-        let trimmed = aiLocationDaySummary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? fallbackLocationDaySummary : trimmed
-    }
-
-    private var fallbackLocationDaySummary: String {
-        guard !todayVisitTimeline.isEmpty else {
-            if let distanceToNearest {
-                return "\(currentLocationDisplay) is where the day is currently anchored, with the nearest saved place \(formattedDistance(distanceToNearest)) away."
-            }
-            return "\(currentLocationDisplay) is where the day is currently anchored, and the rest of the day is still taking shape."
-        }
-
-        let ordered = todayVisitTimeline
-        let first = ordered.first
-        let last = ordered.last
-
-        if let first, let last, first.visitId != last.visitId {
-            if last.isActive {
-                return "Started at \(first.displayName) and is now at \(last.displayName) since \(FormatterCache.shortTime.string(from: last.entryTime))."
-            }
-            return "Started at \(first.displayName) and most recently stopped at \(last.displayName)."
-        }
-
-        if let first {
-            if first.isActive {
-                return "The day is centered on \(first.displayName) since \(FormatterCache.shortTime.string(from: first.entryTime))."
-            }
-            return "The day started at \(first.displayName)."
-        }
-
-        return heroSummary
+    private var heroVisitRows: [HomeVisitTimelineItem] {
+        todayVisitTimeline
     }
 
     private var heroActions: [HomeHeroAction] {
@@ -351,10 +219,6 @@ struct DailyOverviewWidget: View {
             cornerRadius: ShadcnRadius.xl,
             usesPureLightFill: true
         )
-        .task(id: locationSummaryTaskToken) {
-            guard isVisible else { return }
-            await refreshLocationDaySummaryIfNeeded()
-        }
         .onAppear {
             handleVisibilityChange(isVisible)
         }
@@ -412,7 +276,7 @@ struct DailyOverviewWidget: View {
                         .lineSpacing(-2)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    heroLocationSummarySection
+                    heroVisitSection
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -439,175 +303,68 @@ struct DailyOverviewWidget: View {
                 }
                 .frame(width: 86, alignment: .leading)
             }
-
-            if let activeTimelineVisit {
-                liveLocationSection(for: activeTimelineVisit)
-            }
         }
     }
 
-    private var heroLocationSummarySection: some View {
+    private var heroVisitSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("DAY SUMMARY")
-                .font(FontManager.geist(size: 11, weight: .semibold))
-                .foregroundColor(Color.appTextSecondary(colorScheme))
-                .tracking(0.82)
-
-            Text(displayedLocationDaySummary)
-                .font(FontManager.geist(size: 15, weight: .medium))
-                .foregroundColor(Color.appTextSecondary(colorScheme))
-                .fixedSize(horizontal: false, vertical: true)
-
-            if isGeneratingLocationDaySummary && (aiLocationDaySummary?.isEmpty ?? true) {
-                Text("Reading the day so far...")
+            if heroVisitRows.isEmpty {
+                Text("No saved-place visits yet today")
                     .font(FontManager.geist(size: 12, weight: .medium))
                     .foregroundColor(Color.appTextSecondary(colorScheme).opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(heroVisitRows) { visit in
+                        heroVisitRow(for: visit)
+                    }
+                }
             }
         }
     }
 
-    private func liveLocationSection(for visit: HomeVisitTimelineItem) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("LIVE LOCATION")
-                .font(FontManager.geist(size: 11, weight: .semibold))
-                .foregroundColor(Color.appTextSecondary(colorScheme))
-                .tracking(0.82)
-
-            liveLocationRow(for: visit)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color.homeGlassInnerTint(colorScheme))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.homeGlassInnerBorder(colorScheme), lineWidth: 1)
-            )
-        }
-    }
-
-    private func liveLocationRow(for visit: HomeVisitTimelineItem) -> some View {
+    private func heroVisitRow(for visit: HomeVisitTimelineItem) -> some View {
         Button(action: {
             selectPlace(for: visit)
         }) {
-            HStack(alignment: .top, spacing: 12) {
-                Text(formattedLiveLocationTime(for: visit.entryTime))
-                    .font(FontManager.geist(size: 13, weight: .semibold))
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(formatHomeTime(visit.entryTime))
+                    .font(FontManager.geist(size: 11, weight: .semibold))
                     .foregroundColor(Color.appTextSecondary(colorScheme))
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.92)
-                    .frame(width: 72, alignment: .leading)
+                    .frame(width: 50, alignment: .leading)
 
-                VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(visit.displayName)
-                        .font(FontManager.geist(size: 15, weight: .semibold))
+                        .font(FontManager.geist(size: 12, weight: .medium))
                         .foregroundColor(Color.appTextPrimary(colorScheme))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineLimit(1)
 
-                    Text(liveLocationSubheadline(for: visit))
-                        .font(FontManager.geist(size: 13, weight: .medium))
+                    if visit.isActive {
+                        Text("LIVE")
+                            .font(FontManager.geist(size: 9, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(homeAccentColor)
+                            )
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Text(visitDurationLabel(for: visit))
+                        .font(FontManager.geist(size: 11, weight: .medium))
                         .foregroundColor(Color.appTextSecondary(colorScheme))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
         }
         .buttonStyle(PlainButtonStyle())
-    }
-
-    private func refreshLocationDaySummaryIfNeeded() async {
-        if lastGeneratedLocationSummaryKey == locationSummaryPatternSignature, aiLocationDaySummary != nil {
-            return
-        }
-
-        if let cachedSummary: String = CacheManager.shared.get(forKey: locationSummaryCacheKey),
-           !cachedSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            await MainActor.run {
-                aiLocationDaySummary = cachedSummary
-                lastGeneratedLocationSummaryKey = locationSummaryPatternSignature
-                isGeneratingLocationDaySummary = false
-            }
-            return
-        }
-
-        await MainActor.run {
-            isGeneratingLocationDaySummary = true
-        }
-
-        let fallbackSummary = fallbackLocationDaySummary
-        let prompt = buildLocationDaySummaryPrompt()
-
-        do {
-            let response = try await GeminiService.shared.generateText(
-                systemPrompt: "You summarize a person's day from a timeline of places. Follow chronology strictly, use only the provided facts, never mention people, names, companions, or group sizes, keep it tight, and never invent events.",
-                userPrompt: prompt,
-                maxTokens: 52,
-                temperature: 0.25,
-                operationType: "home_location_day_summary"
-            )
-
-            let sanitizedSummary = sanitizeLocationDaySummary(response)
-            await MainActor.run {
-                let finalSummary = sanitizedSummary.isEmpty ? fallbackSummary : sanitizedSummary
-                aiLocationDaySummary = finalSummary
-                lastGeneratedLocationSummaryKey = locationSummaryPatternSignature
-                isGeneratingLocationDaySummary = false
-                CacheManager.shared.set(finalSummary, forKey: locationSummaryCacheKey, ttl: CacheManager.TTL.persistent)
-            }
-        } catch {
-            await MainActor.run {
-                aiLocationDaySummary = fallbackSummary
-                lastGeneratedLocationSummaryKey = locationSummaryPatternSignature
-                isGeneratingLocationDaySummary = false
-                CacheManager.shared.set(fallbackSummary, forKey: locationSummaryCacheKey, ttl: CacheManager.TTL.persistent)
-            }
-        }
-    }
-
-    private func buildLocationDaySummaryPrompt() -> String {
-        let timelineBlock: String
-        if todayVisitTimeline.isEmpty {
-            timelineBlock = "No saved-place visits are recorded yet today."
-        } else {
-            timelineBlock = todayVisitTimeline
-                .map { visit in
-                    let start = FormatterCache.shortTime.string(from: visit.entryTime)
-                    let end = visit.exitTime.map { FormatterCache.shortTime.string(from: $0) } ?? "now"
-                    let notes = cleanedNotes(for: visit) ?? "none"
-                    return "- \(start) to \(end) | \(visit.displayName) | notes: \(notes)"
-                }
-                .joined(separator: "\n")
-        }
-
-        return """
-        Write a concise 1 sentence summary of the day so far.
-
-        Rules:
-        - Follow the timeline in chronological order.
-        - Never mention people, names, companions, or group counts.
-        - Mention notes only when they add real context.
-        - Keep it grounded in the sequence of the day, not in longest duration or importance.
-        - If there is an active visit, end by grounding the summary in that current anchor.
-        - Keep the full response under 26 words when possible.
-        - Output only the summary text.
-
-        Context:
-        Current location label: \(currentLocationDisplay)
-        Distance to nearest saved place: \(distanceToNearest.map { formattedDistance($0) } ?? "n/a")
-        Timeline:
-        \(timelineBlock)
-        """
-    }
-
-    private func sanitizeLocationDaySummary(_ summary: String) -> String {
-        let cleaned = summary
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: #"(?i)^summary\s*[:#-]*\s*"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\"", with: "")
-        return condensedSummary(cleaned)
     }
 
     private func selectPlace(for visit: HomeVisitTimelineItem) {
@@ -615,6 +372,11 @@ struct DailyOverviewWidget: View {
               let place = locationsManager.savedPlaces.first(where: { $0.id == visit.placeId }) else { return }
         onLocationSelected(place)
         HapticManager.shared.light()
+    }
+
+    private func visitDurationLabel(for visit: HomeVisitTimelineItem) -> String {
+        let duration = durationLabel(for: visit.durationMinutes)
+        return visit.isActive ? "\(duration)" : duration
     }
 
     private func durationLabel(for minutes: Int) -> String {
@@ -625,49 +387,6 @@ struct DailyOverviewWidget: View {
         let hours = minutes / 60
         let remainingMinutes = minutes % 60
         return remainingMinutes == 0 ? "\(hours)h" : "\(hours)h \(remainingMinutes)m"
-    }
-
-    private func formattedLiveLocationTime(for date: Date) -> String {
-        FormatterCache.shortTime.string(from: date)
-    }
-
-    private func liveLocationSubheadline(for visit: HomeVisitTimelineItem) -> String {
-        if let notes = cleanedNotes(for: visit), !notes.isEmpty {
-            return notes
-        }
-
-        return "\(durationLabel(for: visit.durationMinutes)) so far"
-    }
-
-    private func cleanedNotes(for visit: HomeVisitTimelineItem) -> String? {
-        guard let raw = visit.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return nil
-        }
-        return raw.replacingOccurrences(of: "\n", with: " ")
-    }
-
-    private func formattedDistance(_ distance: Double) -> String {
-        if distance >= 1000 {
-            return String(format: "%.1f km", distance / 1000)
-        }
-        return "\(Int(distance.rounded())) m"
-    }
-
-    private func condensedSummary(_ summary: String) -> String {
-        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return trimmed }
-
-        let sentences = trimmed
-            .split(whereSeparator: { $0 == "." || $0 == "!" || $0 == "?" })
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        let limited = Array(sentences.prefix(1)).joined(separator: ". ")
-        let punctuated = limited.isEmpty ? trimmed : limited + "."
-        if punctuated.count <= 140 {
-            return punctuated
-        }
-        return String(punctuated.prefix(137)).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
     }
 
     private var weatherValueText: String {

@@ -9,6 +9,7 @@ struct LocationTimelineView: View {
 
     let colorScheme: ColorScheme
     var displayMode: DisplayMode = .standalone
+    var isActive: Bool = true
 
     @StateObject private var peopleManager = PeopleManager.shared
     @StateObject private var visitState = VisitStateManager.shared
@@ -38,12 +39,14 @@ struct LocationTimelineView: View {
     @State private var dayLoadTask: Task<Void, Never>?
     @State private var monthLoadTask: Task<Void, Never>?
     @State private var monthPageSelection: Int = 1
+    @State private var isHandlingMonthPageTurn = false
     @State private var linkedReceiptIds: [UUID: UUID] = [:]
     @State private var lastLoadedDay: Date?
     @State private var lastLoadedMonth: Date?
 
     private let calendar = Calendar.current
     private let calendarRowHeight: CGFloat = 58
+    private let calendarMonthRowCount: CGFloat = 6
 
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -86,10 +89,12 @@ struct LocationTimelineView: View {
             }
         }
         .onAppear {
+            guard isActive else { return }
             refreshLinkedReceiptLinks()
             reloadVisitData(reason: "initial_load", forceMonth: true, forceDay: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
+            guard isActive else { return }
             scheduleVisitReload(
                 reason: "geofence_visit_created",
                 forceMonth: true,
@@ -97,6 +102,7 @@ struct LocationTimelineView: View {
             )
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("VisitHistoryUpdated"))) { _ in
+            guard isActive else { return }
             scheduleVisitReload(
                 reason: "visit_history_updated",
                 forceMonth: true,
@@ -105,15 +111,23 @@ struct LocationTimelineView: View {
             )
         }
         .onReceive(NotificationCenter.default.publisher(for: .visitReceiptLinkUpdated)) { _ in
+            guard isActive else { return }
             refreshLinkedReceiptLinks()
         }
         .onChange(of: visitState.selectedDate) { _ in
+            guard isActive else { return }
             loadVisitsForSelectedDay(reason: "selected_date")
         }
+        .onChange(of: isActive) { active in
+            if active {
+                refreshLinkedReceiptLinks()
+                reloadVisitData(reason: "became_active", forceMonth: true, forceDay: true)
+            } else {
+                cancelReloadTasks()
+            }
+        }
         .onDisappear {
-            reloadTask?.cancel()
-            dayLoadTask?.cancel()
-            monthLoadTask?.cancel()
+            cancelReloadTasks()
         }
         .sheet(item: $selectedPlace) { place in
             PlaceDetailSheet(place: place, onDismiss: { 
@@ -288,8 +302,8 @@ struct LocationTimelineView: View {
                     let today = calendar.startOfDay(for: Date())
                     visitState.currentMonth = today
                     visitState.selectedDate = today
-                    monthPageSelection = 1
                 }
+                resetMonthPager()
                 HapticManager.shared.selection()
                 loadVisitsForMonth()
             }) {
@@ -340,35 +354,35 @@ struct LocationTimelineView: View {
     }
 
     private var swipeableMonthGrid: some View {
-        TabView(selection: $monthPageSelection) {
-            calendarMonthGrid(for: monthOffset(-1))
-                .frame(height: CGFloat(weeksInMonth(for: monthOffset(-1)).count) * calendarRowHeight, alignment: .top)
+        let previousMonth = monthOffset(-1)
+        let nextMonth = monthOffset(1)
+
+        return TabView(selection: $monthPageSelection) {
+            calendarMonthGrid(for: previousMonth)
+                .frame(height: calendarMonthGridHeight, alignment: .top)
                 .tag(0)
 
             calendarMonthGrid(for: visitState.currentMonth)
-                .frame(height: CGFloat(weeksInMonth(for: visitState.currentMonth).count) * calendarRowHeight, alignment: .top)
+                .frame(height: calendarMonthGridHeight, alignment: .top)
                 .tag(1)
 
-            calendarMonthGrid(for: monthOffset(1))
-                .frame(height: CGFloat(weeksInMonth(for: monthOffset(1)).count) * calendarRowHeight, alignment: .top)
+            calendarMonthGrid(for: nextMonth)
+                .frame(height: calendarMonthGridHeight, alignment: .top)
                 .tag(2)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: CGFloat(weeksInMonth(for: visitState.currentMonth).count) * calendarRowHeight)
+        .frame(height: calendarMonthGridHeight)
         .padding(.bottom, 10)
         .onChange(of: monthPageSelection) { newSelection in
-            guard newSelection != 1 else { return }
+            guard !isHandlingMonthPageTurn, newSelection != 1 else { return }
 
-            withAnimation(.easeInOut(duration: 0.26)) {
-                if newSelection == 0 {
-                    shiftMonth(by: -1)
-                } else {
-                    shiftMonth(by: 1)
-                }
-            }
+            isHandlingMonthPageTurn = true
+            let monthOffset = newSelection == 0 ? -1 : 1
+            resetMonthPager()
+            shiftMonth(by: monthOffset)
 
             DispatchQueue.main.async {
-                monthPageSelection = 1
+                isHandlingMonthPageTurn = false
             }
         }
     }
@@ -911,6 +925,10 @@ struct LocationTimelineView: View {
 
     // MARK: - Helper Functions
 
+    private var calendarMonthGridHeight: CGFloat {
+        calendarMonthRowCount * calendarRowHeight
+    }
+
     private func weeksInMonth(for month: Date) -> [[Date?]] {
         guard let monthInterval = calendar.dateInterval(of: .month, for: month) else {
             return []
@@ -933,9 +951,15 @@ struct LocationTimelineView: View {
             days.append(nil)
         }
 
-        return stride(from: 0, to: days.count, by: 7).map { index in
+        var weeks = stride(from: 0, to: days.count, by: 7).map { index in
             Array(days[index..<min(index + 7, days.count)])
         }
+
+        while weeks.count < Int(calendarMonthRowCount) {
+            weeks.append(Array(repeating: nil, count: 7))
+        }
+
+        return weeks
     }
 
     private func monthOffset(_ value: Int) -> Date {
@@ -945,6 +969,14 @@ struct LocationTimelineView: View {
     private func shiftMonth(by value: Int) {
         visitState.currentMonth = calendar.date(byAdding: .month, value: value, to: visitState.currentMonth) ?? visitState.currentMonth
         loadVisitsForMonth()
+    }
+
+    private func resetMonthPager() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            monthPageSelection = 1
+        }
     }
 
     private func normalizeDate(_ date: Date) -> Date {
@@ -1193,6 +1225,8 @@ struct LocationTimelineView: View {
         forceDay: Bool = false,
         invalidateSelectedDayCache: Bool = false
     ) {
+        guard isActive else { return }
+
         if invalidateSelectedDayCache {
             invalidateSelectedDayVisitCache()
             lastLoadedDay = nil
@@ -1221,6 +1255,12 @@ struct LocationTimelineView: View {
         }
     }
 
+    private func cancelReloadTasks() {
+        reloadTask?.cancel()
+        dayLoadTask?.cancel()
+        monthLoadTask?.cancel()
+    }
+
     private func shouldReloadSelectedDayForVisitUpdates() -> Bool {
         calendar.isDateInToday(visitState.selectedDate)
     }
@@ -1233,6 +1273,7 @@ struct LocationTimelineView: View {
     }
 
     private func loadVisitsForMonth(reason: String = "month", force: Bool = false) {
+        guard isActive else { return }
         monthLoadTask?.cancel()
         let month = calendar.startOfDay(for: visitState.currentMonth)
         if !force, let lastLoadedMonth, calendar.isDate(lastLoadedMonth, equalTo: month, toGranularity: .month) {
@@ -1246,6 +1287,7 @@ struct LocationTimelineView: View {
     }
 
     private func loadVisitsForSelectedDay(reason: String = "day", force: Bool = false) {
+        guard isActive else { return }
         dayLoadTask?.cancel()
         let selectedDate = calendar.startOfDay(for: visitState.selectedDate)
         if !force, let lastLoadedDay, calendar.isDate(lastLoadedDay, inSameDayAs: selectedDate) {

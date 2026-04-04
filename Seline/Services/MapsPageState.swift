@@ -137,16 +137,8 @@ final class MapsPageState: ObservableObject {
         let generation = refreshGeneration
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let normalizedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-
             func matchesQuery(_ place: SavedPlace) -> Bool {
-                guard !normalizedQuery.isEmpty else { return true }
-                return place.displayName.lowercased().contains(normalizedQuery)
-                    || place.address.lowercased().contains(normalizedQuery)
-                    || place.category.lowercased().contains(normalizedQuery)
-                    || (place.city?.lowercased().contains(normalizedQuery) ?? false)
-                    || (place.province?.lowercased().contains(normalizedQuery) ?? false)
-                    || (place.country?.lowercased().contains(normalizedQuery) ?? false)
+                place.matchesSearchQuery(searchText)
             }
 
             let nextFilteredSavedPlaces = savedPlaces.filter(matchesQuery)
